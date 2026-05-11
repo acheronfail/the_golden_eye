@@ -1,0 +1,24 @@
+{
+  "name": "the-elite",
+  "type": "module",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "obs": "tsx obs/index.ts",
+    "scrape": "tsx scripts/scrape-web.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "node-llama-cpp": "^3.18.1",
+    "obs-websocket-js": "^5.0.8",
+    "playwright": "^1.59.1",
+    "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.2"
+  }
+}
