@@ -41,10 +41,12 @@ await new Promise((resolve) =>
 
 const obs = new OBSWebSocket();
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const exit = async () => {
   try {
+    const { outputActive } = await obs.call('GetRecordStatus');
+    if (outputActive) {
+      await obs.call('StopRecord');
+    }
     await obs.disconnect();
   } finally {
     llamaProc.kill();
@@ -120,6 +122,15 @@ saveRecordingPromise.catch(() => { }); // avoid unhandled rejection if never set
 try {
   await obs.connect('ws://localhost:4455', process.env.OBS_PASSWORD);
 
+  // start replay buffer, this is used if there are any error cases as a backup
+  // source of recording
+  {
+    const { outputActive } = await obs.call('GetReplayBufferStatus');
+    if (!outputActive) {
+      await obs.call('StartReplayBuffer');
+    }
+  }
+
   for (; ;) {
     if (pauseToggleRequested) {
       pauseToggleRequested = false;
@@ -157,7 +168,8 @@ try {
           const { outputPath } = await obs.call('StopRecord');
           saveRecordingResolver?.(outputPath);
         } else {
-          // TODO: warning (so can use replay buffer as backup)
+          // TODO: show warning "expected to be recording but wasn't"
+          await obs.call('SaveReplayBuffer');
         }
 
         recordingSaveTimer = null;
@@ -171,7 +183,8 @@ try {
         if (!outputActive) {
           await obs.call('StartRecord');
         } else {
-          // TODO: warning recording is already started
+          // TODO: show warning "already recording when not expected to be recording"
+          await obs.call('SaveReplayBuffer');
         }
         updateActiveBox(createRecordingBox(screen));
       }
@@ -245,7 +258,7 @@ try {
             ].join(' - ');
 
             await fs.rename(outputPath, join(outputDir, `${basename}.mp4`));
-            // TODO: folder sort + YT upload
+            // TODO: place in directory and then YT upload
           }
         });
       }
