@@ -31,9 +31,13 @@ export class Llama {
       this.server.stderr.pipe(process.stderr);
     }
 
-    process.on('beforeExit', () => {
+    const killServer = () => {
       this.server.kill();
-    });
+    };
+
+    process.on('exit', killServer);
+    process.on('SIGTERM', () => { killServer(); process.exit(1); });
+    process.on('SIGINT', () => { killServer(); process.exit(1); });
 
     this.initialised = new Promise((resolve, reject) => {
       this.server.stderr.on('data', (data) => {

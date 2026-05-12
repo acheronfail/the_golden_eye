@@ -1,25 +1,34 @@
+import cp from 'node:child_process';
 import { OBSWebSocket } from 'obs-websocket-js/msgpack';
 
-import { Llama } from './llama';
-import { extractLevelInfo } from './parse';
 import { readEnv } from './envfile';
-import { matchScreen, Screen } from './matcher';
+import { matchScreen } from './matcher';
+import { fileURLToPath } from 'node:url';
 
 await readEnv();
 
-const llama = new Llama();
-await llama.initialised;
+const llamaProc = cp.fork(fileURLToPath(new URL('./llama-process.js', import.meta.url)), [], {
+  serialization: 'advanced',
+  stdio: 'inherit',
+});
+await new Promise((resolve) =>
+  llamaProc.once('message', (message: any) => {
+    if (message.type === 'ready') {
+      resolve(null);
+    }
+  }),
+);
 
 const obs = new OBSWebSocket();
 
 let inLevel = false;
 let waitingForStats = false;
 
-// TODO: upload to YT, something like https://github.com/jakzo/NeonWhiteMods/blob/main/scripts/upload-to-youtube.ts
 try {
   await obs.connect('ws://localhost:4455', process.env.OBS_PASSWORD);
 
   for (;;) {
+    const start = performance.now();
     const { imageData } = await obs.call('GetSourceScreenshot', {
       sourceName: process.env.SOURCE_NAME,
       imageFormat: 'jpg',
@@ -46,16 +55,18 @@ try {
 
       if (screen === 'EndLevelStats' && waitingForStats) {
         waitingForStats = false;
-
-        // TODO: do this on a background worker/thread
-        // const text = await llama.extractText(imageData);
-        // const levelInfo = extractLevelInfo(text);
-        // console.log(`Extracted level info: ${JSON.stringify(levelInfo)}`);
+        llamaProc.send({ type: 'extract-level-info', imageData });
       }
+    }
+
+    if (process.env.DEBUG) {
+      const end = performance.now();
+      process.stderr.write(`\rloop time: ${end - start}ms` + ' '.repeat(20));
+      process.stderr.cursorTo(0);
     }
   }
 } finally {
   await obs.disconnect();
-  llama.kill();
+  llamaProc.kill();
   process.exit();
 }
