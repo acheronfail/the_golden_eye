@@ -1,7 +1,7 @@
 model := "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf?download=true"
 mmproj := "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-BF16.gguf?download=true"
 llama_cpp_macos := "https://github.com/ggml-org/llama.cpp/releases/download/b9106/llama-b9106-bin-macos-arm64.tar.gz"
-llama_cpp_linux := "https://github.com/ggml-org/llama.cpp/releases/download/b9106/llama-b9106-bin-ubuntu-x64.tar.gz"
+llama_cpp_linux := "https://github.com/ggml-org/llama.cpp/releases/download/b9113/llama-b9113-bin-ubuntu-vulkan-x64.tar.gz"
 
 _default:
   just -l
@@ -14,7 +14,7 @@ repl:
 
 # download models and download llama-server
 setup:
-  npm install
+  OPENCV4NODEJS_DISABLE_AUTOBUILD=1 npm install
 
   mkdir -p models
   wget --no-clobber -O models/gemma-4-E2B-it-Q4_K_M.gguf {{model}} || true

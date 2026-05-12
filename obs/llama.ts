@@ -23,6 +23,7 @@ export class Llama {
       ...['--temperature', '0.0'],
       ...['--repeat-penalty', '1.2'],
       ...['--reasoning', 'off'],
+      ...(process.env.LLAMA_EXTRA_ARGS ? process.env.LLAMA_EXTRA_ARGS.split(' ') : []),
     ]);
 
     this.server.stdout.pipe(process.stdout);
