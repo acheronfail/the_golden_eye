@@ -7,7 +7,7 @@ const Levels = [
   ['Statue', 'Archives', 'Streets', 'Depot', 'Train'],
   ['Jungle', 'Control', 'Caverns', 'Cradle'],
   ['Aztec'],
-  ['Egypt'],
+  ['Egyptian'],
 ] as const;
 type Level = (typeof Levels)[number][number];
 

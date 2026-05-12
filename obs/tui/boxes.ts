@@ -193,11 +193,9 @@ export const createLevelCompleteBox = (screen: Widgets.Screen) =>
 
 export const createStatisticsBox = (screen: Widgets.Screen) =>
   createStatusBox(screen, {
-    borderThick: true,
-    rainbowBorder: true,
-    rainbowHeading: true,
-    borderColor: 'magenta',
-    headingColor: 'magenta',
+    borderThick: false,
+    borderColor: 'white',
+    headingColor: 'white',
     headingText: 'Reading Stats...',
     headingFont: 'Terrace',
     hintText: 'reading stats, feel free to keep going',

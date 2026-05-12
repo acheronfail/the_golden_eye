@@ -244,7 +244,7 @@ try {
               new Date().toISOString(),
             ].join(' - ');
 
-            await fs.rename(outputPath, join(outputDir, basename));
+            await fs.rename(outputPath, join(outputDir, `${basename}.mp4`));
             // TODO: folder sort + YT upload
           }
         });
