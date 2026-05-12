@@ -43,10 +43,20 @@ const obs = new OBSWebSocket();
 
 const exit = async () => {
   try {
-    const { outputActive } = await obs.call('GetRecordStatus');
-    if (outputActive) {
-      await obs.call('StopRecord');
+    {
+      const { outputActive } = await obs.call('GetRecordStatus');
+      if (outputActive) {
+        await obs.call('StopRecord');
+      }
     }
+
+    {
+      const { outputActive } = await obs.call('GetReplayBufferStatus');
+      if (outputActive) {
+        await obs.call('StopReplayBuffer');
+      }
+    }
+
     await obs.disconnect();
   } finally {
     llamaProc.kill();
