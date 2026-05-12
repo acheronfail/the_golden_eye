@@ -1,3 +1,6 @@
+node_modules/
+screenshots/
 llama/
 models/
 goldeneye.json
+.env

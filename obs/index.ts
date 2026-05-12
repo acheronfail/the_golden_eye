@@ -1,8 +1,10 @@
-import fs from 'node:fs/promises';
 import { OBSWebSocket } from 'obs-websocket-js/msgpack';
 
 import { Llama } from './llama';
 import { extractLevelInfo } from './parse';
+import { readEnv } from './envfile';
+
+await readEnv();
 
 console.time('llama');
 const llama = new Llama();
@@ -18,7 +20,7 @@ try {
   for (;;) {
     console.time('obs frame');
     const { imageData } = await obs.call('GetSourceScreenshot', {
-      sourceName: 'Capture Card Device',
+      sourceName: process.env.SOURCE_NAME,
       imageFormat: 'jpg',
     });
     console.timeEnd('obs frame');

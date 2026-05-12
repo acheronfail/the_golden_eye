@@ -6,8 +6,16 @@ llama_cpp_linux := "https://github.com/ggml-org/llama.cpp/releases/download/b910
 _default:
   just -l
 
+run:
+  npm run obs
+
+screenshot-saver:
+  npm run screenshot-saver
+
 # download models and download llama-server
 setup:
+  npm install
+
   mkdir -p models
   wget --no-clobber -O models/gemma-4-E2B-it-Q4_K_M.gguf {{model}} || true
   wget --no-clobber -O models/mmproj-BF16.gguf {{mmproj}} || true
