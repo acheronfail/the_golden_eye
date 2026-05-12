@@ -36,8 +36,8 @@ async function handler(data) {
   }
 
   if (data.type === 'match' && image) {
-    const { buffer } = data;
-    const sourceImage = cv.imdecode(buffer).rescale(scale).cvtColor(cv.COLOR_BGR2GRAY);
+    const { buffer, rows, cols, matType } = data;
+    const sourceImage = new cv.Mat(buffer, rows, cols, matType);
 
     const result = sourceImage.matchTemplate(image, cv.TM_CCOEFF_NORMED);
     const { maxVal } = result.minMaxLoc();

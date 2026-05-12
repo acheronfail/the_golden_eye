@@ -1,5 +1,6 @@
 import cp from 'node:child_process';
 import { fileURLToPath } from 'url';
+import cv from '@u4/opencv4nodejs';
 
 const Screens = ['StartLevel', 'EndLevelComplete', 'EndLevel', 'EndLevelStats'] as const;
 export type Screen = (typeof Screens)[number];
@@ -18,21 +19,25 @@ class Worker {
   async init(filename: string, screen: Screen, cropRegion: [number, number, number, number]) {
     this.process.send({ type: 'init', filename, screen, cropRegion });
 
-    await new Promise((resolve) => {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject('worker process timed out'), 1000);
       this.process.once('message', (message: any) => {
         if (message.type === 'init-complete') {
+          clearTimeout(timer);
           resolve(null);
         }
       });
     });
   }
 
-  async match(buffer: Buffer): Promise<Screen | null> {
-    this.process.send({ type: 'match', buffer });
+  async match(buffer: Buffer, rows: number, cols: number, matType: number): Promise<Screen | null> {
+    this.process.send({ type: 'match', buffer, rows, cols, matType });
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject('worker process timed out'), 1000);
       this.process.once('message', (message: any) => {
         if (message.type === 'match') {
+          clearTimeout(timer);
           resolve(message.screen);
         }
       });
@@ -63,8 +68,11 @@ const workers: Worker[] = await Promise.all(
 export async function matchScreen(imageDataUrl: string): Promise<Screen | null> {
   const base64Data = imageDataUrl.replace(/^data:image\/\w+;base64,/, '');
   const buffer = Buffer.from(base64Data, 'base64');
+  const sourceImage = cv.imdecode(buffer).rescale(0.25).cvtColor(cv.COLOR_BGR2GRAY);
+  const { rows, cols, type } = sourceImage;
+  const sourceData = sourceImage.getData();
 
-  const results = await Promise.all<Screen | null>(workers.map((worker) => worker.match(buffer)));
+  const results = await Promise.all<Screen | null>(workers.map((worker) => worker.match(sourceData, rows, cols, type)));
 
   return results.find((result) => result !== null) ?? null;
 }
