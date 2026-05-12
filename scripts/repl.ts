@@ -5,16 +5,6 @@ import { matchScreen } from '../obs/matcher';
 
 await readEnv();
 
-function printHelp() {
-    process.stderr.write(`Available commands:
-- (empty), save:    Take a screenshot and save it to the current directory
-- name:             Update the screenshot filename prefix (default: "screenshot")
-- match:            Take a screenshot and check if it's the start or end level screen
-- h, help:          Show this help message
-- q, exit, quit:    Quit the application
-`);
-}
-
 const obs = new OBSWebSocket();
 
 const quit = async () => {
@@ -35,18 +25,28 @@ const screenshot = async () => {
 };
 
 const match = async () => {
-    const { imageData } = await obs.call('GetSourceScreenshot', {
-      sourceName: process.env.SOURCE_NAME,
-      imageFormat: 'jpg',
-    });
+    // const { imageData } = await obs.call('GetSourceScreenshot', {
+    //   sourceName: process.env.SOURCE_NAME,
+    //   imageFormat: 'jpg',
+    // });
 
-    const screen = await matchScreen(imageData);
-    if (screen) {
-        process.stderr.write(`Current screen: ${screen}\n`);
-    } else {
-        process.stderr.write(`Could not match current screen\n`);
+    const files = await fs.readdir('./screenshots');
+    for (const file of files) {
+        const imageData = await fs.readFile(`./screenshots/${file}`, { encoding: 'base64' });
+        const dataUrl = `data:image/jpeg;base64,${imageData}`;
+        const now = performance.now();
+        const screen = await matchScreen(dataUrl);
+        console.log(`${file}: ${screen}, duration: ${(performance.now() - now).toFixed(2)}ms`);
     }
 };
+
+const printHelp = () => process.stderr.write(`Available commands:
+- (empty), save:    Take a screenshot and save it to the current directory
+- name <prefix>:    Update the screenshot filename prefix (currently: "${screenshotPrefix}")
+- match:            Take a screenshot and check if it's the start or end level screen
+- h, help:          Show this help message
+- q, exit, quit:    Quit the application
+`);
 
 try {
   console.time('obs connect');

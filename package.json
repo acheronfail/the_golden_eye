@@ -13,6 +13,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@u4/opencv4nodejs": "^7.1.2",
     "cheerio": "^1.2.0",
     "node-llama-cpp": "^3.18.1",
     "obs-websocket-js": "^5.0.8",
@@ -21,5 +22,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.2"
+  },
+  "opencv4nodejs": {
+    "disableAutoBuild": "1"
   }
 }
