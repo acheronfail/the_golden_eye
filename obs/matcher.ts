@@ -65,10 +65,8 @@ const workers: Worker[] = await Promise.all(
   }),
 );
 
-export async function matchScreen(imageDataUrl: string): Promise<Screen | null> {
-  const base64Data = imageDataUrl.replace(/^data:image\/\w+;base64,/, '');
-  const buffer = Buffer.from(base64Data, 'base64');
-  const sourceImage = cv.imdecode(buffer).rescale(0.25).cvtColor(cv.COLOR_BGR2GRAY);
+export async function matchScreen(base64JpegData: string): Promise<Screen | null> {
+  const sourceImage = cv.imdecode(Buffer.from(base64JpegData, 'base64')).rescale(0.25).cvtColor(cv.COLOR_BGR2GRAY);
   const { rows, cols, type } = sourceImage;
   const sourceData = sourceImage.getData();
 

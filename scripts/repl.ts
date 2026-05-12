@@ -25,26 +25,13 @@ const screenshot = async () => {
 };
 
 const match = async () => {
-    // const { imageData } = await obs.call('GetSourceScreenshot', {
-    //   sourceName: process.env.SOURCE_NAME,
-    //   imageFormat: 'jpg',
-    // });
+    const { imageData } = await obs.call('GetSourceScreenshot', {
+      sourceName: process.env.SOURCE_NAME,
+      imageFormat: 'jpg',
+    });
 
-    let averageTime = 0;
-    const files = await fs.readdir('./screenshots');
-    for (const file of files) {
-        const imageData = await fs.readFile(`./screenshots/${file}`, { encoding: 'base64' });
-        const dataUrl = `data:image/jpeg;base64,${imageData}`;
-        const now = performance.now();
-        const screen = await matchScreen(dataUrl);
-        const duration = performance.now() - now;
-        averageTime += duration;
-        console.log(`${file}: ${screen}, duration: ${duration.toFixed(2)}ms`);
-    }
-
-    if (files.length > 0) {
-        console.log(`Average duration: ${(averageTime / files.length).toFixed(2)}ms`);
-    }
+    const screen = await matchScreen(imageData);
+    console.log(`Matched screen: ${screen}`);
 };
 
 const printHelp = () => process.stderr.write(`Available commands:
