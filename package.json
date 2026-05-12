@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "obs": "tsx obs/index.ts",
-    "screenshot-saver": "tsx scripts/screenshot-saver.ts",
+    "repl": "tsx scripts/repl.ts",
     "scrape": "tsx scripts/scrape-web.ts"
   },
   "keywords": [],

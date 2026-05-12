@@ -83,7 +83,7 @@ try {
 
             printHelp();
         }
-     
+
         process.stderr.write(prompt);
     }
 

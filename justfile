@@ -9,8 +9,8 @@ _default:
 run:
   npm run obs
 
-screenshot-saver:
-  npm run screenshot-saver
+repl:
+  npm run repl
 
 # download models and download llama-server
 setup:
