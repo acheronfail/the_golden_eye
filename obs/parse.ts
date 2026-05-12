@@ -37,6 +37,7 @@ export function extractLevelInfo(text: string): LevelInfo {
   const bestTimeString = lowered.match(/best time: (\d+:\d+)/)?.[1];
 
   if (!difficulty || !mission || part === -1 || !timeString || !bestTimeString) {
+    console.error({ difficulty, mission, part, timeString, bestTimeString }, text);
     throw new Error('Failed to extract level info');
   }
 

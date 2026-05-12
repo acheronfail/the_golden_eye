@@ -45,6 +45,7 @@ class Worker {
   }
 }
 
+// FIXME: use 2 separate templates per screen, so if the cursor covers one we still get a match
 const workers: Worker[] = await Promise.all(
   (
     [

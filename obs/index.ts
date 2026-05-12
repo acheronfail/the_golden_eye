@@ -27,6 +27,7 @@ let waitingForStats = false;
 try {
   await obs.connect('ws://localhost:4455', process.env.OBS_PASSWORD);
 
+  console.log('Starting main loop!');
   for (;;) {
     const start = performance.now();
     const { imageData } = await obs.call('GetSourceScreenshot', {
@@ -40,21 +41,25 @@ try {
         console.log(`Matched screen: ${screen}`);
       }
 
-      if (screen === 'StartLevel') {
+      if (screen === 'StartLevel' && !inLevel) {
         inLevel = true;
+        console.log('Started level!');
       }
 
-      if (screen === 'EndLevel') {
+      if (screen === 'EndLevel' && inLevel) {
         inLevel = false;
+        console.log('Ended level!');
       }
 
       if (screen === 'EndLevelComplete' && inLevel) {
         waitingForStats = true;
         inLevel = false;
+        console.log('Waiting for stats screen...');
       }
 
       if (screen === 'EndLevelStats' && waitingForStats) {
         waitingForStats = false;
+        console.log('Extracting level info...');
         llamaProc.send({ type: 'extract-level-info', imageData });
       }
     }
