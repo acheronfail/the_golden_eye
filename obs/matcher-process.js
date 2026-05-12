@@ -22,7 +22,7 @@ async function handler(data) {
     const { filename, cropRegion } = data;
     screen = data.screen;
 
-    const img = cv.imread(join(__dirname, 'match-images', `${filename}.png`)).rescale(scale);
+    const img = cv.imread(join(__dirname, 'match-images', `${filename}.png`)).rescale(scale).cvtColor(cv.COLOR_BGR2GRAY);
     const [cx, cy, cw, ch] = cropRegion;
     const rect = new cv.Rect(
       Math.floor(cx * img.cols),
@@ -36,10 +36,8 @@ async function handler(data) {
   }
 
   if (data.type === 'match' && image) {
-    const { imageDataUrl } = data;
-    const base64Data = imageDataUrl.replace(/^data:image\/\w+;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
-    const sourceImage = cv.imdecode(buffer).rescale(scale);
+    const { buffer } = data;
+    const sourceImage = cv.imdecode(buffer).rescale(scale).cvtColor(cv.COLOR_BGR2GRAY);
 
     const result = sourceImage.matchTemplate(image, cv.TM_CCOEFF_NORMED);
     const { maxVal } = result.minMaxLoc();

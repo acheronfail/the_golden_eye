@@ -10,7 +10,9 @@ class Worker {
   process: cp.ChildProcess;
 
   constructor() {
-    this.process = cp.fork(fileURLToPath(new URL('./matcher-process.js', import.meta.url)));
+    this.process = cp.fork(fileURLToPath(new URL('./matcher-process.js', import.meta.url)), [], {
+      serialization: 'advanced',
+    });
   }
 
   async init(filename: string, screen: Screen, cropRegion: [number, number, number, number]) {
@@ -25,8 +27,8 @@ class Worker {
     });
   }
 
-  async match(imageDataUrl: string): Promise<Screen | null> {
-    this.process.send({ type: 'match', imageDataUrl });
+  async match(buffer: Buffer): Promise<Screen | null> {
+    this.process.send({ type: 'match', buffer });
 
     return new Promise((resolve) => {
       this.process.once('message', (message: any) => {
@@ -50,7 +52,9 @@ const workers: Worker[] = await Promise.all(
     const worker = new Worker();
     await worker.init(filename, screen, cropRegion);
     worker.process.on('error', (err) => console.error(`[worker:${screen}] error:`, err));
-    worker.process.on('exit', (code, signal) => console.error(`[worker:${screen}] exited with code ${code} and signal ${signal}`));
+    worker.process.on('exit', (code, signal) =>
+      console.error(`[worker:${screen}] exited with code ${code} and signal ${signal}`),
+    );
 
     return worker;
   }),
@@ -59,15 +63,8 @@ const workers: Worker[] = await Promise.all(
 export async function matchScreen(imageDataUrl: string): Promise<Screen | null> {
   const base64Data = imageDataUrl.replace(/^data:image\/\w+;base64,/, '');
   const buffer = Buffer.from(base64Data, 'base64');
-  const sharedBuffer = new SharedArrayBuffer(buffer.length);
-  const sharedArray = new Uint8Array(sharedBuffer);
-  sharedArray.set(buffer);
 
-  const results = await Promise.all<Screen | null>(
-    workers.map(
-      (worker) => worker.match(imageDataUrl),
-    ),
-  );
+  const results = await Promise.all<Screen | null>(workers.map((worker) => worker.match(buffer)));
 
   return results.find((result) => result !== null) ?? null;
 }
