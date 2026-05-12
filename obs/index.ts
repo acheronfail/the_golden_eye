@@ -11,6 +11,7 @@ const llama = new Llama();
 await llama.initialised;
 console.timeEnd('llama');
 
+// TODO: upload to YT, something like https://github.com/jakzo/NeonWhiteMods/blob/main/scripts/upload-to-youtube.ts
 const obs = new OBSWebSocket();
 try {
   console.time('obs connect');
