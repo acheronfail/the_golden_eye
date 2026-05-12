@@ -1,4 +1,5 @@
 import cp from 'node:child_process';
+import { fileURLToPath } from 'url';
 
 const Screens = ['StartLevel', 'EndLevelComplete', 'EndLevel', 'EndLevelStats'] as const;
 export type Screen = (typeof Screens)[number];
@@ -6,19 +7,17 @@ export type Screen = (typeof Screens)[number];
 // NOTE: opencv4nodejs breaks when used in workers, so we create a process pool instead.
 
 class Worker {
-  process: cp.ChildProcessWithoutNullStreams;
+  process: cp.ChildProcess;
 
   constructor() {
-    this.process = cp.spawn('npx', ['tsx', 'obs/matcher-process.ts']);
-    this.process.stdout.pipe(process.stdout);
+    this.process = cp.fork(fileURLToPath(new URL('./matcher-process.js', import.meta.url)));
   }
 
   async init(filename: string, screen: Screen, cropRegion: [number, number, number, number]) {
-    this.process.stdin.write(JSON.stringify({ type: 'init', filename, screen, cropRegion }) + '\n');
+    this.process.send({ type: 'init', filename, screen, cropRegion });
 
     await new Promise((resolve) => {
-      this.process.stderr.once('data', (data) => {
-        const message = JSON.parse(data.toString());
+      this.process.once('message', (message: any) => {
         if (message.type === 'init-complete') {
           resolve(null);
         }
@@ -27,11 +26,10 @@ class Worker {
   }
 
   async match(imageDataUrl: string): Promise<Screen | null> {
-    this.process.stdin.write(JSON.stringify({ type: 'match', imageDataUrl }) + '\n');
+    this.process.send({ type: 'match', imageDataUrl });
 
     return new Promise((resolve) => {
-      this.process.stderr.once('data', (data) => {
-        const message = JSON.parse(data.toString());
+      this.process.once('message', (message: any) => {
         if (message.type === 'match') {
           resolve(message.screen);
         }

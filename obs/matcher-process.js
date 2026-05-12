@@ -1,33 +1,23 @@
-import cv, { Mat } from '@u4/opencv4nodejs';
+import cv from '@u4/opencv4nodejs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { Screen } from './matcher';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const scale = 0.25;
 const matchThreshold = 0.8;
 
-let screen: Screen | null = null;
-let image: Mat | null = null;
+let screen = null;
+let image = null;
 
-let chunkBuffer = '';
-process.stdin.setEncoding('utf-8');
-process.stdin.on('data', async (chunk) => {
+process.on('message', async (data) => {
   try {
-    chunkBuffer += chunk;
-    let boundary = chunkBuffer.indexOf('\n');
-    while (boundary !== -1) {
-      const data = JSON.parse(chunkBuffer.slice(0, boundary));
-      await handler(data);
-      chunkBuffer = chunkBuffer.slice(boundary + 1);
-      boundary = chunkBuffer.indexOf('\n');
-    }
+    await handler(data);
   } catch (err) {
     console.error('Error handling message:', err);
   }
 });
 
-async function handler(data: any) {
+async function handler(data) {
   if (data.type === 'init') {
     const { filename, cropRegion } = data;
     screen = data.screen;
@@ -42,7 +32,7 @@ async function handler(data: any) {
     );
     image = img.getRegion(rect);
 
-    process.stderr.write(JSON.stringify({ type: 'init-complete' }) + '\n');
+    process.send({ type: 'init-complete' });
   }
 
   if (data.type === 'match' && image) {
@@ -54,9 +44,9 @@ async function handler(data: any) {
     const result = sourceImage.matchTemplate(image, cv.TM_CCOEFF_NORMED);
     const { maxVal } = result.minMaxLoc();
     if (maxVal >= matchThreshold) {
-      process.stderr.write(JSON.stringify({ type: 'match', screen }) + '\n');
+      process.send({ type: 'match', screen });
     } else {
-      process.stderr.write(JSON.stringify({ type: 'match', screen: null }) + '\n');
+      process.send({ type: 'match', screen: null });
     }
   }
 }
