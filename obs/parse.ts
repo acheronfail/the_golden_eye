@@ -11,7 +11,9 @@ const Levels = [
 ] as const;
 type Level = (typeof Levels)[number][number];
 
-const Difficulties = ['secret agent', '00 agent', '007', 'agent'] as const;
+const LevelNumberMap = new Map(Levels.flat().map((level, i) => [level, i + 1]));
+
+const Difficulties = ['Secret Agent', '00 Agent', '007', 'Agent'] as const;
 type Difficulty = (typeof Difficulties)[number];
 
 const parseTime = (time: string) => {
@@ -22,29 +24,32 @@ const parseTime = (time: string) => {
 export interface LevelInfo {
   difficulty: Difficulty;
   level: Level;
+  levelNumber: number;
   time: number;
-  bestTime: number;
+  bestTime?: number;
 }
 
 export function extractLevelInfo(text: string): LevelInfo {
   const lowered = text.toLocaleLowerCase();
 
-  const difficulty = Difficulties.find((d) => lowered.slice(0, 50).includes(d));
-  const mission = lowered.match(/mission (\d+):/)?.[1];
-  const partNumerals = lowered.match(/part ([ivxl]+):/)?.[1];
+  const difficulty = Difficulties.find((d) => lowered.slice(0, 50).includes(d.toLowerCase()));
+  const mission = lowered.match(/mission[\s:]*(\d+):/)?.[1];
+  const partNumerals = lowered.match(/part[\s:]*([ivxl]+):/)?.[1];
   const part = ['i', 'ii', 'iii', 'iv', 'v'].indexOf(partNumerals!);
   const timeString = lowered.match(/time: (\d+:\d+)/)?.[1];
   const bestTimeString = lowered.match(/best time: (\d+:\d+)/)?.[1];
+  const level = mission && Levels[parseInt(mission) - 1]?.[part];
 
-  if (!difficulty || !mission || part === -1 || !timeString || !bestTimeString) {
+  if (!difficulty || !level || !timeString) {
     console.error({ difficulty, mission, part, timeString, bestTimeString }, text);
     throw new Error('Failed to extract level info');
   }
 
   return {
     difficulty,
-    level: Levels[parseInt(mission) - 1][part],
+    level,
+    levelNumber: LevelNumberMap.get(level)!,
     time: parseTime(timeString),
-    bestTime: parseTime(bestTimeString),
+    bestTime: bestTimeString ? parseTime(bestTimeString) : undefined,
   };
 }

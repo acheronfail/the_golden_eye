@@ -198,9 +198,9 @@ export const createStatisticsBox = (screen: Widgets.Screen) =>
     rainbowHeading: true,
     borderColor: 'magenta',
     headingColor: 'magenta',
-    headingText: 'Reading Stats',
+    headingText: 'Reading Stats...',
     headingFont: 'Terrace',
-    hintText: 'readings stats, feel free to keep going',
+    hintText: 'reading stats, feel free to keep going',
   });
 
 export const createLevelInfoBox = (screen: Widgets.Screen, levelInfo: LevelInfo) => {
@@ -211,8 +211,8 @@ export const createLevelInfoBox = (screen: Widgets.Screen, levelInfo: LevelInfo)
   const hintText = `${levelInfo.difficulty} - ${levelInfo.level} - (PB: ${levelInfo.bestTime})`;
 
   return createStatusBox(screen, {
-    borderColor: 'white',
-    headingColor: 'white',
+    borderColor: '#FFD700',
+    headingColor: '#FFD700',
     headingFont: 'ANSI Regular',
     headingText: timeString,
     hintText,

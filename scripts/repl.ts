@@ -19,10 +19,10 @@ let screenshotPrefix = 'screenshot';
 const screenshot = async () => {
     const { imageData } = await obs.call('GetSourceScreenshot', {
       sourceName: process.env.SOURCE_NAME,
-      imageFormat: 'jpg',
+      imageFormat: 'png',
     });
 
-    const fileName = `${screenshotPrefix}-${Date.now()}.jpg`;
+    const fileName = `${screenshotPrefix}-${Date.now()}.png`;
     await fs.writeFile(fileName, Buffer.from(imageData.split(',')[1], 'base64'));
     process.stderr.write(`Saved ${fileName}\n`);
 };

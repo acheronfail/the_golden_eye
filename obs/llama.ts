@@ -62,13 +62,21 @@ export class Llama {
             type: 'function',
             function: {
               name: 'extract_text',
-              description: 'Extract text from an image.',
+              description: 'Extract text from an image. The "text" field is all the text, the "missionNumber" field is the number after "mission" near the start, and "partNumber" is the string of roman numerals after "part" in the text.',
               parameters: {
                 type: 'object',
                 properties: {
                   text: {
                     type: 'string',
                     description: 'The text extracted from the image.',
+                  },
+                  missionNumber: {
+                    type: 'number',
+                    description: 'The number after "mission" in the text.',
+                  },
+                  partNumber: {
+                    type: 'string',
+                    description: 'The roman numerals after "part" in the text, as a lowercase string (e.g. "iii").',
                   },
                 },
                 required: ['text'],
