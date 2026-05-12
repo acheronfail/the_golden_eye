@@ -33,7 +33,7 @@ const match = async () => {
       imageFormat: 'jpg',
     });
 
-    const screen = await matchScreen(Buffer.from(imageData.split(',')[1], 'base64'));
+    const screen = await matchScreen(imageData);
     console.log(`Matched screen: ${screen}`);
 };
 

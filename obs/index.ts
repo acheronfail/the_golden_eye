@@ -3,63 +3,59 @@ import { OBSWebSocket } from 'obs-websocket-js/msgpack';
 import { Llama } from './llama';
 import { extractLevelInfo } from './parse';
 import { readEnv } from './envfile';
+import { matchScreen, Screen } from './matcher';
 
 await readEnv();
 
-console.time('llama');
 const llama = new Llama();
 await llama.initialised;
-console.timeEnd('llama');
+
+const obs = new OBSWebSocket();
+
+let inLevel = false;
+let waitingForStats = false;
 
 // TODO: upload to YT, something like https://github.com/jakzo/NeonWhiteMods/blob/main/scripts/upload-to-youtube.ts
-const obs = new OBSWebSocket();
 try {
-  console.time('obs connect');
   await obs.connect('ws://localhost:4455', process.env.OBS_PASSWORD);
-  console.timeEnd('obs connect');
 
   for (;;) {
-    console.time('obs frame');
     const { imageData } = await obs.call('GetSourceScreenshot', {
       sourceName: process.env.SOURCE_NAME,
       imageFormat: 'jpg',
     });
-    console.timeEnd('obs frame');
 
-    if (await checkStartLevelScreen(imageData)) {
-      console.time('extractText');
-      const text = await llama.extractText(imageData);
-      console.timeEnd('extractText');
+    const screen = await matchScreen(imageData);
+    if (screen) {
+      if (process.env.DEBUG) {
+        console.log(`Matched screen: ${screen}`);
+      }
 
-      console.log('Extracted text:', text);
+      if (screen === 'StartLevel') {
+        inLevel = true;
+      }
 
-      // TODO: tell OBS start marker or something
-    }
+      if (screen === 'EndLevel') {
+        inLevel = false;
+      }
 
-    if (await checkEndLevelScreen(imageData)) {
-      console.time('extractText');
-      const text = await llama.extractText(imageData);
-      console.timeEnd('extractText');
+      if (screen === 'EndLevelComplete' && inLevel) {
+        waitingForStats = true;
+        inLevel = false;
+      }
 
-      console.log('Extracted text:', text);
-      console.log(extractLevelInfo(text));
+      if (screen === 'EndLevelStats' && waitingForStats) {
+        waitingForStats = false;
 
-      // TODO: tell OBS to save replay or something
-
-      break;
+        // TODO: do this on a background worker/thread
+        // const text = await llama.extractText(imageData);
+        // const levelInfo = extractLevelInfo(text);
+        // console.log(`Extracted level info: ${JSON.stringify(levelInfo)}`);
+      }
     }
   }
 } finally {
   await obs.disconnect();
   llama.kill();
-}
-
-process.exit();
-
-async function checkStartLevelScreen(imageDataUrl: string): Promise<boolean> {
-  return false;
-}
-
-async function checkEndLevelScreen(imageDataUrl: string): Promise<boolean> {
-  return false;
+  process.exit();
 }
