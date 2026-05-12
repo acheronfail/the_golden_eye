@@ -14,13 +14,16 @@
   "description": "",
   "dependencies": {
     "@u4/opencv4nodejs": "^7.1.2",
+    "blessed": "^0.1.81",
     "cheerio": "^1.2.0",
+    "figlet": "^1.11.0",
     "node-llama-cpp": "^3.18.1",
     "obs-websocket-js": "^5.0.8",
     "playwright": "^1.59.1",
     "tsx": "^4.21.0"
   },
   "devDependencies": {
+    "@types/blessed": "^0.1.27",
     "@types/node": "^25.6.2"
   },
   "opencv4nodejs": {
