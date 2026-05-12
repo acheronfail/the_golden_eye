@@ -1,6 +1,6 @@
 import blessed, { Widgets } from 'blessed';
 import figlet from 'figlet';
-import { LevelInfo } from '../parse';
+import { LevelInfo } from './parse';
 
 type StatusBoxOptions = {
   borderColor: string;

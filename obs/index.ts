@@ -16,9 +16,8 @@ import {
   createLevelInfoBox,
   createRecordingBox,
   createStatisticsBox,
-} from './tui/boxes';
+} from './boxes';
 import { fileURLToPath } from 'node:url';
-import { LevelInfo } from './parse';
 import { dirname, join } from 'node:path';
 
 await readEnv();
