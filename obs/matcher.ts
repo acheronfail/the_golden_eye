@@ -20,7 +20,7 @@ const matchers: [string, Screen][] = [
   ['time', 'EndLevelStats'],
   ['primary-objectives', 'StartLevel'],
   ['start', 'StartLevel'],
-]
+];
 
 // NOTE: opencv4nodejs breaks when used in workers, so we create a process pool instead.
 class Worker {
@@ -36,7 +36,7 @@ class Worker {
     this.process.send({ type: 'init', filename, screen });
 
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject('worker process timed out'), 1000);
+      const timer = setTimeout(() => reject('worker process timed out'), 10_000);
       this.process.once('message', (message: any) => {
         if (message.type === 'init-complete') {
           clearTimeout(timer);
@@ -46,11 +46,16 @@ class Worker {
     });
   }
 
-  async match(buffer: Buffer, rows: number, cols: number, matType: number): Promise<{ maxVal: number, screen: Screen | null }> {
+  async match(
+    buffer: Buffer,
+    rows: number,
+    cols: number,
+    matType: number,
+  ): Promise<{ maxVal: number; screen: Screen | null }> {
     this.process.send({ type: 'match', buffer, rows, cols, matType });
 
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject('worker process timed out'), 1000);
+      const timer = setTimeout(() => reject('worker process timed out'), 1_000);
       this.process.once('message', (message: any) => {
         if (message.type === 'match') {
           clearTimeout(timer);
@@ -61,36 +66,49 @@ class Worker {
   }
 }
 
-const workers: Worker[] = await Promise.all(
-  (
-    matchers
-  ).map(async ([filename, screen]) => {
-    const worker = new Worker();
-    await worker.init(filename, screen);
-    worker.process.on('error', (err) => console.error(`[worker:${screen}] error:`, err));
-    worker.process.on('exit', (code, signal) =>
-      console.error(`[worker:${screen}] exited with code ${code} and signal ${signal}`),
+export interface MatchResult {
+  maxVal: number;
+  screen: Screen;
+  matcher: string;
+}
+
+export class MatcherProcessPool {
+  private constructor(private readonly workers: Worker[]) {}
+
+  public static async init() {
+    const workers = await Promise.all(
+      matchers.map(async ([filename, screen]) => {
+        const worker = new Worker();
+        await worker.init(filename, screen);
+        worker.process.on('error', (err) => console.error(`[worker:${screen}] error:`, err));
+        worker.process.on('exit', (code, signal) =>
+          console.error(`[worker:${screen}] exited with code ${code} and signal ${signal}`),
+        );
+
+        return worker;
+      }),
     );
 
-    return worker;
-  }),
-);
+    return new MatcherProcessPool(workers);
+  }
 
-export interface MatchResult { maxVal: number, screen: Screen, matcher: string }
-export async function matchScreen(jpegDataUri: string): Promise<MatchResult | null> {
-  const jpegData = Buffer.from(jpegDataUri.split(',')[1], 'base64');
-  const sourceImage = cv.imdecode(jpegData).rescale(scale).cvtColor(cv.COLOR_BGR2GRAY);
-  const { rows, cols, type } = sourceImage;
-  const sourceData = sourceImage.getData();
+  async matchScreen(jpegDataUri: string): Promise<MatchResult | null> {
+    const jpegData = Buffer.from(jpegDataUri.split(',')[1], 'base64');
+    const sourceImage = cv.imdecode(jpegData).rescale(scale).cvtColor(cv.COLOR_BGR2GRAY);
+    const { rows, cols, type } = sourceImage;
+    const sourceData = sourceImage.getData();
 
-  const results = await Promise.all<MatchResult | null>(workers.map(async (worker, i) => {
-    const { maxVal, screen } = await worker.match(sourceData, rows, cols, type);
-    if (screen) {
-      return { maxVal, screen, matcher: matchers[i][0] };
-    }
+    const results = await Promise.all<MatchResult | null>(
+      this.workers.map(async (worker, i) => {
+        const { maxVal, screen } = await worker.match(sourceData, rows, cols, type);
+        if (screen) {
+          return { maxVal, screen, matcher: matchers[i][0] };
+        }
 
-    return null;
-  }));
+        return null;
+      }),
+    );
 
-  return results.find((result) => result !== null) ?? null;
+    return results.find((result) => result !== null) ?? null;
+  }
 }

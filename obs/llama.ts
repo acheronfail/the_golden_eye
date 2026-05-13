@@ -1,123 +1,53 @@
+import cp from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import fs from 'node:fs/promises';
-import cp from 'node:child_process';
+import { LevelInfo } from './parse';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const modelPath = path.join(__dirname, '..', 'models/gemma-4-E2B-it-Q4_K_M.gguf');
-const mmprojPath = path.join(__dirname, '..', 'models/mmproj-BF16.gguf');
-
-const modelName = path.basename(modelPath, '.gguf');
-
-export class Llama {
-  server: cp.ChildProcessWithoutNullStreams;
+export class LlamaProcess {
+  process: cp.ChildProcess;
   initialised: Promise<void>;
 
   constructor() {
-    this.server = cp.spawn('./llama/llama-server', [
-      ...[`--model`, `${modelPath}`],
-      ...[`--mmproj`, `${mmprojPath}`],
-      ...['--ctx-size', '1024'],
-      ...['--port', '1234'],
-      ...['--host', 'localhost'],
-      ...['--temperature', '0.0'],
-      ...['--repeat-penalty', '1.2'],
-      ...['--reasoning', 'off'],
-      ...(process.env.LLAMA_EXTRA_ARGS ? process.env.LLAMA_EXTRA_ARGS.split(' ') : []),
-    ]);
+    this.process = cp.fork(fileURLToPath(new URL('./llama-process.js', import.meta.url)), [], {
+      serialization: 'advanced',
+    });
 
-    this.server.stdout.pipe(process.stdout);
-    if (process.env.DEBUG) {
-      this.server.stderr.pipe(process.stderr);
-    }
-
-    const killServer = () => {
-      this.server.kill();
-    };
-
-    process.on('exit', killServer);
-    process.on('SIGTERM', () => { killServer(); process.exit(1); });
-    process.on('SIGINT', () => { killServer(); process.exit(1); });
-
-    this.initialised = new Promise((resolve, reject) => {
-      this.server.stderr.on('data', (data) => {
-        if (data.toString().includes('server is listening')) {
+    this.initialised = new Promise<void>((resolve, reject) => {
+      this.process.once('message', (message: any) => {
+        if (message.type === 'ready') {
           resolve();
+          this.process.removeListener('error', reject);
+        }
+      });
+
+      this.process.addListener('error', reject);
+    });
+  }
+
+  extractText(imageData: string): Promise<string> {
+    this.process.send({ type: 'extract-text', imageData });
+    return new Promise((resolve) => {
+      this.process.once('message', (message: any) => {
+        if (message.type === 'extracted-text') {
+          resolve(message.text);
         }
       });
     });
   }
 
-  async extractText(imageDataUrl: string): Promise<string> {
-    const res = await fetch('http://localhost:1234/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: modelName,
-        tool_choice: 'required',
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'extract_text',
-              description: 'Extract text from an image. The "text" field is all the text, the "missionNumber" field is the number after "mission" near the start, and "partNumber" is the string of roman numerals after "part" in the text.',
-              parameters: {
-                type: 'object',
-                properties: {
-                  text: {
-                    type: 'string',
-                    description: 'The text extracted from the image.',
-                  },
-                  missionNumber: {
-                    type: 'number',
-                    description: 'The number after "mission" in the text.',
-                  },
-                  partNumber: {
-                    type: 'string',
-                    description: 'The roman numerals after "part" in the text, as a lowercase string (e.g. "iii").',
-                  },
-                },
-                required: ['text'],
-              },
-            },
-          },
-        ],
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an OCR program that outputs the text in an image in plain text with nothing else.',
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image_url',
-                image_url: {
-                  url: imageDataUrl,
-                },
-              },
-              {
-                type: 'text',
-                text: 'Extract the text from this image, and call the extract_text tool.',
-              },
-            ],
-          },
-        ],
-      }),
+  sendImage(imageData: string): Promise<LevelInfo> {
+    this.process.send({ type: 'extract-level-info', imageData });
+    return new Promise((resolve) => {
+      this.process.once('message', (message: any) => {
+        if (message.type === 'level-info') {
+          resolve(message.levelInfo);
+        }
+      });
     });
-
-    if (!res.ok) {
-      throw new Error(`Request failed with status ${res.status}: ${await res.text()}`);
-    }
-
-    const data = await res.json();
-    const result = JSON.parse(data.choices[0].message.tool_calls[0].function.arguments);
-    return result.text;
   }
 
   kill() {
-    this.server.kill();
+    this.process.send({ type: 'shutdown' });
+    setTimeout(() => this.process.kill(), 100);
   }
 }

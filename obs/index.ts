@@ -1,11 +1,9 @@
-import cp from 'node:child_process';
 import fs from 'node:fs/promises';
 
 import { OBSWebSocket } from 'obs-websocket-js/msgpack';
 import blessed, { Widgets } from 'blessed';
 
 import { readEnv } from './envfile';
-import { matchScreen } from './matcher';
 import {
   createWelcomeBox,
   createLevelStartBox,
@@ -18,8 +16,10 @@ import {
   createStatisticsBox,
   createWarningBox,
 } from './boxes';
-import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { LlamaProcess } from './llama';
+import { MatcherProcessPool } from './matcher';
+import { UploaderProcess } from './uploader';
 
 await readEnv();
 
@@ -27,23 +27,18 @@ await readEnv();
 // Dependencies
 //
 
-const llamaProc = cp.fork(fileURLToPath(new URL('./llama-process.js', import.meta.url)), [], {
-  serialization: 'advanced',
-  stdio: 'inherit',
-});
-await new Promise((resolve) =>
-  llamaProc.once('message', (message: any) => {
-    if (message.type === 'ready') {
-      resolve(null);
-    }
-  }),
-);
+const llama = new LlamaProcess();
+await llama.initialised;
+
+const matcher = await MatcherProcessPool.init();
+
+const uploader = new UploaderProcess();
 
 const obs = new OBSWebSocket();
 
 const remove = async (filepath: string) => {
   await fs.unlink(filepath).catch(() => {});
-}
+};
 
 const exit = async () => {
   try {
@@ -63,18 +58,17 @@ const exit = async () => {
 
     await obs.disconnect();
   } finally {
-    llamaProc.kill();
+    llama.kill();
     process.exit();
   }
 };
-
 
 //
 // State
 //
 
 let isMonitoring = false;
-let inLevel = false;
+let inSession = false;
 let waitingForStats = false;
 let recordingSaveTimer: number | null = null;
 
@@ -128,10 +122,10 @@ screen.key(['escape', 'q', 'C-c'], () => exit());
 // Main loop
 //
 
-let onPauseToggleRequested = () => { };
-let saveRecordingResolver: ((value: string) => void) = () => { };
+let onPauseToggleRequested = () => {};
+let saveRecordingResolver: (value: string) => void = () => {};
 let saveRecordingPromise: Promise<string> = Promise.reject('nope');
-saveRecordingPromise.catch(() => { }); // avoid unhandled rejection if never set
+saveRecordingPromise.catch(() => {}); // avoid unhandled rejection if never set
 
 try {
   await obs.connect('ws://localhost:4455', process.env.OBS_PASSWORD);
@@ -145,11 +139,11 @@ try {
     }
   }
 
-  for (; ;) {
+  for (;;) {
     if (pauseToggleRequested) {
       pauseToggleRequested = false;
 
-      inLevel = false;
+      inSession = false;
       waitingForStats = false;
       recordingSaveTimer = null;
       isMonitoring = false;
@@ -157,11 +151,11 @@ try {
 
       const { outputActive } = await obs.call('GetRecordStatus');
       if (outputActive) {
-        const { outputPath } = await obs.call('StopRecord')
+        const { outputPath } = await obs.call('StopRecord');
         await remove(outputPath);
       }
 
-      await new Promise<void>(resolve => onPauseToggleRequested = resolve);
+      await new Promise<void>((resolve) => (onPauseToggleRequested = resolve));
 
       isMonitoring = true;
       pauseToggleRequested = false;
@@ -174,7 +168,7 @@ try {
       imageFormat: 'jpg',
     });
 
-    const matchResult = await matchScreen(imageData);
+    const matchResult = await matcher.matchScreen(imageData);
     if (matchResult) {
       const { screen: gameScreen } = matchResult;
       if (recordingSaveTimer !== null && (gameScreen !== 'EndLevelStats' || Date.now() > recordingSaveTimer + 5000)) {
@@ -191,8 +185,8 @@ try {
         recordingSaveTimer = null;
       }
 
-      if (gameScreen === 'StartLevel' && !inLevel) {
-        inLevel = true;
+      if (gameScreen === 'StartLevel' && !inSession) {
+        inSession = true;
         updateActiveBox(createLevelStartBox(screen));
         const { outputActive } = await obs.call('GetRecordStatus');
         if (!outputActive) {
@@ -200,12 +194,18 @@ try {
           updateActiveBox(createRecordingBox(screen));
         } else {
           await obs.call('SaveReplayBuffer');
-          updateActiveBox(createWarningBox(screen, "already recording when not expected to be recording, saved replay buffer instead"));
+          updateActiveBox(
+            createWarningBox(
+              screen,
+              'already recording when not expected to be recording, saved replay buffer instead',
+            ),
+          );
         }
       }
 
-      if (gameScreen === 'LevelSelect' && inLevel) { // exit to level select
-        inLevel = false;
+      if (gameScreen === 'LevelSelect' && inSession) {
+        // exit to level select
+        inSession = false;
         updateActiveBox(createWaitingBox(screen));
         const { outputActive } = await obs.call('GetRecordStatus');
         if (outputActive) {
@@ -214,8 +214,9 @@ try {
         }
       }
 
-      if (gameScreen === 'EndLevelFailed' && inLevel) { // fail
-        inLevel = false;
+      if (gameScreen === 'EndLevelFailed' && inSession) {
+        // fail
+        inSession = false;
         updateActiveBox(createLevelFailedBox(screen));
         const { outputActive } = await obs.call('GetRecordStatus');
         if (outputActive) {
@@ -224,57 +225,57 @@ try {
         }
       }
 
-      if (gameScreen === 'EndLevelComplete' && inLevel) {
+      if (gameScreen === 'EndLevelComplete' && inSession) {
         waitingForStats = true;
-        inLevel = false;
+        inSession = false;
         updateActiveBox(createLevelCompleteBox(screen));
       }
 
       if (gameScreen === 'EndLevelStats' && waitingForStats) {
         waitingForStats = false;
         recordingSaveTimer = Date.now();
+        updateActiveBox(createStatisticsBox(screen));
 
+        // OCR works better with higher quality images, so we fetch a PNG
         const { imageData } = await obs.call('GetSourceScreenshot', {
           sourceName: process.env.SOURCE_NAME,
           imageFormat: 'png',
         });
 
-        updateActiveBox(createStatisticsBox(screen));
-
-
-        saveRecordingPromise = new Promise<string>(resolve => {
+        saveRecordingPromise = new Promise<string>((resolve) => {
           saveRecordingResolver = resolve;
         });
 
-        llamaProc.send({ type: 'extract-level-info', imageData });
-        llamaProc.once('message', async (message: any) => {
-          if (message.type === 'level-info') {
-            const { levelInfo } = message;
-            const isPb = levelInfo.bestTime !== undefined && levelInfo.time < levelInfo.bestTime;
+        const ocrTimeStart = Date.now();
+        llama.sendImage(imageData).then(async (levelInfo) => {
+          const isPb = levelInfo.bestTime !== undefined && levelInfo.time < levelInfo.bestTime;
 
-            if (!inLevel && isMonitoring) {
-              if (isPb) {
-                updateActiveBox(createNewPbBox(screen, levelInfo.time));
-              } else {
-                updateActiveBox(createLevelInfoBox(screen, levelInfo));
-              }
+          if (!inSession && isMonitoring && Date.now() < ocrTimeStart + 5000) {
+            if (isPb) {
+              updateActiveBox(createNewPbBox(screen, levelInfo.time));
+            } else {
+              updateActiveBox(createLevelInfoBox(screen, levelInfo));
             }
-
-            const outputPath = await saveRecordingPromise;
-            const outputDir = dirname(outputPath);
-            const formattedTime = `${Math.floor(levelInfo.time / 60).toString().padStart(2, '0')}-${(levelInfo.time % 60).toString().padStart(2, '0')}`;
-
-            const basename = [
-              levelInfo.levelNumber.toString().padStart(2, '0'),
-              levelInfo.level,
-              levelInfo.difficulty,
-              formattedTime,
-              new Date().toISOString(),
-            ].join(' - ');
-
-            await fs.rename(outputPath, join(outputDir, `${basename}.mp4`));
-            // TODO: place in directory and then YT upload
           }
+
+          const outputPath = await saveRecordingPromise;
+          const outputDir = dirname(outputPath);
+          const formattedTime = `${Math.floor(levelInfo.time / 60)
+            .toString()
+            .padStart(2, '0')}-${(levelInfo.time % 60).toString().padStart(2, '0')}`;
+
+          const basename = [
+            levelInfo.levelNumber.toString().padStart(2, '0'),
+            levelInfo.level,
+            levelInfo.difficulty,
+            formattedTime,
+            new Date().toISOString(),
+          ].join(' - ');
+
+          const recordingPath = join(outputDir, 'Goldeneye', `${basename}.mp4`);
+          await fs.mkdir(join(outputDir, 'Goldeneye'), { recursive: true });
+          await fs.rename(outputPath, recordingPath);
+          uploader.uploadRecording(recordingPath, levelInfo);
         });
       }
     }

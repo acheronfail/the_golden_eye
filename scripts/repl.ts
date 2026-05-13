@@ -1,13 +1,16 @@
 import fs from 'node:fs/promises'
 import { OBSWebSocket } from 'obs-websocket-js/msgpack';
 import { readEnv } from '../obs/envfile';
-import { matchScreen } from '../obs/matcher';
-import { Llama } from '../obs/llama';
+import { LlamaProcess } from '../obs/llama';
+import { MatcherProcessPool } from '../obs/matcher';
 
 await readEnv();
 
-const llama = new Llama();
+const matcher = await MatcherProcessPool.init();
+
+const llama = new LlamaProcess();
 await llama.initialised;
+
 const obs = new OBSWebSocket();
 
 const quit = async () => {
@@ -33,7 +36,7 @@ const match = async () => {
       imageFormat: 'jpg',
     });
 
-    const matchResult = await matchScreen(imageData);
+    const matchResult = await matcher.matchScreen(imageData);
     console.log(`Matched screen: ${JSON.stringify(matchResult)}`);
 };
 
@@ -76,7 +79,6 @@ try {
   process.stderr.write(prompt);
   for await (const chunk of process.stdin) {
         const command: string = chunk.toString().trim();
-
 
         const handler: (() => void) | undefined = {
             "": screenshot,
