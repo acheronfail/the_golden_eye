@@ -35,7 +35,7 @@ const matcher = await MatcherProcessPool.init();
 const obs = new OBSWebSocket();
 
 const remove = async (filepath: string) => {
-  await fs.unlink(filepath).catch(() => {});
+  await fs.unlink(filepath).catch(() => { });
 };
 
 const exit = async () => {
@@ -44,13 +44,6 @@ const exit = async () => {
       const { outputActive } = await obs.call('GetRecordStatus');
       if (outputActive) {
         await obs.call('StopRecord');
-      }
-    }
-
-    {
-      const { outputActive } = await obs.call('GetReplayBufferStatus');
-      if (outputActive) {
-        await obs.call('StopReplayBuffer');
       }
     }
 
@@ -120,24 +113,24 @@ screen.key(['escape', 'q', 'C-c'], () => exit());
 // Main loop
 //
 
-let onPauseToggleRequested = () => {};
-let saveRecordingResolver: (value: string) => void = () => {};
+let onPauseToggleRequested = () => { };
+let saveRecordingResolver: (value: string) => void = () => { };
 let saveRecordingPromise: Promise<string> = Promise.reject('nope');
-saveRecordingPromise.catch(() => {}); // avoid unhandled rejection if never set
+saveRecordingPromise.catch(() => { }); // avoid unhandled rejection if never set
 
 try {
   await obs.connect('ws://localhost:4455', process.env.OBS_PASSWORD);
 
-  // start replay buffer, this is used if there are any error cases as a backup
-  // source of recording
+  // if replay buffer is active, stop it, we don't use it and it can cause issues with recording timing
   {
     const { outputActive } = await obs.call('GetReplayBufferStatus');
-    if (!outputActive) {
-      await obs.call('StartReplayBuffer');
+    if (outputActive) {
+      await obs.call('StopReplayBuffer');
     }
   }
 
-  for (;;) {
+  for (; ;) {
+    // pause
     if (pauseToggleRequested) {
       pauseToggleRequested = false;
 
@@ -160,6 +153,7 @@ try {
       updateActiveBox(createWaitingBox(screen));
     }
 
+    // main loop, grab frame
     const start = performance.now();
     const { imageData } = await obs.call('GetSourceScreenshot', {
       sourceName: process.env.SOURCE_NAME,
@@ -169,6 +163,8 @@ try {
     const matchResult = await matcher.matchScreen(imageData);
     if (matchResult) {
       const { screen: gameScreen } = matchResult;
+
+      // if we've been waiting for stats and it's been a few seconds, save the recording and show stats
       if (recordingSaveTimer !== null && (gameScreen !== 'EndLevelStats' || Date.now() > recordingSaveTimer + 5000)) {
         const { outputActive } = await obs.call('GetRecordStatus');
         if (outputActive) {
@@ -176,33 +172,37 @@ try {
           saveRecordingResolver?.(outputPath);
           updateActiveBox(createWaitingBox(screen));
         } else {
-          await obs.call('SaveReplayBuffer');
-          updateActiveBox(createWarningBox(screen, "expected to be recording but wasn't, saved replay buffer instead"));
+          updateActiveBox(createWarningBox(screen, "expected to be recording but wasn't?"));
         }
 
         recordingSaveTimer = null;
       }
 
+      // start level
       if (gameScreen === 'StartLevel' && !inSession) {
         inSession = true;
         updateActiveBox(createLevelStartBox(screen));
         const { outputActive } = await obs.call('GetRecordStatus');
         if (!outputActive) {
           await obs.call('StartRecord');
+          while (!(await obs.call('GetRecordStatus')).outputActive) {
+            // wait for recording to actually start, note that if OBS has the reply buffer
+            // active this can lag by a number of seconds!
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          }
           updateActiveBox(createRecordingBox(screen));
         } else {
-          await obs.call('SaveReplayBuffer');
           updateActiveBox(
             createWarningBox(
               screen,
-              'already recording when not expected to be recording, saved replay buffer instead',
+              'already recording when not expected to be recording',
             ),
           );
         }
       }
 
+      // exit to level select
       if (gameScreen === 'LevelSelect' && inSession) {
-        // exit to level select
         inSession = false;
         updateActiveBox(createWaitingBox(screen));
         const { outputActive } = await obs.call('GetRecordStatus');
@@ -212,8 +212,8 @@ try {
         }
       }
 
+      // fail
       if (gameScreen === 'EndLevelFailed' && inSession) {
-        // fail
         inSession = false;
         updateActiveBox(createLevelFailedBox(screen));
         const { outputActive } = await obs.call('GetRecordStatus');
@@ -223,12 +223,14 @@ try {
         }
       }
 
+      // complete
       if (gameScreen === 'EndLevelComplete' && inSession) {
         waitingForStats = true;
         inSession = false;
         updateActiveBox(createLevelCompleteBox(screen));
       }
 
+      // stats screen
       if (gameScreen === 'EndLevelStats' && waitingForStats) {
         waitingForStats = false;
         recordingSaveTimer = Date.now();
