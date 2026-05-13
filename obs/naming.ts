@@ -70,9 +70,10 @@ export interface YoutubeVideoInfo {
 
 export function createYoutubeTitle(
   nameParts: VideoNameParts,
+  extraTag?: string,
 ): YoutubeVideoInfo {
   const { level, difficulty, time, date } = nameParts;
-  const title = [level, difficulty, time].join(separator);
+  const title = [level, difficulty, time, ...(extraTag ? [extraTag] : [])].join(separator);
   const description = `Date achieved: ${date.toLocaleString([], {
     year: "numeric",
     month: "2-digit",

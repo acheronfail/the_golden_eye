@@ -12,8 +12,8 @@ run:
 repl:
   npm run repl
 
-upload pbPlaylist allPlaylist dir:
-  npm run upload -- {{pbPlaylist}} {{allPlaylist}} {{dir}}
+upload dir:
+  npm run upload -- {{dir}}
 
 # download models and download llama-server
 setup:

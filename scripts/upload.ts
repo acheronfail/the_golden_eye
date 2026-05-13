@@ -9,7 +9,7 @@ import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { google } from "googleapis";
 import open from "open";
 import { readEnv } from "../obs/envfile.ts";
-import { checkbox } from "@inquirer/prompts";
+import { checkbox, select } from "@inquirer/prompts";
 import {
   createYoutubeTitle,
   parseVideoName,
@@ -33,13 +33,8 @@ if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const [, , pbPlaylistTitle, allPlaylistTitle, videoDir] = process.argv;
-if (
-  !videoDir ||
-  !pbPlaylistTitle ||
-  !allPlaylistTitle ||
-  process.argv.length !== 5
-) {
+const [, , videoDir] = process.argv;
+if (!videoDir || process.argv.length !== 3) {
   console.error(
     "Usage: just upload <pbPlaylistTitle> <allPlaylistTitle> <videoDir>",
   );
@@ -67,6 +62,36 @@ if (!videosToUpload.length) {
   console.error("No videos selected for upload");
   process.exit(0);
 }
+
+//
+// Prompt for which playlists to upload to
+//
+
+interface League {
+  name: string;
+  extraTag?: string;
+}
+
+const leagues: Record<string, League> = {
+  standard: {
+    name: "Goldeneye Speedruns",
+  },
+  enemyRockets: {
+    name: "Goldeneye Speedruns - Enemy Rockets",
+    extraTag: "Enemy Rockets",
+  },
+};
+
+const chosenLeague =
+  leagues[
+    await select({
+      message: "Select PB playlist to upload to",
+      choices: Object.keys(leagues),
+    })
+  ];
+
+const allPlaylistTitle = "Goldeneye";
+const pbPlaylistTitle = chosenLeague.name;
 
 //
 // OAuth Server
