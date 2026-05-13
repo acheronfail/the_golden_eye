@@ -201,6 +201,17 @@ export const createStatisticsBox = (screen: Widgets.Screen) =>
     hintText: 'reading stats, feel free to keep going',
   });
 
+
+export const createWarningBox = (screen: Widgets.Screen, message: string) =>
+  createStatusBox(screen, {
+    borderThick: false,
+    borderColor: 'yellow',
+    headingColor: 'yellow',
+    headingText: 'Warning!',
+    headingFont: 'Terrace',
+    hintText: message,
+  });
+
 export const createLevelInfoBox = (screen: Widgets.Screen, levelInfo: LevelInfo) => {
   const minutes = Math.floor(levelInfo.time / 60);
   const seconds = levelInfo.time % 60;

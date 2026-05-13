@@ -37,6 +37,16 @@ const match = async () => {
     console.log(`Matched screen: ${screen}`);
 };
 
+const watch = async () => {
+    let done = false;
+    process.stdin.once('data', () => done = true);
+
+    while (!done) {
+        await match();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+}
+
 const text = async () => {
     const { imageData } = await obs.call('GetSourceScreenshot', {
       sourceName: process.env.SOURCE_NAME,
@@ -71,7 +81,9 @@ try {
         const handler: (() => void) | undefined = {
             "": screenshot,
             "save": screenshot,
+            "m": match,
             "match": match,
+            "watch": watch,
             "text": text,
             "h": printHelp,
             "help": printHelp,

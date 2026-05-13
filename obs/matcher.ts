@@ -2,19 +2,26 @@ import cp from 'node:child_process';
 import { fileURLToPath } from 'url';
 import cv from '@u4/opencv4nodejs';
 
-const Screens = ['StartLevel', 'EndLevelComplete', 'EndLevel', 'EndLevelStats', 'LevelSelect'] as const;
+// NOTE: order matters, since "EndLevelFailed" is a subset of "EndLevelComplete" when using the
+// "mission-status" template.
+const Screens = ['StartLevel', 'EndLevelComplete', 'EndLevelFailed', 'EndLevelStats', 'LevelSelect'] as const;
 export type Screen = (typeof Screens)[number];
 
+// NOTE: double up for redundancy, in case the crosshair occludes part of the screen
 const matchers: [string, Screen, [number, number, number, number]][] = [
+  // no double up required since this template covers multiple areas of the screen
   ['level-select', 'LevelSelect', [0, 0, 1, 1]],
   ['mission-status-completed', 'EndLevelComplete', [0, 0, 1, 0.5]],
-  ['mission-status', 'EndLevel', [0, 0, 1, 0.5]],
+  ['killed-in-action', 'EndLevelFailed', [0, 0, 1, 0.5]],
+  ['aborted', 'EndLevelFailed', [0, 0, 1, 0.5]],
+  ['mission-status', 'EndLevelFailed', [0, 0, 1, 0.5]],
   ['statistics', 'EndLevelStats', [0, 0, 1, 0.5]],
+  ['time', 'EndLevelStats', [0, 0, 1, 0.5]],
   ['primary-objectives', 'StartLevel', [0, 0, 1, 0.5]],
+  ['start', 'StartLevel', [0.5, 0, 1, 0.5]],
 ]
 
 // NOTE: opencv4nodejs breaks when used in workers, so we create a process pool instead.
-
 class Worker {
   process: cp.ChildProcess;
 
@@ -53,7 +60,6 @@ class Worker {
   }
 }
 
-// FIXME: use 2 separate templates per screen, so if the cursor covers one we still get a match
 const workers: Worker[] = await Promise.all(
   (
     matchers

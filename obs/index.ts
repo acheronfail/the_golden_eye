@@ -16,6 +16,7 @@ import {
   createLevelInfoBox,
   createRecordingBox,
   createStatisticsBox,
+  createWarningBox,
 } from './boxes';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -176,13 +177,13 @@ try {
         if (outputActive) {
           const { outputPath } = await obs.call('StopRecord');
           saveRecordingResolver?.(outputPath);
+          updateActiveBox(createWaitingBox(screen));
         } else {
-          // TODO: show warning "expected to be recording but wasn't"
           await obs.call('SaveReplayBuffer');
+          updateActiveBox(createWarningBox(screen, "expected to be recording but wasn't, saved replay buffer instead"));
         }
 
         recordingSaveTimer = null;
-        updateActiveBox(createWaitingBox(screen));
       }
 
       if (gameScreen === 'StartLevel' && !inLevel) {
@@ -191,11 +192,11 @@ try {
         const { outputActive } = await obs.call('GetRecordStatus');
         if (!outputActive) {
           await obs.call('StartRecord');
+          updateActiveBox(createRecordingBox(screen));
         } else {
-          // TODO: show warning "already recording when not expected to be recording"
           await obs.call('SaveReplayBuffer');
+          updateActiveBox(createWarningBox(screen, "already recording when not expected to be recording, saved replay buffer instead"));
         }
-        updateActiveBox(createRecordingBox(screen));
       }
 
       if (gameScreen === 'LevelSelect' && inLevel) { // exit to level select
@@ -208,7 +209,7 @@ try {
         }
       }
 
-      if (gameScreen === 'EndLevel' && inLevel) { // fail
+      if (gameScreen === 'EndLevelFailed' && inLevel) { // fail
         inLevel = false;
         updateActiveBox(createLevelFailedBox(screen));
         const { outputActive } = await obs.call('GetRecordStatus');
@@ -275,7 +276,7 @@ try {
 
     const end = performance.now();
     const elapsed = end - start;
-    loopTimingBox.setContent(`Loop: ${elapsed.toFixed(2)} ms ${screen.children.length}`);
+    loopTimingBox.setContent(`Loop: ${elapsed.toFixed(2)} ms`);
     screen.render();
   }
 } finally {
