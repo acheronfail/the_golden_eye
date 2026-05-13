@@ -41,6 +41,10 @@ await new Promise((resolve) =>
 
 const obs = new OBSWebSocket();
 
+const remove = async (filepath: string) => {
+  await fs.unlink(filepath).catch(() => {});
+}
+
 const exit = async () => {
   try {
     {
@@ -154,7 +158,7 @@ try {
       const { outputActive } = await obs.call('GetRecordStatus');
       if (outputActive) {
         const { outputPath } = await obs.call('StopRecord')
-        await fs.unlink(outputPath);
+        await remove(outputPath);
       }
 
       await new Promise<void>(resolve => onPauseToggleRequested = resolve);
@@ -170,8 +174,9 @@ try {
       imageFormat: 'jpg',
     });
 
-    const gameScreen = await matchScreen(imageData);
-    if (gameScreen) {
+    const matchResult = await matchScreen(imageData);
+    if (matchResult) {
+      const { screen: gameScreen } = matchResult;
       if (recordingSaveTimer !== null && (gameScreen !== 'EndLevelStats' || Date.now() > recordingSaveTimer + 5000)) {
         const { outputActive } = await obs.call('GetRecordStatus');
         if (outputActive) {
@@ -205,7 +210,7 @@ try {
         const { outputActive } = await obs.call('GetRecordStatus');
         if (outputActive) {
           const { outputPath } = await obs.call('StopRecord');
-          await fs.unlink(outputPath);
+          await remove(outputPath);
         }
       }
 
@@ -215,7 +220,7 @@ try {
         const { outputActive } = await obs.call('GetRecordStatus');
         if (outputActive) {
           const { outputPath } = await obs.call('StopRecord');
-          await fs.unlink(outputPath);
+          await remove(outputPath);
         }
       }
 

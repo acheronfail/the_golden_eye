@@ -33,8 +33,8 @@ const match = async () => {
       imageFormat: 'jpg',
     });
 
-    const screen = await matchScreen(imageData);
-    console.log(`Matched screen: ${screen}`);
+    const matchResult = await matchScreen(imageData);
+    console.log(`Matched screen: ${JSON.stringify(matchResult)}`);
 };
 
 const watch = async () => {

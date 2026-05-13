@@ -1,6 +1,7 @@
 import cp from 'node:child_process';
 import { fileURLToPath } from 'url';
 import cv from '@u4/opencv4nodejs';
+import { scale } from './common';
 
 // NOTE: order matters, since "EndLevelFailed" is a subset of "EndLevelComplete" when using the
 // "mission-status" template.
@@ -8,17 +9,17 @@ const Screens = ['StartLevel', 'EndLevelComplete', 'EndLevelFailed', 'EndLevelSt
 export type Screen = (typeof Screens)[number];
 
 // NOTE: double up for redundancy, in case the crosshair occludes part of the screen
-const matchers: [string, Screen, [number, number, number, number]][] = [
+const matchers: [string, Screen][] = [
   // no double up required since this template covers multiple areas of the screen
-  ['level-select', 'LevelSelect', [0, 0, 1, 1]],
-  ['mission-status-completed', 'EndLevelComplete', [0, 0, 1, 0.5]],
-  ['killed-in-action', 'EndLevelFailed', [0, 0, 1, 0.5]],
-  ['aborted', 'EndLevelFailed', [0, 0, 1, 0.5]],
-  ['mission-status', 'EndLevelFailed', [0, 0, 1, 0.5]],
-  ['statistics', 'EndLevelStats', [0, 0, 1, 0.5]],
-  ['time', 'EndLevelStats', [0, 0, 1, 0.5]],
-  ['primary-objectives', 'StartLevel', [0, 0, 1, 0.5]],
-  ['start', 'StartLevel', [0.5, 0, 1, 0.5]],
+  ['level-select', 'LevelSelect'],
+  ['mission-status-completed', 'EndLevelComplete'],
+  ['killed-in-action', 'EndLevelFailed'],
+  ['aborted', 'EndLevelFailed'],
+  ['mission-status', 'EndLevelFailed'],
+  ['statistics', 'EndLevelStats'],
+  ['time', 'EndLevelStats'],
+  ['primary-objectives', 'StartLevel'],
+  ['start', 'StartLevel'],
 ]
 
 // NOTE: opencv4nodejs breaks when used in workers, so we create a process pool instead.
@@ -31,8 +32,8 @@ class Worker {
     });
   }
 
-  async init(filename: string, screen: Screen, cropRegion: [number, number, number, number]) {
-    this.process.send({ type: 'init', filename, screen, cropRegion });
+  async init(filename: string, screen: Screen) {
+    this.process.send({ type: 'init', filename, screen });
 
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject('worker process timed out'), 1000);
@@ -45,7 +46,7 @@ class Worker {
     });
   }
 
-  async match(buffer: Buffer, rows: number, cols: number, matType: number): Promise<Screen | null> {
+  async match(buffer: Buffer, rows: number, cols: number, matType: number): Promise<{ maxVal: number, screen: Screen | null }> {
     this.process.send({ type: 'match', buffer, rows, cols, matType });
 
     return new Promise((resolve, reject) => {
@@ -53,7 +54,7 @@ class Worker {
       this.process.once('message', (message: any) => {
         if (message.type === 'match') {
           clearTimeout(timer);
-          resolve(message.screen);
+          resolve(message);
         }
       });
     });
@@ -63,9 +64,9 @@ class Worker {
 const workers: Worker[] = await Promise.all(
   (
     matchers
-  ).map(async ([filename, screen, cropRegion]) => {
+  ).map(async ([filename, screen]) => {
     const worker = new Worker();
-    await worker.init(filename, screen, cropRegion);
+    await worker.init(filename, screen);
     worker.process.on('error', (err) => console.error(`[worker:${screen}] error:`, err));
     worker.process.on('exit', (code, signal) =>
       console.error(`[worker:${screen}] exited with code ${code} and signal ${signal}`),
@@ -75,13 +76,21 @@ const workers: Worker[] = await Promise.all(
   }),
 );
 
-export async function matchScreen(jpegDataUri: string): Promise<Screen | null> {
+export interface MatchResult { maxVal: number, screen: Screen, matcher: string }
+export async function matchScreen(jpegDataUri: string): Promise<MatchResult | null> {
   const jpegData = Buffer.from(jpegDataUri.split(',')[1], 'base64');
-  const sourceImage = cv.imdecode(jpegData).rescale(0.25).cvtColor(cv.COLOR_BGR2GRAY);
+  const sourceImage = cv.imdecode(jpegData).rescale(scale).cvtColor(cv.COLOR_BGR2GRAY);
   const { rows, cols, type } = sourceImage;
   const sourceData = sourceImage.getData();
 
-  const results = await Promise.all<Screen | null>(workers.map((worker) => worker.match(sourceData, rows, cols, type)));
+  const results = await Promise.all<MatchResult | null>(workers.map(async (worker, i) => {
+    const { maxVal, screen } = await worker.match(sourceData, rows, cols, type);
+    if (screen) {
+      return { maxVal, screen, matcher: matchers[i][0] };
+    }
+
+    return null;
+  }));
 
   return results.find((result) => result !== null) ?? null;
 }
