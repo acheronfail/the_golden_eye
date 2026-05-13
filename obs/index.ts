@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 
 import { OBSWebSocket } from 'obs-websocket-js/msgpack';
-import blessed, { Widgets } from 'blessed';
+import blessed, { type Widgets } from 'blessed';
 
-import { readEnv } from './envfile';
+import { readEnv } from './envfile.ts';
 import {
   createWelcomeBox,
   createLevelStartBox,
@@ -15,11 +15,11 @@ import {
   createRecordingBox,
   createStatisticsBox,
   createWarningBox,
-} from './boxes';
+} from './boxes.ts';
 import { dirname, join } from 'node:path';
-import { LlamaProcess } from './llama';
-import { MatcherProcessPool } from './matcher';
-import { UploaderProcess } from './uploader';
+import { LlamaProcess } from './llama.ts';
+import { MatcherProcessPool } from './matcher.ts';
+import { UploaderProcess } from './uploader.ts';
 
 await readEnv();
 

@@ -1,7 +1,7 @@
 import cv from '@u4/opencv4nodejs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { matchThreshold, scale } from './common';
+import { matchThreshold, scale } from './common.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

@@ -1,13 +1,13 @@
 import cp from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { LevelInfo } from './parse';
+import type { LevelInfo } from './parse.ts';
 
 export class UploaderProcess {
   process: cp.ChildProcess;
 
   constructor() {
-    this.process = cp.fork(fileURLToPath(new URL('./matcher-process.js', import.meta.url)), [], {
+    this.process = cp.fork(fileURLToPath(new URL('./upload-process.ts', import.meta.url)), [], {
       serialization: 'advanced',
     });
   }

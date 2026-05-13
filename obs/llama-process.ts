@@ -1,4 +1,4 @@
-import { extractLevelInfo } from "./parse";
+import { extractLevelInfo } from "./parse.ts";
 
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';

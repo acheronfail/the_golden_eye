@@ -4,9 +4,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "obs": "tsx obs/index.ts",
-    "repl": "tsx scripts/repl.ts",
-    "scrape": "tsx scripts/scrape-web.ts"
+    "obs": "node --strip-types obs/index.ts",
+    "repl": "node --strip-types scripts/repl.ts",
+    "scrape": "node --strip-types scripts/scrape-web.ts"
   },
   "keywords": [],
   "author": "",
@@ -20,8 +20,7 @@
     "googleapis": "^171.4.0",
     "node-llama-cpp": "^3.18.1",
     "obs-websocket-js": "^5.0.8",
-    "playwright": "^1.59.1",
-    "tsx": "^4.21.0"
+    "playwright": "^1.59.1"
   },
   "devDependencies": {
     "@types/blessed": "^0.1.27",

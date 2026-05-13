@@ -1,14 +1,13 @@
 import cp from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-import { LevelInfo } from './parse';
+import type { LevelInfo } from './parse.ts';
 
 export class LlamaProcess {
   process: cp.ChildProcess;
   initialised: Promise<void>;
 
   constructor() {
-    this.process = cp.fork(fileURLToPath(new URL('./llama-process.js', import.meta.url)), [], {
+    this.process = cp.fork(fileURLToPath(new URL('./llama-process.ts', import.meta.url)), [], {
       serialization: 'advanced',
     });
 

@@ -1,7 +1,7 @@
 import cp from 'node:child_process';
 import { fileURLToPath } from 'url';
 import cv from '@u4/opencv4nodejs';
-import { scale } from './common';
+import { scale } from './common.ts';
 
 // NOTE: order matters, since "EndLevelFailed" is a subset of "EndLevelComplete" when using the
 // "mission-status" template.
@@ -27,7 +27,7 @@ class Worker {
   process: cp.ChildProcess;
 
   constructor() {
-    this.process = cp.fork(fileURLToPath(new URL('./matcher-process.js', import.meta.url)), [], {
+    this.process = cp.fork(fileURLToPath(new URL('./matcher-process.ts', import.meta.url)), [], {
       serialization: 'advanced',
     });
   }
@@ -73,7 +73,10 @@ export interface MatchResult {
 }
 
 export class MatcherProcessPool {
-  private constructor(private readonly workers: Worker[]) {}
+  private readonly workers: Worker[]
+  private constructor(workers: Worker[]) {
+    this.workers = workers;
+  }
 
   public static async init() {
     const workers = await Promise.all(

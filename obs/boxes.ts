@@ -1,6 +1,6 @@
-import blessed, { Widgets } from 'blessed';
+import blessed, { type Widgets } from 'blessed';
 import figlet from 'figlet';
-import { LevelInfo } from './parse';
+import type { LevelInfo } from './parse.ts';
 
 type StatusBoxOptions = {
   borderColor: string;

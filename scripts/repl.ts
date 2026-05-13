@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises'
 import { OBSWebSocket } from 'obs-websocket-js/msgpack';
-import { readEnv } from '../obs/envfile';
-import { LlamaProcess } from '../obs/llama';
-import { MatcherProcessPool } from '../obs/matcher';
+import { readEnv } from '../obs/envfile.ts';
+import { LlamaProcess } from '../obs/llama.ts';
+import { MatcherProcessPool } from '../obs/matcher.ts';
 
 await readEnv();
 
