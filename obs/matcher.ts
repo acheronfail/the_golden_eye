@@ -16,17 +16,17 @@ const Screens = [
 export type Screen = (typeof Screens)[number];
 
 // NOTE: double up for redundancy, in case the crosshair occludes part of the screen
-const matchers: [string, Screen][] = [
+const matchers: [Screen, string][] = [
   // no double up required since this template covers multiple areas of the screen
-  ["level-select", "LevelSelect"],
-  ["mission-status-completed", "EndLevelComplete"],
-  ["killed-in-action", "EndLevelFailed"],
-  ["aborted", "EndLevelFailed"],
-  ["mission-status", "EndLevelFailed"],
-  ["statistics", "EndLevelStats"],
-  ["time", "EndLevelStats"],
-  ["primary-objectives", "StartLevel"],
-  ["start", "StartLevel"],
+  ["LevelSelect", "level"],
+  ["EndLevelComplete", "complete"],
+  ["EndLevelFailed", "kia"],
+  ["EndLevelFailed", "abort"],
+  ["EndLevelFailed", "failed"],
+  ["EndLevelStats", "stats"],
+  ["EndLevelStats", "stats-time"],
+  ["StartLevel", "start-objectives"],
+  ["StartLevel", "start"],
 ];
 
 // NOTE: opencv4nodejs breaks when used in workers, so we create a process pool instead.
@@ -96,11 +96,11 @@ export class MatcherProcessPool {
     this.workers = workers;
   }
 
-  public static async init() {
+  public static async init(lang: 'en' | 'jp') {
     const workers = await Promise.all(
-      matchers.map(async ([filename, screen]) => {
+      matchers.map(async ([screen, filename]) => {
         const worker = new Worker();
-        await worker.init(filename, screen);
+        await worker.init(`${lang}-${filename}`, screen);
         worker.process.on("error", (err) =>
           console.error(`[worker:${screen}] error:`, err),
         );

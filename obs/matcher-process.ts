@@ -31,7 +31,7 @@ process.on("message", async (data: MatcherProcessMessage) => {
       const { filename } = data;
       screen = data.screen;
       image = cv
-        .imread(join(__dirname, "match-images", `${filename}.png`))
+        .imread(join(__dirname, "templates", `${filename}.png`))
         .rescale(scale)
         .cvtColor(cv.COLOR_BGR2GRAY);
       send({ type: "init-complete" });

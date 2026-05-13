@@ -23,6 +23,19 @@ import { createVideoFileName } from "./naming.ts";
 
 await readEnv();
 
+const lang: 'en' | 'jp' = (() => {
+  const envLang = process.env.GE_LANG;
+  if (!envLang) {
+    return 'en';
+  }
+
+  if (envLang === 'en' || envLang === 'jp') {
+    return envLang;
+  }
+
+  throw new Error('Invalid GE_LANG value');
+})();
+
 //
 // Dependencies
 //
@@ -30,7 +43,7 @@ await readEnv();
 const llama = new LlamaProcess();
 await llama.initialised;
 
-const matcher = await MatcherProcessPool.init();
+const matcher = await MatcherProcessPool.init(lang);
 
 const obs = new OBSWebSocket();
 
@@ -73,6 +86,17 @@ const screen = blessed.screen({
 });
 
 createWelcomeBox(screen);
+const infoBox = blessed.box({
+  bottom: 2,
+  left: 1,
+  width: 'shrink',
+  height: 1,
+  content: `lang: ${lang}`,
+  style: {
+    fg: 'white',
+    bg: 'black',
+  },
+});
 const loopTimingBox = blessed.box({
   bottom: 1,
   left: 1,
@@ -90,9 +114,9 @@ screen.render();
 const updateActiveBox = (newBox: Widgets.BoxElement) => {
   screen.children.forEach((child) => screen.remove(child));
   screen.append(newBox);
+  screen.append(infoBox);
 
   // if we're still monitoring need to re-append timing box so it stays on top
-  screen.append(loopTimingBox);
   if (isMonitoring) {
     screen.append(loopTimingBox);
   } else {

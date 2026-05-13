@@ -21,7 +21,7 @@ const quit = async () => {
 let screenshotPrefix = "screenshot";
 const screenshot = async () => {
   const { imageData } = await obs.call("GetSourceScreenshot", {
-    sourceName: process.env.SOURCE_NAME,
+    sourceName: process.env.OBS_SOURCE_NAME,
     imageFormat: "png",
   });
 
@@ -32,7 +32,7 @@ const screenshot = async () => {
 
 const match = async () => {
   const { imageData } = await obs.call("GetSourceScreenshot", {
-    sourceName: process.env.SOURCE_NAME,
+    sourceName: process.env.OBS_SOURCE_NAME,
     imageFormat: "jpg",
   });
 
@@ -52,7 +52,7 @@ const watch = async () => {
 
 const text = async () => {
   const { imageData } = await obs.call("GetSourceScreenshot", {
-    sourceName: process.env.SOURCE_NAME,
+    sourceName: process.env.OBS_SOURCE_NAME,
     imageFormat: "jpg",
   });
 
