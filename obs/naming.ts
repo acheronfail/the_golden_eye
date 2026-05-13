@@ -1,14 +1,20 @@
-import { DifficiultyNumberMap, LevelNumberMap, type Difficulty, type Level, type LevelInfo } from './parse.ts';
+import {
+  DifficiultyNumberMap,
+  LevelNumberMap,
+  type Difficulty,
+  type Level,
+  type LevelInfo,
+} from "./parse.ts";
 
-const separator = ' - ';
+const separator = " - ";
 
 export function createVideoFileName(levelInfo: LevelInfo): string {
   const formattedTime = `${Math.floor(levelInfo.time / 60)
     .toString()
-    .padStart(2, '0')}:${(levelInfo.time % 60).toString().padStart(2, '0')}`;
+    .padStart(2, "0")}:${(levelInfo.time % 60).toString().padStart(2, "0")}`;
 
   return [
-    levelInfo.levelNumber.toString().padStart(2, '0'),
+    levelInfo.levelNumber.toString().padStart(2, "0"),
     levelInfo.level,
     levelInfo.difficulty,
     formattedTime,
@@ -62,15 +68,17 @@ export interface YoutubeVideoInfo {
   description: string;
 }
 
-export function createYoutubeTitle(nameParts: VideoNameParts): YoutubeVideoInfo {
+export function createYoutubeTitle(
+  nameParts: VideoNameParts,
+): YoutubeVideoInfo {
   const { level, difficulty, time, date } = nameParts;
   const title = [level, difficulty, time].join(separator);
   const description = `Date achieved: ${date.toLocaleString([], {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
   })}`;
 
   return { title, description };

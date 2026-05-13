@@ -1,26 +1,30 @@
-import cp from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import type { LevelInfo } from './parse.ts';
-import type { LlamaProcessMessage } from './llama-process.ts';
+import cp from "node:child_process";
+import { fileURLToPath } from "node:url";
+import type { LevelInfo } from "./parse.ts";
+import type { LlamaProcessMessage } from "./llama-process.ts";
 
 export class LlamaProcess {
   process: cp.ChildProcess;
   initialised: Promise<void>;
 
   constructor() {
-    this.process = cp.fork(fileURLToPath(new URL('./llama-process.ts', import.meta.url)), [], {
-      serialization: 'advanced',
-    });
+    this.process = cp.fork(
+      fileURLToPath(new URL("./llama-process.ts", import.meta.url)),
+      [],
+      {
+        serialization: "advanced",
+      },
+    );
 
     this.initialised = new Promise<void>((resolve, reject) => {
-      this.process.once('message', (message: LlamaProcessMessage) => {
-        if (message.type === 'ready') {
+      this.process.once("message", (message: LlamaProcessMessage) => {
+        if (message.type === "ready") {
           resolve();
-          this.process.removeListener('error', reject);
+          this.process.removeListener("error", reject);
         }
       });
 
-      this.process.addListener('error', reject);
+      this.process.addListener("error", reject);
     });
   }
 
@@ -29,10 +33,10 @@ export class LlamaProcess {
   }
 
   extractText(imageData: string): Promise<string> {
-    this.send({ type: 'extract-text', imageData });
+    this.send({ type: "extract-text", imageData });
     return new Promise((resolve) => {
-      this.process.once('message', (message: LlamaProcessMessage) => {
-        if (message.type === 'extracted-text') {
+      this.process.once("message", (message: LlamaProcessMessage) => {
+        if (message.type === "extracted-text") {
           resolve(message.text);
         }
       });
@@ -40,10 +44,10 @@ export class LlamaProcess {
   }
 
   sendImage(imageData: string): Promise<LevelInfo> {
-    this.send({ type: 'extract-level-info', imageData });
+    this.send({ type: "extract-level-info", imageData });
     return new Promise((resolve) => {
-      this.process.once('message', (message: LlamaProcessMessage) => {
-        if (message.type === 'level-info') {
+      this.process.once("message", (message: LlamaProcessMessage) => {
+        if (message.type === "level-info") {
           resolve(message.levelInfo);
         }
       });
@@ -51,7 +55,7 @@ export class LlamaProcess {
   }
 
   kill() {
-    this.send({ type: 'shutdown' });
+    this.send({ type: "shutdown" });
     setTimeout(() => this.process.kill(), 100);
   }
 }

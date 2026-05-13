@@ -1,9 +1,9 @@
-import fs from 'node:fs/promises';
+import fs from "node:fs/promises";
 
-import { OBSWebSocket } from 'obs-websocket-js/msgpack';
-import blessed, { type Widgets } from 'blessed';
+import { OBSWebSocket } from "obs-websocket-js/msgpack";
+import blessed, { type Widgets } from "blessed";
 
-import { readEnv } from './envfile.ts';
+import { readEnv } from "./envfile.ts";
 import {
   createWelcomeBox,
   createLevelStartBox,
@@ -15,11 +15,11 @@ import {
   createRecordingBox,
   createStatisticsBox,
   createWarningBox,
-} from './boxes.ts';
-import { dirname, join } from 'node:path';
-import { LlamaProcess } from './llama.ts';
-import { MatcherProcessPool } from './matcher.ts';
-import { createVideoFileName } from './naming.ts';
+} from "./boxes.ts";
+import { dirname, join } from "node:path";
+import { LlamaProcess } from "./llama.ts";
+import { MatcherProcessPool } from "./matcher.ts";
+import { createVideoFileName } from "./naming.ts";
 
 await readEnv();
 
@@ -35,15 +35,15 @@ const matcher = await MatcherProcessPool.init();
 const obs = new OBSWebSocket();
 
 const remove = async (filepath: string) => {
-  await fs.unlink(filepath).catch(() => { });
+  await fs.unlink(filepath).catch(() => {});
 };
 
 const exit = async () => {
   try {
     {
-      const { outputActive } = await obs.call('GetRecordStatus');
+      const { outputActive } = await obs.call("GetRecordStatus");
       if (outputActive) {
-        await obs.call('StopRecord');
+        await obs.call("StopRecord");
       }
     }
 
@@ -69,19 +69,19 @@ let recordingSaveTimer: number | null = null;
 
 const screen = blessed.screen({
   smartCSR: true,
-  title: 'The Golden Eye',
+  title: "The Golden Eye",
 });
 
 createWelcomeBox(screen);
 const loopTimingBox = blessed.box({
   bottom: 1,
   left: 1,
-  width: 'shrink',
+  width: "shrink",
   height: 1,
-  content: 'Loop: -- ms',
+  content: "Loop: -- ms",
   style: {
-    fg: 'white',
-    bg: 'black',
+    fg: "white",
+    bg: "black",
   },
 });
 
@@ -102,34 +102,34 @@ const updateActiveBox = (newBox: Widgets.BoxElement) => {
 };
 
 let pauseToggleRequested = true;
-screen.key('space', function () {
+screen.key("space", function () {
   pauseToggleRequested = true;
   onPauseToggleRequested();
 });
 
-screen.key(['escape', 'q', 'C-c'], () => exit());
+screen.key(["escape", "q", "C-c"], () => exit());
 
 //
 // Main loop
 //
 
-let onPauseToggleRequested = () => { };
-let saveRecordingResolver: (value: string) => void = () => { };
-let saveRecordingPromise: Promise<string> = Promise.reject('nope');
-saveRecordingPromise.catch(() => { }); // avoid unhandled rejection if never set
+let onPauseToggleRequested = () => {};
+let saveRecordingResolver: (value: string) => void = () => {};
+let saveRecordingPromise: Promise<string> = Promise.reject("nope");
+saveRecordingPromise.catch(() => {}); // avoid unhandled rejection if never set
 
 try {
-  await obs.connect('ws://localhost:4455', process.env.OBS_PASSWORD);
+  await obs.connect("ws://localhost:4455", process.env.OBS_PASSWORD);
 
   // if replay buffer is active, stop it, we don't use it and it can cause issues with recording timing
   {
-    const { outputActive } = await obs.call('GetReplayBufferStatus');
+    const { outputActive } = await obs.call("GetReplayBufferStatus");
     if (outputActive) {
-      await obs.call('StopReplayBuffer');
+      await obs.call("StopReplayBuffer");
     }
   }
 
-  for (; ;) {
+  for (;;) {
     // pause
     if (pauseToggleRequested) {
       pauseToggleRequested = false;
@@ -140,9 +140,9 @@ try {
       isMonitoring = false;
       updateActiveBox(createWelcomeBox(screen));
 
-      const { outputActive } = await obs.call('GetRecordStatus');
+      const { outputActive } = await obs.call("GetRecordStatus");
       if (outputActive) {
-        const { outputPath } = await obs.call('StopRecord');
+        const { outputPath } = await obs.call("StopRecord");
         await remove(outputPath);
       }
 
@@ -155,9 +155,9 @@ try {
 
     // main loop, grab frame
     const start = performance.now();
-    const { imageData } = await obs.call('GetSourceScreenshot', {
+    const { imageData } = await obs.call("GetSourceScreenshot", {
       sourceName: process.env.SOURCE_NAME,
-      imageFormat: 'jpg',
+      imageFormat: "jpg",
     });
 
     const matchResult = await matcher.matchScreen(imageData);
@@ -165,27 +165,33 @@ try {
       const { screen: gameScreen } = matchResult;
 
       // if we've been waiting for stats and it's been a few seconds, save the recording and show stats
-      if (recordingSaveTimer !== null && (gameScreen !== 'EndLevelStats' || Date.now() > recordingSaveTimer + 5000)) {
-        const { outputActive } = await obs.call('GetRecordStatus');
+      if (
+        recordingSaveTimer !== null &&
+        (gameScreen !== "EndLevelStats" ||
+          Date.now() > recordingSaveTimer + 5000)
+      ) {
+        const { outputActive } = await obs.call("GetRecordStatus");
         if (outputActive) {
-          const { outputPath } = await obs.call('StopRecord');
+          const { outputPath } = await obs.call("StopRecord");
           saveRecordingResolver?.(outputPath);
           updateActiveBox(createWaitingBox(screen));
         } else {
-          updateActiveBox(createWarningBox(screen, "expected to be recording but wasn't?"));
+          updateActiveBox(
+            createWarningBox(screen, "expected to be recording but wasn't?"),
+          );
         }
 
         recordingSaveTimer = null;
       }
 
       // start level
-      if (gameScreen === 'StartLevel' && !inSession) {
+      if (gameScreen === "StartLevel" && !inSession) {
         inSession = true;
         updateActiveBox(createLevelStartBox(screen));
-        const { outputActive } = await obs.call('GetRecordStatus');
+        const { outputActive } = await obs.call("GetRecordStatus");
         if (!outputActive) {
-          await obs.call('StartRecord');
-          while (!(await obs.call('GetRecordStatus')).outputActive) {
+          await obs.call("StartRecord");
+          while (!(await obs.call("GetRecordStatus")).outputActive) {
             // wait for recording to actually start, note that if OBS has the reply buffer
             // active this can lag by a number of seconds!
             await new Promise((resolve) => setTimeout(resolve, 200));
@@ -195,51 +201,51 @@ try {
           updateActiveBox(
             createWarningBox(
               screen,
-              'already recording when not expected to be recording',
+              "already recording when not expected to be recording",
             ),
           );
         }
       }
 
       // exit to level select
-      if (gameScreen === 'LevelSelect' && inSession) {
+      if (gameScreen === "LevelSelect" && inSession) {
         inSession = false;
         updateActiveBox(createWaitingBox(screen));
-        const { outputActive } = await obs.call('GetRecordStatus');
+        const { outputActive } = await obs.call("GetRecordStatus");
         if (outputActive) {
-          const { outputPath } = await obs.call('StopRecord');
+          const { outputPath } = await obs.call("StopRecord");
           await remove(outputPath);
         }
       }
 
       // fail
-      if (gameScreen === 'EndLevelFailed' && inSession) {
+      if (gameScreen === "EndLevelFailed" && inSession) {
         inSession = false;
         updateActiveBox(createLevelFailedBox(screen));
-        const { outputActive } = await obs.call('GetRecordStatus');
+        const { outputActive } = await obs.call("GetRecordStatus");
         if (outputActive) {
-          const { outputPath } = await obs.call('StopRecord');
+          const { outputPath } = await obs.call("StopRecord");
           await remove(outputPath);
         }
       }
 
       // complete
-      if (gameScreen === 'EndLevelComplete' && inSession) {
+      if (gameScreen === "EndLevelComplete" && inSession) {
         waitingForStats = true;
         inSession = false;
         updateActiveBox(createLevelCompleteBox(screen));
       }
 
       // stats screen
-      if (gameScreen === 'EndLevelStats' && waitingForStats) {
+      if (gameScreen === "EndLevelStats" && waitingForStats) {
         waitingForStats = false;
         recordingSaveTimer = Date.now();
         updateActiveBox(createStatisticsBox(screen));
 
         // OCR works better with higher quality images, so we fetch a PNG
-        const { imageData } = await obs.call('GetSourceScreenshot', {
+        const { imageData } = await obs.call("GetSourceScreenshot", {
           sourceName: process.env.SOURCE_NAME,
-          imageFormat: 'png',
+          imageFormat: "png",
         });
 
         saveRecordingPromise = new Promise<string>((resolve) => {
@@ -248,7 +254,9 @@ try {
 
         const ocrTimeStart = Date.now();
         llama.sendImage(imageData).then(async (levelInfo) => {
-          const isPb = levelInfo.bestTime !== undefined && levelInfo.time < levelInfo.bestTime;
+          const isPb =
+            levelInfo.bestTime !== undefined &&
+            levelInfo.time < levelInfo.bestTime;
 
           if (!inSession && isMonitoring && Date.now() < ocrTimeStart + 5000) {
             if (isPb) {
@@ -262,8 +270,8 @@ try {
           const outputDir = dirname(outputPath);
           const basename = createVideoFileName(levelInfo);
 
-          const recordingPath = join(outputDir, 'Goldeneye', `${basename}.mp4`);
-          await fs.mkdir(join(outputDir, 'Goldeneye'), { recursive: true });
+          const recordingPath = join(outputDir, "Goldeneye", `${basename}.mp4`);
+          await fs.mkdir(join(outputDir, "Goldeneye"), { recursive: true });
           await fs.rename(outputPath, recordingPath);
         });
       }

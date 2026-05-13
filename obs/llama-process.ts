@@ -1,21 +1,25 @@
-import { extractLevelInfo, type LevelInfo } from './parse.ts';
+import { extractLevelInfo, type LevelInfo } from "./parse.ts";
 
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-import cp from 'node:child_process';
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import cp from "node:child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const modelPath = path.join(__dirname, '..', 'models/gemma-4-E2B-it-Q4_K_M.gguf');
-const mmprojPath = path.join(__dirname, '..', 'models/mmproj-BF16.gguf');
-const modelName = path.basename(modelPath, '.gguf');
+const modelPath = path.join(
+  __dirname,
+  "..",
+  "models/gemma-4-E2B-it-Q4_K_M.gguf",
+);
+const mmprojPath = path.join(__dirname, "..", "models/mmproj-BF16.gguf");
+const modelName = path.basename(modelPath, ".gguf");
 
 export type LlamaProcessMessage =
-  | { type: 'ready' }
-  | { type: 'shutdown' }
-  | { type: 'extract-level-info'; imageData: string }
-  | { type: 'level-info'; levelInfo: LevelInfo }
-  | { type: 'extract-text'; imageData: string }
-  | { type: 'extracted-text'; text: string };
+  | { type: "ready" }
+  | { type: "shutdown" }
+  | { type: "extract-level-info"; imageData: string }
+  | { type: "level-info"; levelInfo: LevelInfo }
+  | { type: "extract-text"; imageData: string }
+  | { type: "extracted-text"; text: string };
 
 function send(message: LlamaProcessMessage) {
   process.send!(message);
@@ -25,16 +29,18 @@ export class LlamaWrapper {
   server: cp.ChildProcessWithoutNullStreams;
 
   constructor() {
-    this.server = cp.spawn('./llama/llama-server', [
+    this.server = cp.spawn("./llama/llama-server", [
       ...[`--model`, `${modelPath}`],
       ...[`--mmproj`, `${mmprojPath}`],
-      ...['--ctx-size', '1024'],
-      ...['--port', '1234'],
-      ...['--host', 'localhost'],
-      ...['--temperature', '0.0'],
-      ...['--repeat-penalty', '1.2'],
-      ...['--reasoning', 'off'],
-      ...(process.env.LLAMA_EXTRA_ARGS ? process.env.LLAMA_EXTRA_ARGS.split(' ') : []),
+      ...["--ctx-size", "1024"],
+      ...["--port", "1234"],
+      ...["--host", "localhost"],
+      ...["--temperature", "0.0"],
+      ...["--repeat-penalty", "1.2"],
+      ...["--reasoning", "off"],
+      ...(process.env.LLAMA_EXTRA_ARGS
+        ? process.env.LLAMA_EXTRA_ARGS.split(" ")
+        : []),
     ]);
 
     this.server.stdout.pipe(process.stdout);
@@ -46,77 +52,79 @@ export class LlamaWrapper {
       this.server.kill();
     };
 
-    process.on('exit', killServer);
-    process.on('SIGTERM', () => {
+    process.on("exit", killServer);
+    process.on("SIGTERM", () => {
       killServer();
       process.exit(1);
     });
-    process.on('SIGINT', () => {
+    process.on("SIGINT", () => {
       killServer();
       process.exit(1);
     });
 
-    this.server.stderr.on('data', (data) => {
-      if (data.toString().includes('server is listening')) {
-        send({ type: 'ready' });
+    this.server.stderr.on("data", (data) => {
+      if (data.toString().includes("server is listening")) {
+        send({ type: "ready" });
       }
     });
   }
 
   async extractText(imageDataUrl: string) {
-    const res = await fetch('http://localhost:1234/v1/chat/completions', {
-      method: 'POST',
+    const res = await fetch("http://localhost:1234/v1/chat/completions", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         model: modelName,
-        tool_choice: 'required',
+        tool_choice: "required",
         tools: [
           {
-            type: 'function',
+            type: "function",
             function: {
-              name: 'extract_text',
+              name: "extract_text",
               description:
                 'Extract text from an image. The "text" field is all the text, the "missionNumber" field is the number after "mission" near the start, and "partNumber" is the string of roman numerals after "part" in the text.',
               parameters: {
-                type: 'object',
+                type: "object",
                 properties: {
                   text: {
-                    type: 'string',
-                    description: 'The text extracted from the image.',
+                    type: "string",
+                    description: "The text extracted from the image.",
                   },
                   missionNumber: {
-                    type: 'number',
+                    type: "number",
                     description: 'The number after "mission" in the text.',
                   },
                   partNumber: {
-                    type: 'string',
-                    description: 'The roman numerals after "part" in the text, as a lowercase string (e.g. "iii").',
+                    type: "string",
+                    description:
+                      'The roman numerals after "part" in the text, as a lowercase string (e.g. "iii").',
                   },
                 },
-                required: ['text'],
+                required: ["text"],
               },
             },
           },
         ],
         messages: [
           {
-            role: 'system',
-            content: 'You are an OCR program that outputs the text in an image in plain text with nothing else.',
+            role: "system",
+            content:
+              "You are an OCR program that outputs the text in an image in plain text with nothing else.",
           },
           {
-            role: 'user',
+            role: "user",
             content: [
               {
-                type: 'image_url',
+                type: "image_url",
                 image_url: {
                   url: imageDataUrl,
                 },
               },
               {
-                type: 'text',
-                text: 'Extract the text from this image, and call the extract_text tool.',
+                type: "text",
+                text: "Extract the text from this image, and call the extract_text tool.",
               },
             ],
           },
@@ -125,11 +133,15 @@ export class LlamaWrapper {
     });
 
     if (!res.ok) {
-      throw new Error(`Request failed with status ${res.status}: ${await res.text()}`);
+      throw new Error(
+        `Request failed with status ${res.status}: ${await res.text()}`,
+      );
     }
 
     const data = await res.json();
-    const result = JSON.parse(data.choices[0].message.tool_calls[0].function.arguments);
+    const result = JSON.parse(
+      data.choices[0].message.tool_calls[0].function.arguments,
+    );
     return result.text;
   }
 
@@ -144,26 +156,26 @@ export class LlamaWrapper {
 
 const llama = new LlamaWrapper();
 
-process.on('message', async (data: LlamaProcessMessage) => {
+process.on("message", async (data: LlamaProcessMessage) => {
   try {
     const { type } = data;
-    if (type === 'shutdown') {
+    if (type === "shutdown") {
       llama.kill();
       process.exit(0);
     }
 
-    if (type === 'extract-level-info') {
+    if (type === "extract-level-info") {
       const { imageData } = data;
       const text = await llama.extractText(imageData);
       const levelInfo = extractLevelInfo(text);
-      send({ type: 'level-info', levelInfo });
+      send({ type: "level-info", levelInfo });
     }
-    if (type === 'extract-text') {
+    if (type === "extract-text") {
       const { imageData } = data;
       const text = await llama.extractText(imageData);
-      send({ type: 'extracted-text', text });
+      send({ type: "extracted-text", text });
     }
   } catch (err) {
-    console.error('Error handling message:', err);
+    console.error("Error handling message:", err);
   }
 });
