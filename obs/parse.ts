@@ -9,12 +9,18 @@ const Levels = [
   ['Aztec'],
   ['Egyptian'],
 ] as const;
-type Level = (typeof Levels)[number][number];
+export type Level = (typeof Levels)[number][number];
 
-const LevelNumberMap = new Map(Levels.flat().map((level, i) => [level, i + 1]));
+export const LevelNumberMap = new Map(Levels.flat().map((level, i) => [level, i + 1]));
 
 const Difficulties = ['Secret Agent', '00 Agent', '007', 'Agent'] as const;
-type Difficulty = (typeof Difficulties)[number];
+export type Difficulty = (typeof Difficulties)[number];
+export const DifficiultyNumberMap = new Map<Difficulty, number>([
+  ['Agent', 0],
+  ['Secret Agent', 1],
+  ['00 Agent', 2],
+  ['007', 3],
+]);
 
 const parseTime = (time: string) => {
   const [minutes, seconds] = time.split(':').map(Number);

@@ -7,9 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { google } from 'googleapis';
+import open from 'open';
 import { readEnv } from '../obs/envfile.ts';
 import { checkbox } from '@inquirer/prompts';
-import { parseVideoName } from '../obs/naming.ts';
+import { createYoutubeTitle, parseVideoName, parseYoutubeTitle } from '../obs/naming.ts';
+import { createReadStream } from 'node:fs';
 
 //
 // Setup
@@ -17,17 +19,17 @@ import { parseVideoName } from '../obs/naming.ts';
 
 await readEnv();
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-const playlistTitle = process.env.PLAYLIST_TITLE;
-if (!playlistTitle) {
-  console.error('PLAYLIST_TITLE environment variable is not set');
+const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
+if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+  console.error('Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET in environment');
   process.exit(1);
 }
 
-const [, , videoDir] = process.argv;
-if (!videoDir || process.argv.length !== 3) {
-  console.error('Usage: just upload <videoDir>');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const [, , pbPlaylistTitle, allPlaylistTitle, videoDir] = process.argv;
+if (!videoDir || !pbPlaylistTitle || !allPlaylistTitle || process.argv.length !== 5) {
+  console.error('Usage: just upload <pbPlaylistTitle> <allPlaylistTitle> <videoDir>');
   process.exit(1);
 }
 
@@ -95,11 +97,9 @@ await new Promise((resolve) => server.on('listening', resolve));
 const addr = server.address();
 const port = typeof addr === 'object' && addr !== null ? addr.port : 0;
 
-const credentials = JSON.parse(await readFile(join(__dirname, 'credentials.json'), 'utf-8'));
-const { client_secret, client_id } = credentials.installed;
-const oauth2Client = new google.auth.OAuth2(client_id, client_secret, `http://localhost:${port}`);
+const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, `http://localhost:${port}`);
 
-if (await stat(tokenPath)) {
+if (await stat(tokenPath).catch(() => false)) {
   oauth2Client.setCredentials(JSON.parse(await readFile(tokenPath, 'utf-8')));
 } else {
   const authorizationUrl = oauth2Client.generateAuthUrl({
@@ -113,14 +113,14 @@ if (await stat(tokenPath)) {
   await writeFile(tokenPath, JSON.stringify(tokens));
 
   oauth2Client.setCredentials(tokens);
-
-  server.close();
-  server.closeAllConnections();
-  await new Promise((resolve) => server.on('close', resolve));
 }
 
+server.close();
+server.closeAllConnections();
+await new Promise((resolve) => server.on('close', resolve));
+
 //
-// Read Playlist
+// Read Playlists
 //
 
 const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
@@ -132,24 +132,45 @@ const { data: existingPlaylists } = await youtube.playlists.list({
   mine: true,
 });
 
-let playlist = existingPlaylists.items?.find((item) => item?.snippet?.title === playlistTitle);
-if (playlist) {
-  console.log('Playlist found');
+let allPlaylist = existingPlaylists.items?.find((item) => item?.snippet?.title === allPlaylistTitle);
+if (allPlaylist) {
+  console.log('All Goldeneye Videos Playlist found');
 } else {
-  console.log('Playlist not found, creating...');
-  ({ data: playlist } = await youtube.playlists.insert({
+  console.log('All Goldeneye Videos Playlist not found, creating...');
+  ({ data: allPlaylist } = await youtube.playlists.insert({
     part: ['snippet', 'status'],
     requestBody: {
       snippet: {
-        title: playlistTitle,
-        description: 'Goldeneye speedruns',
+        title: allPlaylistTitle,
+        description: 'All of my Goldeneye N64 speedrun videos',
       },
       status: {
         privacyStatus: 'unlisted',
       },
     },
   }));
-  console.log('Created new playlist with ID:', playlist.id);
+  console.log('Created new All Goldeneye Videos playlist with ID:', allPlaylist.id);
+}
+
+let pbPlaylist = existingPlaylists.items?.find((item) => item?.snippet?.title === pbPlaylistTitle);
+if (pbPlaylist) {
+  console.log('PB Playlist found');
+} else {
+  console.log('PB Playlist not found, creating...');
+  ({ data: pbPlaylist } = await youtube.playlists.insert({
+    part: ['snippet', 'status'],
+    requestBody: {
+      snippet: {
+        title: pbPlaylistTitle,
+        description: 'PBs for Goldeneye N64 speedruns',
+      },
+      status: {
+        privacyStatus: 'unlisted',
+      },
+    },
+  }));
+  console.log('Created new PB playlist with ID:', pbPlaylist.id);
+  await new Promise((resolve) => setTimeout(resolve, 5_000));
 }
 
 const existingPlaylistItems: {
@@ -161,23 +182,23 @@ const existingPlaylistItems: {
 let nextPageToken: string | undefined = undefined;
 do {
   const { data: playlistItems } = await youtube.playlistItems.list({
+    playlistId: pbPlaylist.id!,
     part: ['snippet'],
-    playlistId: playlist.id,
     pageToken: nextPageToken,
   });
 
   for (const item of playlistItems.items ?? []) {
     existingPlaylistItems.push({
-      id: item.id,
-      title: item.snippet.title,
-      levelName: item.snippet.title.match(/\] (.+?) - /)?.[1],
+      id: item.id!,
+      title: item.snippet!.title!,
+      levelName: item.snippet!.title!.match(/\] (.+?) - /)?.[1],
     });
   }
 
-  nextPageToken = playlistItems.nextPageToken;
+  nextPageToken = playlistItems.nextPageToken as string;
 } while (nextPageToken);
 
-console.log('Existing playlist items:', existingPlaylistItems);
+console.log('Existing PB Playlist items:', existingPlaylistItems);
 
 //
 // Upload Videos
@@ -185,88 +206,101 @@ console.log('Existing playlist items:', existingPlaylistItems);
 
 for (const videoPath of videosToUpload) {
   const videoFileName = basename(videoPath, '.mp4');
-  const nameParts = parseVideoName(videoFileName);
-  if (!nameParts) {
+  const currentNameParts = parseVideoName(videoFileName);
+  if (!currentNameParts) {
     console.warn(`Skipping video with unrecognized name format: ${videoFileName}`);
     continue;
   }
 
-  const { levelNumber, level, difficulty, time, date } = nameParts;
-  const title = [levelNumber, level, difficulty, time].join(' - ');
-  const description = `Date achieved: ${date.toLocaleString([], {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })}`;
+  const { title, description } = createYoutubeTitle(currentNameParts);
 
-  // TODO: upload video
-  // TODO: add video at right place in playlist (alphabetically sorted)
+  if (existingPlaylistItems.find((item) => item.title === title)) {
+    console.log(`Video "${title}" already exists in playlist, skipping upload`);
+    continue;
+  }
+
+  console.log(`Uploading video: ${title}...`);
+  const { data: uploadedVideo } = await youtube.videos.insert({
+    part: ['snippet', 'status'],
+    requestBody: {
+      snippet: {
+        title,
+        description,
+      },
+      status: {
+        privacyStatus: 'unlisted',
+      },
+    },
+    media: {
+      body: createReadStream(videoPath),
+    },
+  });
+  console.log(`Uploaded video with ID: ${uploadedVideo.id}`);
+
+  let videoPosition = existingPlaylistItems.findIndex((item) => {
+    const parts = parseYoutubeTitle(item.title);
+    if (!parts) return false;
+
+    const { levelNumber, difficultyNumber } = parts;
+
+    if (levelNumber > currentNameParts.levelNumber) return true;
+    if (difficultyNumber > currentNameParts.difficultyNumber) return true;
+
+    return levelNumber === currentNameParts.levelNumber && difficultyNumber === currentNameParts.difficultyNumber;
+  });
+
+  if (videoPosition === -1) {
+    videoPosition = existingPlaylistItems.length;
+  }
+
+  const videoAtPosition = existingPlaylistItems[videoPosition];
+  const parts = videoAtPosition && parseYoutubeTitle(videoAtPosition.title);
+  const isSameLevel = parts && parts.levelNumber === currentNameParts.levelNumber && parts.difficultyNumber === currentNameParts.difficultyNumber;
+  const isBetterTime = parts && currentNameParts.time < parts.time;
+
+  // remove video currently at that position if it has a worse time than the one we're adding
+  if (isSameLevel && isBetterTime) {
+    console.log(`Removing existing video at position ${videoPosition} with worse time (${parts.time}) than new video (${currentNameParts.time})`);
+    await youtube.playlistItems.delete({ id: videoAtPosition.id });
+    existingPlaylistItems.splice(videoPosition, 1);
+  }
+
+  // add the video to the pb playlist
+  if (!videoAtPosition || !isSameLevel || isBetterTime) {
+    console.log('Adding video to playlist at position:', videoPosition);
+    const { data: addedPlaylistItem } = await youtube.playlistItems.insert({
+      part: ['snippet'],
+      requestBody: {
+        snippet: {
+          playlistId: pbPlaylist.id,
+          position: videoPosition,
+          resourceId: {
+            kind: 'youtube#video',
+            videoId: uploadedVideo.id,
+          },
+        },
+      },
+    });
+
+    existingPlaylistItems.splice(videoPosition, 0, {
+      id: addedPlaylistItem.id!,
+      title,
+      levelName: currentNameParts.level,
+    });
+  }
+
+  // always add the video to the all videos playlist, even if it's not a PB
+  await youtube.playlistItems.insert({
+    part: ['snippet'],
+    requestBody: {
+      snippet: {
+        playlistId: allPlaylist.id,
+        resourceId: {
+          kind: 'youtube#video',
+          videoId: uploadedVideo.id,
+        },
+      },
+    },
+  });
 }
 
-
-// for (const levelFolder of await readdir(videoDir)) {t bestVideoPath = '';
-//   for await (const videoFile of Deno.readDir(pbFolder)) {
-
-//     if (existingPlaylistItems.find((item) => item.title === title)) {
-//       console.log(`Video "${title}" already exists, skipping upload`);
-//       continue;
-//     }
-
-//     console.log(`Uploading: ${title}`);
-//     const { data: uploadedVideo } = await youtube.videos.insert({
-//       part: ['snippet', 'status'],
-//       requestBody: {
-//         snippet: {
-//           title: title,
-//           description: description,
-//         },
-//         status: {
-//           privacyStatus: 'unlisted',
-//         },
-//       },
-//       media: {
-//         body: createReadStream(bestVideoPath),
-//       },
-//     });
-//     console.log(`Uploaded video with ID: ${uploadedVideo.id}`);
-
-//     let position = existingPlaylistItems.length;
-//     for (let i = levelIndex; i < LEVELS.length; i++) {
-//       const index = existingPlaylistItems.findIndex((x) => x.levelName === LEVELS[i]);
-//       if (index !== -1) {
-//         position = index;
-//         if (i === levelIndex) {
-//           console.log('Removing old video from playlist...');
-//           await youtube.playlistItems.delete({
-//             id: existingPlaylistItems[position].id,
-//           });
-//           existingPlaylistItems.splice(position, 1);
-//         }
-//         break;
-//       }
-//     }
-
-//     console.log('Adding video to playlist at position:', position);
-//     const { data: addedPlaylistItem } = await youtube.playlistItems.insert({
-//       part: ['snippet'],
-//       requestBody: {
-//         snippet: {
-//           playlistId: playlist.id,
-//           position,
-//           resourceId: {
-//             kind: 'youtube#video',
-//             videoId: uploadedVideo.id,
-//           },
-//         },
-//       },
-//     });
-
-//     existingPlaylistItems.splice(position, 0, {
-//       id: addedPlaylistItem.id,
-//       title,
-//       levelName,
-//     });
-//   }
-// }
