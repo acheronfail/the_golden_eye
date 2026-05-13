@@ -17,6 +17,8 @@ import {
 } from "../obs/naming.ts";
 import { createReadStream } from "node:fs";
 
+// TODO: easier to grok console logging, plus easily copyable links for the-elite
+
 //
 // Setup
 //
@@ -185,9 +187,9 @@ let allPlaylist = existingPlaylists.items?.find(
   (item) => item?.snippet?.title === allPlaylistTitle,
 );
 if (allPlaylist) {
-  console.log("All Goldeneye Videos Playlist found");
+  console.log("All Playlist found");
 } else {
-  console.log("All Goldeneye Videos Playlist not found, creating...");
+  console.log("All Playlist not found, creating...");
   ({ data: allPlaylist } = await youtube.playlists.insert({
     part: ["snippet", "status"],
     requestBody: {
@@ -201,7 +203,7 @@ if (allPlaylist) {
     },
   }));
   console.log(
-    "Created new All Goldeneye Videos playlist with ID:",
+    "Created new All Playlist with ID:",
     allPlaylist.id,
   );
 }
