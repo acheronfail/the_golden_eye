@@ -12,6 +12,9 @@ run:
 repl:
   npm run repl
 
+upload dir:
+  npm run upload -- {{dir}}
+
 # download models and download llama-server
 setup:
   OPENCV4NODEJS_DISABLE_AUTOBUILD=1 npm install

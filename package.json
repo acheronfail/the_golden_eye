@@ -6,13 +6,15 @@
   "scripts": {
     "obs": "node --strip-types obs/index.ts",
     "repl": "node --strip-types scripts/repl.ts",
-    "scrape": "node --strip-types scripts/scrape-web.ts"
+    "scrape": "node --strip-types scripts/scrape-web.ts",
+    "upload": "node --strip-types scripts/upload.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@inquirer/prompts": "^8.4.3",
     "@u4/opencv4nodejs": "^7.1.2",
     "blessed": "^0.1.81",
     "cheerio": "^1.2.0",

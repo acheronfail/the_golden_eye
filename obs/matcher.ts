@@ -2,6 +2,7 @@ import cp from 'node:child_process';
 import { fileURLToPath } from 'url';
 import cv from '@u4/opencv4nodejs';
 import { scale } from './common.ts';
+import type { MatcherProcessMessage } from './matcher-process.ts';
 
 // NOTE: order matters, since "EndLevelFailed" is a subset of "EndLevelComplete" when using the
 // "mission-status" template.
@@ -32,8 +33,12 @@ class Worker {
     });
   }
 
+  async send(message: MatcherProcessMessage) {
+    this.process.send!(message);
+  }
+
   async init(filename: string, screen: Screen) {
-    this.process.send({ type: 'init', filename, screen });
+    this.send({ type: 'init', filename, screen });
 
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject('worker process timed out'), 10_000);
@@ -52,12 +57,12 @@ class Worker {
     cols: number,
     matType: number,
   ): Promise<{ maxVal: number; screen: Screen | null }> {
-    this.process.send({ type: 'match', buffer, rows, cols, matType });
+    this.send({ type: 'match', buffer, rows, cols, matType });
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject('worker process timed out'), 1_000);
-      this.process.once('message', (message: any) => {
-        if (message.type === 'match') {
+      this.process.once('message', (message: MatcherProcessMessage) => {
+        if (message.type === 'match-complete') {
           clearTimeout(timer);
           resolve(message);
         }
@@ -73,7 +78,7 @@ export interface MatchResult {
 }
 
 export class MatcherProcessPool {
-  private readonly workers: Worker[]
+  private readonly workers: Worker[];
   private constructor(workers: Worker[]) {
     this.workers = workers;
   }

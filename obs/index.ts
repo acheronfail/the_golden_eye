@@ -19,7 +19,7 @@ import {
 import { dirname, join } from 'node:path';
 import { LlamaProcess } from './llama.ts';
 import { MatcherProcessPool } from './matcher.ts';
-import { UploaderProcess } from './uploader.ts';
+import { createVideoFileName } from './naming.ts';
 
 await readEnv();
 
@@ -31,8 +31,6 @@ const llama = new LlamaProcess();
 await llama.initialised;
 
 const matcher = await MatcherProcessPool.init();
-
-const uploader = new UploaderProcess();
 
 const obs = new OBSWebSocket();
 
@@ -260,22 +258,11 @@ try {
 
           const outputPath = await saveRecordingPromise;
           const outputDir = dirname(outputPath);
-          const formattedTime = `${Math.floor(levelInfo.time / 60)
-            .toString()
-            .padStart(2, '0')}-${(levelInfo.time % 60).toString().padStart(2, '0')}`;
-
-          const basename = [
-            levelInfo.levelNumber.toString().padStart(2, '0'),
-            levelInfo.level,
-            levelInfo.difficulty,
-            formattedTime,
-            new Date().toISOString(),
-          ].join(' - ');
+          const basename = createVideoFileName(levelInfo);
 
           const recordingPath = join(outputDir, 'Goldeneye', `${basename}.mp4`);
           await fs.mkdir(join(outputDir, 'Goldeneye'), { recursive: true });
           await fs.rename(outputPath, recordingPath);
-          uploader.uploadRecording(recordingPath, levelInfo);
         });
       }
     }

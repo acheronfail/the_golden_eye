@@ -1,4 +1,4 @@
-import { extractLevelInfo } from "./parse.ts";
+import { extractLevelInfo, type LevelInfo } from './parse.ts';
 
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -9,7 +9,21 @@ const modelPath = path.join(__dirname, '..', 'models/gemma-4-E2B-it-Q4_K_M.gguf'
 const mmprojPath = path.join(__dirname, '..', 'models/mmproj-BF16.gguf');
 const modelName = path.basename(modelPath, '.gguf');
 
+export type LlamaProcessMessage =
+  | { type: 'ready' }
+  | { type: 'shutdown' }
+  | { type: 'extract-level-info'; imageData: string }
+  | { type: 'level-info'; levelInfo: LevelInfo }
+  | { type: 'extract-text'; imageData: string }
+  | { type: 'extracted-text'; text: string };
+
+function send(message: LlamaProcessMessage) {
+  process.send!(message);
+}
+
 export class LlamaWrapper {
+  server: cp.ChildProcessWithoutNullStreams;
+
   constructor() {
     this.server = cp.spawn('./llama/llama-server', [
       ...[`--model`, `${modelPath}`],
@@ -33,17 +47,23 @@ export class LlamaWrapper {
     };
 
     process.on('exit', killServer);
-    process.on('SIGTERM', () => { killServer(); process.exit(1); });
-    process.on('SIGINT', () => { killServer(); process.exit(1); });
+    process.on('SIGTERM', () => {
+      killServer();
+      process.exit(1);
+    });
+    process.on('SIGINT', () => {
+      killServer();
+      process.exit(1);
+    });
 
     this.server.stderr.on('data', (data) => {
       if (data.toString().includes('server is listening')) {
-        process.send({ type: 'ready' });
+        send({ type: 'ready' });
       }
     });
   }
 
-  async extractText(imageDataUrl) {
+  async extractText(imageDataUrl: string) {
     const res = await fetch('http://localhost:1234/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -57,7 +77,8 @@ export class LlamaWrapper {
             type: 'function',
             function: {
               name: 'extract_text',
-              description: 'Extract text from an image. The "text" field is all the text, the "missionNumber" field is the number after "mission" near the start, and "partNumber" is the string of roman numerals after "part" in the text.',
+              description:
+                'Extract text from an image. The "text" field is all the text, the "missionNumber" field is the number after "mission" near the start, and "partNumber" is the string of roman numerals after "part" in the text.',
               parameters: {
                 type: 'object',
                 properties: {
@@ -123,21 +144,24 @@ export class LlamaWrapper {
 
 const llama = new LlamaWrapper();
 
-process.on('message', async (data) => {
+process.on('message', async (data: LlamaProcessMessage) => {
   try {
-    const { type, imageData } = data;
-    if (type === 'extract-level-info') {
-      const text = await llama.extractText(imageData);
-      const levelInfo = extractLevelInfo(text);
-      process.send({ type: 'level-info', levelInfo });
-    }
-    if (type === 'extract-text') {
-      const text = await llama.extractText(imageData);
-      process.send({ type: 'extracted-text', text });
-    }
+    const { type } = data;
     if (type === 'shutdown') {
       llama.kill();
       process.exit(0);
+    }
+
+    if (type === 'extract-level-info') {
+      const { imageData } = data;
+      const text = await llama.extractText(imageData);
+      const levelInfo = extractLevelInfo(text);
+      send({ type: 'level-info', levelInfo });
+    }
+    if (type === 'extract-text') {
+      const { imageData } = data;
+      const text = await llama.extractText(imageData);
+      send({ type: 'extracted-text', text });
     }
   } catch (err) {
     console.error('Error handling message:', err);
