@@ -25,7 +25,7 @@ const screenshot = async () => {
     imageFormat: "png",
   });
 
-  const fileName = `${screenshotPrefix}-${Date.now()}.png`;
+  const fileName = `screenshots/${screenshotPrefix}-${Date.now()}.png`;
   await fs.writeFile(fileName, Buffer.from(imageData.split(",")[1], "base64"));
   process.stderr.write(`Saved ${fileName}\n`);
 };
