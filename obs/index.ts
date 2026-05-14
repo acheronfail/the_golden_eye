@@ -162,6 +162,7 @@ try {
       waitingForStats = false;
       recordingSaveTimer = null;
       isMonitoring = false;
+      infoBox.setContent(`Lang: ${lang}`);
       updateActiveBox(createWelcomeBox(screen));
 
       const { outputActive } = await obs.call("GetRecordStatus");

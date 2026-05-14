@@ -19,6 +19,8 @@ export type Screen = (typeof Screens)[number];
 const matchers: [Screen, string][] = [
   // no double up required since this template covers multiple areas of the screen
   ["LevelSelect", "level"],
+  // no double up here since the cursor always starts to the right, so it will match
+  // before the user has the chance to move it to obscure part of the screen
   ["EndLevelComplete", "complete"],
   ["EndLevelFailed", "kia"],
   ["EndLevelFailed", "abort"],
