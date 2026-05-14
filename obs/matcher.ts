@@ -1,7 +1,7 @@
 import cp from "node:child_process";
 import { fileURLToPath } from "url";
 import cv from "@u4/opencv4nodejs";
-import { scale } from "./common.ts";
+import { scale, type Lang } from "./common.ts";
 import type { MatcherProcessMessage } from "./matcher-process.ts";
 
 // NOTE: order matters, since "EndLevelFailed" is a subset of "EndLevelComplete" when using the
@@ -98,7 +98,7 @@ export class MatcherProcessPool {
     this.workers = workers;
   }
 
-  public static async init(lang: "en" | "jp") {
+  public static async init(lang: Lang) {
     const workers = await Promise.all(
       matchers.map(async ([screen, filename]) => {
         const worker = new Worker();

@@ -20,17 +20,18 @@ import { dirname, join } from "node:path";
 import { LlamaProcess } from "./llama.ts";
 import { MatcherProcessPool } from "./matcher.ts";
 import { createVideoFileName } from "./naming.ts";
+import { type Lang, allLangs } from "./common.ts";
 
 await readEnv();
 
-const lang: 'en' | 'jp' = (() => {
+const lang: Lang = (() => {
   const envLang = process.env.GE_LANG;
   if (!envLang) {
     return 'en';
   }
 
-  if (envLang === 'en' || envLang === 'jp') {
-    return envLang;
+  if (allLangs.includes(envLang as Lang)) {
+    return envLang as Lang;
   }
 
   throw new Error('Invalid GE_LANG value');
@@ -147,7 +148,9 @@ try {
 
   // if replay buffer is active, stop it, we don't use it and it can cause issues with recording timing
   {
-    const { outputActive } = await obs.call("GetReplayBufferStatus");
+    const { outputActive } = await obs
+      .call("GetReplayBufferStatus")
+      .catch(() => ({ outputActive: false }));
     if (outputActive) {
       await obs.call("StopReplayBuffer");
     }
@@ -181,7 +184,7 @@ try {
     // main loop, grab frame
     const start = performance.now();
     const { imageData } = await obs.call("GetSourceScreenshot", {
-      sourceName: process.env.SOURCE_NAME,
+      sourceName: process.env.OBS_SOURCE_NAME,
       imageFormat: "jpg",
     });
 
@@ -270,7 +273,7 @@ try {
 
         // OCR works better with higher quality images, so we fetch a PNG
         const { imageData } = await obs.call("GetSourceScreenshot", {
-          sourceName: process.env.SOURCE_NAME,
+          sourceName: process.env.OBS_SOURCE_NAME,
           imageFormat: "png",
         });
 
