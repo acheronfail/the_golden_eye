@@ -96,7 +96,7 @@ export class MatcherProcessPool {
     this.workers = workers;
   }
 
-  public static async init(lang: 'en' | 'jp') {
+  public static async init(lang: "en" | "jp") {
     const workers = await Promise.all(
       matchers.map(async ([screen, filename]) => {
         const worker = new Worker();
@@ -135,13 +135,26 @@ export class MatcherProcessPool {
           type,
         );
         if (screen) {
-          return { maxVal, screen, matcher: matchers[i][0] };
+          return { maxVal, screen, matcher: matchers[i][1] };
         }
 
         return null;
       }),
     );
 
-    return results.find((result) => result !== null) ?? null;
+    return results.reduce(
+      (best, current) => {
+        if (!current) {
+          return best;
+        }
+
+        if (!best || current.maxVal > best.maxVal) {
+          return current;
+        }
+
+        return best;
+      },
+      null as MatchResult | null,
+    );
   }
 }

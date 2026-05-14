@@ -6,7 +6,7 @@ import { MatcherProcessPool } from "../obs/matcher.ts";
 
 await readEnv();
 
-const matcher = await MatcherProcessPool.init();
+const matcher = await MatcherProcessPool.init(process.env.GE_LANG as "en" | "jp" ?? "en");
 
 const llama = new LlamaProcess();
 await llama.initialised;

@@ -186,7 +186,8 @@ try {
 
     const matchResult = await matcher.matchScreen(imageData);
     if (matchResult) {
-      const { screen: gameScreen } = matchResult;
+      const { screen: gameScreen, matcher } = matchResult;
+      infoBox.setContent(`Lang: ${lang}, Detected screen: ${gameScreen} (${matcher})`);
 
       // if we've been waiting for stats and it's been a few seconds, save the recording and show stats
       if (
@@ -299,6 +300,8 @@ try {
           await fs.rename(outputPath, recordingPath);
         });
       }
+    } else {
+      infoBox.setContent(`Lang: ${lang}`);
     }
 
     const end = performance.now();
