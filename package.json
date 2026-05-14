@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "obs": "node --strip-types obs/index.ts",
-    "repl": "node --strip-types scripts/repl.ts",
-    "scrape": "node --strip-types scripts/scrape-web.ts",
-    "upload": "node --strip-types scripts/upload.ts"
+    "obs": "node --experimental-strip-types obs/index.ts",
+    "repl": "node --experimental-strip-types scripts/repl.ts",
+    "scrape": "node --experimental-strip-types scripts/scrape-web.ts",
+    "upload": "node --experimental-strip-types scripts/upload.ts"
   },
   "keywords": [],
   "author": "",
