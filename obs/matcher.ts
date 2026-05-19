@@ -1,6 +1,6 @@
 import cp from "node:child_process";
 import { fileURLToPath } from "url";
-import cv from "@u4/opencv4nodejs";
+import cv from "./opencv.ts";
 import { imageScale, type Lang } from "./common.ts";
 import type { MatcherProcessMessage } from "./matcher-process.ts";
 

@@ -1,4 +1,6 @@
-import cv, { Mat } from "@u4/opencv4nodejs";
+import type { Mat } from "@u4/opencv4nodejs";
+import cv from "./opencv.ts";
+
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { matchThreshold, imageScale } from "./common.ts";
