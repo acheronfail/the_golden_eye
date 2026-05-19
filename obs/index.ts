@@ -20,7 +20,7 @@ import { dirname, join } from "node:path";
 import { LlamaProcess } from "./llama.ts";
 import { MatcherProcessPool } from "./matcher.ts";
 import { createVideoFileName } from "./naming.ts";
-import { type Lang, allLangs } from "./common.ts";
+import { type Lang, allLangs, imageWidth, imageHeight } from "./common.ts";
 
 await readEnv();
 
@@ -186,6 +186,8 @@ try {
     const { imageData } = await obs.call("GetSourceScreenshot", {
       sourceName: process.env.OBS_SOURCE_NAME,
       imageFormat: "jpg",
+      imageWidth,
+      imageHeight,
     });
 
     const matchResult = await matcher.matchScreen(imageData);
@@ -275,6 +277,8 @@ try {
         const { imageData } = await obs.call("GetSourceScreenshot", {
           sourceName: process.env.OBS_SOURCE_NAME,
           imageFormat: "png",
+          imageWidth,
+          imageHeight,
         });
 
         saveRecordingPromise = new Promise<string>((resolve) => {

@@ -1,7 +1,7 @@
 import cv, { Mat } from "@u4/opencv4nodejs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { matchThreshold, scale } from "./common.ts";
+import { matchThreshold, imageScale } from "./common.ts";
 import type { Screen } from "./matcher.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -32,7 +32,7 @@ process.on("message", async (data: MatcherProcessMessage) => {
       screen = data.screen;
       image = cv
         .imread(join(__dirname, "templates", `${filename}.png`))
-        .rescale(scale)
+        .rescale(imageScale)
         .cvtColor(cv.COLOR_BGR2GRAY);
       send({ type: "init-complete" });
     }

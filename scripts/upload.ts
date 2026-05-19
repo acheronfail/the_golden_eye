@@ -165,9 +165,9 @@ const { data: existingPlaylists } = await youtube.playlists.list({
 
 let allPlaylist = existingPlaylists.items?.find((item) => item?.snippet?.title === allPlaylistTitle);
 if (allPlaylist) {
-  console.log(chalk.grey(`- Found "${chalk.cyan(allPlaylistTitle)}" (ID: ${allPlaylist.id})`));
+  console.log(chalk.grey(`- Found All playlist "${chalk.cyan(allPlaylistTitle)}" (ID: ${allPlaylist.id})`));
 } else {
-  console.log(chalk.grey(`- "${chalk.red(allPlaylistTitle)}" not found, creating...`));
+  console.log(chalk.grey(`- All playlist "${chalk.red(allPlaylistTitle)}" not found, creating...`));
   ({ data: allPlaylist } = await youtube.playlists.insert({
     part: ['snippet', 'status'],
     requestBody: {
@@ -185,9 +185,9 @@ if (allPlaylist) {
 
 let pbPlaylist = existingPlaylists.items?.find((item) => item?.snippet?.title === pbPlaylistTitle);
 if (pbPlaylist) {
-  console.log(chalk.grey(`- PB Playlist "${chalk.cyan(pbPlaylistTitle)}" (ID: ${pbPlaylist.id})`));
+  console.log(chalk.grey(`- Found PB Playlist "${chalk.cyan(pbPlaylistTitle)}" (ID: ${pbPlaylist.id})`));
 } else {
-  console.log(chalk.grey(`- "${chalk.red(pbPlaylistTitle)}" not found, creating...`));
+  console.log(chalk.grey(`- PB Playlist "${chalk.red(pbPlaylistTitle)}" not found, creating...`));
   ({ data: pbPlaylist } = await youtube.playlists.insert({
     part: ['snippet', 'status'],
     requestBody: {

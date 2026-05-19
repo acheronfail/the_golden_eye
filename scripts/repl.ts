@@ -3,10 +3,13 @@ import { OBSWebSocket } from "obs-websocket-js/msgpack";
 import { readEnv } from "../obs/envfile.ts";
 import { LlamaProcess } from "../obs/llama.ts";
 import { MatcherProcessPool } from "../obs/matcher.ts";
+import { imageHeight, imageWidth } from "../obs/common.ts";
 
 await readEnv();
 
-const matcher = await MatcherProcessPool.init(process.env.GE_LANG as "en" | "jp" ?? "en");
+const matcher = await MatcherProcessPool.init(
+  (process.env.GE_LANG as "en" | "jp") ?? "en",
+);
 
 const llama = new LlamaProcess();
 await llama.initialised;
@@ -23,6 +26,8 @@ const screenshot = async () => {
   const { imageData } = await obs.call("GetSourceScreenshot", {
     sourceName: process.env.OBS_SOURCE_NAME,
     imageFormat: "png",
+    imageWidth,
+    imageHeight,
   });
 
   const fileName = `screenshots/${screenshotPrefix}-${Date.now()}.png`;
@@ -34,6 +39,8 @@ const match = async () => {
   const { imageData } = await obs.call("GetSourceScreenshot", {
     sourceName: process.env.OBS_SOURCE_NAME,
     imageFormat: "jpg",
+    imageWidth,
+    imageHeight,
   });
 
   const matchResult = await matcher.matchScreen(imageData);
