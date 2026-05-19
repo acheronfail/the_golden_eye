@@ -77,6 +77,7 @@ const printHelp = () =>
 - q, exit, quit:    Quit the application
 `);
 
+let error = false;
 try {
   console.time("obs connect");
   await obs.connect("ws://localhost:4455", process.env.OBS_PASSWORD);
@@ -124,7 +125,12 @@ try {
 
     process.stderr.write(prompt);
   }
+} catch (err) {
+  error = true;
+  console.error("Error in REPL:", err);
 } finally {
   await obs.disconnect();
+  matcher.kill();
   llama.kill();
+  process.exitCode = error ? 1 : 0;
 }

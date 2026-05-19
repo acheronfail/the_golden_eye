@@ -159,4 +159,8 @@ export class MatcherProcessPool {
       null as MatchResult | null,
     );
   }
+
+  kill() {
+    this.workers.forEach((worker) => worker.process.kill());
+  }
 }

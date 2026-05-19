@@ -52,6 +52,7 @@ const remove = async (filepath: string) => {
   await fs.unlink(filepath).catch(() => {});
 };
 
+let unhandledError: unknown = null;
 const exit = async () => {
   try {
     {
@@ -64,6 +65,14 @@ const exit = async () => {
     await obs.disconnect();
   } finally {
     llama.kill();
+    matcher.kill();
+    screen.destroy();
+
+    if (unhandledError) {
+      console.error("Unhandled error:", unhandledError);
+      process.exit(1);
+    }
+
     process.exit();
   }
 };
@@ -317,6 +326,8 @@ try {
     loopTimingBox.setContent(`Loop: ${elapsed.toFixed(2)} ms`);
     screen.render();
   }
+} catch (err) {
+  unhandledError = err;
 } finally {
   exit();
 }
