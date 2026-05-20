@@ -10,15 +10,12 @@ import { createReadStream } from 'node:fs';
 import { google } from 'googleapis';
 import chalk from 'chalk';
 import open from 'open';
-import { readEnv } from '../obs/envfile.ts';
 import { checkbox, select } from '@inquirer/prompts';
 import { createYoutubeTitle, parseVideoName, parseYoutubeTitle } from '../obs/naming.ts';
 
 //
 // Setup
 //
-
-await readEnv();
 
 const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
 if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {

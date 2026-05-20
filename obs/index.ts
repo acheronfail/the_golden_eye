@@ -3,7 +3,6 @@ import fs from "node:fs/promises";
 import { OBSWebSocket } from "obs-websocket-js/msgpack";
 import blessed, { type Widgets } from "blessed";
 
-import { readEnv } from "./envfile.ts";
 import {
   createWelcomeBox,
   createLevelStartBox,
@@ -22,8 +21,6 @@ import { MatcherProcessPool } from "./matcher.ts";
 import { createVideoFileName } from "./naming.ts";
 import { type Lang, allLangs, imageWidth, imageHeight } from "./common.ts";
 import { ObsError } from "./errors.ts";
-
-await readEnv();
 
 const lang: Lang = (() => {
   const envLang = process.env.GE_LANG;

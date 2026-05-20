@@ -1,11 +1,8 @@
 import fs from "node:fs/promises";
 import { OBSWebSocket } from "obs-websocket-js/msgpack";
-import { readEnv } from "../obs/envfile.ts";
 import { LlamaProcess } from "../obs/llama.ts";
 import { MatcherProcessPool } from "../obs/matcher.ts";
 import { imageHeight, imageWidth } from "../obs/common.ts";
-
-await readEnv();
 
 const matcher = await MatcherProcessPool.init(
   (process.env.GE_LANG as "en" | "jp") ?? "en",
