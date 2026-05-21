@@ -1,7 +1,7 @@
 import cp from "node:child_process";
 import { fileURLToPath } from "url";
 import cv from "./opencv.ts";
-import { imageScale, type Lang } from "./common.ts";
+import { type Lang } from "./common.ts";
 import type { MatcherProcessMessage } from "./matcher-process.ts";
 
 // NOTE: order matters, since "EndLevelFailed" is a subset of "EndLevelComplete" when using the
@@ -123,7 +123,6 @@ export class MatcherProcessPool {
     const jpegData = Buffer.from(jpegDataUri.split(",")[1], "base64");
     const sourceImage = cv
       .imdecode(jpegData)
-      .rescale(imageScale)
       .cvtColor(cv.COLOR_BGR2GRAY);
     const { rows, cols, type } = sourceImage;
     const sourceData = sourceImage.getData();

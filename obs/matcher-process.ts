@@ -3,7 +3,7 @@ import cv from "./opencv.ts";
 
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { matchThreshold, imageScale } from "./common.ts";
+import { matchThreshold } from "./common.ts";
 import type { Screen } from "./matcher.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -34,7 +34,6 @@ process.on("message", async (data: MatcherProcessMessage) => {
       screen = data.screen;
       image = cv
         .imread(join(__dirname, "templates", `${filename}.png`))
-        .rescale(imageScale)
         .cvtColor(cv.COLOR_BGR2GRAY);
       send({ type: "init-complete" });
     }
