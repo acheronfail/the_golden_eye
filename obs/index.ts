@@ -94,6 +94,17 @@ const screen = blessed.screen({
 });
 
 createWelcomeBox(screen);
+const warnBox = blessed.box({
+  bottom: 3,
+  left: 1,
+  width: "shrink",
+  height: 1,
+  content: '',
+  style: {
+    fg: "white",
+    bg: "black",
+  },
+});
 const infoBox = blessed.box({
   bottom: 2,
   left: 1,
@@ -104,7 +115,7 @@ const infoBox = blessed.box({
     fg: "white",
     bg: "black",
   },
-});
+})
 const loopTimingBox = blessed.box({
   bottom: 1,
   left: 1,
@@ -282,7 +293,7 @@ try {
         });
 
         const ocrTimeStart = Date.now();
-        llama.sendImage(response!.imageData).then(async (levelInfo) => {
+        llama.sendImage(response!.imageData).then(async ({ levelInfo, llamaResult }) => {
           const isPb = levelInfo.bestTime !== undefined && levelInfo.time < levelInfo.bestTime;
 
           if (!inSession && isMonitoring && Date.now() < ocrTimeStart + 5000) {
@@ -291,6 +302,11 @@ try {
             } else {
               updateActiveBox(createLevelInfoBox(screen, levelInfo));
             }
+          }
+
+          if (levelInfo.difficulty.toLowerCase().trim() !== llamaResult.difficulty.toLowerCase().trim()) {
+            warnBox.setContent(`Difficulty mismatch! Parsed: "${levelInfo.difficulty}", OCR: "${llamaResult.difficulty}"`);
+            setTimeout(() => warnBox.setContent(''), 10_000);
           }
 
           const outputPath = await saveRecordingPromise;

@@ -199,7 +199,7 @@ export const createLevelStartBox = (screen: Widgets.Screen) =>
     headingColor: "white",
     headingText: "Level Start",
     headingFont: "ANSI Regular",
-    hintText: "recording started, good luck!",
+    hintText: "starting recording, please wait...",
   });
 
 export const createLevelFailedBox = (screen: Widgets.Screen) =>

@@ -1,20 +1,16 @@
 import cp from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { LevelInfo } from "./parse.ts";
-import type { LlamaProcessMessage } from "./llama-process.ts";
+import type { LlamaParseResult, LlamaProcessMessage } from "./llama-process.ts";
 
 export class LlamaProcess {
   process: cp.ChildProcess;
   initialised: Promise<void>;
 
   constructor() {
-    this.process = cp.fork(
-      fileURLToPath(new URL("./llama-process.ts", import.meta.url)),
-      [],
-      {
-        serialization: "advanced",
-      },
-    );
+    this.process = cp.fork(fileURLToPath(new URL("./llama-process.ts", import.meta.url)), [], {
+      serialization: "advanced",
+    });
 
     this.initialised = new Promise<void>((resolve, reject) => {
       this.process.once("message", (message: LlamaProcessMessage) => {
@@ -37,18 +33,18 @@ export class LlamaProcess {
     return new Promise((resolve) => {
       this.process.once("message", (message: LlamaProcessMessage) => {
         if (message.type === "extracted-text") {
-          resolve(message.text);
+          resolve(message.result.text);
         }
       });
     });
   }
 
-  sendImage(imageData: string): Promise<LevelInfo> {
+  sendImage(imageData: string): Promise<{ levelInfo: LevelInfo; llamaResult: LlamaParseResult }> {
     this.send({ type: "extract-level-info", imageData });
     return new Promise((resolve) => {
       this.process.once("message", (message: LlamaProcessMessage) => {
         if (message.type === "level-info") {
-          resolve(message.levelInfo);
+          resolve({ levelInfo: message.levelInfo, llamaResult: message.llamaResult });
         }
       });
     });

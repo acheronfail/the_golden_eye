@@ -1,3 +1,5 @@
+import type { LlamaParseResult } from "./llama-process.ts";
+
 const Levels = [
   ["Dam", "Facility", "Runway"],
   ["Surface 1", "Bunker 1"],
@@ -11,9 +13,7 @@ const Levels = [
 ] as const;
 export type Level = (typeof Levels)[number][number];
 
-export const LevelNumberMap = new Map(
-  Levels.flat().map((level, i) => [level, i + 1]),
-);
+export const LevelNumberMap = new Map(Levels.flat().map((level, i) => [level, i + 1]));
 
 const Difficulties = ["Secret Agent", "00 Agent", "007", "Agent"] as const;
 export type Difficulty = (typeof Difficulties)[number];
@@ -37,12 +37,13 @@ export interface LevelInfo {
   bestTime?: number;
 }
 
-export function extractLevelInfo(text: string): LevelInfo {
-  const lowered = text.toLocaleLowerCase();
+export function extractLevelInfo(llamaResult: LlamaParseResult): {
+  levelInfo: LevelInfo;
+  llamaResult: LlamaParseResult;
+} {
+  const lowered = llamaResult.text.toLocaleLowerCase();
 
-  const difficulty = Difficulties.find((d) =>
-    lowered.slice(0, 50).includes(d.toLowerCase()),
-  );
+  const parsedDifficulty = Difficulties.find((d) => lowered.slice(0, 50).includes(d.toLowerCase()));
   const mission = lowered.match(/mission[\s:]*(\d+):/)?.[1];
   const partNumerals = lowered.match(/part[\s:]*([ivxl]+):/)?.[1];
   const part = ["i", "ii", "iii", "iv", "v"].indexOf(partNumerals!);
@@ -50,19 +51,21 @@ export function extractLevelInfo(text: string): LevelInfo {
   const bestTimeString = lowered.match(/best time: (\d+:\d+)/)?.[1];
   const level = mission && Levels[parseInt(mission) - 1]?.[part];
 
-  if (!difficulty || !level || !timeString) {
-    console.error(
-      { difficulty, mission, part, timeString, bestTimeString },
-      text,
-    );
+  // TODO: make a note when parse result is different to this match - show that in the info box onscreen?
+
+  if (!parsedDifficulty || !level || !timeString) {
+    console.error({ difficulty: parsedDifficulty, mission, part, timeString, bestTimeString }, llamaResult);
     throw new Error("Failed to extract level info");
   }
 
   return {
-    difficulty,
-    level,
-    levelNumber: LevelNumberMap.get(level)!,
-    time: parseTime(timeString),
-    bestTime: bestTimeString ? parseTime(bestTimeString) : undefined,
+    llamaResult,
+    levelInfo: {
+      difficulty: parsedDifficulty,
+      level,
+      levelNumber: LevelNumberMap.get(level)!,
+      time: parseTime(timeString),
+      bestTime: bestTimeString ? parseTime(bestTimeString) : undefined,
+    },
   };
 }
