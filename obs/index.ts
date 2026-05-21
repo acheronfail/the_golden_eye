@@ -46,6 +46,11 @@ const matcher = await MatcherProcessPool.init(lang);
 
 const obs = new OBSWebSocket();
 
+const obsConnect = async () => {
+  await obs.disconnect().catch(() => {});
+  await obs.connect("ws://localhost:4455", process.env.OBS_PASSWORD).catch(ObsError.catch);
+};
+
 const remove = async (filepath: string) => {
   await fs.unlink(filepath).catch(() => {});
 };
@@ -99,7 +104,7 @@ const warnBox = blessed.box({
   left: 1,
   width: "shrink",
   height: 1,
-  content: '',
+  content: "",
   style: {
     fg: "white",
     bg: "black",
@@ -115,7 +120,7 @@ const infoBox = blessed.box({
     fg: "white",
     bg: "black",
   },
-})
+});
 const loopTimingBox = blessed.box({
   bottom: 1,
   left: 1,
@@ -162,7 +167,7 @@ let saveRecordingPromise: Promise<string> = Promise.reject("nope");
 saveRecordingPromise.catch(() => {}); // avoid unhandled rejection if never set
 
 try {
-  await obs.connect("ws://localhost:4455", process.env.OBS_PASSWORD).catch(ObsError.catch);
+  await obsConnect();
 
   // if replay buffer is active, stop it, we don't use it and it can cause issues with recording timing
   {
@@ -195,6 +200,8 @@ try {
       pauseToggleRequested = false;
       updateActiveBox(createWaitingBox(screen));
     }
+
+    await obsConnect();
 
     // main loop, grab frame
     const start = performance.now();
@@ -305,8 +312,10 @@ try {
           }
 
           if (levelInfo.difficulty.toLowerCase().trim() !== llamaResult.difficulty.toLowerCase().trim()) {
-            warnBox.setContent(`Difficulty mismatch! Parsed: "${levelInfo.difficulty}", OCR: "${llamaResult.difficulty}"`);
-            setTimeout(() => warnBox.setContent(''), 10_000);
+            warnBox.setContent(
+              `Difficulty mismatch! Parsed: "${levelInfo.difficulty}", OCR: "${llamaResult.difficulty}"`,
+            );
+            setTimeout(() => warnBox.setContent(""), 10_000);
           }
 
           const outputPath = await saveRecordingPromise;

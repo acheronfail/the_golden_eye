@@ -12,3 +12,5 @@ It's been observed on Linux systems that OBS has a VRAM leak. Reproduce by doing
 
 There don't seem to be any resources not cleaned up by exiting the program, but the VRAM stays used.
 If OBS is restarted then the VRAM is released back to the system.
+
+See: https://github.com/obsproject/obs-studio/issues/13446
