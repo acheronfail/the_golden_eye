@@ -14,16 +14,44 @@ export interface MemoryInfo {
   vramTotal: number;
 }
 
+const prettyBytesOptions = { binary: true };
+
 export function memInfoToString({ ramFree, ramTotal, vramFree, vramTotal }: MemoryInfo): string {
-  const ramInfo = `RAM: ${prettyBytes(ramFree)} / ${prettyBytes(ramTotal)}`;
-  const vramInfo = vramTotal > 0 ? `VRAM: ${prettyBytes(vramFree)} / ${prettyBytes(vramTotal)}` : null;
+  const ramInfo = `RAM: ${prettyBytes(ramFree, prettyBytesOptions)} / ${prettyBytes(ramTotal, prettyBytesOptions)}`;
+  const vramInfo =
+    vramTotal > 0
+      ? `VRAM: ${prettyBytes(vramFree, prettyBytesOptions)} / ${prettyBytes(vramTotal, prettyBytesOptions)}`
+      : null;
 
   return vramInfo ? `${ramInfo} | ${vramInfo}` : ramInfo;
 }
 
 export async function getMemory(): Promise<MemoryInfo> {
   const ramTotal = os.totalmem();
-  const ramFree = os.freemem();
+  let ramFree = os.freemem();
+
+  if (os.platform() === "darwin") {
+    try {
+      const { stdout } = await execAsync("vm_stat");
+      const pageSizeMatch = stdout.match(/page size of (\d+) bytes/);
+      const pageSize = pageSizeMatch ? parseInt(pageSizeMatch[1], 10) : 4096;
+
+      const values = Object.fromEntries(
+        stdout.split("\n").map((line) => {
+          const [key, value] = line.split(":");
+          return [key, Number(value.match(/\d+/))];
+        }),
+      );
+      const vmStatRamFree =
+        (values["Pages free"] + values["Pages inactive"] + values["Pages speculative"] + values["Pages purgeable"]) *
+        pageSize;
+      if (Number.isFinite(vmStatRamFree)) {
+        ramFree = vmStatRamFree;
+      }
+    } catch {
+      // Fallback to os.freemem()
+    }
+  }
 
   // Use nvidia-smi for VRAM if available (values in MiB, convert to bytes)
   let vramFree = 0;
