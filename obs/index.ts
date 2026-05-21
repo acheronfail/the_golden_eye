@@ -15,7 +15,7 @@ import {
   createStatisticsBox,
   createWarningBox,
 } from "./boxes.ts";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { LlamaProcess } from "./llama.ts";
 import { MatcherProcessPool } from "./matcher.ts";
 import { createVideoFileName } from "./naming.ts";
@@ -50,6 +50,26 @@ const obs = new OBSWebSocket();
 const obsConnect = async () => {
   await obs.disconnect().catch(() => {});
   await obs.connect("ws://localhost:4455", process.env.OBS_PASSWORD).catch(ObsError.catch);
+};
+
+const moveSavingSome = async (outputPath: string) => {
+  const outputDir = dirname(outputPath);
+  const failedSaveDir = join(outputDir, "Goldeneye", "failed");
+  const failedSavePath = join(failedSaveDir, basename(outputPath, ".mp4"));
+  await fs.mkdir(failedSaveDir, { recursive: true });
+
+  // only save a certain number of failed attempts
+  const numToSave = 5;
+  {
+    const entries = await fs.readdir(failedSaveDir);
+    const mp4Entries = entries.filter((e) => e.endsWith(".mp4")).sort();
+    if (mp4Entries.length >= numToSave) {
+      const toDelete = mp4Entries.slice(0, mp4Entries.length - numToSave);
+      await Promise.all(toDelete.map((e) => remove(join(failedSaveDir, e))));
+    }
+  }
+
+  await fs.rename(outputPath, failedSavePath);
 };
 
 const remove = async (filepath: string) => {
@@ -291,7 +311,7 @@ try {
         updateActiveBox(createLevelFailedBox(screen));
         const response = await obs.call("GetRecordStatus");
         if (response?.outputActive) {
-          await obs.call("StopRecord").then((r) => remove(r.outputPath), ObsError.catch);
+          await obs.call("StopRecord").then((r) => moveSavingSome(r.outputPath), ObsError.catch);
         }
       }
 
