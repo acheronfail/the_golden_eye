@@ -21,6 +21,7 @@ import { MatcherProcessPool } from "./matcher.ts";
 import { createVideoFileName } from "./naming.ts";
 import { type Lang, allLangs, imageWidth, imageHeight } from "./common.ts";
 import { ObsError } from "./errors.ts";
+import { getMemory, memInfoToString } from "./memory.ts";
 
 const lang: Lang = (() => {
   const envLang = process.env.GE_LANG;
@@ -81,15 +82,6 @@ const exit = async () => {
 };
 
 //
-// State
-//
-
-let isMonitoring = false;
-let inSession = false;
-let waitingForStats = false;
-let recordingSaveTimer: number | null = null;
-
-//
 // TUI
 //
 
@@ -100,6 +92,16 @@ const screen = blessed.screen({
 
 createWelcomeBox(screen);
 const warnBox = blessed.box({
+  bottom: 4,
+  left: 1,
+  width: "shrink",
+  height: 1,
+  content: "",
+  style: {
+    fg: "red",
+  },
+});
+const memInfoBox = blessed.box({
   bottom: 3,
   left: 1,
   width: "shrink",
@@ -139,6 +141,8 @@ const updateActiveBox = (newBox: Widgets.BoxElement) => {
   screen.children.forEach((child) => screen.remove(child));
   screen.append(newBox);
   screen.append(infoBox);
+  screen.append(memInfoBox);
+  screen.append(warnBox);
 
   // if we're still monitoring need to re-append timing box so it stays on top
   if (isMonitoring) {
@@ -160,6 +164,13 @@ screen.key(["escape", "q", "C-c"], () => exit());
 //
 // Main loop
 //
+
+let isMonitoring = false;
+let inSession = false;
+let waitingForStats = false;
+let recordingSaveTimer: number | null = null;
+let lastMemCheckMs: number = 0;
+let memUpdateIntervalMs = 1_000;
 
 let onPauseToggleRequested = () => {};
 let saveRecordingResolver: (value: string) => void = () => {};
@@ -187,6 +198,7 @@ try {
       recordingSaveTimer = null;
       isMonitoring = false;
       infoBox.setContent(`Lang: ${lang}`);
+      memInfoBox.setContent("");
       updateActiveBox(createWelcomeBox(screen));
 
       const result = await obs.call("GetRecordStatus").catch(ObsError.catch);
@@ -199,6 +211,17 @@ try {
       isMonitoring = true;
       pauseToggleRequested = false;
       updateActiveBox(createWaitingBox(screen));
+    }
+
+    if (Date.now() - lastMemCheckMs > memUpdateIntervalMs) {
+      lastMemCheckMs = Date.now();
+      const mem = await getMemory();
+      memInfoBox.setContent(memInfoToString(mem));
+      if (mem.ramPctAvailable < 0.1 || mem.vramPctAvailable < 0.1) {
+        memInfoBox.style.fg = "red";
+      } else {
+        memInfoBox.style.fg = "white";
+      }
     }
 
     await obsConnect();
