@@ -55,7 +55,7 @@ const obsConnect = async () => {
 const moveSavingSome = async (outputPath: string) => {
   const outputDir = dirname(outputPath);
   const failedSaveDir = join(outputDir, "Goldeneye", "failed");
-  const failedSavePath = join(failedSaveDir, basename(outputPath, ".mp4"));
+  const failedSavePath = join(failedSaveDir, basename(outputPath));
   await fs.mkdir(failedSaveDir, { recursive: true });
 
   // only save a certain number of failed attempts
