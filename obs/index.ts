@@ -354,7 +354,7 @@ try {
             }
           }
 
-          if (levelInfo.difficulty.toLowerCase().trim() !== llamaResult.difficulty.toLowerCase().trim()) {
+          if (levelInfo.difficulty?.toLowerCase().trim() !== llamaResult.difficulty?.toLowerCase().trim()) {
             warnBox.setContent(
               `Difficulty mismatch! Parsed: "${levelInfo.difficulty}", OCR: "${llamaResult.difficulty}"`,
             );

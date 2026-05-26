@@ -1,5 +1,5 @@
 import {
-  DifficiultyNumberMap,
+  DifficultyNumberMap,
   LevelNumberMap,
   type Difficulty,
   type Level,
@@ -43,7 +43,7 @@ export function parseVideoName(videoName: string): VideoNameParts | null {
     return null;
   }
 
-  const difficultyNumber = DifficiultyNumberMap.get(difficulty as Difficulty);
+  const difficultyNumber = DifficultyNumberMap.get(difficulty as Difficulty);
   if (difficultyNumber === undefined) {
     return null;
   }
@@ -103,7 +103,7 @@ export function parseYoutubeTitle(title: string): ParsedYoutubeTitle | null {
     return null;
   }
 
-  const difficultyNumber = DifficiultyNumberMap.get(difficulty as Difficulty);
+  const difficultyNumber = DifficultyNumberMap.get(difficulty as Difficulty);
   if (difficultyNumber === undefined) {
     return null;
   }

@@ -17,11 +17,17 @@ export const LevelNumberMap = new Map(Levels.flat().map((level, i) => [level, i 
 
 const Difficulties = ["Secret Agent", "00 Agent", "007", "Agent"] as const;
 export type Difficulty = (typeof Difficulties)[number];
-export const DifficiultyNumberMap = new Map<Difficulty, number>([
+export const DifficultyNumberMap = new Map<Difficulty, number>([
   ["Agent", 0],
   ["Secret Agent", 1],
   ["00 Agent", 2],
   ["007", 3],
+]);
+export const JpDifficultyMap = new Map<string, Difficulty>([
+  ["スパイ", "Agent"],
+  ["特命スパイ", "Secret Agent"],
+  ["<00Agent>", "00 Agent"],
+  ["007", "007"],
 ]);
 
 const parseTime = (time: string) => {
@@ -37,21 +43,22 @@ export interface LevelInfo {
   bestTime?: number;
 }
 
-export function extractLevelInfo(llamaResult: LlamaParseResult): {
+export function extractLevelInfo(llamaResult: LlamaParseResult, isJapanese: boolean): {
   levelInfo: LevelInfo;
   llamaResult: LlamaParseResult;
 } {
   const lowered = llamaResult.text.toLocaleLowerCase();
 
-  const parsedDifficulty = Difficulties.find((d) => lowered.slice(0, 50).includes(d.toLowerCase()));
-  const mission = lowered.match(/mission[\s:]*(\d+):/)?.[1];
-  const partNumerals = lowered.match(/part[\s:]*([ivxl]+):/)?.[1];
-  const part = ["i", "ii", "iii", "iv", "v"].indexOf(partNumerals!);
-  const timeString = lowered.match(/time: (\d+:\d+)/)?.[1];
-  const bestTimeString = lowered.match(/best time: (\d+:\d+)/)?.[1];
-  const level = mission && Levels[parseInt(mission) - 1]?.[part];
+  const parsedDifficulty = isJapanese
+    ? JpDifficultyMap.entries().find(([jp]) => lowered.slice(0, 50).includes(jp))?.[1]
+    : Difficulties.find((d) => lowered.slice(0, 50).includes(d.toLowerCase()));
 
-  // TODO: make a note when parse result is different to this match - show that in the info box onscreen?
+  const mission = lowered.match(/(mission|ミッション)[\s:]*(\d+):/)?.[1];
+  const partNumerals = lowered.match(/(part|パート)[\s:]*([ivxl]+):/)?.[1];
+  const part = ["i", "ii", "iii", "iv", "v"].indexOf(partNumerals!);
+  const timeString = lowered.match(/(time|時間)[\s:]*(\d+:\d+)/)?.[1];
+  const bestTimeString = lowered.match(/(best time|ベストタイム)[\s:]*(\d+:\d+)/)?.[1];
+  const level = mission && Levels[parseInt(mission) - 1]?.[part];
 
   if (!parsedDifficulty || !level || !timeString) {
     console.error({ difficulty: parsedDifficulty, mission, part, timeString, bestTimeString }, llamaResult);
