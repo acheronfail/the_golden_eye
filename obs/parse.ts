@@ -55,7 +55,11 @@ export function extractLevelInfo(llamaResult: LlamaParseResult, isJapanese: bool
 
   const mission = lowered.match(/(?:mission|ミッション)[\s:]*(\d+)[\s:]*/)?.[1];
   const partNumerals = lowered.match(/(?:part|パート)[\s:]*([ivxl]+)[\s:]*/)?.[1];
-  const part = ["i", "ii", "iii", "iv", "v"].indexOf(partNumerals!);
+  let part = ["i", "ii", "iii", "iv", "v"].indexOf(partNumerals!);
+  if (isJapanese && part === -1) {
+    // the llm struggles to recognise a lone "i", but in testing seems to match the rest well
+    part = 1;
+  }
   const timeString = lowered.match(/(?:time|時間)[\s:]*(\d+:\d+)/)?.[1];
   const bestTimeString = lowered.match(/(?:best time|ベストタイム)[\s:]*(\d+:\d+)/)?.[1];
   const level = mission && Levels[parseInt(mission) - 1]?.[part];
