@@ -53,11 +53,11 @@ export function extractLevelInfo(llamaResult: LlamaParseResult, isJapanese: bool
     ? JpDifficultyMap.entries().find(([jp]) => lowered.slice(0, 50).includes(jp))?.[1]
     : Difficulties.find((d) => lowered.slice(0, 50).includes(d.toLowerCase()));
 
-  const mission = lowered.match(/(mission|ミッション)[\s:]*(\d+):/)?.[1];
-  const partNumerals = lowered.match(/(part|パート)[\s:]*([ivxl]+):/)?.[1];
+  const mission = lowered.match(/(?:mission|ミッション)[\s:]*(\d+)[\s:]*/)?.[1];
+  const partNumerals = lowered.match(/(?:part|パート)[\s:]*([ivxl]+)[\s:]*/)?.[1];
   const part = ["i", "ii", "iii", "iv", "v"].indexOf(partNumerals!);
-  const timeString = lowered.match(/(time|時間)[\s:]*(\d+:\d+)/)?.[1];
-  const bestTimeString = lowered.match(/(best time|ベストタイム)[\s:]*(\d+:\d+)/)?.[1];
+  const timeString = lowered.match(/(?:time|時間)[\s:]*(\d+:\d+)/)?.[1];
+  const bestTimeString = lowered.match(/(?:best time|ベストタイム)[\s:]*(\d+:\d+)/)?.[1];
   const level = mission && Levels[parseInt(mission) - 1]?.[part];
 
   if (!parsedDifficulty || !level || !timeString) {

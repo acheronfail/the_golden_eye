@@ -57,11 +57,21 @@ const watch = async () => {
 const text = async () => {
   const { imageData } = await obs.call("GetSourceScreenshot", {
     sourceName: process.env.OBS_SOURCE_NAME,
-    imageFormat: "jpg",
+    imageFormat: "png",
   });
 
   const text = await llama.extractText(imageData);
   console.log(`Extracted text: ${text}`);
+};
+
+const info = async () => {
+  const { imageData } = await obs.call("GetSourceScreenshot", {
+    sourceName: process.env.OBS_SOURCE_NAME,
+    imageFormat: "png",
+  });
+
+  const info = await llama.sendImage(imageData);
+  console.log(`Extracted info: ${JSON.stringify(info)}`);
 };
 
 const printHelp = () =>
@@ -70,6 +80,7 @@ const printHelp = () =>
 - name <prefix>:    Update the screenshot filename prefix (currently: "${screenshotPrefix}")
 - match:            Take a screenshot and check if it's the start or end level screen
 - text:             Read text from image
+- info:             Read level info from image
 - h, help:          Show this help message
 - q, exit, quit:    Quit the application
 `);
@@ -93,6 +104,7 @@ try {
       match: match,
       watch: watch,
       text: text,
+      info: info,
       h: printHelp,
       help: printHelp,
       q: quit,

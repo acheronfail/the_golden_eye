@@ -161,7 +161,7 @@ export class LlamaWrapper {
               },
               {
                 type: "text",
-                text: "Extract the text from this image including the time strings /\\d+:\\d+/, and call the extract_text tool.",
+                text: "Extract the text from this image including the time strings /\\d+:\\d+/, and call the extract_text tool. Remember that there is always a number 0-9 following the word 'mission' or 'ミッション', and there is always some roman numbers [ivxl] following the word 'part' or 'パート'; make sure that both the mission number and part number appear in the extracted text.",
               },
             ],
           },

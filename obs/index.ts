@@ -333,8 +333,6 @@ try {
           .call("GetSourceScreenshot", {
             sourceName: process.env.OBS_SOURCE_NAME,
             imageFormat: "png",
-            imageWidth,
-            imageHeight,
           })
           .catch(ObsError.catch);
 
