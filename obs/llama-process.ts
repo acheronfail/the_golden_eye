@@ -5,9 +5,9 @@ import path from "node:path";
 import cp from "node:child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const modelPath = path.join(__dirname, "..", "models/gemma-4-E2B-it-Q4_K_M.gguf");
-const mmprojPath = path.join(__dirname, "..", "models/mmproj-BF16.gguf");
-const modelName = path.basename(modelPath, ".gguf");
+const ggufPath = path.join(__dirname, "..", process.env.LLAMA_GGUF_PATH!);
+const mmprojPath = path.join(__dirname, "..", process.env.LLAMA_MMPROJ_PATH!);
+const modelName = path.basename(ggufPath, ".gguf");
 
 export type LlamaProcessMessage =
   | { type: "ready" }
@@ -33,7 +33,7 @@ export class LlamaWrapper {
 
   constructor() {
     this.server = cp.spawn("./llama/llama-server", [
-      ...[`--model`, `${modelPath}`],
+      ...[`--model`, `${ggufPath}`],
       ...[`--mmproj`, `${mmprojPath}`],
       ...["--ctx-size", "1024"],
       ...["--port", "1234"],
