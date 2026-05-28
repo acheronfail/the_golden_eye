@@ -1,4 +1,4 @@
-#include <obs/obs-module.h>
+#include <obs/libobs/obs-module.h>
 #include "http.h"
 
 OBS_DECLARE_MODULE()

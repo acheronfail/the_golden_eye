@@ -2,12 +2,12 @@
 
 #include "logger.h"
 
-#include <obs/obs-module.h>
-#include <obs/graphics/graphics.h>
+#include <obs/libobs/obs-module.h>
+#include <obs/libobs/graphics/graphics.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <obs/obs-frontend-api.h>
+#include <obs/frontend/obs-frontend-api.h>
 
 struct ge_source_names_ctx {
   char *buffer;

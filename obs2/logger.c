@@ -1,6 +1,6 @@
 #include "logger.h"
 
-#include <obs/obs-module.h>
+#include <obs/libobs/obs-module.h>
 #include <stdarg.h>
 #include <stdio.h>
 

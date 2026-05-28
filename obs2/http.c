@@ -5,7 +5,7 @@
 #include "obs_bridge.h"
 #include "vendor/mongoose.h"
 
-#include <obs/obs-module.h>
+#include <obs/libobs/obs-module.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,8 +65,8 @@ static void ge_handle_http(struct mg_connection *c, int ev, void *ev_data) {
       if (bmp_data) {
         mg_printf(c,
                   "HTTP/1.1 200 OK\r\nContent-Type: "
-                  "image/bmp\r\nContent-Length: %zu\r\n\r\n",
-                  bmp_size);
+                  "image/bmp\r\nContent-Length: %lu\r\n\r\n",
+                  (unsigned long)bmp_size);
         mg_send(c, bmp_data, bmp_size);
         free(bmp_data);
       } else {
