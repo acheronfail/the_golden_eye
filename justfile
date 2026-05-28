@@ -12,6 +12,12 @@ export LLAMA_MMPROJ_PATH := "models/" + model + "-mmproj.gguf"
 _default:
   just -l
 
+obs:
+  cd obs2/build && cmake ..
+  cd obs2/build && make
+  cd obs2/build && OBS_PLUGINS_PATH=$(pwd) OBS_PLUGINS_DATA_PATH=$(pwd) obs 2>&1 \
+    | sh -c 'trap "" INT; while IFS= read -r line; do case "$line" in *"[The Golden Eye]"*) printf "%s\n" "$line";; esac; done'
+
 run:
   npm run obs
 
