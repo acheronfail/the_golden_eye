@@ -40,7 +40,23 @@ if(APPLE)
 else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(OBS REQUIRED libobs)
-    pkg_check_modules(OBS_FRONTEND REQUIRED obs-frontend-api)
+
+    # Arch exposes obs-frontend-api via pkg-config, but Debian-based distros
+    # often do not. Fall back to finding the shared library directly.
+    pkg_check_modules(OBS_FRONTEND QUIET obs-frontend-api)
+    if(NOT OBS_FRONTEND_FOUND)
+        find_library(OBS_FRONTEND_LIBRARY
+            NAMES obs-frontend-api libobs-frontend-api
+            HINTS ${OBS_LIBRARY_DIRS}
+            PATH_SUFFIXES lib lib64 x86_64-linux-gnu
+        )
+        if(NOT OBS_FRONTEND_LIBRARY)
+            message(FATAL_ERROR
+                "Could not find OBS frontend API library. Install OBS development files for your distro."
+            )
+        endif()
+        set(OBS_FRONTEND_LIBRARIES ${OBS_FRONTEND_LIBRARY})
+    endif()
 endif()
 
 if(APPLE)

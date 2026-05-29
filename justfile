@@ -15,6 +15,7 @@ _default:
   just -l
 
 obs:
+  mkdir -p obs2/build
   cd obs2/build && cmake .. && make
   cd obs2/build && OBS_PLUGINS_PATH=$(pwd) OBS_PLUGINS_DATA_PATH=$(pwd) obs 2>&1 \
     | sh -c 'trap "" INT; while IFS= read -r line; do case "$line" in *"[The Golden Eye]"*) printf "%s\n" "$line"; esac; done'
