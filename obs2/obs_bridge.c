@@ -2,8 +2,8 @@
 
 #include "logger.h"
 
-#include <obs/libobs/obs-module.h>
 #include <obs/libobs/graphics/graphics.h>
+#include <obs/libobs/obs-module.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -63,8 +63,7 @@ void ge_obs_collect_source_names(char *buffer, size_t buffer_size) {
   }
 }
 
-uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width,
-                                 uint32_t *out_height) {
+uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, uint32_t *out_height) {
   obs_source_t *source = NULL;
 
   if (!source_name) {
@@ -123,8 +122,7 @@ uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width,
     uint32_t linesize;
     if (gs_stagesurface_map(stagesurface, &mapped_data, &linesize)) {
       for (uint32_t y = 0; y < height; y++) {
-        memcpy(pixel_buffer + y * width * 4, mapped_data + y * linesize,
-               width * 4);
+        memcpy(pixel_buffer + y * width * 4, mapped_data + y * linesize, width * 4);
       }
       gs_stagesurface_unmap(stagesurface);
     } else {

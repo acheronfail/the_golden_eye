@@ -39,23 +39,20 @@ static void ge_handle_http(struct mg_connection *c, int ev, void *ev_data) {
 
   struct mg_http_message *hm = (struct mg_http_message *)ev_data;
 
-  if (mg_strcmp(hm->uri, mg_str("/api/hello")) == 0 &&
-      mg_strcmp(hm->method, mg_str("POST")) == 0) {
+  if (mg_strcmp(hm->uri, mg_str("/api/hello")) == 0 && mg_strcmp(hm->method, mg_str("POST")) == 0) {
     char names_buffer[4096];
     ge_obs_collect_source_names(names_buffer, sizeof(names_buffer));
     mg_http_reply(c, 200, "Content-Type: text/plain\r\n", "%s\n", names_buffer);
     return;
   }
 
-  if (mg_strcmp(hm->uri, mg_str("/api/screenshot")) == 0 &&
-      mg_strcmp(hm->method, mg_str("GET")) == 0) {
+  if (mg_strcmp(hm->uri, mg_str("/api/screenshot")) == 0 && mg_strcmp(hm->method, mg_str("GET")) == 0) {
     char source_name[256] = {0};
     mg_http_get_var(&hm->query, "source", source_name, sizeof(source_name));
 
     uint32_t width = 0;
     uint32_t height = 0;
-    uint8_t *raw_pixels = ge_obs_get_source_frame(
-        source_name[0] != '\0' ? source_name : NULL, &width, &height);
+    uint8_t *raw_pixels = ge_obs_get_source_frame(source_name[0] != '\0' ? source_name : NULL, &width, &height);
 
     if (raw_pixels) {
       size_t bmp_size = 0;
@@ -70,29 +67,23 @@ static void ge_handle_http(struct mg_connection *c, int ev, void *ev_data) {
         mg_send(c, bmp_data, bmp_size);
         free(bmp_data);
       } else {
-        mg_http_reply(c, 500, "Content-Type: text/plain\r\n",
-                      "Error: Failed to encode BMP.\n");
+        mg_http_reply(c, 500, "Content-Type: text/plain\r\n", "Error: Failed to encode BMP.\n");
       }
     } else {
-      mg_http_reply(c, 500, "Content-Type: text/plain\r\n",
-                    "Error: No active video source found.\n");
+      mg_http_reply(c, 500, "Content-Type: text/plain\r\n", "Error: No active video source found.\n");
     }
     return;
   }
 
-  if (mg_strcmp(hm->uri, mg_str("/api/record/start")) == 0 &&
-      mg_strcmp(hm->method, mg_str("POST")) == 0) {
+  if (mg_strcmp(hm->uri, mg_str("/api/record/start")) == 0 && mg_strcmp(hm->method, mg_str("POST")) == 0) {
     ge_obs_recording_start();
-    mg_http_reply(c, 200, "Content-Type: application/json\r\n",
-                  "{\"status\": \"recording started\"}\n");
+    mg_http_reply(c, 200, "Content-Type: application/json\r\n", "{\"status\": \"recording started\"}\n");
     return;
   }
 
-  if (mg_strcmp(hm->uri, mg_str("/api/record/stop")) == 0 &&
-      mg_strcmp(hm->method, mg_str("POST")) == 0) {
+  if (mg_strcmp(hm->uri, mg_str("/api/record/stop")) == 0 && mg_strcmp(hm->method, mg_str("POST")) == 0) {
     ge_obs_recording_stop();
-    mg_http_reply(c, 200, "Content-Type: application/json\r\n",
-                  "{\"status\": \"recording stopped\"}\n");
+    mg_http_reply(c, 200, "Content-Type: application/json\r\n", "{\"status\": \"recording stopped\"}\n");
     return;
   }
 
@@ -119,8 +110,7 @@ static int ge_webserver_worker(void *arg) {
 
 bool ge_http_server_start(void) {
   ge_server_running = 1;
-  if (thrd_create(&ge_server_thread, ge_webserver_worker, NULL) !=
-      thrd_success) {
+  if (thrd_create(&ge_server_thread, ge_webserver_worker, NULL) != thrd_success) {
     ge_server_running = 0;
     ge_log_error("Failed to create server thread!");
     return false;

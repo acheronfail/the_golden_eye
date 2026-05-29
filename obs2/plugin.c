@@ -1,5 +1,5 @@
-#include <obs/libobs/obs-module.h>
 #include "http.h"
+#include <obs/libobs/obs-module.h>
 
 OBS_DECLARE_MODULE()
 
@@ -11,6 +11,4 @@ bool obs_module_load(void) {
   return true;
 }
 
-void obs_module_unload(void) {
-  ge_http_server_stop();
-}
+void obs_module_unload(void) { ge_http_server_stop(); }

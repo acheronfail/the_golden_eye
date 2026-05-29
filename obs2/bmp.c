@@ -3,8 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-uint8_t *ge_encode_bmp(const uint8_t *bgra, uint32_t width, uint32_t height,
-                       size_t *out_size) {
+uint8_t *ge_encode_bmp(const uint8_t *bgra, uint32_t width, uint32_t height, size_t *out_size) {
   uint32_t row_stride = (width * 3 + 3) & ~3u;
   uint32_t pixel_data_size = row_stride * height;
   uint32_t file_size = 54 + pixel_data_size;
