@@ -104,6 +104,25 @@ if(WIN32)
     target_link_libraries(${PLUGIN_NAME} PRIVATE ws2_32)
 endif()
 
+#
+# Standalone CLI for exercising ge_cv_match_level() against a PNG on disk.
+#
+
+add_executable(test_match test_match.cpp cv_wrapper.cpp)
+target_include_directories(test_match PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+)
+target_compile_definitions(test_match PRIVATE
+    GE_TEMPLATES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/templates"
+)
+target_link_libraries(test_match PRIVATE ${OpenCV_LIBS})
+
+#
+# Plugin output:
+#   a plugin bundle on macOS, and a regular shared library on other platforms.
+#
+
 if(APPLE)
     set_target_properties(${PLUGIN_NAME} PROPERTIES
         BUNDLE TRUE
