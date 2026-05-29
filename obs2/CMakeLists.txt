@@ -2,11 +2,15 @@ cmake_minimum_required(VERSION 3.16)
 
 set(PLUGIN_NAME the_golden_eye)
 
-project(${PLUGIN_NAME} C)
+project(${PLUGIN_NAME} C CXX)
 
 # Force the compiler to use C11 for standard thread support
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+
+# OpenCV's API is C++; cv_wrapper.cpp bridges it to the C plugin
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Vendored OBS headers (populated by `just obs-headers`)
 set(VENDOR_OBS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/obs")
@@ -24,6 +28,11 @@ configure_file(
     "${VENDOR_LIBOBS_DIR}/obsconfig.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/obsconfig.h"
 )
+
+# OpenCV (Homebrew on macOS, libopencv-dev on Linux both ship CMake configs).
+# Only request the modules we actually use to keep link size/time down.
+# imgcodecs is needed to load the per-user template PNGs from disk.
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 
 # Find OBS libraries to link against
 if(APPLE)
@@ -67,6 +76,7 @@ endif()
 
 target_sources(${PLUGIN_NAME} PRIVATE
     bmp.c
+    cv_wrapper.cpp
     http.c
     logger.c
     obs_bridge.c
@@ -82,10 +92,12 @@ target_include_directories(${PLUGIN_NAME} PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     $<$<BOOL:${APPLE}>:/opt/homebrew/opt/simde/include>
     $<$<BOOL:${APPLE}>:${CMAKE_CURRENT_SOURCE_DIR}/compat>
+    ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(${PLUGIN_NAME} PRIVATE
     ${OBS_LIBRARIES}
     ${OBS_FRONTEND_LIBRARIES}
+    ${OpenCV_LIBS}
 )
 
 if(WIN32)
