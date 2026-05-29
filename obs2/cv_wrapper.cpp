@@ -8,23 +8,24 @@
 
 const char *ge_cv_version(void) { return CV_VERSION; }
 
-uint8_t *ge_cv_bgra_to_gray(const uint8_t *bgra, uint32_t width, uint32_t height) {
-  if (!bgra || width == 0 || height == 0)
-    return NULL;
-
-  // Wrap the caller's buffer without copying it.
-  const cv::Mat src(static_cast<int>(height), static_cast<int>(width), CV_8UC4,
-                    const_cast<uint8_t *>(bgra));
-
-  cv::Mat gray;
-  cv::cvtColor(src, gray, cv::COLOR_BGRA2GRAY);
-
-  const size_t size = static_cast<size_t>(width) * height;
-  uint8_t *out = static_cast<uint8_t *>(std::malloc(size));
-  if (!out)
-    return NULL;
-
-  // cvtColor produces a continuous, tightly-packed buffer for this case.
-  std::memcpy(out, gray.data, size);
-  return out;
-}
+/*
+  TODO: using `obs2/templates`, write a function which will quickly match them and return
+  a ge_level_match_result_t:
+  {
+    // the mission template match, a number between 1-9 (or -1 if no match)
+    // use `obs2/templates/$LANG-mission\d.png` for the templates
+    mission: int,
+    // the part template match, a number between 1-5 (or -1 if no match)
+    // use `obs2/templates/$LANG-part\d.png` for the templates
+    part: int,
+    // the difficulty template match, a number between 1-4 (or -1 if no match)
+    // use `obs2/templates/$LANG-diff\d.png` for the templates
+    difficulty: int,
+    // all times matched on screen (using digit templates), need to only match
+    // digits in the format of "mm:ss" (and not match the other numbers on screen)
+    // the return type is the matched times in seconds, so "01:30" would be returned as 90.
+    // The order of the array should be the way they appear on screen, from top to bottom, left to right.
+    // use `obs2/templates/$LANG-{digit\d,colon}.png` for the templates
+    times: Array<int>
+  }
+*/
