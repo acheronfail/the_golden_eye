@@ -188,6 +188,81 @@ struct FoundTime {
 	int seconds;
 };
 
+struct FoundMission {
+	int mission;
+	double score;
+};
+
+// Finds a mission number (1-9) by anchoring on ':' in the label region and
+// taking the strongest single digit immediately to its left on the same line.
+FoundMission find_mission_from_colons(const cv::Mat &labelRegion, const cv::Mat &colonTmpl,
+	                                  const std::vector<cv::Mat> &digitTmpls) {
+	if (colonTmpl.empty() || digitTmpls.size() < 10) {
+		return {-1, -1.0};
+	}
+
+	int digitWidthSum = 0;
+	for (int v = 1; v <= 9; ++v) {
+		if (digitTmpls[v].empty()) {
+			return {-1, -1.0};
+		}
+		digitWidthSum += digitTmpls[v].cols;
+	}
+	const int digitW = std::max(1, digitWidthSum / 9);
+	const int digitH = digitTmpls[1].rows;
+	const int colonW = colonTmpl.cols;
+	const int colonH = colonTmpl.rows;
+
+	std::vector<Detection> colons;
+	collect_detections(labelRegion, colonTmpl, kGlyphThreshold, 0, colons);
+	colons = suppress(std::move(colons), colonW, colonH, 0.5);
+
+	FoundMission best = {-1, -1.0};
+	const int bandPadX = digitW * 2;
+	const int bandPadY = digitH;
+
+	for (const Detection &colon : colons) {
+		const int x0 = std::max(0, colon.x - bandPadX);
+		const int y0 = std::max(0, colon.y - bandPadY);
+		const int x1 = std::min(labelRegion.cols, colon.x + std::max(1, colonW / 2));
+		const int y1 = std::min(labelRegion.rows, colon.y + colonH + bandPadY);
+		if (x1 <= x0 || y1 <= y0) {
+			continue;
+		}
+
+		const cv::Mat roi = labelRegion(cv::Rect(x0, y0, x1 - x0, y1 - y0));
+		std::vector<std::vector<Detection>> perValue(10);
+		cv::parallel_for_(cv::Range(1, 10), [&](const cv::Range &r) {
+			for (int v = r.start; v < r.end; ++v) {
+				collect_detections(roi, digitTmpls[v], kGlyphThreshold, v, perValue[v]);
+			}
+		});
+
+		const double colonCenterY = colon.y + colonH / 2.0;
+		for (int v = 1; v <= 9; ++v) {
+			for (Detection d : perValue[v]) {
+				d.x += x0;
+				d.y += y0;
+				if (std::abs((d.y + digitH / 2.0) - colonCenterY) >= digitH * 0.35) {
+					continue;
+				}
+				if (d.x + d.w > colon.x + colonW * 0.7) {
+					continue;
+				}
+				const double adjLeft = colon.x - (d.x + d.w);
+				if (adjLeft < -digitW * 0.4 || adjLeft > digitW * 0.6) {
+					continue;
+				}
+				if (d.score >= best.score) {
+					best = {v, d.score};
+				}
+			}
+		}
+	}
+
+	return best;
+}
+
 } // namespace
 
 ge_level_match_result_t ge_cv_match_level(const uint8_t *bgra, uint32_t width, uint32_t height, const char *lang,
@@ -201,15 +276,20 @@ ge_level_match_result_t ge_cv_match_level(const uint8_t *bgra, uint32_t width, u
 	const std::string dir(templates_dir);
 
 	// Load the label templates.
-	std::vector<cv::Mat> missions, parts, diffs;
-	for (int i = 1; i <= 9; ++i) {
-		missions.push_back(load_template(dir, lang, "mission" + std::to_string(i)));
-	}
+	std::vector<cv::Mat> parts, diffs;
 	for (int i = 1; i <= 5; ++i) {
 		parts.push_back(load_template(dir, lang, "part" + std::to_string(i)));
 	}
 	for (int i = 1; i <= 4; ++i) {
 		diffs.push_back(load_template(dir, lang, "diff" + std::to_string(i)));
+	}
+
+	// Load base glyph templates once; mission and time matching both scale from
+	// these in-memory mats.
+	cv::Mat colonBase = load_template(dir, lang, "colon");
+	std::vector<cv::Mat> digitBase;
+	for (int v = 0; v <= 9; ++v) {
+		digitBase.push_back(load_template(dir, lang, "digit" + std::to_string(v)));
 	}
 
 	PhaseTimer timer;
@@ -230,19 +310,24 @@ ge_level_match_result_t ge_cv_match_level(const uint8_t *bgra, uint32_t width, u
 	// origin requires no offset bookkeeping.
 	const cv::Mat labelRegion = frame(cv::Rect(0, 0, (int)(frame.cols * kLabelRegionW), (int)(frame.rows * kLabelRegionH)));
 
-	// Determine the global scale from the mission label: it is large, always
-	// present on the stats overlay, and the most distinctive of the labels.
-	// The winning (mission, scale) pair also gives us the mission result.
+	// Determine the global scale from mission glyphs by anchoring on ':' in the
+	// label region and selecting the strongest single digit immediately left of
+	// that colon. This avoids matching large mission templates across scales.
 	double globalScale = 1.0;
-	double bestMissionScore = kLabelThreshold;
+	double bestMissionScore = kGlyphThreshold;
 	for (double scale : kScales) {
-		std::vector<double> scores = best_scores(labelRegion, missions, scale);
-		for (size_t i = 0; i < scores.size(); ++i) {
-			if (scores[i] >= bestMissionScore) {
-				bestMissionScore = scores[i];
-				globalScale = scale;
-				result.mission = (int)i + 1;
-			}
+		cv::Mat colonTmpl = scaled(colonBase, scale);
+		std::vector<cv::Mat> digitTmpls;
+		digitTmpls.reserve(10);
+		for (int v = 0; v <= 9; ++v) {
+			digitTmpls.push_back(scaled(digitBase[v], scale));
+		}
+
+		FoundMission found = find_mission_from_colons(labelRegion, colonTmpl, digitTmpls);
+		if (found.score >= bestMissionScore) {
+			bestMissionScore = found.score;
+			globalScale = scale;
+			result.mission = found.mission;
 		}
 		// The scales beyond the first exist only to recover from a capture
 		// resolution that differs from the templates' authoring resolution. A
@@ -257,15 +342,16 @@ ge_level_match_result_t ge_cv_match_level(const uint8_t *bgra, uint32_t width, u
 
 	// Remaining labels are matched at the established scale.
 	result.part = best_label(labelRegion, parts, globalScale, kLabelThreshold);
+	timer.lap("part labels");
 	result.difficulty = best_label(labelRegion, diffs, globalScale, kLabelThreshold);
-	timer.lap("part/difficulty labels");
+	timer.lap("difficulty labels");
 
 	// Locate the digit and colon glyphs at the same scale.
-	cv::Mat colonTmpl = scaled(load_template(dir, lang, "colon"), globalScale);
+	cv::Mat colonTmpl = scaled(colonBase, globalScale);
 	std::vector<cv::Mat> digitTmpls;
 	int digitWidthSum = 0;
 	for (int v = 0; v <= 9; ++v) {
-		cv::Mat t = scaled(load_template(dir, lang, "digit" + std::to_string(v)), globalScale);
+		cv::Mat t = scaled(digitBase[v], globalScale);
 		digitWidthSum += t.cols;
 		digitTmpls.push_back(t);
 	}
