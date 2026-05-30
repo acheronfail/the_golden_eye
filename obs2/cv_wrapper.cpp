@@ -198,6 +198,20 @@ ge_level_match_result_t ge_cv_match_level(const uint8_t *bgra, uint32_t width, u
 		return result;
 	}
 
+	const std::string dir(templates_dir);
+
+	// Load the label templates.
+	std::vector<cv::Mat> missions, parts, diffs;
+	for (int i = 1; i <= 9; ++i) {
+		missions.push_back(load_template(dir, lang, "mission" + std::to_string(i)));
+	}
+	for (int i = 1; i <= 5; ++i) {
+		parts.push_back(load_template(dir, lang, "part" + std::to_string(i)));
+	}
+	for (int i = 1; i <= 4; ++i) {
+		diffs.push_back(load_template(dir, lang, "diff" + std::to_string(i)));
+	}
+
 	PhaseTimer timer;
 
 	// Wrap the caller's BGRA buffer (no copy) and convert to grayscale once;
@@ -215,21 +229,6 @@ ge_level_match_result_t ge_cv_match_level(const uint8_t *bgra, uint32_t width, u
 	// in the panel. These matches do not need frame coordinates, so the smaller
 	// origin requires no offset bookkeeping.
 	const cv::Mat labelRegion = frame(cv::Rect(0, 0, (int)(frame.cols * kLabelRegionW), (int)(frame.rows * kLabelRegionH)));
-
-	const std::string dir(templates_dir);
-
-	// Load the label templates.
-	std::vector<cv::Mat> missions, parts, diffs;
-	for (int i = 1; i <= 9; ++i) {
-		missions.push_back(load_template(dir, lang, "mission" + std::to_string(i)));
-	}
-	for (int i = 1; i <= 5; ++i) {
-		parts.push_back(load_template(dir, lang, "part" + std::to_string(i)));
-	}
-	for (int i = 1; i <= 4; ++i) {
-		diffs.push_back(load_template(dir, lang, "diff" + std::to_string(i)));
-	}
-	timer.lap("load label templates");
 
 	// Determine the global scale from the mission label: it is large, always
 	// present on the stats overlay, and the most distinctive of the labels.
