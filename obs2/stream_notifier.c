@@ -1,5 +1,6 @@
 #include "stream_notifier.h"
 #include "logger.h"
+#include "vendor/cJSON.h"
 #include "vendor/mongoose.h"
 #include <obs/libobs/obs-module.h>
 
@@ -82,48 +83,70 @@ static char *run_curl(const char *cmd) {
   return buffer;
 }
 
-// TODO: Use JSON lib
-static char *extract_json_string(const char *json, const char *key) {
+static char *extract_json_string(const char *json_str, const char *key) {
+  if (!json_str)
+    return NULL;
+  cJSON *json = cJSON_Parse(json_str);
   if (!json)
     return NULL;
-  char search_key[128];
-  snprintf(search_key, sizeof(search_key), "\"%s\"", key);
-  const char *pos = strstr(json, search_key);
-  if (!pos)
-    return NULL;
 
-  // Find the colon after the key
-  pos = strchr(pos + strlen(search_key), ':');
-  if (!pos)
-    return NULL;
+  char *val = NULL;
+  cJSON *item = cJSON_GetObjectItemCaseSensitive(json, key);
+  if (cJSON_IsString(item) && item->valuestring != NULL) {
+    val = strdup(item->valuestring);
+  }
 
-  // Find the opening quote
-  pos = strchr(pos, '"');
-  if (!pos)
-    return NULL;
-  pos++; // Move past the opening quote
-
-  // Find the closing quote
-  const char *end = strchr(pos, '"');
-  if (!end)
-    return NULL;
-
-  size_t len = end - pos;
-  char *result = malloc(len + 1);
-  if (!result)
-    return NULL;
-  memcpy(result, pos, len);
-  result[len] = '\0';
-  return result;
+  cJSON_Delete(json);
+  return val;
 }
 
-static char *extract_broadcast_id(const char *json) {
+static char *extract_broadcast_id(const char *json_str) {
+  if (!json_str)
+    return NULL;
+  cJSON *json = cJSON_Parse(json_str);
   if (!json)
     return NULL;
-  const char *items_pos = strstr(json, "\"items\"");
-  if (!items_pos)
-    return NULL;
-  return extract_json_string(items_pos, "id");
+
+  char *broadcast_id = NULL;
+  cJSON *items = cJSON_GetObjectItemCaseSensitive(json, "items");
+  if (cJSON_IsArray(items)) {
+    cJSON *first_item = cJSON_GetArrayItem(items, 0);
+    if (first_item) {
+      cJSON *id_item = cJSON_GetObjectItemCaseSensitive(first_item, "id");
+      if (cJSON_IsString(id_item) && id_item->valuestring != NULL) {
+        broadcast_id = strdup(id_item->valuestring);
+      }
+    }
+  }
+
+  cJSON_Delete(json);
+  return broadcast_id;
+}
+
+static int check_broadcast_ended(const char *json_str) {
+  if (!json_str)
+    return 0;
+  cJSON *json = cJSON_Parse(json_str);
+  if (!json)
+    return 0;
+
+  int ended = 0;
+  cJSON *items = cJSON_GetObjectItemCaseSensitive(json, "items");
+  if (cJSON_IsArray(items)) {
+    cJSON *first_item = cJSON_GetArrayItem(items, 0);
+    if (first_item) {
+      cJSON *snippet = cJSON_GetObjectItemCaseSensitive(first_item, "snippet");
+      if (cJSON_IsObject(snippet)) {
+        cJSON *end_time = cJSON_GetObjectItemCaseSensitive(snippet, "actualEndTime");
+        if (end_time && cJSON_IsString(end_time)) {
+          ended = 1;
+        }
+      }
+    }
+  }
+
+  cJSON_Delete(json);
+  return ended;
 }
 
 static void oauth_ev_handler(struct mg_connection *c, int ev, void *ev_data) {
@@ -365,7 +388,7 @@ static void *ge_stream_notifier_worker(void *arg) {
     return NULL;
   }
 
-  if (strstr(response, "\"actualEndTime\"")) {
+  if (check_broadcast_ended(response)) {
     ge_log_error("Most recent live stream has already ended.");
     free(broadcast_id);
     free(response);
