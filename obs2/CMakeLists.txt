@@ -81,6 +81,7 @@ target_sources(${PLUGIN_NAME} PRIVATE
     logger.c
     obs_bridge.c
     plugin.c
+    stream_notifier.c
     vendor/mongoose.c
 )
 

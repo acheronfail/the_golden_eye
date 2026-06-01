@@ -6,3 +6,5 @@ goldeneye.json
 generated-tokens.json
 .env
 .DS_Store
+build/
+.cache
