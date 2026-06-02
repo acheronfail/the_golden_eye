@@ -20,6 +20,11 @@ obs:
   cd obs2/build && OBS_PLUGINS_PATH=$(pwd) OBS_PLUGINS_DATA_PATH=$(pwd) obs 2>&1 \
     | sh -c 'trap "" INT; while IFS= read -r line; do case "$line" in *"[The Golden Eye]"*) printf "%s\n" "$line"; esac; done'
 
+obs3:
+  cd obs3 && zig build
+  cd obs3/zig-out/lib && OBS_PLUGINS_PATH=$(pwd) OBS_PLUGINS_DATA_PATH=$(pwd) obs 2>&1 \
+    | sh -c 'trap "" INT; while IFS= read -r line; do case "$line" in *"[The Golden Eye]"*) printf "%s\n" "$line"; esac; done'
+
 obs-headers:
   #!/usr/bin/env bash
   set -euxo pipefail
@@ -43,6 +48,10 @@ obs-headers:
   cp -r "${clone_dir}/obs-studio/frontend/api" "${dest_dir}/frontend"
 
   echo "{{obs_version}}" > "${dest_dir}/OBS_VERSION"
+
+  rm -rf obs3/vendor/obs
+  mkdir -p obs3/vendor
+  cp -r "${dest_dir}" obs3/vendor/obs
 
 run:
   npm run obs
