@@ -1,0 +1,30 @@
+[package]
+name = "ge_rust"
+version = "0.1.0"
+build = "build.rs"
+edition = "2024"
+publish = false
+
+[lib]
+# Produce a C-compatible static archive that CMake can link into the plugin.
+crate-type = ["staticlib"]
+
+[build-dependencies]
+cbindgen = "0.29.3"
+
+
+[dependencies]
+anyhow = "1.0.102"
+axum = { version = "0.8.9", features = ["macros"] }
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "form", "native-tls", "charset", "http2", "system-proxy"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tokio = { version = "1.52.3", features = ["full"] }
+tower = { version = "0.5.3", features = ["util", "timeout"] }
+tower-http = { version = "0.6.11", features = ["trace", "util"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+
+[dev-dependencies]
+http-body-util = "0.1.3"

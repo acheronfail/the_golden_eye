@@ -68,6 +68,41 @@ else()
     endif()
 endif()
 
+#
+# Rust static library
+#
+
+set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(RUST_PROFILE "debug")
+    set(CARGO_BUILD_FLAGS "")
+else()
+    set(RUST_PROFILE "release")
+    set(CARGO_BUILD_FLAGS "--release")
+endif()
+
+set(RUST_LIB "${RUST_DIR}/target/${RUST_PROFILE}/libge_rust.a")
+
+if(APPLE AND CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(RUST_BUILD_ENV "MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+endif()
+
+add_custom_target(rust_build ALL
+    COMMAND ${CMAKE_COMMAND} -E env ${RUST_BUILD_ENV}
+            cargo build ${CARGO_BUILD_FLAGS}
+    WORKING_DIRECTORY "${RUST_DIR}"
+    COMMENT "Building Rust static library (${RUST_PROFILE})"
+    VERBATIM
+)
+
+# Declare an imported target so we can add it to target_link_libraries.
+add_library(rust_libs STATIC IMPORTED GLOBAL)
+set_target_properties(rust_libs PROPERTIES
+    IMPORTED_LOCATION "${RUST_LIB}"
+)
+add_dependencies(rust_libs rust_build)
+
 if(APPLE)
     add_library(${PLUGIN_NAME} MODULE)
 else()
@@ -77,13 +112,8 @@ endif()
 target_sources(${PLUGIN_NAME} PRIVATE
     bmp.c
     cv_wrapper.cpp
-    http.c
-    logger.c
     obs_bridge.c
     plugin.c
-    stream_notifier.c
-    vendor/cJSON.c
-    vendor/mongoose.c
 )
 
 target_include_directories(${PLUGIN_NAME} PRIVATE
@@ -93,14 +123,29 @@ target_include_directories(${PLUGIN_NAME} PRIVATE
     ${VENDOR_LIBOBS_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
     $<$<BOOL:${APPLE}>:/opt/homebrew/opt/simde/include>
-    $<$<BOOL:${APPLE}>:${CMAKE_CURRENT_SOURCE_DIR}/compat>
     ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(${PLUGIN_NAME} PRIVATE
     ${OBS_LIBRARIES}
     ${OBS_FRONTEND_LIBRARIES}
     ${OpenCV_LIBS}
+    rust_libs
 )
+
+if(APPLE)
+    # Rust's stdlib (embedded in the staticlib) references these system
+    # frameworks on macOS. find_library resolves them to full paths so the
+    # linker can locate them regardless of SDK layout.
+    find_library(SECURITY_FW             Security             REQUIRED)
+    find_library(FOUNDATION_FW           Foundation           REQUIRED)
+    find_library(SYSTEM_CONFIGURATION_FW SystemConfiguration  REQUIRED)
+    target_link_libraries(${PLUGIN_NAME} PRIVATE
+        ${SECURITY_FW}
+        ${FOUNDATION_FW}
+        ${SYSTEM_CONFIGURATION_FW}
+        -lresolv
+    )
+endif()
 
 if(WIN32)
     target_link_libraries(${PLUGIN_NAME} PRIVATE ws2_32)

@@ -1,10 +1,8 @@
-#include "http.h"
-#include "logger.h"
-#include "stream_notifier.h"
 #include <obs/frontend/obs-frontend-api.h>
 #include <obs/libobs/obs-data.h>
 #include <obs/libobs/obs-module.h>
 #include <obs/libobs/obs-service.h>
+#include "ge_rust.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -20,7 +18,6 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
       if (settings) {
         const char *service_name = obs_data_get_string(settings, "service");
         if (service_name && strcasestr(service_name, "youtube") != NULL) {
-          ge_log_info("YouTube stream started. Activating stream notifier...");
           ge_stream_notifier_start();
         }
         obs_data_release(settings);
@@ -31,15 +28,12 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
 }
 
 bool obs_module_load(void) {
-  if (!ge_http_server_start()) {
-    return false;
-  }
-
+  ge_rust_start();
   obs_frontend_add_event_callback(ge_on_frontend_event, NULL);
   return true;
 }
 
 void obs_module_unload(void) {
+  ge_rust_stop();
   obs_frontend_remove_event_callback(ge_on_frontend_event, NULL);
-  ge_http_server_stop();
 }

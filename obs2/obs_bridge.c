@@ -1,7 +1,5 @@
 #include "obs_bridge.h"
 
-#include "logger.h"
-
 #include <obs/libobs/graphics/graphics.h>
 #include <obs/libobs/obs-module.h>
 #include <stdlib.h>
@@ -20,12 +18,15 @@ static bool ge_collect_source_names_callback(void *data, obs_source_t *source) {
   const char *name = obs_source_get_name(source);
   const char *id = obs_source_get_id(source);
   size_t name_len = strlen(name);
+  size_t id_len = strlen(id);
 
-  ge_log_info("Found source -> Name: '%s', ID: '%s'", name, id);
-
-  if (ctx->current_pos + name_len + 1 < ctx->buffer_size) {
+  /* format: name '\t' id '\n' */
+  if (ctx->current_pos + name_len + 1 + id_len + 1 < ctx->buffer_size) {
     memcpy(ctx->buffer + ctx->current_pos, name, name_len);
     ctx->current_pos += name_len;
+    ctx->buffer[ctx->current_pos++] = '\t';
+    memcpy(ctx->buffer + ctx->current_pos, id, id_len);
+    ctx->current_pos += id_len;
     ctx->buffer[ctx->current_pos++] = '\n';
   }
 
@@ -140,14 +141,4 @@ uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, u
   obs_leave_graphics();
   obs_source_release(source);
   return pixel_buffer;
-}
-
-void ge_obs_recording_start(void) {
-  obs_frontend_recording_start();
-  ge_log_info("Recording started");
-}
-
-void ge_obs_recording_stop(void) {
-  obs_frontend_recording_stop();
-  ge_log_info("Recording stopped");
 }

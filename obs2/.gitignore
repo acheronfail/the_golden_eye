@@ -1,2 +1,4 @@
 build/
 vendor/obs/
+rust/target/
+ge_rust.h
