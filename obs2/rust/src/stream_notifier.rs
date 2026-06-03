@@ -154,8 +154,8 @@ async fn run_oauth_flow(
     tracing::info!("opening browser for YouTube OAuth");
     if let Err(e) = std::process::Command::new("open").arg(&auth_url).spawn() {
         tracing::warn!("failed to open browser automatically: {e}");
-        tracing::info!("please open the following URL manually:\n{auth_url}");
     }
+    tracing::info!("Opening auth URL: {auth_url}");
 
     let code = rx.await.context("OAuth channel closed before receiving code")?;
     tracing::info!("received OAuth authorisation code");
