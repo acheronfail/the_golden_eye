@@ -1,5 +1,5 @@
 mod http;
-mod obs_ffi;
+mod ffi;
 mod stream_notifier;
 
 use std::sync::Arc;
@@ -66,7 +66,10 @@ pub extern "C" fn ge_rust_start() {
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
-    let state = Arc::new(AppStateInner { oauth_pending: tokio::sync::Mutex::new(None) });
+    let state = Arc::new(AppStateInner {
+        oauth_pending: tokio::sync::Mutex::new(None),
+        stream_message: tokio::sync::Mutex::new(None),
+    });
 
     // Spawn the server onto the runtime. `spawn` returns immediately so the
     // C caller is never blocked; the runtime drives the future on its own
@@ -133,4 +136,23 @@ pub extern "C" fn ge_stream_notifier_start() {
     };
 
     runtime_handle.spawn(stream_notifier::run(state));
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_stream_notifier_stop() {
+    let (runtime_handle, state) = {
+        let guard = match SERVER.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        match guard.as_ref() {
+            Some(h) => (h.runtime_handle.clone(), h.state.clone()),
+            None => {
+                tracing::error!("ge_stream_notifier_stop called but server is not running");
+                return;
+            }
+        }
+    };
+
+    runtime_handle.spawn(stream_notifier::stop(state));
 }

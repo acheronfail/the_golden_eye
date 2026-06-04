@@ -24,6 +24,8 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
       }
       obs_service_release(service);
     }
+  } else if (event == OBS_FRONTEND_EVENT_STREAMING_STOPPED) {
+    ge_stream_notifier_stop();
   }
 }
 

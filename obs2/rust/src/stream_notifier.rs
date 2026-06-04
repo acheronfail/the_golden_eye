@@ -2,7 +2,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
-use crate::http::{AppState, OAUTH_CALLBACK_PATH, SERVER_PORT};
+use crate::http::{AppState, OAUTH_CALLBACK_PATH, SERVER_PORT, StreamMessage};
 
 const KEYRING_SERVICE: &str = "the-golden-eye";
 const KEYRING_ENTRY: &str = "youtube-oauth-tokens";
@@ -29,6 +29,13 @@ struct OAuthTokens {
 struct TokenResponse {
     access_token: Option<String>,
     refresh_token: Option<String>,
+}
+
+/// The subset of a Discord message object we care about (returned when posting
+/// a webhook with `wait=true`).
+#[derive(Deserialize)]
+struct DiscordMessage {
+    id: String,
 }
 
 #[derive(Deserialize)]
@@ -238,6 +245,43 @@ pub async fn run(state: AppState) {
     }
 }
 
+pub async fn stop(state: AppState) {
+    if let Err(e) = stop_inner(state).await {
+        tracing::error!("stream notifier stop error: {e:#}");
+    }
+}
+
+async fn stop_inner(state: AppState) -> anyhow::Result<()> {
+    let discord_webhook_url =
+        std::env::var("DISCORD_WEBHOOK_URL").context("DISCORD_WEBHOOK_URL not set")?;
+
+    // The "now streaming" message we posted on start, if any. Take it so a
+    // subsequent stop without an intervening start doesn't re-edit it.
+    let Some(message) = state.stream_message.lock().await.take() else {
+        tracing::info!("no recorded stream message to update, skipping Discord edit");
+        return Ok(());
+    };
+
+    let client = reqwest::Client::new();
+    let edit_url =
+        format!("{}/messages/{}", discord_webhook_url.trim_end_matches('/'), message.id);
+
+    tracing::info!("editing Discord message {} to mark the stream stopped", message.id);
+
+    client
+        .patch(&edit_url)
+        .json(&serde_json::json!({
+            "content": format!("🔴 Stream ended: {}", message.broadcast_url)
+        }))
+        .send()
+        .await
+        .context("failed to send Discord webhook edit request")?
+        .error_for_status()
+        .context("Discord webhook edit returned an error")?;
+
+    Ok(())
+}
+
 async fn run_inner(state: AppState) -> anyhow::Result<()> {
     let client_id = std::env::var("GOOGLE_CLIENT_ID").context("GOOGLE_CLIENT_ID not set")?;
     let client_secret =
@@ -275,14 +319,22 @@ async fn run_inner(state: AppState) -> anyhow::Result<()> {
     let broadcast_url = format!("https://youtu.be/{broadcast_id}");
     tracing::info!("posting Discord notification for {broadcast_url}");
 
-    client
-        .post(&discord_webhook_url)
-        .json(&serde_json::json!({ "content": format!("Now streaming: {broadcast_url}") }))
+    // `wait=true` makes Discord return the created message so we can grab its id
+    // and edit it in place when the stream stops.
+    let post_url = format!("{}?wait=true", discord_webhook_url.trim_end_matches('/'));
+    let message: DiscordMessage = client
+        .post(&post_url)
+        .json(&serde_json::json!({ "content": format!("🟢 Now streaming: {broadcast_url}") }))
         .send()
         .await
         .context("failed to send Discord webhook request")?
         .error_for_status()
-        .context("Discord webhook returned an error")?;
+        .context("Discord webhook returned an error")?
+        .json()
+        .await
+        .context("failed to parse Discord webhook response")?;
+
+    *state.stream_message.lock().await = Some(StreamMessage { id: message.id, broadcast_url });
 
     Ok(())
 }

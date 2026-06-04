@@ -16,6 +16,15 @@ pub struct AppStateInner {
     /// Holds the sender end of a one-shot channel while an OAuth flow is in
     /// progress. The `/oauth/callback` route fires it when the code arrives.
     pub oauth_pending: Mutex<Option<oneshot::Sender<String>>>,
+    /// The Discord "now streaming" message posted when a stream starts, kept so
+    /// the stop handler can edit it in place rather than posting a new message.
+    pub stream_message: Mutex<Option<StreamMessage>>,
+}
+
+/// A Discord webhook message we posted and may later edit.
+pub struct StreamMessage {
+    pub id: String,
+    pub broadcast_url: String,
 }
 
 pub type AppState = Arc<AppStateInner>;

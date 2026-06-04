@@ -13,7 +13,7 @@ const SOURCE_NAMES_BUFFER_SIZE: usize = 4096;
 pub async fn handler() -> Result<impl IntoResponse> {
     let mut buffer = [0i8; SOURCE_NAMES_BUFFER_SIZE];
     unsafe {
-        crate::obs_ffi::ge_obs_collect_source_names(buffer.as_mut_ptr(), SOURCE_NAMES_BUFFER_SIZE);
+        crate::ffi::ge_obs_collect_source_names(buffer.as_mut_ptr(), SOURCE_NAMES_BUFFER_SIZE);
     }
 
     let sources: Vec<Source> = unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }
