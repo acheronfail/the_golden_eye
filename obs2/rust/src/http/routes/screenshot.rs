@@ -13,14 +13,13 @@ pub struct Params {
 }
 
 pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> {
-    let source_name = CString::new(params.source)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
+    let source_name =
+        CString::new(params.source).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
     // Render the source into a BGRA buffer owned by the C side.
     let mut width: u32 = 0;
     let mut height: u32 = 0;
-    let frame =
-        unsafe { crate::ffi::ge_obs_get_source_frame(source_name.as_ptr(), &mut width, &mut height) };
+    let frame = unsafe { crate::ffi::ge_obs_get_source_frame(source_name.as_ptr(), &mut width, &mut height) };
     if frame.is_null() {
         return Err((StatusCode::NOT_FOUND, "could not capture source frame").into());
     }

@@ -2,15 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 
 set(PLUGIN_NAME the_golden_eye)
 
-project(${PLUGIN_NAME} C CXX)
-
-# Force the compiler to use C11 for standard thread support
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-
-# OpenCV's API is C++; cv_wrapper.cpp bridges it to the C plugin
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+project(${PLUGIN_NAME} C)
 
 # Vendored OBS headers (populated by `just obs-headers`)
 set(VENDOR_OBS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/obs")
@@ -28,11 +20,6 @@ configure_file(
     "${VENDOR_LIBOBS_DIR}/obsconfig.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/obsconfig.h"
 )
-
-# OpenCV (Homebrew on macOS, libopencv-dev on Linux both ship CMake configs).
-# Only request the modules we actually use to keep link size/time down.
-# imgcodecs is needed to load the per-user template PNGs from disk.
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 
 # Find OBS libraries to link against
 if(APPLE)
@@ -136,8 +123,21 @@ endif()
 
 set(RUST_LIB "${RUST_DIR}/target/${RUST_PROFILE}/libge_rust.a")
 
-if(APPLE AND CMAKE_OSX_DEPLOYMENT_TARGET)
-    set(RUST_BUILD_ENV "MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+# https://github.com/twistedfall/opencv-rust/blob/master/INSTALL.md#macos-package
+if(APPLE)
+    execute_process(
+        COMMAND xcode-select --print-path
+        OUTPUT_VARIABLE XCODE_DEVELOPER_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    list(APPEND RUST_BUILD_ENV
+        "DYLD_FALLBACK_LIBRARY_PATH=${XCODE_DEVELOPER_DIR}/Toolchains/XcodeDefault.xctoolchain/usr/lib/"
+        "LDFLAGS=-L/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib"
+        "LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}:/usr/local/lib"
+    )
+    if(CMAKE_OSX_DEPLOYMENT_TARGET)
+        list(APPEND RUST_BUILD_ENV "MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    endif()
 endif()
 
 add_custom_target(rust_build ALL
@@ -171,7 +171,6 @@ else()
 endif()
 
 target_sources(${PLUGIN_NAME} PRIVATE
-    cv_wrapper.cpp
     obs_bridge.c
     plugin.c
 )
@@ -183,12 +182,10 @@ target_include_directories(${PLUGIN_NAME} PRIVATE
     ${VENDOR_LIBOBS_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
     $<$<BOOL:${APPLE}>:/opt/homebrew/opt/simde/include>
-    ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(${PLUGIN_NAME} PRIVATE
     ${OBS_LIBRARIES}
     ${OBS_FRONTEND_LIBRARIES}
-    ${OpenCV_LIBS}
     rust_libs
 )
 
@@ -210,20 +207,6 @@ endif()
 if(WIN32)
     target_link_libraries(${PLUGIN_NAME} PRIVATE ws2_32)
 endif()
-
-#
-# Standalone CLI for exercising ge_cv_match_level() against a PNG on disk.
-#
-
-add_executable(test_match test_match.cpp cv_wrapper.cpp)
-target_include_directories(test_match PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${OpenCV_INCLUDE_DIRS}
-)
-target_compile_definitions(test_match PRIVATE
-    GE_TEMPLATES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/cv_templates"
-)
-target_link_libraries(test_match PRIVATE ${OpenCV_LIBS})
 
 #
 # Plugin output:

@@ -8,11 +8,7 @@ unsafe extern "C" {
     /// (`width * height * 4` bytes) and writes its dimensions to the out
     /// params. Returns null if the source can't be found or rendered. The
     /// caller owns the buffer and must release it with [`free`].
-    pub fn ge_obs_get_source_frame(
-        source_name: *const c_char,
-        out_width: *mut u32,
-        out_height: *mut u32,
-    ) -> *mut u8;
+    pub fn ge_obs_get_source_frame(source_name: *const c_char, out_width: *mut u32, out_height: *mut u32) -> *mut u8;
 
     /// libc `free`, used to release buffers handed back by the C bridge.
     pub fn free(ptr: *mut c_void);
