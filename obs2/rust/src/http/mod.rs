@@ -83,8 +83,15 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         .route("/", get(routes::index::handler))
         // fallback for frontend spa
         .fallback(get(routes::index::handler))
-        .layer(middleware.into_inner())
-        .with_state(state.clone());
+        .layer(middleware.into_inner());
+
+    // In dev the SPA is served by the Vite dev server on a different origin, so
+    // its fetches to this API are cross-origin. Allow them with permissive CORS.
+    // Only compiled in for dev builds (CMake BROWSER_DEV=ON) — never in release.
+    #[cfg(feature = "dev")]
+    let app = app.layer(tower_http::cors::CorsLayer::permissive());
+
+    let app = app.with_state(state.clone());
 
     let listener = TcpListener::bind(format!("0.0.0.0:{SERVER_PORT}")).await?;
     tracing::info!("listening on {}", listener.local_addr()?);

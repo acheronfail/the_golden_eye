@@ -14,9 +14,23 @@ export LLAMA_MMPROJ_PATH := "models/" + model + "-mmproj.gguf"
 _default:
   just -l
 
+# runs the project in dev mode (hot reloads for the UI)
+dev:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p obs2/build
+  cd obs2/build
+  cmake .. -DCMAKE_BUILD_TYPE=Debug -DBROWSER_DEV=ON
+  make
+  ( cd ../browser && npm run dev ) &
+  dev_pid=$!
+  trap 'kill "$dev_pid" 2>/dev/null || true' EXIT
+  OBS_PLUGINS_PATH="$(pwd)" OBS_PLUGINS_DATA_PATH="$(pwd)" obs
+
+# builds the project and runs obs
 obs:
   mkdir -p obs2/build
-  cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Debug && make
+  cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DBROWSER_DEV=OFF && make
   cd obs2/build && OBS_PLUGINS_PATH=$(pwd) OBS_PLUGINS_DATA_PATH=$(pwd) obs
 
 obs-headers:

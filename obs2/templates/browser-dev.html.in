@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Goldeneye (dev)</title>
+		<!-- Configured by CMake (BROWSER_DEV): this stand-in is embedded in the
+		     plugin instead of the real SPA bundle so the frontend can be served
+		     by the Vite dev server (with hot reload) without rebuilding the
+		     plugin. It just bounces the browser to the dev server. -->
+		<meta http-equiv="refresh" content="0; url=http://localhost:@BROWSER_DEV_PORT@/" />
+		<script>
+			// Preserve any query string / hash so deep links survive the redirect.
+			location.replace('http://localhost:@BROWSER_DEV_PORT@/' + location.search + location.hash);
+		</script>
+	</head>
+	<body>
+		<p>
+			Redirecting to the dev server at
+			<a href="http://localhost:@BROWSER_DEV_PORT@/">localhost:@BROWSER_DEV_PORT@</a>… If nothing
+			happens, make sure the Vite dev server is running (<code>just dev</code>).
+		</p>
+	</body>
+</html>

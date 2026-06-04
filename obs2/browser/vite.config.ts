@@ -4,6 +4,8 @@ import { sveltekit } from '@sveltejs/kit/vite';
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
+	// NOTE: must match CMakeLists.txt
+	server: { port: 5173, strictPort: true },
 	test: {
 		expect: { requireAssertions: true },
 		projects: [

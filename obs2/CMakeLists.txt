@@ -73,21 +73,45 @@ endif()
 #
 
 set(BROWSER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/browser")
-# Single source of truth for the embedded bundle path. Passed to the frontend
-# build (svelte.config.js reads $BROWSER_BUNDLE to decide its output location)
-# and to the Rust build (include_str!(env!("BROWSER_BUNDLE"))).
-set(BROWSER_BUNDLE "${BROWSER_DIR}/build/index.html")
 
-add_custom_target(browser_build ALL
-    COMMAND ${CMAKE_COMMAND} -E env "BROWSER_BUNDLE=${BROWSER_BUNDLE}" ${RUST_BUILD_ENV}
-            npm run build
-    # Fail the build if the bundle the Rust crate embeds wasn't produced,
-    # rather than letting cargo fail later with an opaque include_str! error.
-    COMMAND test -f "${BROWSER_BUNDLE}"
-    WORKING_DIRECTORY "${BROWSER_DIR}"
-    COMMENT "Building frontend"
-    VERBATIM
-)
+# In dev mode we don't build/embed the real SPA. Instead the plugin embeds a
+# tiny HTML file that redirects to the Vite dev server, so the frontend can be
+# iterated on with hot reloads while only the plugin needs CMake rebuilds.
+option(BROWSER_DEV "Embed a dev-server redirect instead of building the SPA" OFF)
+
+# Port the Vite dev server listens on (must match browser/vite.config.ts).
+set(BROWSER_DEV_PORT 5173)
+
+if(BROWSER_DEV)
+    # Generate the redirect stand-in and point the embedded bundle at it.
+    set(BROWSER_BUNDLE "${CMAKE_CURRENT_BINARY_DIR}/browser-dev.html")
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/templates/browser-dev.html.in"
+        "${BROWSER_BUNDLE}"
+        @ONLY
+    )
+    # No SPA build in dev mode; keep the target so rust_build's dependency
+    # resolves, but make it a no-op.
+    add_custom_target(browser_build
+        COMMENT "Skipping frontend build (BROWSER_DEV=ON; using dev-server redirect)"
+    )
+else()
+    # Single source of truth for the embedded bundle path. Passed to the frontend
+    # build (svelte.config.js reads $BROWSER_BUNDLE to decide its output location)
+    # and to the Rust build (include_str!(env!("BROWSER_BUNDLE"))).
+    set(BROWSER_BUNDLE "${BROWSER_DIR}/build/index.html")
+
+    add_custom_target(browser_build ALL
+        COMMAND ${CMAKE_COMMAND} -E env "BROWSER_BUNDLE=${BROWSER_BUNDLE}" ${RUST_BUILD_ENV}
+                npm run build
+        # Fail the build if the bundle the Rust crate embeds wasn't produced,
+        # rather than letting cargo fail later with an opaque include_str! error.
+        COMMAND test -f "${BROWSER_BUNDLE}"
+        WORKING_DIRECTORY "${BROWSER_DIR}"
+        COMMENT "Building frontend"
+        VERBATIM
+    )
+endif()
 
 #
 # Rust static library
@@ -95,12 +119,19 @@ add_custom_target(browser_build ALL
 
 set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
 
+# Built up as a CMake list so each flag expands to a separate cargo argument.
+set(CARGO_BUILD_FLAGS "")
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(RUST_PROFILE "debug")
-    set(CARGO_BUILD_FLAGS "")
 else()
     set(RUST_PROFILE "release")
-    set(CARGO_BUILD_FLAGS "--release")
+    list(APPEND CARGO_BUILD_FLAGS --release)
+endif()
+
+# Enable the crate's `dev` feature (permissive CORS) when serving the SPA from
+# the separate-origin Vite dev server.
+if(BROWSER_DEV)
+    list(APPEND CARGO_BUILD_FLAGS --features dev)
 endif()
 
 set(RUST_LIB "${RUST_DIR}/target/${RUST_PROFILE}/libge_rust.a")
@@ -191,7 +222,7 @@ target_include_directories(test_match PRIVATE
     ${OpenCV_INCLUDE_DIRS}
 )
 target_compile_definitions(test_match PRIVATE
-    GE_TEMPLATES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/templates"
+    GE_TEMPLATES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/cv_templates"
 )
 target_link_libraries(test_match PRIVATE ${OpenCV_LIBS})
 
@@ -204,7 +235,7 @@ if(APPLE)
     set_target_properties(${PLUGIN_NAME} PROPERTIES
         BUNDLE TRUE
         BUNDLE_EXTENSION "plugin"
-        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/templates/Info.plist.in"
         PREFIX ""
     )
 else()

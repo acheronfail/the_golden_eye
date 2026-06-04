@@ -125,7 +125,7 @@ std::vector<double> best_scores(const cv::Mat &frame, const std::vector<cv::Mat>
 	return scores;
 }
 
-// Picks the highest-scoring template from `templates` (matched at `scale`).
+// Picks the highest-scoring template from `cv_templates` (matched at `scale`).
 // Returns the 1-based index of the winner, or -1 when none clears the
 // threshold. The templates are 0-indexed, so the returned value is index + 1.
 int best_label(const cv::Mat &frame, const std::vector<cv::Mat> &templates, double scale, double threshold) {

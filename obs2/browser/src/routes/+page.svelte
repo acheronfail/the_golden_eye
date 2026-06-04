@@ -1,61 +1,24 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
-	import * as obs from '$lib/obs';
+	import { apiUrl } from '$lib/api';
 
-	let monitoring = $state(false);
 	let imageData = $state<string | null>(null);
-	let fps = $state(0);
+	let sources = $state<{ name: string; id: string }[]>([]);
 
-	const frameTimes: number[] = [];
-	$effect(() => {
-		if (monitoring) {
+	const getSources = async () => {
+		const res = await fetch(apiUrl('/api/v1/sources'));
+		const data = await res.json();
+		sources = data;
+	};
 
-			const update = async (timestamp: number) => {
-				if (!monitoring) return;
-
-				while (frameTimes[0] < timestamp - 1_000) {
-					frameTimes.shift();
-				}
-				frameTimes.push(timestamp);
-				fps = frameTimes.length;
-
-				try {
-					const frame = await obs.getFrame();
-					if (monitoring) {
-						imageData = frame;
-					}
-				} finally {
-					if (monitoring) {
-						requestAnimationFrame(update);
-					}
-				}
-			};
-
-			update(0);
-		}
-	});
-
-	onMount(() => {
-		// Redirect to OBS connection page if needed
-		obs.testConnection().then((connected) => {
-			if (connected) {
-				monitoring = import.meta.env.DEV;
-			} else {
-				goto('/obs');
-			}
-		});
-
-		return () => {
-			monitoring = false;
-			imageData = null;
-			obs.disconnect();
-		};
-	});
+	const getScreenshot = (sourceName: string) => async () => {
+		const res = await fetch(apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}`));
+		const blob = await res.blob();
+		const url = URL.createObjectURL(blob);
+		imageData = url;
+	};
 </script>
 
 <!-- TODO: screen to set ROIs for goldeneye -->
-<!-- TODO: get image screenshot from OBS, and then display -->
 
 <div>
 	<h1 class="mb-4 text-2xl font-bold">Welcome to Goldeneye!</h1>
@@ -65,16 +28,36 @@
 
 	<button
 		class="mb-4 rounded bg-blue-500 px-4 py-2 font-semibold text-white hover:bg-blue-600"
-		onclick={() => (monitoring = !monitoring)}
+		onclick={getSources}>get sources</button
 	>
-		{monitoring ? 'Stop Monitoring' : 'Start Monitoring'}
-	</button>
+
+	{#if sources.length > 0}
+		<div class="mb-4">
+			<h2 class="mb-2 text-xl font-semibold">Available Sources:</h2>
+			<ul class="list-inside list-disc">
+				{#each sources as source}
+					<li>
+						{source.name}
+						{#if source.id === 'screen_capture'}
+							<button
+								class="ml-2 rounded bg-green-500 px-2 py-1 text-white hover:bg-green-600"
+								onclick={getScreenshot(source.name)}>get screenshot</button
+							>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{:else}
+		<p class="mb-4 text-gray-500">
+			No sources found. Please make sure OBS is running and has sources set up.
+		</p>
+	{/if}
 
 	{#if imageData}
-		<span>FPS: {fps}</span>
-		<div class="m-4 p-2 max-w-4xl border rounded shadow-md">
-			<h2 class="mb-2 text-xl font-semibold">Live Feed from OBS:</h2>
-			<img src={imageData} alt="Live feed from OBS" class="w-full rounded-lg shadow-md" />
+		<div class="mb-4">
+			<h2 class="mb-2 text-xl font-semibold">Screenshot:</h2>
+			<img src={imageData} alt="OBS Screenshot" class="max-w-full rounded" />
 		</div>
 	{/if}
 </div>
