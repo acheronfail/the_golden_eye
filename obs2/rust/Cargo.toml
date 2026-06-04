@@ -16,6 +16,7 @@ cbindgen = "0.29.3"
 [dependencies]
 anyhow = "1.0.102"
 axum = { version = "0.8.9", features = ["macros"] }
+bmp = "0.5.0"
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "form", "native-tls", "charset", "http2", "system-proxy"] }
 serde = { version = "1.0.228", features = ["derive"] }
