@@ -269,7 +269,9 @@ async fn stop_inner(state: AppState) -> anyhow::Result<()> {
     client
         .patch(&edit_url)
         .json(&serde_json::json!({
-            "content": format!("🔴 Stream ended: {}", message.broadcast_url)
+            "content": format!("🔴 Stream ended: {}", message.broadcast_url),
+            // SUPPRESS_EMBEDS (1 << 2): hide the auto-generated YouTube link preview.
+            "flags": 4
         }))
         .send()
         .await
