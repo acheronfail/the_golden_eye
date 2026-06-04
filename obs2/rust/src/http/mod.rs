@@ -5,7 +5,10 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::error_handling::HandleErrorLayer;
+use axum::extract::Request;
 use axum::http::StatusCode;
+use axum::middleware::Next;
+use axum::response::Response;
 use axum::routing::{get, post};
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, oneshot};
@@ -36,11 +39,29 @@ pub type AppState = Arc<AppStateInner>;
 pub const SERVER_PORT: u16 = 1337;
 pub const OAUTH_CALLBACK_PATH: &str = "/oauth/callback";
 
+/// Logs each request as it arrives and again once a response is produced.
+async fn log_requests(req: Request, next: Next) -> Response {
+    let method = req.method().clone();
+    let path = req.uri().path().to_owned();
+    tracing::info!(%method, %path, "request received");
+
+    let start = std::time::Instant::now();
+    let response = next.run(req).await;
+    let elapsed = start.elapsed();
+
+    let status = response.status();
+    tracing::info!(%method, %path, %status, ?elapsed, "request sent");
+    response
+}
+
 pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> anyhow::Result<()> {
     // Build middleware stack
 
     // NOTE: tower composes middleware from top to bottom; i.e., the first added is the first to be run
     let middleware = ServiceBuilder::new()
+        // Added first so it's outermost: logs every request and sees the final
+        // status, including timeouts handled by the layers below.
+        .layer(axum::middleware::from_fn(log_requests))
         .layer(HandleErrorLayer::new(|error: BoxError| async move {
             if error.is::<tower::timeout::error::Elapsed>() {
                 Ok(StatusCode::REQUEST_TIMEOUT)
