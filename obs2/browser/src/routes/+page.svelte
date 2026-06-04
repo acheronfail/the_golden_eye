@@ -38,7 +38,7 @@
 				{#each sources as source}
 					<li>
 						{source.name}
-						{#if source.id === 'screen_capture'}
+						{#if ['screen_capture', 'macos-avcapture-fast'].includes(source.id)}
 							<button
 								class="ml-2 rounded bg-green-500 px-2 py-1 text-white hover:bg-green-600"
 								onclick={getScreenshot(source.name)}>get screenshot</button

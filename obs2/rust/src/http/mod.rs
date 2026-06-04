@@ -36,7 +36,7 @@ pub struct StreamMessage {
 
 pub type AppState = Arc<AppStateInner>;
 
-pub const SERVER_PORT: u16 = 1337;
+pub const SERVER_PORT: u16 = 31337;
 pub const OAUTH_CALLBACK_PATH: &str = "/oauth/callback";
 
 /// Logs each request as it arrives and again once a response is produced.
