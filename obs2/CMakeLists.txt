@@ -171,7 +171,6 @@ else()
 endif()
 
 target_sources(${PLUGIN_NAME} PRIVATE
-    bmp.c
     cv_wrapper.cpp
     obs_bridge.c
     plugin.c
