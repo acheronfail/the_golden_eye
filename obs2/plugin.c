@@ -1,8 +1,8 @@
+#include "ge_rust.h"
 #include <obs/frontend/obs-frontend-api.h>
 #include <obs/libobs/obs-data.h>
 #include <obs/libobs/obs-module.h>
 #include <obs/libobs/obs-service.h>
-#include "ge_rust.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,7 +22,6 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
         }
         obs_data_release(settings);
       }
-      obs_service_release(service);
     }
   } else if (event == OBS_FRONTEND_EVENT_STREAMING_STOPPED) {
     ge_stream_notifier_stop();
