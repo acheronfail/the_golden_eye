@@ -1,3 +1,4 @@
+pub mod index;
 pub mod oauth;
 pub mod record;
 pub mod screenshot;

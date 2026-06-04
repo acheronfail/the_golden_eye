@@ -2,6 +2,9 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
+    // The HTTP server embeds the frontend bundle via include_str!(env!("BROWSER_BUNDLE")), rebuild when it changes.
+    println!("cargo:rerun-if-env-changed=BROWSER_BUNDLE");
+
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let output_file = PathBuf::from(&crate_dir).join("..").join("ge_rust.h");
 

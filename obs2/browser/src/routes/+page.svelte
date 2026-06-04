@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import * as obs from '$lib/obs';
 
 	let monitoring = $state(false);
@@ -41,7 +42,7 @@
 			if (connected) {
 				monitoring = import.meta.env.DEV;
 			} else {
-				window.location.href = '/obs';
+				goto('/obs');
 			}
 		});
 

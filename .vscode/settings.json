@@ -1,0 +1,10 @@
+{
+  "rust-analyzer.linkedProjects": ["${workspaceFolder}/obs2/rust/Cargo.toml"],
+  // BROWSER_BUNDLE is normally provided by the CMake build (the single source
+  // of truth). rust-analyzer doesn't run under CMake, so default it here to the
+  // standard build output path so include_str!(env!("BROWSER_BUNDLE")) resolves
+  // in the editor. Run the frontend build at least once so the file exists.
+  "rust-analyzer.cargo.extraEnv": {
+    "BROWSER_BUNDLE": "../../../../browser/build/index.html"
+  }
+}

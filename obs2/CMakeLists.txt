@@ -69,6 +69,27 @@ else()
 endif()
 
 #
+# Build frontend
+#
+
+set(BROWSER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/browser")
+# Single source of truth for the embedded bundle path. Passed to the frontend
+# build (svelte.config.js reads $BROWSER_BUNDLE to decide its output location)
+# and to the Rust build (include_str!(env!("BROWSER_BUNDLE"))).
+set(BROWSER_BUNDLE "${BROWSER_DIR}/build/index.html")
+
+add_custom_target(browser_build ALL
+    COMMAND ${CMAKE_COMMAND} -E env "BROWSER_BUNDLE=${BROWSER_BUNDLE}" ${RUST_BUILD_ENV}
+            npm run build
+    # Fail the build if the bundle the Rust crate embeds wasn't produced,
+    # rather than letting cargo fail later with an opaque include_str! error.
+    COMMAND test -f "${BROWSER_BUNDLE}"
+    WORKING_DIRECTORY "${BROWSER_DIR}"
+    COMMENT "Building frontend"
+    VERBATIM
+)
+
+#
 # Rust static library
 #
 
@@ -89,12 +110,17 @@ if(APPLE AND CMAKE_OSX_DEPLOYMENT_TARGET)
 endif()
 
 add_custom_target(rust_build ALL
-    COMMAND ${CMAKE_COMMAND} -E env ${RUST_BUILD_ENV}
+    COMMAND ${CMAKE_COMMAND} -E env "BROWSER_BUNDLE=${BROWSER_BUNDLE}" ${RUST_BUILD_ENV}
             cargo build ${CARGO_BUILD_FLAGS}
     WORKING_DIRECTORY "${RUST_DIR}"
     COMMENT "Building Rust static library (${RUST_PROFILE})"
     VERBATIM
 )
+
+# The Rust crate embeds browser/build/index.html via include_str!, so the
+# frontend must be built (successfully) first. This also guarantees that a
+# failed browser_build stops the whole build before cargo runs.
+add_dependencies(rust_build browser_build)
 
 # Declare an imported target so we can add it to target_link_libraries.
 add_library(rust_libs STATIC IMPORTED GLOBAL)
@@ -102,6 +128,10 @@ set_target_properties(rust_libs PROPERTIES
     IMPORTED_LOCATION "${RUST_LIB}"
 )
 add_dependencies(rust_libs rust_build)
+
+#
+# Output OBS plugin
+#
 
 if(APPLE)
     add_library(${PLUGIN_NAME} MODULE)

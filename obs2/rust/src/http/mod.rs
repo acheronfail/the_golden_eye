@@ -80,6 +80,9 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         .route("/api/v1/sources", get(routes::sources::handler))
         .route("/api/v1/screenshot", get(routes::screenshot::handler))
         .route(OAUTH_CALLBACK_PATH, get(routes::oauth::handle_callback))
+        .route("/", get(routes::index::handler))
+        // fallback for frontend spa
+        .fallback(get(routes::index::handler))
         .layer(middleware.into_inner())
         .with_state(state.clone());
 
