@@ -1,16 +1,17 @@
-mod http;
+mod config;
 mod ffi;
+mod http;
 mod stream_notifier;
 
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use http::{AppState, AppStateInner};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tracing_subscriber::EnvFilter;
 
-use http::{AppState, AppStateInner};
+use crate::config::Config;
 
 /// Holds the tokio runtime that is driving the HTTP server, along with the
 /// signal used to ask the server to shut down gracefully.
@@ -33,8 +34,8 @@ static SERVER: Mutex<Option<ServerHandle>> = Mutex::new(None);
 pub extern "C" fn ge_rust_start() {
     // setup logging
     {
-        let subscriber = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        let subscriber =
+            tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
                 format!(
                     "{}={level},tower_http={level}",
                     env!("CARGO_CRATE_NAME"),
@@ -45,6 +46,9 @@ pub extern "C" fn ge_rust_start() {
 
         subscriber.init();
     }
+
+    // Resolve (and log) all configuration once, right after logging is set up.
+    let config = Config::from_env();
 
     let mut guard = match SERVER.lock() {
         Ok(guard) => guard,
@@ -69,6 +73,7 @@ pub extern "C" fn ge_rust_start() {
     let state = Arc::new(AppStateInner {
         oauth_pending: tokio::sync::Mutex::new(None),
         stream_message: tokio::sync::Mutex::new(None),
+        config,
     });
 
     // Spawn the server onto the runtime. `spawn` returns immediately so the

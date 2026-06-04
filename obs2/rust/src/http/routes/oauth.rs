@@ -1,6 +1,6 @@
 use axum::extract::{Query, State};
-use axum::response::{Html, IntoResponse};
 use axum::http::StatusCode;
+use axum::response::{Html, IntoResponse};
 use serde::Deserialize;
 
 use crate::http::AppState;
@@ -11,10 +11,7 @@ pub struct OAuthQuery {
 }
 
 #[axum::debug_handler]
-pub async fn handle_callback(
-    State(state): State<AppState>,
-    Query(query): Query<OAuthQuery>,
-) -> impl IntoResponse {
+pub async fn handle_callback(State(state): State<AppState>, Query(query): Query<OAuthQuery>) -> impl IntoResponse {
     if let Some(code) = query.code {
         let mut pending = state.oauth_pending.lock().await;
         if let Some(tx) = pending.take() {

@@ -17,8 +17,7 @@ _default:
 obs:
   mkdir -p obs2/build
   cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Debug && make
-  cd obs2/build && OBS_PLUGINS_PATH=$(pwd) OBS_PLUGINS_DATA_PATH=$(pwd) obs 2>&1 \
-    | sh -c 'trap "" INT; while IFS= read -r line; do case "$line" in *"ge_rust"*) printf "%s\n" "$line"; esac; done'
+  cd obs2/build && OBS_PLUGINS_PATH=$(pwd) OBS_PLUGINS_DATA_PATH=$(pwd) obs
 
 obs-headers:
   #!/usr/bin/env bash

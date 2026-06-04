@@ -12,6 +12,8 @@ use tokio::sync::{Mutex, oneshot};
 use tower::ServiceBuilder;
 use tower_http::BoxError;
 
+use crate::config::Config;
+
 pub struct AppStateInner {
     /// Holds the sender end of a one-shot channel while an OAuth flow is in
     /// progress. The `/oauth/callback` route fires it when the code arrives.
@@ -19,6 +21,8 @@ pub struct AppStateInner {
     /// The Discord "now streaming" message posted when a stream starts, kept so
     /// the stop handler can edit it in place rather than posting a new message.
     pub stream_message: Mutex<Option<StreamMessage>>,
+    /// Application configuration, resolved from the environment at startup.
+    pub config: Config,
 }
 
 /// A Discord webhook message we posted and may later edit.
@@ -33,7 +37,6 @@ pub const SERVER_PORT: u16 = 1337;
 pub const OAUTH_CALLBACK_PATH: &str = "/oauth/callback";
 
 pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> anyhow::Result<()> {
-
     // Build middleware stack
 
     // NOTE: tower composes middleware from top to bottom; i.e., the first added is the first to be run

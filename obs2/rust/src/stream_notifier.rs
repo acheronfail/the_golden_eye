@@ -176,10 +176,7 @@ async fn run_oauth_flow(
 
 /// Returns `Some(broadcast_id)` for an active (not-yet-ended) live broadcast,
 /// or `None` if there is nothing live right now.
-async fn fetch_live_broadcast(
-    client: &reqwest::Client,
-    access_token: &str,
-) -> anyhow::Result<Option<String>> {
+async fn fetch_live_broadcast(client: &reqwest::Client, access_token: &str) -> anyhow::Result<Option<String>> {
     let resp: LiveBroadcastResponse = client
         .get("https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet&mine=true&maxResults=1")
         .bearer_auth(access_token)
@@ -252,8 +249,10 @@ pub async fn stop(state: AppState) {
 }
 
 async fn stop_inner(state: AppState) -> anyhow::Result<()> {
-    let discord_webhook_url =
-        std::env::var("DISCORD_WEBHOOK_URL").context("DISCORD_WEBHOOK_URL not set")?;
+    let Some(discord_webhook_url) = state.config.discord_webhook_url.as_ref() else {
+        tracing::info!("stream notifier is disabled (missing configuration), skipping stop");
+        return Ok(());
+    };
 
     // The "now streaming" message we posted on start, if any. Take it so a
     // subsequent stop without an intervening start doesn't re-edit it.
@@ -263,8 +262,7 @@ async fn stop_inner(state: AppState) -> anyhow::Result<()> {
     };
 
     let client = reqwest::Client::new();
-    let edit_url =
-        format!("{}/messages/{}", discord_webhook_url.trim_end_matches('/'), message.id);
+    let edit_url = format!("{}/messages/{}", discord_webhook_url.trim_end_matches('/'), message.id);
 
     tracing::info!("editing Discord message {} to mark the stream stopped", message.id);
 
@@ -283,11 +281,14 @@ async fn stop_inner(state: AppState) -> anyhow::Result<()> {
 }
 
 async fn run_inner(state: AppState) -> anyhow::Result<()> {
-    let client_id = std::env::var("GOOGLE_CLIENT_ID").context("GOOGLE_CLIENT_ID not set")?;
-    let client_secret =
-        std::env::var("GOOGLE_CLIENT_SECRET").context("GOOGLE_CLIENT_SECRET not set")?;
-    let discord_webhook_url =
-        std::env::var("DISCORD_WEBHOOK_URL").context("DISCORD_WEBHOOK_URL not set")?;
+    let (Some(client_id), Some(client_secret), Some(discord_webhook_url)) = (
+        state.config.google_client_id.as_ref(),
+        state.config.google_client_secret.as_ref(),
+        state.config.discord_webhook_url.as_ref(),
+    ) else {
+        tracing::info!("stream notifier is disabled (missing configuration), skipping start");
+        return Ok(());
+    };
 
     let client = reqwest::Client::new();
 
@@ -299,18 +300,12 @@ async fn run_inner(state: AppState) -> anyhow::Result<()> {
         }
         _ => {
             tracing::info!("no valid cached tokens found, starting OAuth flow");
-            run_oauth_flow(&client, &state, &client_id, &client_secret).await?
+            run_oauth_flow(&client, &state, client_id, client_secret).await?
         }
     };
 
-    let Some(broadcast_id) = fetch_live_broadcast_with_retry(
-        &client,
-        &mut tokens,
-        &client_id,
-        &client_secret,
-        &state,
-    )
-    .await?
+    let Some(broadcast_id) =
+        fetch_live_broadcast_with_retry(&client, &mut tokens, client_id, client_secret, &state).await?
     else {
         tracing::info!("no active YouTube live broadcast found, skipping Discord notification");
         return Ok(());
