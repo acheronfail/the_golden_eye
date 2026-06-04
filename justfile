@@ -69,6 +69,7 @@ upload dir:
 # download models and download llama-server
 setup: obs-headers
   OPENCV4NODEJS_DISABLE_AUTOBUILD=1 npm install
+  cd obs2/browser && npm install
 
   mkdir -p models
   wget --no-clobber -O {{LLAMA_GGUF_PATH}} {{gguf}} || true
