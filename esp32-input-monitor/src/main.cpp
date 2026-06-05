@@ -25,6 +25,7 @@
 #include <ESPmDNS.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
+#include <soc/gpio_struct.h>
 
 #include "web_ui.h"
 
