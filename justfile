@@ -7,6 +7,7 @@ llama_cpp_macos := "https://github.com/ggml-org/llama.cpp/releases/download/b910
 llama_cpp_linux := "https://github.com/ggml-org/llama.cpp/releases/download/b9113/llama-b9113-bin-ubuntu-vulkan-x64.tar.gz"
 
 obs_version := "32.1.2"
+obs_headers := "obs2/vendor/obs"
 
 export LLAMA_GGUF_PATH := "models/" + model + "-llm.gguf"
 export LLAMA_MMPROJ_PATH := "models/" + model + "-mmproj.gguf"
@@ -35,7 +36,15 @@ obs:
 
 obs-headers:
   #!/usr/bin/env bash
-  set -euxo pipefail
+  set -euo pipefail
+
+  dest_dir="{{obs_headers}}"
+  if [ -d "${dest_dir}" ]; then
+    echo "OBS Headers already found."
+    echo "If you want to re-download, delete \"${dest_dir}\""
+    exit 0
+  fi
+
   clone_dir=$(mktemp -d)
   git clone \
     --depth 1 \
@@ -49,7 +58,6 @@ obs-headers:
   git sparse-checkout set libobs frontend/api
   popd > /dev/null
 
-  dest_dir="obs2/vendor/obs"
   rm -rf "${dest_dir}"
   mkdir -p "${dest_dir}"
   cp -r "${clone_dir}/obs-studio/libobs" "${dest_dir}/"
@@ -82,3 +90,13 @@ setup: obs-headers
   else \
     wget --no-clobber -O - {{llama_cpp_linux}} | tar xz -C llama --strip-components=1; \
   fi
+
+clean:
+  rm -rf "{{obs_headers}}"
+  rm -rf "node_modules"
+  rm -rf "obs2/browser/node_modules"
+  rm -rf "obs2/ge_rust.h"
+  rm -rf "obs2/build"
+  rm -rf "esp32-input-monitor/.pio"
+  cd "obs2/rust" && cargo clean
+
