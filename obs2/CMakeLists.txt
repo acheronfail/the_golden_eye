@@ -125,16 +125,33 @@ set(RUST_LIB "${RUST_DIR}/target/${RUST_PROFILE}/libge_rust.a")
 
 # https://github.com/twistedfall/opencv-rust/blob/master/INSTALL.md#macos-package
 if(APPLE)
+    # Get the active developer directory (works for both Xcode and Command Line Tools)
     execute_process(
         COMMAND xcode-select --print-path
         OUTPUT_VARIABLE XCODE_DEVELOPER_DIR
         OUTPUT_STRIP_TRAILING_WHITESPACE
     )
+
+    # 1. Define the two possible paths where libclang.dylib could live
+    set(CLANG_PATH_XCODE "${XCODE_DEVELOPER_DIR}/Toolchains/XcodeDefault.xctoolchain/usr/lib")
+    set(CLANG_PATH_CLT "${XCODE_DEVELOPER_DIR}/usr/lib")
+
+    # 2. Determine which path actually exists on the machine
+    if(EXISTS "${CLANG_PATH_XCODE}")
+        set(CHOSEN_DYLD_PATH "${CLANG_PATH_XCODE}")
+    elseif(EXISTS "${CLANG_PATH_CLT}")
+        set(CHOSEN_DYLD_PATH "${CLANG_PATH_CLT}")
+    else()
+        message(FATAL_ERROR "Neither Xcode nor Command Line Tools, try running `xcode-select --install` first.")
+    endif()
+
+    # 3. Append to your Rust environment list
     list(APPEND RUST_BUILD_ENV
-        "DYLD_FALLBACK_LIBRARY_PATH=${XCODE_DEVELOPER_DIR}/Toolchains/XcodeDefault.xctoolchain/usr/lib/"
+        "DYLD_FALLBACK_LIBRARY_PATH=${CHOSEN_DYLD_PATH}"
         "LDFLAGS=-L/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib"
         "LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}:/usr/local/lib"
     )
+
     if(CMAKE_OSX_DEPLOYMENT_TARGET)
         list(APPEND RUST_BUILD_ENV "MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
     endif()
