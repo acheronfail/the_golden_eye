@@ -155,14 +155,52 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
   }
 
   let ws;
+  let reconnectTimer = null;
+  let latestFrame = null;
+  let renderQueued = false;
+
+  function queueRender(frame) {
+    latestFrame = frame;
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => {
+      renderQueued = false;
+      if (!latestFrame) return;
+      const frameToRender = latestFrame;
+      latestFrame = null;
+      render(frameToRender);
+    });
+  }
+
+  function scheduleReconnect(delayMs = 1000) {
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delayMs);
+  }
+
   function connect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
     ws = new WebSocket(`ws://${location.host}/ws`);
     ws.binaryType = 'arraybuffer';
     ws.onopen    = () => { conn.textContent = 'connected'; conn.className = 'up'; };
-    ws.onclose   = () => { conn.textContent = 'disconnected — retrying…'; conn.className = 'down'; setTimeout(connect, 1000); };
-    ws.onerror   = () => ws.close();
-    ws.onmessage = (e) => render(new Uint8Array(e.data));
+    ws.onclose   = (e) => {
+      conn.textContent = `disconnected (${e.code}) — retrying…`;
+      conn.className = 'down';
+      console.log('[ws] close', { code: e.code, reason: e.reason, wasClean: e.wasClean });
+      ws = null;
+      scheduleReconnect(1000);
+    };
+    ws.onerror   = (e) => console.log('[ws] error', e);
+    ws.onmessage = (e) => queueRender(new Uint8Array(e.data));
   }
+  window.addEventListener('beforeunload', () => {
+    if (ws) ws.close(1000, 'page unload');
+  });
   connect();
 </script>
 </body>

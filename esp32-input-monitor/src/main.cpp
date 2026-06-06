@@ -80,6 +80,14 @@
 // bit's decisive window).
 #define SAMPLE_DELAY_US 2
 
+// Cap websocket updates to a UI-friendly rate. Under bursts we keep only the
+// newest state and skip intermediate frames rather than flooding AsyncTCP.
+#define WS_MIN_SEND_INTERVAL_US 20000
+#define WS_MAX_TRACKED_CLIENTS 8
+// If a client stays unwritable for this many send attempts, drop it so one
+// stuck browser cannot keep accumulating pressure.
+#define WS_BLOCKED_STREAK_LIMIT 60
+
 // Once a frame is underway, give up on the next bit's falling edge after this
 // long (a valid bit arrives every ~4us). This bounds how long interrupts stay
 // disabled, so a truncated/glitchy frame can't hang us.
@@ -108,6 +116,60 @@ static AsyncWebSocket ws("/ws");
 // Last broadcast state, so a client connecting mid-session gets the current
 // state immediately instead of waiting for the next button change.
 static uint8_t lastPayload[4] = {0, 0, 0, 0};
+// Latest state waiting to be sent once the websocket queues have room again.
+static uint8_t pendingPayload[4] = {0, 0, 0, 0};
+static bool hasPendingPayload = false;
+static uint32_t lastWsSendAtUs = 0;
+static uint32_t wsDiscardCount = 0;
+static uint32_t wsDisconnectCount = 0;
+static uint32_t wsSlowCloseCount = 0;
+static uint32_t wifiDisconnectCount = 0;
+static uint32_t lastWsDiagAtMs = 0;
+
+struct TrackedWsClient {
+  uint32_t id;
+  uint16_t blockedStreak;
+  bool active;
+};
+
+static TrackedWsClient trackedWsClients[WS_MAX_TRACKED_CLIENTS] = {};
+
+static TrackedWsClient *findTrackedClient(uint32_t id) {
+  for (size_t i = 0; i < WS_MAX_TRACKED_CLIENTS; ++i) {
+    if (trackedWsClients[i].active && trackedWsClients[i].id == id) {
+      return &trackedWsClients[i];
+    }
+  }
+  return nullptr;
+}
+
+static TrackedWsClient *upsertTrackedClient(uint32_t id) {
+  TrackedWsClient *slot = findTrackedClient(id);
+  if (slot != nullptr) {
+    return slot;
+  }
+
+  for (size_t i = 0; i < WS_MAX_TRACKED_CLIENTS; ++i) {
+    if (!trackedWsClients[i].active) {
+      trackedWsClients[i].active = true;
+      trackedWsClients[i].id = id;
+      trackedWsClients[i].blockedStreak = 0;
+      return &trackedWsClients[i];
+    }
+  }
+
+  return nullptr;
+}
+
+static void removeTrackedClient(uint32_t id) {
+  TrackedWsClient *slot = findTrackedClient(id);
+  if (slot == nullptr) {
+    return;
+  }
+  slot->active = false;
+  slot->id = 0;
+  slot->blockedStreak = 0;
+}
 
 /** Busy-wait for an exact number of CPU cycles using the Xtensa cycle counter.
  */
@@ -283,11 +345,128 @@ static void packState(const uint8_t *frame, uint8_t out[4]) {
   out[3] = readByte(r, 24);
 }
 
+/**
+ * Push the newest pending state at a bounded rate. Under bursts we keep only
+ * the latest unsent state instead of flooding websocket queues with stale
+ * intermediate frames.
+ */
+static void flushPendingPayload() {
+  if (!hasPendingPayload) {
+    return;
+  }
+
+  uint32_t nowUs = micros();
+  if ((uint32_t)(nowUs - lastWsSendAtUs) < WS_MIN_SEND_INTERVAL_US) {
+    return;
+  }
+
+  bool hasLiveClient = false;
+  bool sentAny = false;
+
+  for (size_t i = 0; i < WS_MAX_TRACKED_CLIENTS; ++i) {
+    TrackedWsClient &tracked = trackedWsClients[i];
+    if (!tracked.active) {
+      continue;
+    }
+
+    if (!ws.hasClient(tracked.id)) {
+      tracked.active = false;
+      tracked.id = 0;
+      tracked.blockedStreak = 0;
+      continue;
+    }
+
+    hasLiveClient = true;
+
+    if (!ws.availableForWrite(tracked.id)) {
+      ++tracked.blockedStreak;
+      if (tracked.blockedStreak >= WS_BLOCKED_STREAK_LIMIT) {
+        Serial.printf("[ws] closing slow client id=%lu\n",
+                      (unsigned long)tracked.id);
+        ws.close(tracked.id, 1013, "server busy");
+        ++wsSlowCloseCount;
+        tracked.active = false;
+        tracked.id = 0;
+        tracked.blockedStreak = 0;
+      }
+      continue;
+    }
+
+    tracked.blockedStreak = 0;
+    if (ws.binary(tracked.id, pendingPayload, sizeof(pendingPayload))) {
+      sentAny = true;
+    } else {
+      ++wsDiscardCount;
+    }
+  }
+
+  if (!hasLiveClient) {
+    hasPendingPayload = false;
+    return;
+  }
+
+  if (sentAny) {
+    hasPendingPayload = false;
+    lastWsSendAtUs = nowUs;
+  }
+}
+
+/** Periodically summarize websocket/Wi-Fi health without spamming serial. */
+static void logWsDiagnostics() {
+  uint32_t nowMs = millis();
+  if (nowMs - lastWsDiagAtMs < 1000) {
+    return;
+  }
+
+  lastWsDiagAtMs = nowMs;
+  if (wsDiscardCount == 0 && wsDisconnectCount == 0 && wsSlowCloseCount == 0 &&
+      wifiDisconnectCount == 0) {
+    return;
+  }
+
+  Serial.printf("[ws] clients=%u pending=%u discards=%lu ws_disc=%lu slow_close=%lu wifi_disc=%lu\n",
+                (unsigned)ws.count(), hasPendingPayload ? 1U : 0U,
+                (unsigned long)wsDiscardCount,
+                (unsigned long)wsDisconnectCount,
+                (unsigned long)wsSlowCloseCount,
+                (unsigned long)wifiDisconnectCount);
+  wsDiscardCount = 0;
+  wsDisconnectCount = 0;
+  wsSlowCloseCount = 0;
+  wifiDisconnectCount = 0;
+}
+
 /** Send the current state to a client as soon as it connects. */
 static void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
                       AwsEventType type, void *arg, uint8_t *data, size_t len) {
   if (type == WS_EVT_CONNECT) {
+    client->setCloseClientOnQueueFull(false);
+    if (upsertTrackedClient(client->id()) == nullptr) {
+      Serial.printf("[ws] too many tracked clients; closing id=%lu\n",
+                    (unsigned long)client->id());
+      ws.close(client->id(), 1008, "too many clients");
+      return;
+    }
+    Serial.printf("[ws] connect id=%lu from=%s\n", (unsigned long)client->id(),
+                  client->remoteIP().toString().c_str());
     client->binary(lastPayload, sizeof(lastPayload));
+  } else if (type == WS_EVT_DISCONNECT) {
+    removeTrackedClient(client->id());
+    ++wsDisconnectCount;
+    Serial.printf("[ws] disconnect id=%lu from=%s\n",
+                  (unsigned long)client->id(),
+                  client->remoteIP().toString().c_str());
+  }
+}
+
+/** Log link-level Wi-Fi transitions so browser drops can be correlated. */
+static void onWiFiEvent(WiFiEvent_t event, arduino_event_info_t info) {
+  if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+    Serial.printf("[wifi] got ip=%s\n", WiFi.localIP().toString().c_str());
+  } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+    ++wifiDisconnectCount;
+    Serial.printf("[wifi] disconnected reason=%d\n",
+                  info.wifi_sta_disconnected.reason);
   }
 }
 
@@ -334,6 +513,10 @@ static void clearWiFiAndRestart() {
  */
 static void startNetwork() {
   WiFi.mode(WIFI_STA);
+  // Disable modem sleep: lower latency/jitter and fewer websocket transport
+  // interruptions under sustained traffic.
+  WiFi.setSleep(false);
+  WiFi.onEvent(onWiFiEvent);
 
   WiFiManager wm;
   pinMode(WIFI_RESET_PIN, INPUT_PULLUP);
@@ -428,6 +611,8 @@ void loop() {
   // Service any in-flight OTA upload. Cheap when idle; blocks here for the few
   // seconds of an actual flash (sniffing pauses, then the device reboots).
   ArduinoOTA.handle();
+  flushPendingPayload();
+  logWsDiagnostics();
 
 #ifdef DEBUG_HEARTBEAT
   // Build with `-D DEBUG_HEARTBEAT` to confirm the loop is alive even when no
@@ -478,7 +663,9 @@ void loop() {
   // new client gets the current state via lastPayload on connect.
   if (memcmp(lastPayload, payload, sizeof(payload)) != 0) {
     memcpy(lastPayload, payload, sizeof(payload));
-    ws.binaryAll(payload, sizeof(payload));
+    memcpy(pendingPayload, payload, sizeof(payload));
+    hasPendingPayload = true;
+    flushPendingPayload();
     printState(decodeState(frame));
   }
 }
