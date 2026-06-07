@@ -201,3 +201,165 @@ pub struct CreatorCuepointConfig {
     #[serde(rename = "repeatIntervalSecs")]
     pub repeat_interval_secs: Option<u32>,
 }
+
+// ── YouTube Channel types ─────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelListResponse {
+    pub kind: Option<String>,
+    pub etag: Option<String>,
+    #[serde(rename = "nextPageToken")]
+    pub next_page_token: Option<String>,
+    #[serde(rename = "prevPageToken")]
+    pub prev_page_token: Option<String>,
+    #[serde(rename = "pageInfo")]
+    pub page_info: Option<PageInfo>,
+    pub items: Option<Vec<Channel>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PageInfo {
+    #[serde(rename = "totalResults")]
+    pub total_results: Option<u32>,
+    #[serde(rename = "resultsPerPage")]
+    pub results_per_page: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Channel {
+    pub kind: Option<String>,
+    pub etag: Option<String>,
+    pub id: Option<String>,
+    pub snippet: Option<ChannelSnippet>,
+    #[serde(rename = "contentDetails")]
+    pub content_details: Option<ChannelContentDetails>,
+    pub statistics: Option<ChannelStatistics>,
+    #[serde(rename = "topicDetails")]
+    pub topic_details: Option<ChannelTopicDetails>,
+    pub status: Option<ChannelStatus>,
+    #[serde(rename = "brandingSettings")]
+    pub branding_settings: Option<ChannelBrandingSettings>,
+    #[serde(rename = "auditDetails")]
+    pub audit_details: Option<ChannelAuditDetails>,
+    #[serde(rename = "contentOwnerDetails")]
+    pub content_owner_details: Option<ChannelContentOwnerDetails>,
+    pub localizations: Option<HashMap<String, LocalizedText>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelSnippet {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    #[serde(rename = "customUrl")]
+    pub custom_url: Option<String>,
+    #[serde(rename = "publishedAt")]
+    pub published_at: Option<String>,
+    pub thumbnails: Option<HashMap<String, Thumbnail>>,
+    #[serde(rename = "defaultLanguage")]
+    pub default_language: Option<String>,
+    pub localized: Option<LocalizedText>,
+    pub country: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LocalizedText {
+    pub title: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelContentDetails {
+    #[serde(rename = "relatedPlaylists")]
+    pub related_playlists: Option<RelatedPlaylists>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RelatedPlaylists {
+    pub likes: Option<String>,
+    pub favorites: Option<String>,
+    pub uploads: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelStatistics {
+    #[serde(rename = "viewCount")]
+    pub view_count: Option<String>,
+    #[serde(rename = "subscriberCount")]
+    pub subscriber_count: Option<String>,
+    #[serde(rename = "hiddenSubscriberCount")]
+    pub hidden_subscriber_count: Option<bool>,
+    #[serde(rename = "videoCount")]
+    pub video_count: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelTopicDetails {
+    #[serde(rename = "topicIds")]
+    pub topic_ids: Option<Vec<String>>,
+    #[serde(rename = "topicCategories")]
+    pub topic_categories: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelStatus {
+    #[serde(rename = "privacyStatus")]
+    pub privacy_status: Option<String>,
+    #[serde(rename = "isLinked")]
+    pub is_linked: Option<bool>,
+    #[serde(rename = "longUploadsStatus")]
+    pub long_uploads_status: Option<String>,
+    #[serde(rename = "madeForKids")]
+    pub made_for_kids: Option<bool>,
+    #[serde(rename = "selfDeclaredMadeForKids")]
+    pub self_declared_made_for_kids: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelBrandingSettings {
+    pub channel: Option<ChannelBrandingChannel>,
+    pub watch: Option<ChannelBrandingWatch>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelBrandingChannel {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub keywords: Option<String>,
+    #[serde(rename = "trackingAnalyticsAccountId")]
+    pub tracking_analytics_account_id: Option<String>,
+    #[serde(rename = "unsubscribedTrailer")]
+    pub unsubscribed_trailer: Option<String>,
+    #[serde(rename = "defaultLanguage")]
+    pub default_language: Option<String>,
+    pub country: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelBrandingWatch {
+    #[serde(rename = "textColor")]
+    pub text_color: Option<String>,
+    #[serde(rename = "backgroundColor")]
+    pub background_color: Option<String>,
+    #[serde(rename = "featuredPlaylistId")]
+    pub featured_playlist_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelAuditDetails {
+    #[serde(rename = "overallGoodStanding")]
+    pub overall_good_standing: Option<bool>,
+    #[serde(rename = "communityGuidelinesGoodStanding")]
+    pub community_guidelines_good_standing: Option<bool>,
+    #[serde(rename = "copyrightStrikesGoodStanding")]
+    pub copyright_strikes_good_standing: Option<bool>,
+    #[serde(rename = "contentIdClaimsGoodStanding")]
+    pub content_id_claims_good_standing: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChannelContentOwnerDetails {
+    #[serde(rename = "contentOwner")]
+    pub content_owner: Option<String>,
+    #[serde(rename = "timeLinked")]
+    pub time_linked: Option<String>,
+}
