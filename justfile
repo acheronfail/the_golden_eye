@@ -43,6 +43,7 @@ obs-flatpak: make
     --socket=session-bus \
     --talk-name=org.freedesktop.secrets \
     --talk-name=org.freedesktop.portal.Desktop \
+    --env=LD_LIBRARY_PATH="/app/lib" \
     --env=OBS_PLUGINS_PATH="$(pwd)" \
     --env=OBS_PLUGINS_DATA_PATH="$(pwd)" \
     com.obsproject.Studio

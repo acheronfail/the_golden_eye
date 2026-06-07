@@ -5,6 +5,7 @@
 System dependencies:
 
 * Common: `rustup`, `nodejs`
+* Debian: `libdbus-1-dev libssl-dev opencv pkg-config`
 * Arch Linux: `cmake obs-studio opencv`
 * macOS:
     * `brew install cmake opencv`
