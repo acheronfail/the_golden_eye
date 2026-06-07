@@ -1,8 +1,8 @@
 use anyhow::Context;
-use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use crate::http::{AppState, OAUTH_CALLBACK_PATH, SERVER_PORT, StreamMessage};
+use crate::youtube_types::{DiscordMessage, LiveBroadcastResponse, OAuthTokens, TokenResponse};
 
 const KEYRING_SERVICE: &str = "the-golden-eye";
 const KEYRING_ENTRY: &str = "youtube-oauth-tokens";
@@ -14,45 +14,6 @@ fn redirect_uri() -> String {
 /// Percent-encodes the redirect URI for embedding in an OAuth query parameter.
 fn redirect_uri_encoded() -> String {
     redirect_uri().replace(':', "%3A").replace('/', "%2F")
-}
-
-// ── Serialisation types ───────────────────────────────────────────────────────
-
-#[derive(Serialize, Deserialize, Clone)]
-struct OAuthTokens {
-    access_token: String,
-    refresh_token: Option<String>,
-}
-
-/// Subset of what the Google token endpoint returns.
-#[derive(Deserialize)]
-struct TokenResponse {
-    access_token: Option<String>,
-    refresh_token: Option<String>,
-}
-
-/// The subset of a Discord message object we care about (returned when posting
-/// a webhook with `wait=true`).
-#[derive(Deserialize)]
-struct DiscordMessage {
-    id: String,
-}
-
-#[derive(Deserialize)]
-struct LiveBroadcastResponse {
-    items: Option<Vec<LiveBroadcastItem>>,
-}
-
-#[derive(Deserialize)]
-struct LiveBroadcastItem {
-    id: String,
-    snippet: Option<LiveBroadcastSnippet>,
-}
-
-#[derive(Deserialize)]
-struct LiveBroadcastSnippet {
-    #[serde(rename = "actualEndTime")]
-    actual_end_time: Option<String>,
 }
 
 // ── Token persistence ─────────────────────────────────────────────────────────

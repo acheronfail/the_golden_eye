@@ -2,6 +2,7 @@ mod config;
 mod ffi;
 mod http;
 mod stream_notifier;
+mod youtube_types;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
