@@ -4,8 +4,7 @@
 /// Application configuration, resolved from the environment. Each field is
 /// `None` when its variable is absent or empty.
 pub struct Config {
-    pub google_client_id: Option<String>,
-    pub google_client_secret: Option<String>,
+    pub discord_message_name: Option<String>,
     pub discord_webhook_url: Option<String>,
 }
 
@@ -14,8 +13,7 @@ impl Config {
     /// were found and which were missing.
     pub fn from_env() -> Self {
         Self {
-            google_client_id: read_env("GOOGLE_CLIENT_ID"),
-            google_client_secret: read_env("GOOGLE_CLIENT_SECRET"),
+            discord_message_name: read_env("DISCORD_MESSAGE_NAME"),
             discord_webhook_url: read_env("DISCORD_WEBHOOK_URL"),
         }
     }

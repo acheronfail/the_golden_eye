@@ -18,7 +18,8 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
       if (settings) {
         const char *service_name = obs_data_get_string(settings, "service");
         if (service_name && strcasestr(service_name, "youtube") != NULL) {
-          ge_stream_notifier_start();
+          const char *settings_json = obs_data_get_json_pretty(settings);
+          ge_stream_notifier_start(settings_json ? settings_json : "{}");
         }
         obs_data_release(settings);
       }

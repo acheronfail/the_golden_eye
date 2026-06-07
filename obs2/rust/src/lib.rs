@@ -2,8 +2,9 @@ mod config;
 mod ffi;
 mod http;
 mod stream_notifier;
-mod youtube_types;
 
+use std::ffi::CStr;
+use std::os::raw::c_char;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -121,12 +122,10 @@ pub extern "C" fn ge_rust_stop() {
 }
 
 /// Spawn the YouTube stream-notifier workflow on the running tokio runtime.
-/// Reads `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `DISCORD_WEBHOOK_URL`
-/// from the environment, handles OAuth token acquisition (reusing the axum
-/// server for the redirect callback), and posts a Discord notification with
+/// Accepts OBS service settings as JSON and posts a Discord notification with
 /// the live-stream URL. Returns immediately without blocking the calling thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn ge_stream_notifier_start() {
+pub extern "C" fn ge_stream_notifier_start(service_settings_json: *const c_char) {
     let (runtime_handle, state) = {
         let guard = match SERVER.lock() {
             Ok(g) => g,
@@ -141,7 +140,18 @@ pub extern "C" fn ge_stream_notifier_start() {
         }
     };
 
-    runtime_handle.spawn(stream_notifier::run(state));
+    let settings_json = if service_settings_json.is_null() {
+        tracing::warn!("ge_stream_notifier_start called with null settings JSON pointer");
+        "{}".to_string()
+    } else {
+        // SAFETY: The caller guarantees this points to a valid NUL-terminated C string
+        // for the duration of this function call. We copy into an owned String
+        // immediately, so no borrowed lifetime escapes this boundary.
+        let cstr = unsafe { CStr::from_ptr(service_settings_json) };
+        cstr.to_string_lossy().into_owned()
+    };
+
+    runtime_handle.spawn(stream_notifier::run(state, settings_json));
 }
 
 #[unsafe(no_mangle)]

@@ -26,4 +26,8 @@ just run
 
 # for the upcoming version (uses Rust and is an OBS plugin):
 just obs
+# for linux, it's recommended to use the flatpak version of OBS (this is because
+# the non-flatpak version doesn't currently have the YouTube OAuth plugin which
+# is required for the YouTube integration):
+just obs-flatpak
 ```
