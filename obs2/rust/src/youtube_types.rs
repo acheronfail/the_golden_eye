@@ -85,9 +85,9 @@ pub struct LiveBroadcastStatus {
     #[serde(rename = "recordingStatus")]
     pub recording_status: Option<String>,
     #[serde(rename = "madeForKids")]
-    pub made_for_kids: Option<String>,
+    pub made_for_kids: Option<bool>,
     #[serde(rename = "selfDeclaredMadeForKids")]
-    pub self_declared_made_for_kids: Option<String>,
+    pub self_declared_made_for_kids: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,7 +112,7 @@ pub struct LiveBroadcastContentDetails {
     #[serde(rename = "enableLowLatency")]
     pub enable_low_latency: Option<bool>,
     #[serde(rename = "latencyPreference")]
-    pub latency_preference: Option<bool>,
+    pub latency_preference: Option<String>,
     #[serde(rename = "enableAutoStart")]
     pub enable_auto_start: Option<bool>,
     #[serde(rename = "enableAutoStop")]
