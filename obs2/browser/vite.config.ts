@@ -6,6 +6,15 @@ export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
 	// NOTE: must match CMakeLists.txt
 	server: { port: 5173, strictPort: true },
+	build: {
+		rolldownOptions: {
+			// SvelteKit's inline bundle strategy can intentionally emit non-ESM chunks
+			// where import.meta is unavailable.
+			checks: {
+				emptyImportMeta: false
+			}
+		}
+	},
 	test: {
 		expect: { requireAssertions: true },
 		projects: [

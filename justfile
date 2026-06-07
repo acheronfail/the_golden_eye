@@ -28,10 +28,12 @@ dev:
   trap 'kill "$dev_pid" 2>/dev/null || true' EXIT
   OBS_PLUGINS_PATH="$(pwd)" OBS_PLUGINS_DATA_PATH="$(pwd)" obs
 
-# builds the project and runs obs
-obs:
+make:
   mkdir -p obs2/build
   cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DBROWSER_DEV=OFF && make
+
+# builds the project and runs obs
+obs: make
   cd obs2/build && OBS_PLUGINS_PATH=$(pwd) OBS_PLUGINS_DATA_PATH=$(pwd) obs
 
 obs-headers:
@@ -99,4 +101,3 @@ clean:
   rm -rf "obs2/build"
   rm -rf "esp32-input-monitor/.pio"
   cd "obs2/rust" && cargo clean
-
