@@ -20,3 +20,18 @@ export const JpDifficultyMap = new Map<string, Difficulty>([
   ["<00Agent>", "00 Agent"],
   ["007", "007"],
 ]);
+
+export const abbrDifficulty = (difficulty?: Difficulty): string => {
+  switch (difficulty) {
+    case "Agent":
+      return "A";
+    case "Secret Agent":
+      return "SA";
+    case "00 Agent":
+      return "00A";
+    case "007":
+      return "007";
+    default:
+      return "-";
+  }
+};

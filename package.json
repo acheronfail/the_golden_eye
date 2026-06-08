@@ -8,7 +8,7 @@
     "repl": "node --experimental-strip-types scripts/repl.ts",
     "scrape": "node --experimental-strip-types scripts/scrape-web.ts",
     "upload": "node --experimental-strip-types scripts/upload.ts",
-    "test": "vitest --config test/vitest.config.ts"
+    "test": "node --experimental-strip-types --watch test/frames.test.ts"
   },
   "keywords": [],
   "author": "",
@@ -27,6 +27,7 @@
     "open": "^11.0.0",
     "playwright": "^1.59.1",
     "pretty-bytes": "^7.1.0",
+    "strip-ansi": "^7.2.0",
     "vitest": "^4.1.8"
   },
   "devDependencies": {

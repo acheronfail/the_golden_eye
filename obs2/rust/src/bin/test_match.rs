@@ -1,11 +1,12 @@
 // Standalone CLI for exercising the GoldenEye level matcher outside of OBS.
 //
-//   test_match path/to/screenshot.png [lang] [templates_dir]
+//   test_match path/to/screenshot.png [templates_dir]
 //
 // Loads the given image, converts it to the BGRA layout the plugin feeds the
 // matcher, runs the matcher, and prints the match result to stdout. `lang`
-// defaults to "en" and `templates_dir` to the cv_templates/ directory that
-// ships alongside obs2/.
+// is read from the GE_LANG environment variable (default: "en") and
+// `templates_dir` defaults to the cv_templates/ directory that ships
+// alongside obs2/.
 //
 // This is a Rust port of obs2/test_match.cpp + obs2/cv_wrapper.cpp, using the
 // `opencv` crate instead of binding to OpenCV directly.
@@ -77,6 +78,7 @@ struct LevelMatch {
     part: i32,
     difficulty: i32,
     times: Vec<i32>,
+    runtime_ms: f64,
 }
 
 // Lightweight phase timer. When the GE_CV_TIMING environment variable is set,
@@ -277,7 +279,7 @@ fn find_mission_from_colons(
 // Matches the GoldenEye level-stats overlay in a single BGRA frame against the
 // template PNGs in `templates_dir`. Mirrors ge_cv_match_level().
 fn match_level(bgra_frame: &Mat, lang: &str, templates_dir: &str) -> Result<LevelMatch> {
-    let mut result = LevelMatch { mission: -1, part: -1, difficulty: -1, times: Vec::new() };
+    let mut result = LevelMatch { mission: -1, part: -1, difficulty: -1, times: Vec::new(), runtime_ms: 0.0 };
 
     // Load the label templates.
     let mut parts = Vec::new();
@@ -472,22 +474,25 @@ fn match_level(bgra_frame: &Mat, lang: &str, templates_dir: &str) -> Result<Leve
     result.times = times.into_iter().map(|t| t.seconds).collect();
     timer.lap("time assembly");
 
+    result.runtime_ms = timer.start.elapsed().as_secs_f64() * 1000.0;
+
     Ok(result)
 }
 
 fn run() -> Result<i32> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: {} path/to/png [lang] [templates_dir]", args[0]);
+        eprintln!("usage: {} path/to/png [templates_dir]", args[0]);
         return Ok(2);
     }
 
     let image_path = &args[1];
-    let lang = args.get(2).map(|s| s.as_str()).unwrap_or("en");
+    let ge_lang = env::var("GE_LANG").unwrap_or_else(|_| "en".to_string());
+    let lang = ge_lang.as_str();
     // Default to the cv_templates/ dir that ships alongside obs2/, resolved
     // relative to this crate at compile time (mirrors GE_TEMPLATES_DIR).
     let default_templates = concat!(env!("CARGO_MANIFEST_DIR"), "/../cv_templates");
-    let templates_dir = args.get(3).map(|s| s.as_str()).unwrap_or(default_templates);
+    let templates_dir = args.get(2).map(|s| s.as_str()).unwrap_or(default_templates);
 
     // Benchmarking hook: GE_CV_THREADS caps OpenCV's internal thread pool.
     if let Ok(t) = env::var("GE_CV_THREADS") {
@@ -521,6 +526,7 @@ fn run() -> Result<i32> {
             "part": result.part,
             "difficulty": result.difficulty,
             "times": result.times,
+            "runtime_ms": result.runtime_ms,
         })
     );
 
