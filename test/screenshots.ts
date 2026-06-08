@@ -22,14 +22,15 @@ export interface ScreenshotInfo {
 export const getScreenshots = async () => {
   const screenshotDir = path.join(__dirname, "./screenshots");
   return await fsp.readdir(screenshotDir).then((entries) =>
-    entries.map((name): ScreenshotInfo => {
-      const filePath = path.join(screenshotDir, name);
+    entries.map((entry): ScreenshotInfo => {
+      const filePath = path.join(screenshotDir, entry);
+      const name = path.basename(entry, ".png");
 
-      const [lang, screenStr, levelNumStr, difficultyStr, ...extra] = path.basename(name, ".png").split(" - ");
+      const [lang, screenStr, levelNumStr, difficultyStr, ...extra] = name.split(" - ");
 
       const screen = Screens.find((s) => s === screenStr);
       if (!screen) {
-        throw new Error(`Invalid screen name in filename: ${name}`);
+        throw new Error(`Invalid screen name in filename: ${entry}`);
       }
 
       if (screen === "levels") {
@@ -38,7 +39,7 @@ export const getScreenshots = async () => {
 
       const level = NumberLevelMap.get(parseInt(levelNumStr, 10));
       if (!level) {
-        throw new Error(`Invalid level number in filename: ${name}`);
+        throw new Error(`Invalid level number in filename: ${entry}`);
       }
 
       if (screen === "select") {
@@ -47,7 +48,7 @@ export const getScreenshots = async () => {
 
       const difficulty = Difficulties.find((d) => d === difficultyStr);
       if (!difficulty) {
-        throw new Error(`Invalid difficulty in filename: ${name}`);
+        throw new Error(`Invalid difficulty in filename: ${entry}`);
       }
 
       return {
