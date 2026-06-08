@@ -45,7 +45,7 @@ interface CheckResult {
 
 const formatCheckResult = (result: CheckResult | undefined): string => {
   if (!result) {
-    return chalk.grey("N/A");
+    return chalk.grey("-");
   }
   return result.pass ? chalk.green(result.value) : chalk.red(result.value);
 };
@@ -124,6 +124,8 @@ for (const runner of runners) {
     );
   }
 
+  let totalTests = 0;
+  let passedTests = 0;
   for (const screenshot of screenshots) {
     if (screenshot.screen === "levels") {
       // TODO: implement "screen" to match these
@@ -141,6 +143,7 @@ for (const runner of runners) {
 
     testResult.lang = { value: result.lang, pass: result.lang === screenshot.lang };
     testResult.level = { value: resultLevel, pass: resultLevel === screenshot.level };
+    totalTests += 2;
 
     if (screenshot.screen === "stats") {
       const [timesStr] = screenshot.extra;
@@ -151,6 +154,7 @@ for (const runner of runners) {
       });
 
       testResult.times = { value: result.times, pass: JSON.stringify(result.times) === JSON.stringify(times) };
+      totalTests += 1;
     }
 
     let resultDifficulty: Difficulty | undefined;
@@ -161,6 +165,7 @@ for (const runner of runners) {
         value: abbrDifficulty(resultDifficulty),
         pass: resultDifficulty === screenshot.difficulty,
       };
+      totalTests += 1;
     }
 
     {
@@ -171,9 +176,23 @@ for (const runner of runners) {
       const times = padText(formatCheckResult(testResult.times), lengthTimes);
       const execTime = padText(chalk.white(testResult.runTime.toFixed(2) + " ms"), lengthRuntime);
       console.log(chalk.grey(`│ ${name} │ ${lang} │ ${level} │ ${difficulty} │ ${times} │ ${execTime} │`));
+      passedTests += [testResult.lang, testResult.level, testResult.difficulty, testResult.times].filter(
+        (r) => r?.pass,
+      ).length;
     }
   }
 
   console.log(chalk.grey(`└${"─".repeat(lengthWidth)}┘`));
+  // log debug mode
+  console.log(chalk.blue(`Mode: ${debug ? chalk.yellow("Debug") : chalk.green("Release")}`));
+  // log the % of all passed tests
+  {
+    const passed = chalk.green.bold(passedTests);
+    const total = chalk.bold(totalTests);
+    const pct = (passedTests / totalTests) * 100;
+    const pctStr = (pct === 100 ? chalk.green : chalk.red)(`${pct.toFixed(2)}%`);
+    console.log(chalk.blue(`Passed ${passed} out of ${total} tests: ${pctStr}`));
+  }
+
   console.log();
 }
