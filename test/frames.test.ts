@@ -1,16 +1,11 @@
 import * as cp from "node:child_process";
-import * as path from "node:path";
-import * as os from "node:os";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
 import chalk from "chalk";
 import stripAnsi from "strip-ansi";
 import { getScreenshots } from "./screenshots.ts";
 import { getLevel } from "./levels.ts";
 import { abbrDifficulty, NumberDifficultyMap, type Difficulty } from "./difficulty.ts";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const rustRoot = path.join(__dirname, "..", "obs2", "rust");
+import { runners } from "./runners.ts";
 
 const execCommand = async (command: string) => {
   try {
@@ -20,20 +15,6 @@ const execCommand = async (command: string) => {
     throw error;
   }
 };
-
-interface Runner {
-  name: string;
-  build?: (debug: boolean) => string;
-  command: (debug: boolean, screenshotPath: string) => string;
-}
-
-const runners: Runner[] = [
-  {
-    name: "cv templates",
-    build: (debug) => `cd "${rustRoot}" && cargo build --bin test_match ${debug ? "" : "--release"}`,
-    command: (debug, sp) => `"${rustRoot}/target/${debug ? "debug" : "release"}/test_match" "${sp}"`,
-  },
-];
 
 const debug = "DEBUG" in process.env;
 const screenshots = await getScreenshots();
