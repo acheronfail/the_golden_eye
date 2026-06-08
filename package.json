@@ -7,7 +7,8 @@
     "obs": "node --experimental-strip-types obs/index.ts",
     "repl": "node --experimental-strip-types scripts/repl.ts",
     "scrape": "node --experimental-strip-types scripts/scrape-web.ts",
-    "upload": "node --experimental-strip-types scripts/upload.ts"
+    "upload": "node --experimental-strip-types scripts/upload.ts",
+    "test": "vitest --config test/vitest.config.ts"
   },
   "keywords": [],
   "author": "",
@@ -25,7 +26,8 @@
     "obs-websocket-js": "^5.0.8",
     "open": "^11.0.0",
     "playwright": "^1.59.1",
-    "pretty-bytes": "^7.1.0"
+    "pretty-bytes": "^7.1.0",
+    "vitest": "^4.1.8"
   },
   "devDependencies": {
     "@types/blessed": "^0.1.27",

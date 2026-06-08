@@ -17,6 +17,7 @@ use std::time::Instant;
 use opencv::core::{self, Mat, Rect, Size, ToInputArray};
 use opencv::prelude::*;
 use opencv::{Result, imgcodecs, imgproc};
+use serde_json::json;
 
 // Correlation needed to accept a mission/part/difficulty label match.
 const LABEL_THRESHOLD: f64 = 0.70;
@@ -509,18 +510,19 @@ fn run() -> Result<i32> {
 
     let result = match_level(&bgra, lang, templates_dir)?;
 
-    println!("opencv:     {}", core::get_version_string()?);
-    println!("image:      {} ({}x{})", image_path, bgra.cols(), bgra.rows());
-    println!("lang:       {lang}");
-    println!("templates:  {templates_dir}");
-    println!("mission:    {}", result.mission);
-    println!("part:       {}", result.part);
-    println!("difficulty: {}", result.difficulty);
-
-    println!("times:      {}", result.times.len());
-    for (i, &seconds) in result.times.iter().enumerate() {
-        println!("  [{i}] {seconds} ({}:{:02})", seconds / 60, seconds % 60);
-    }
+    println!(
+        "{}",
+        json!({
+            "opencv": core::get_version_string()?,
+            "image": { "path": image_path, "width": bgra.cols(), "height": bgra.rows() },
+            "lang": lang,
+            "templates_dir": templates_dir,
+            "mission": result.mission,
+            "part": result.part,
+            "difficulty": result.difficulty,
+            "times": result.times,
+        })
+    );
 
     Ok(0)
 }

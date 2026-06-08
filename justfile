@@ -28,6 +28,9 @@ dev:
   trap 'kill "$dev_pid" 2>/dev/null || true' EXIT
   OBS_PLUGINS_PATH="$(pwd)" OBS_PLUGINS_DATA_PATH="$(pwd)" obs
 
+test:
+  npm run test
+
 make:
   mkdir -p obs2/build
   cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DBROWSER_DEV=OFF && make
