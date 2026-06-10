@@ -11,6 +11,7 @@ obs_headers := "obs2/vendor/obs"
 
 export LLAMA_GGUF_PATH := "models/" + model + "-llm.gguf"
 export LLAMA_MMPROJ_PATH := "models/" + model + "-mmproj.gguf"
+export DYLD_FALLBACK_LIBRARY_PATH := "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib"
 
 _default:
   just -l
@@ -28,12 +29,16 @@ dev:
   trap 'kill "$dev_pid" 2>/dev/null || true' EXIT
   OBS_PLUGINS_PATH="$(pwd)" OBS_PLUGINS_DATA_PATH="$(pwd)" obs
 
-test:
+test: make
   npm run test
 
 make:
   mkdir -p obs2/build
   cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DBROWSER_DEV=OFF && make
+
+make-release:
+  mkdir -p obs2/build
+  cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBROWSER_DEV=OFF && make
 
 # builds the project and runs obs
 obs: make

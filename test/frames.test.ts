@@ -72,9 +72,6 @@ const padText = (text: string, width: number, align: "left" | "center" | "right"
 
 for (const runner of runners) {
   console.log(chalk.blue(`Running tests for ${chalk.cyan.bold(runner.name)}...`));
-  if (runner.build) {
-    await execCommand(runner.build(debug));
-  }
 
   // ┌─────────────────────────┐
   // │      Sample table       │
