@@ -2,8 +2,8 @@
   "lsp": {
     "clangd": {
       "initialization_options": {
-        "compilationDatabasePath": "obs2/build"
-      }
+        "compilationDatabasePath": "obs2/build",
+      },
     },
     "rust-analyzer": {
       "initialization_options": {
