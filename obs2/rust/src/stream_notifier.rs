@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use anyhow::Context;
 use serde::Deserialize;
 
@@ -53,6 +55,7 @@ async fn stop_inner(state: AppState) -> anyhow::Result<()> {
 
     let client = reqwest::Client::new();
     let edit_url = format!("{}/messages/{}", discord_webhook_url.trim_end_matches('/'), message.id);
+    let unix_seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
 
     tracing::info!("editing Discord message {} to mark the stream as ended", message.id);
 
@@ -60,8 +63,8 @@ async fn stop_inner(state: AppState) -> anyhow::Result<()> {
         .patch(&edit_url)
         .json(&serde_json::json!({
             "content": match state.config.discord_message_name.as_ref() {
-                Some(name) => format!("🔴 {name} has stopped streaming: {}", message.broadcast_url),
-                None => format!("🔴 Stream has ended: {}", message.broadcast_url),
+                Some(name) => format!("🔴 {name} has stopped streaming at <t:{unix_seconds}:F>: {}", message.broadcast_url),
+                None => format!("🔴 Stream has ended at <t:{unix_seconds}:F>: {}", message.broadcast_url),
             },
             // SUPPRESS_EMBEDS (1 << 2): hide the auto-generated YouTube link preview.
             "flags": 4
