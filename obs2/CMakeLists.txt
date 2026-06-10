@@ -88,15 +88,35 @@ else()
     # and to the Rust build (include_str!(env!("BROWSER_BUNDLE"))).
     set(BROWSER_BUNDLE "${BROWSER_DIR}/build/index.html")
 
-    add_custom_target(browser_build ALL
+    # Track frontend sources and key build inputs so the bundle only rebuilds
+    # when one of them is newer than the generated HTML.
+    file(GLOB_RECURSE BROWSER_BUILD_DEPENDS CONFIGURE_DEPENDS
+        "${BROWSER_DIR}/src/*"
+        "${BROWSER_DIR}/static/*"
+    )
+    list(APPEND BROWSER_BUILD_DEPENDS
+        "${BROWSER_DIR}/package.json"
+        "${BROWSER_DIR}/package-lock.json"
+        "${BROWSER_DIR}/svelte.config.js"
+        "${BROWSER_DIR}/tsconfig.json"
+        "${BROWSER_DIR}/vite.config.ts"
+    )
+
+    add_custom_command(
+        OUTPUT "${BROWSER_BUNDLE}"
         COMMAND ${CMAKE_COMMAND} -E env "BROWSER_BUNDLE=${BROWSER_BUNDLE}" ${RUST_BUILD_ENV}
                 npm run build
         # Fail the build if the bundle the Rust crate embeds wasn't produced,
         # rather than letting cargo fail later with an opaque include_str! error.
         COMMAND test -f "${BROWSER_BUNDLE}"
         WORKING_DIRECTORY "${BROWSER_DIR}"
+        DEPENDS ${BROWSER_BUILD_DEPENDS}
         COMMENT "Building frontend"
         VERBATIM
+    )
+
+    add_custom_target(browser_build ALL
+        DEPENDS "${BROWSER_BUNDLE}"
     )
 endif()
 
