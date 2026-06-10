@@ -3,7 +3,6 @@
 #include <obs/libobs/obs-data.h>
 #include <obs/libobs/obs-module.h>
 #include <obs/libobs/obs-service.h>
-#include <stdlib.h>
 #include <string.h>
 
 OBS_DECLARE_MODULE()

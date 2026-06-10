@@ -1,5 +1,10 @@
 {
   "lsp": {
+    "clangd": {
+      "initialization_options": {
+        "compilationDatabasePath": "obs2/build"
+      }
+    },
     "rust-analyzer": {
       "initialization_options": {
         "linkedProjects": ["obs2/rust/Cargo.toml"],
