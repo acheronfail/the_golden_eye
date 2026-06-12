@@ -63,7 +63,7 @@
 //
 // Pick an input-capable GPIO below 32 (the fast read path below assumes
 // GPIO.in, which covers pins 0-31).
-#define N64_PIN 4
+#define N64_PIN 13
 // console command bits that precede the controller's response
 #define N64_PREFIX 9
 // controller state bits
