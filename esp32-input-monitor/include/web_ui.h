@@ -4,12 +4,13 @@
 
 /**
  * Self-contained UI served at "/". The page opens a WebSocket to "/ws" and
- * receives a 4-byte binary frame on every state change:
+ * receives a 5-byte binary frame on every state change:
  *
- *   byte 0 (MSB-first): A B Z START UP DOWN LEFT RIGHT
- *   byte 1 (MSB-first): - - L R C-UP C-DOWN C-LEFT C-RIGHT   (top 2 bits unused)
- *   byte 2: stick X (int8, +right)
- *   byte 3: stick Y (int8, +up/forward)
+ *   byte 0: controller index (0..3)
+ *   byte 1 (MSB-first): A B Z START UP DOWN LEFT RIGHT
+ *   byte 2 (MSB-first): - - L R C-UP C-DOWN C-LEFT C-RIGHT   (top 2 bits unused)
+ *   byte 3: stick X (int8, +right)
+ *   byte 4: stick Y (int8, +up/forward)
  *
  * The bit masks below must stay in sync with packState() in main.cpp.
  */
@@ -28,9 +29,10 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
   }
   .wrap { text-align: center; }
   h1 { font-size: 15px; font-weight: 600; letter-spacing: .04em; color: #8a909c; margin: 0 0 4px; }
-  #conn { font-size: 12px; color: #6b7280; margin-bottom: 18px; }
+  #conn { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
   #conn.up { color: #4ade80; }
   #conn.down { color: #f87171; }
+  #pad { font-size: 12px; color: #8a909c; margin-bottom: 14px; }
 
   /* Controller layout: three columns (D-pad | center | A/B + C-cluster). */
   .pad {
@@ -90,6 +92,7 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
 <div class="wrap">
   <h1>N64 SPY</h1>
   <div id="conn">connecting…</div>
+  <div id="pad">pad: --</div>
 
   <div class="pad">
     <!-- Left column: shoulders, D-pad -->
@@ -138,11 +141,15 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
   const dot = document.getElementById('dot');
   const sxEl = document.getElementById('sx'), syEl = document.getElementById('sy');
   const conn = document.getElementById('conn');
+  const padEl = document.getElementById('pad');
 
   function set(id, on) { el[id].classList.toggle('on', !!on); }
 
-  function render(bytes) {
+  function render(bytes, padIndex = null) {
     const b0 = bytes[0], b1 = bytes[1];
+    if (padIndex !== null) {
+      padEl.textContent = `pad: ${padIndex + 1}`;
+    }
     for (const [id, m] of Object.entries(B0)) set(id, b0 & m);
     for (const [id, m] of Object.entries(B1)) set(id, b1 & m);
     // Sign-extend the stick bytes.
@@ -157,18 +164,22 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
   let ws;
   let reconnectTimer = null;
   let latestFrame = null;
+  let latestPadIndex = null;
   let renderQueued = false;
 
-  function queueRender(frame) {
+  function queueRender(frame, padIndex = null) {
     latestFrame = frame;
+    latestPadIndex = padIndex;
     if (renderQueued) return;
     renderQueued = true;
     requestAnimationFrame(() => {
       renderQueued = false;
       if (!latestFrame) return;
       const frameToRender = latestFrame;
+      const padIndexToRender = latestPadIndex;
       latestFrame = null;
-      render(frameToRender);
+      latestPadIndex = null;
+      render(frameToRender, padIndexToRender);
     });
   }
 
@@ -196,7 +207,16 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
       scheduleReconnect(1000);
     };
     ws.onerror   = (e) => console.log('[ws] error', e);
-    ws.onmessage = (e) => queueRender(new Uint8Array(e.data));
+    ws.onmessage = (e) => {
+      const raw = new Uint8Array(e.data);
+      if (raw.length === 5) {
+        queueRender(raw.slice(1), raw[0]);
+        return;
+      }
+      if (raw.length === 4) {
+        queueRender(raw, null);
+      }
+    };
   }
   window.addEventListener('beforeunload', () => {
     if (ws) ws.close(1000, 'page unload');
