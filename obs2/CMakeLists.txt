@@ -180,7 +180,7 @@ endif()
 
 add_custom_target(rust_build ALL
     COMMAND ${CMAKE_COMMAND} -E env "BROWSER_BUNDLE=${BROWSER_BUNDLE}" ${RUST_BUILD_ENV}
-            cargo build ${CARGO_BUILD_FLAGS}
+            cargo build ${CARGO_BUILD_FLAGS} --all-targets
     WORKING_DIRECTORY "${RUST_DIR}"
     COMMENT "Building Rust static library (${RUST_PROFILE})"
     VERBATIM
