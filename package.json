@@ -8,7 +8,8 @@
     "repl": "node --experimental-strip-types scripts/repl.ts",
     "scrape": "node --experimental-strip-types scripts/scrape-web.ts",
     "upload": "node --experimental-strip-types scripts/upload.ts",
-    "test": "node --experimental-strip-types --watch test/frames.test.ts"
+    "test": "node --experimental-strip-types test/frames.test.ts",
+    "test-watch": "node --experimental-strip-types --watch test/frames.test.ts"
   },
   "keywords": [],
   "author": "",

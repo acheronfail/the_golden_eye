@@ -6,12 +6,12 @@ const rustRoot = path.join(__dirname, "..", "obs2", "rust");
 
 export interface Runner {
   name: string;
-  command: (debug: boolean, screenshotPath: string) => string;
+  command: (screenshotPath: string) => string;
 }
 
 export const runners: Runner[] = [
   {
     name: "cv templates",
-    command: (debug, sp) => `"${rustRoot}/target/${debug ? "debug" : "release"}/test_match" "${sp}"`,
+    command: (sp) => `"${rustRoot}/target/release/test_match" "${sp}"`,
   },
 ];

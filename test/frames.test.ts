@@ -16,7 +16,6 @@ const execCommand = async (command: string) => {
   }
 };
 
-const debug = "DEBUG" in process.env;
 const screenshots = await getScreenshots();
 
 interface CheckResult {
@@ -111,7 +110,7 @@ for (const runner of runners) {
     }
 
     process.env.GE_LANG = screenshot.lang;
-    const { stdout } = await execCommand(runner.command(debug, screenshot.filePath)).finally(() => {
+    const { stdout } = await execCommand(runner.command(screenshot.filePath)).finally(() => {
       delete process.env.GE_LANG;
     });
 
@@ -161,8 +160,6 @@ for (const runner of runners) {
   }
 
   console.log(chalk.grey(`└${"─".repeat(lengthWidth)}┘`));
-  // log debug mode
-  console.log(chalk.blue(`Mode: ${debug ? chalk.yellow("Debug") : chalk.green("Release")}`));
   // log the % of all passed tests
   {
     const passed = chalk.green.bold(passedTests);

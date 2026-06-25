@@ -32,6 +32,9 @@ dev:
 test: make-release
     npm run test
 
+test-watch: make-release
+    npm run test-watch
+
 make:
     mkdir -p obs2/build
     cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DBROWSER_DEV=OFF && make
