@@ -7,7 +7,7 @@ publish = false
 
 [lib]
 # Produce a C-compatible static archive that CMake can link into the plugin.
-crate-type = ["staticlib"]
+crate-type = ["staticlib", "rlib"]
 
 # Standalone CLI for exercising the level matcher outside of OBS. Mirrors the
 # C++ obs2/test_match.cpp: given an input image it prints the matched level

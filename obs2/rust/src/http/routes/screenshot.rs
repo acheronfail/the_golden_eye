@@ -6,6 +6,8 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Result};
 use serde::Deserialize;
 
+use crate::timer::PhaseTimer;
+
 #[derive(Deserialize)]
 pub struct Params {
     /// Name of the OBS source to capture, as reported by `/api/v1/sources`.
@@ -16,6 +18,10 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
     let source_name =
         CString::new(params.source).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
+    let mut timer = PhaseTimer::new();
+    let matcher = crate::cv::CvMatcher::new("en", "/home/acheronfail/src/ge-obs/obs2/cv_templates").unwrap();
+    timer.lap("matcher init");
+
     // Render the source into a BGRA buffer owned by the C side.
     let mut width: u32 = 0;
     let mut height: u32 = 0;
@@ -23,6 +29,12 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
     if frame.is_null() {
         return Err((StatusCode::NOT_FOUND, "could not capture source frame").into());
     }
+
+    timer.lap("obs frame");
+
+    let result = matcher.match_level_from_raw_bytes(frame, width, height);
+    timer.lap("cv match");
+    tracing::info!(?result, "match result");
 
     // Encode while we still own the buffer, then hand it straight back to the
     // C allocator regardless of whether encoding succeeded.

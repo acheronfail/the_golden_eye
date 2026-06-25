@@ -1,7 +1,9 @@
 mod config;
+pub mod cv;
 mod ffi;
 mod http;
 mod stream_notifier;
+mod timer;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
