@@ -11,7 +11,7 @@ export interface Runner {
 
 export const runners: Runner[] = [
   {
-    name: "cv templates",
+    name: "test_match.ts (cv templates)",
     command: (sp) => `"${rustRoot}/target/release/test_match" "${sp}"`,
   },
 ];

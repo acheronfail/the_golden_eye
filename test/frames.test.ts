@@ -1,3 +1,4 @@
+import * as fs from "node:fs/promises";
 import * as cp from "node:child_process";
 import { promisify } from "node:util";
 import chalk from "chalk";
@@ -20,6 +21,7 @@ const screenshots = await getScreenshots();
 
 interface CheckResult {
   value: any;
+  expected: any;
   pass: boolean;
 }
 
@@ -69,7 +71,9 @@ const padText = (text: string, width: number, align: "left" | "center" | "right"
   }
 };
 
+const results: Record<string, { name: string; results: TestResult[] }[]> = {};
 for (const runner of runners) {
+  results[runner.name] = [];
   console.log(chalk.blue(`Running tests for ${chalk.cyan.bold(runner.name)}...`));
 
   // ┌─────────────────────────┐
@@ -104,6 +108,8 @@ for (const runner of runners) {
   let totalTests = 0;
   let passedTests = 0;
   for (const screenshot of screenshots) {
+    results[runner.name].push({ name: screenshot.name, results: [] });
+
     if (screenshot.screen === "levels") {
       // TODO: implement "screen" to match these
       continue;
@@ -118,8 +124,8 @@ for (const runner of runners) {
     const resultLevel = getLevel(result.mission, result.part);
     const testResult: TestResult = { runTime: result.runtime_ms };
 
-    testResult.lang = { value: result.lang, pass: result.lang === screenshot.lang };
-    testResult.level = { value: resultLevel, pass: resultLevel === screenshot.level };
+    testResult.lang = { value: result.lang, pass: result.lang === screenshot.lang, expected: screenshot.lang };
+    testResult.level = { value: resultLevel, pass: resultLevel === screenshot.level, expected: screenshot.level };
     totalTests += 2;
 
     if (screenshot.screen === "stats") {
@@ -130,7 +136,11 @@ for (const runner of runners) {
         return parseInt(mm, 10) * 60 + parseInt(ss, 10);
       });
 
-      testResult.times = { value: result.times, pass: JSON.stringify(result.times) === JSON.stringify(times) };
+      testResult.times = {
+        value: result.times,
+        pass: JSON.stringify(result.times) === JSON.stringify(times),
+        expected: times,
+      };
       totalTests += 1;
     }
 
@@ -141,6 +151,7 @@ for (const runner of runners) {
       testResult.difficulty = {
         value: abbrDifficulty(resultDifficulty),
         pass: resultDifficulty === screenshot.difficulty,
+        expected: abbrDifficulty(screenshot.difficulty),
       };
       totalTests += 1;
     }
@@ -156,6 +167,8 @@ for (const runner of runners) {
       passedTests += [testResult.lang, testResult.level, testResult.difficulty, testResult.times].filter(
         (r) => r?.pass,
       ).length;
+
+      results[runner.name][results[runner.name].length - 1].results.push(testResult);
     }
   }
 
@@ -171,3 +184,6 @@ for (const runner of runners) {
 
   console.log();
 }
+
+await fs.writeFile("test_results.json", JSON.stringify(results, null, 2), "utf-8");
+console.log(chalk.blue(`Test results written to ${chalk.cyan.bold("test_results.json")}`));

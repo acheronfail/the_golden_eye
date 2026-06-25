@@ -8,3 +8,4 @@ generated-tokens.json
 .DS_Store
 build/
 .cache
+test_results.json
