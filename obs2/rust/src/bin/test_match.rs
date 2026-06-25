@@ -15,7 +15,7 @@ use std::env;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use opencv::core::{self, Mat, Rect, Size, ToInputArray};
+use opencv::core::{self, Mat, Point, Rect, Size, ToInputArray};
 use opencv::prelude::*;
 use opencv::{Result, imgcodecs, imgproc};
 use serde_json::json;
@@ -33,15 +33,20 @@ const STRONG_LABEL: f64 = 0.90;
 const LABEL_REGION_W: f64 = 0.60;
 const LABEL_REGION_H: f64 = 0.50;
 
-// Region searched for the time colons: they sit in the bottom 50% of the frame
-// and the middle 50% horizontally. Anchoring the (full-frame) colon search to
-// this box also discards label colons ("Time:", "Accuracy:") for free.
+// Region searched for the time colons: they sit in the upper part of the
+// stats table. Anchoring the (full-frame) colon search to this box also
+// discards label colons ("Time:", "Accuracy:") and lower stat rows for free.
 const COLON_REGION_X: f64 = 0.25;
 const COLON_REGION_W: f64 = 0.50;
 const COLON_REGION_Y: f64 = 0.50;
-const COLON_REGION_H: f64 = 0.50;
+const COLON_REGION_H: f64 = 0.20;
 // Correlation needed to accept an individual digit/colon glyph.
 const GLYPH_THRESHOLD: f64 = 0.78;
+// The pre-label gate should only admit very likely time colons. The full
+// extractor still uses GLYPH_THRESHOLD once a time frame is suspected.
+const TIME_GATE_COLON_THRESHOLD: f64 = 0.88;
+const TIME_GATE_SLOT_THRESHOLD: f64 = 0.89;
+const TIME_GATE_STRONG_COLON: f64 = 0.90;
 
 // Candidate scales applied to the templates when locating the stats overlay.
 // The templates are authored at the user's native capture resolution, so 1.0 is
@@ -51,7 +56,7 @@ const GLYPH_THRESHOLD: f64 = 0.78;
 // template so the glyphs stay crisply aligned.
 const SCALES: [f64; 10] = [1.0, 0.9, 1.1, 0.8, 1.2, 0.75, 1.33, 0.67, 1.5, 0.6];
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Detection {
     x: i32,     // left edge in the frame
     y: i32,     // top edge in the frame
@@ -207,6 +212,74 @@ fn suppress(mut dets: Vec<Detection>, cell_w: i32, cell_h: i32, frac: f64) -> Ve
     kept
 }
 
+fn best_digit_near(
+    frame: &(impl MatTraitConst + ToInputArray),
+    digit_tmpls: &[Mat],
+    expected_x: i32,
+    center_y: i32,
+    digit_w: i32,
+    digit_h: i32,
+) -> Result<Option<Detection>> {
+    let pad_x = (digit_w as f64 * 0.7).round() as i32;
+    let pad_y = (digit_h as f64 * 0.35).round() as i32;
+    let x0 = (expected_x - pad_x).max(0);
+    let y0 = (center_y - digit_h / 2 - pad_y).max(0);
+    let x1 = (expected_x + digit_w + pad_x).min(frame.cols());
+    let y1 = (center_y + digit_h / 2 + pad_y).min(frame.rows());
+    if x1 <= x0 || y1 <= y0 {
+        return Ok(None);
+    }
+
+    let roi = frame.roi(Rect::new(x0, y0, x1 - x0, y1 - y0))?;
+    let mut best: Option<Detection> = None;
+    for (value, tmpl) in digit_tmpls.iter().enumerate().take(10) {
+        if tmpl.empty() || tmpl.rows() > roi.rows() || tmpl.cols() > roi.cols() {
+            continue;
+        }
+
+        let mut matched = Mat::default();
+        imgproc::match_template(&roi, tmpl, &mut matched, imgproc::TM_CCOEFF_NORMED, &core::no_array())?;
+        let mut max_val = 0f64;
+        let mut max_loc = Point::default();
+        core::min_max_loc(&matched, None, Some(&mut max_val), None, Some(&mut max_loc), &core::no_array())?;
+        if max_val >= GLYPH_THRESHOLD && best.map(|d| max_val > d.score).unwrap_or(true) {
+            best = Some(Detection {
+                x: x0 + max_loc.x,
+                y: y0 + max_loc.y,
+                w: tmpl.cols(),
+                score: max_val,
+                value: value as i32,
+            });
+        }
+    }
+
+    Ok(best)
+}
+
+fn count_time_colons(
+    frame: &(impl MatTraitConst + ToInputArray),
+    colon_tmpl: &Mat,
+    threshold: f64,
+) -> Result<(usize, f64)> {
+    if colon_tmpl.empty() {
+        return Ok((0, -1.0));
+    }
+
+    let colon_x0 = (frame.cols() as f64 * COLON_REGION_X) as i32;
+    let colon_y0 = (frame.rows() as f64 * COLON_REGION_Y) as i32;
+    let colon_region = frame.roi(Rect::new(
+        colon_x0,
+        colon_y0,
+        (frame.cols() as f64 * COLON_REGION_W) as i32,
+        (frame.rows() as f64 * COLON_REGION_H) as i32,
+    ))?;
+    let mut colons = Vec::new();
+    collect_detections(&colon_region, colon_tmpl, threshold, 0, &mut colons)?;
+    let colons = suppress(colons, colon_tmpl.cols(), colon_tmpl.rows(), 0.5);
+    let max_score = colons.iter().map(|d| d.score).fold(-1.0, f64::max);
+    Ok((colons.len(), max_score))
+}
+
 // Finds a mission number (1-9) by anchoring on ':' in the label region and
 // taking the strongest single digit immediately to its left on the same line.
 fn find_mission_from_colons(
@@ -276,6 +349,229 @@ fn find_mission_from_colons(
     Ok(best)
 }
 
+// Recovers all complete "mm:ss" readings in the stats time area. This is kept
+// separate from label matching so non-time frames can be rejected before paying
+// for mission/part/difficulty template scans.
+fn find_times_slot(
+    frame: &(impl MatTraitConst + ToInputArray),
+    colon_tmpl: &Mat,
+    digit_tmpls: &[Mat],
+    colon_threshold: f64,
+) -> Result<Vec<FoundTime>> {
+    if colon_tmpl.empty() || digit_tmpls.len() < 10 {
+        return Ok(Vec::new());
+    }
+
+    let mut digit_width_sum = 0;
+    for t in digit_tmpls.iter().take(10) {
+        if t.empty() {
+            return Ok(Vec::new());
+        }
+        digit_width_sum += t.cols();
+    }
+
+    let colon_w = colon_tmpl.cols();
+    let colon_h = colon_tmpl.rows();
+    let digit_w = digit_width_sum / 10; // representative digit width
+    let digit_h = digit_tmpls[0].rows();
+
+    let colon_x0 = (frame.cols() as f64 * COLON_REGION_X) as i32;
+    let colon_y0 = (frame.rows() as f64 * COLON_REGION_Y) as i32;
+    let colon_region = frame.roi(Rect::new(
+        colon_x0,
+        colon_y0,
+        (frame.cols() as f64 * COLON_REGION_W) as i32,
+        (frame.rows() as f64 * COLON_REGION_H) as i32,
+    ))?;
+    let mut colons = Vec::new();
+    collect_detections(&colon_region, colon_tmpl, colon_threshold, 0, &mut colons)?;
+    // Offset back into frame coordinates.
+    for c in &mut colons {
+        c.x += colon_x0;
+        c.y += colon_y0;
+    }
+    let colons = suppress(colons, colon_w, colon_h, 0.5);
+
+    // Assemble "mm:ss" readings: a valid time is two digits immediately to the
+    // left of a colon and two immediately to its right, all on the same line.
+    let mut times: Vec<FoundTime> = Vec::new();
+    for colon in &colons {
+        let colon_center_y = colon.y + colon_h / 2;
+        let l0 = best_digit_near(frame, digit_tmpls, colon.x - digit_w, colon_center_y, digit_w, digit_h)?;
+        let l1 = best_digit_near(frame, digit_tmpls, colon.x - digit_w * 2, colon_center_y, digit_w, digit_h)?;
+        let r0 = best_digit_near(frame, digit_tmpls, colon.x + colon_w, colon_center_y, digit_w, digit_h)?;
+        let r1 = best_digit_near(frame, digit_tmpls, colon.x + colon_w + digit_w, colon_center_y, digit_w, digit_h)?;
+        if cfg!(debug_assertions) {
+            eprintln!("[ge_cv debug] colon at ({},{}) slots={:?}", colon.x, colon.y, [l1, l0, r0, r1]);
+        }
+        let (Some(l1), Some(l0), Some(r0), Some(r1)) = (l1, l0, r0, r1) else {
+            continue;
+        };
+
+        // Spacing checks (in digit-width fractions): the inner digits must hug
+        // the colon and the outer digits must abut the inner ones.
+        let adj_right = (r0.x - (colon.x + colon_w)) as f64;
+        let adj_left = (colon.x - (l0.x + l0.w)) as f64;
+        let gap_right = (r1.x - (r0.x + r0.w)) as f64;
+        let gap_left = (l0.x - (l1.x + l1.w)) as f64;
+        if adj_right < -(digit_w as f64) * 0.4
+            || adj_right > digit_w as f64 * 0.6
+            || adj_left < -(digit_w as f64) * 0.4
+            || adj_left > digit_w as f64 * 0.6
+            || gap_right.abs() > digit_w as f64 * 0.6
+            || gap_left.abs() > digit_w as f64 * 0.6
+        {
+            continue;
+        }
+
+        let minutes = l1.value * 10 + l0.value;
+        let seconds = r0.value * 10 + r1.value;
+        let total_seconds = minutes * 60 + seconds;
+        if cfg!(debug_assertions) {
+            eprintln!(
+                "[ge_cv debug] accepted time {}:{} from colon ({},{}) minutes={} seconds={} total={}",
+                l1.value, l0.value, colon.x, colon.y, minutes, seconds, total_seconds,
+            );
+        }
+
+        // It's impossible for a level to last longer than 0x3ff seconds (limited by Goldeneye's save format).
+        if total_seconds < 0x3ff {
+            times.push(FoundTime { y: colon.y, x: colon.x, seconds: total_seconds });
+        }
+    }
+
+    // Order top-to-bottom (bucketed by line) then left-to-right.
+    let line_bucket = digit_h as f64 * 0.5;
+    times.sort_by(|a, b| {
+        let ra = (a.y as f64 / line_bucket).round() as i32;
+        let rb = (b.y as f64 / line_bucket).round() as i32;
+        if ra != rb { ra.cmp(&rb) } else { a.x.cmp(&b.x) }
+    });
+
+    Ok(times)
+}
+
+fn find_times_band(
+    frame: &(impl MatTraitConst + ToInputArray),
+    colon_tmpl: &Mat,
+    digit_tmpls: &[Mat],
+) -> Result<Vec<FoundTime>> {
+    if colon_tmpl.empty() || digit_tmpls.len() < 10 {
+        return Ok(Vec::new());
+    }
+
+    let mut digit_width_sum = 0;
+    for t in digit_tmpls.iter().take(10) {
+        if t.empty() {
+            return Ok(Vec::new());
+        }
+        digit_width_sum += t.cols();
+    }
+
+    let colon_w = colon_tmpl.cols();
+    let colon_h = colon_tmpl.rows();
+    let digit_w = digit_width_sum / 10;
+    let digit_h = digit_tmpls[0].rows();
+
+    let colon_x0 = (frame.cols() as f64 * COLON_REGION_X) as i32;
+    let colon_y0 = (frame.rows() as f64 * COLON_REGION_Y) as i32;
+    let colon_region = frame.roi(Rect::new(
+        colon_x0,
+        colon_y0,
+        (frame.cols() as f64 * COLON_REGION_W) as i32,
+        (frame.rows() as f64 * COLON_REGION_H) as i32,
+    ))?;
+    let mut colons = Vec::new();
+    collect_detections(&colon_region, colon_tmpl, GLYPH_THRESHOLD, 0, &mut colons)?;
+    for c in &mut colons {
+        c.x += colon_x0;
+        c.y += colon_y0;
+    }
+    let colons = suppress(colons, colon_w, colon_h, 0.5);
+
+    let band_pad_x = digit_w * 3;
+    let band_pad_y = digit_h;
+    let mut digits = Vec::new();
+    for colon in &colons {
+        let x0 = (colon.x - band_pad_x).max(0);
+        let y0 = (colon.y - band_pad_y).max(0);
+        let x1 = (colon.x + colon_w + band_pad_x).min(frame.cols());
+        let y1 = (colon.y + colon_h + band_pad_y).min(frame.rows());
+        if x1 <= x0 || y1 <= y0 {
+            continue;
+        }
+        let roi = frame.roi(Rect::new(x0, y0, x1 - x0, y1 - y0))?;
+        for v in 0..10 {
+            let mut bucket = Vec::new();
+            collect_detections(&roi, &digit_tmpls[v], GLYPH_THRESHOLD, v as i32, &mut bucket)?;
+            for mut d in bucket {
+                d.x += x0;
+                d.y += y0;
+                digits.push(d);
+            }
+        }
+    }
+    let digits = suppress(digits, digit_w, digit_h, 0.5);
+
+    let mut times: Vec<FoundTime> = Vec::new();
+    for colon in &colons {
+        let colon_center_y = colon.y as f64 + colon_h as f64 / 2.0;
+
+        let mut right: Vec<Detection> = Vec::new();
+        let mut left: Vec<Detection> = Vec::new();
+        for d in &digits {
+            if ((d.y as f64 + digit_h as f64 / 2.0) - colon_center_y).abs() >= digit_h as f64 * 0.35 {
+                continue;
+            }
+            if d.x as f64 >= colon.x as f64 + colon_w as f64 * 0.3 {
+                right.push(*d);
+            } else if (d.x + d.w) as f64 <= colon.x as f64 + colon_w as f64 * 0.7 {
+                left.push(*d);
+            }
+        }
+        if right.len() < 2 || left.len() < 2 {
+            continue;
+        }
+        right.sort_by(|a, b| a.x.cmp(&b.x));
+        left.sort_by(|a, b| b.x.cmp(&a.x));
+
+        let r0 = right[0];
+        let r1 = right[1];
+        let l0 = left[0];
+        let l1 = left[1];
+
+        let adj_right = (r0.x - (colon.x + colon_w)) as f64;
+        let adj_left = (colon.x - (l0.x + l0.w)) as f64;
+        let gap_right = (r1.x - (r0.x + r0.w)) as f64;
+        let gap_left = (l0.x - (l1.x + l1.w)) as f64;
+        if adj_right < -(digit_w as f64) * 0.4
+            || adj_right > digit_w as f64 * 0.6
+            || adj_left < -(digit_w as f64) * 0.4
+            || adj_left > digit_w as f64 * 0.6
+            || gap_right.abs() > digit_w as f64 * 0.6
+            || gap_left.abs() > digit_w as f64 * 0.6
+        {
+            continue;
+        }
+
+        let minutes = l1.value * 10 + l0.value;
+        let seconds = r0.value * 10 + r1.value;
+        let total_seconds = minutes * 60 + seconds;
+        if total_seconds < 0x3ff {
+            times.push(FoundTime { y: colon.y, x: colon.x, seconds: total_seconds });
+        }
+    }
+
+    let line_bucket = digit_h as f64 * 0.5;
+    times.sort_by(|a, b| {
+        let ra = (a.y as f64 / line_bucket).round() as i32;
+        let rb = (b.y as f64 / line_bucket).round() as i32;
+        if ra != rb { ra.cmp(&rb) } else { a.x.cmp(&b.x) }
+    });
+
+    Ok(times)
+}
+
 // Matches the GoldenEye level-stats overlay in a single BGRA frame against the
 // template PNGs in `templates_dir`. Mirrors ge_cv_match_level().
 fn match_level(bgra_frame: &Mat, lang: &str, templates_dir: &str) -> Result<LevelMatch> {
@@ -306,6 +602,18 @@ fn match_level(bgra_frame: &Mat, lang: &str, templates_dir: &str) -> Result<Leve
     let mut frame = Mat::default();
     imgproc::cvt_color_def(bgra_frame, &mut frame, imgproc::COLOR_BGRA2GRAY)?;
     timer.lap("grayscale");
+
+    let (time_colon_count, best_time_colon) = count_time_colons(&frame, &colon_base, TIME_GATE_COLON_THRESHOLD)?;
+    let has_time = time_colon_count >= 2
+        || best_time_colon >= TIME_GATE_STRONG_COLON
+        || (time_colon_count == 1
+            && best_time_colon >= TIME_GATE_SLOT_THRESHOLD
+            && !find_times_slot(&frame, &colon_base, &digit_base, TIME_GATE_COLON_THRESHOLD)?.is_empty());
+    timer.lap("time gate");
+    if !has_time {
+        result.runtime_ms = timer.start.elapsed().as_secs_f64() * 1000.0;
+        return Ok(result);
+    }
 
     // The mission/part/difficulty labels always sit in the upper-left of the
     // stats overlay, so their template matching only needs the top-left corner
@@ -361,136 +669,11 @@ fn match_level(bgra_frame: &Mat, lang: &str, templates_dir: &str) -> Result<Leve
     }
     timer.lap("load glyph templates");
 
-    if colon_tmpl.empty() || digit_width_sum == 0 {
-        return Ok(result); // no glyph templates: labels only
-    }
-
-    let colon_w = colon_tmpl.cols();
-    let colon_h = colon_tmpl.rows();
-    let digit_w = digit_width_sum / 10; // representative digit width
-    let digit_h = digit_tmpls[0].rows();
-
-    let colon_x0 = (frame.cols() as f64 * COLON_REGION_X) as i32;
-    let colon_y0 = (frame.rows() as f64 * COLON_REGION_Y) as i32;
-    let colon_region = frame.roi(Rect::new(
-        colon_x0,
-        colon_y0,
-        (frame.cols() as f64 * COLON_REGION_W) as i32,
-        (frame.rows() as f64 * COLON_REGION_H) as i32,
-    ))?;
-    let mut colons = Vec::new();
-    collect_detections(&colon_region, &colon_tmpl, GLYPH_THRESHOLD, 0, &mut colons)?;
-    // Offset back into frame coordinates.
-    for c in &mut colons {
-        c.x += colon_x0;
-        c.y += colon_y0;
-    }
-    let colons = suppress(colons, colon_w, colon_h, 0.5);
-    timer.lap("colon detection");
-
-    // A valid time is two digits on each side of a colon, on the colon's line,
-    // so the only digits that matter live in a narrow band around each colon.
-    let band_pad_x = digit_w * 3; // room for two digits plus gaps each side
-    let band_pad_y = digit_h; // slack for digit/colon height mismatch
-    let mut digits = Vec::new();
-    for colon in &colons {
-        let x0 = (colon.x - band_pad_x).max(0);
-        let y0 = (colon.y - band_pad_y).max(0);
-        let x1 = (colon.x + colon_w + band_pad_x).min(frame.cols());
-        let y1 = (colon.y + colon_h + band_pad_y).min(frame.rows());
-        let roi = frame.roi(Rect::new(x0, y0, x1 - x0, y1 - y0))?;
-        for v in 0..10 {
-            let mut bucket = Vec::new();
-            collect_detections(&roi, &digit_tmpls[v], GLYPH_THRESHOLD, v as i32, &mut bucket)?;
-            for mut d in bucket {
-                d.x += x0;
-                d.y += y0;
-                digits.push(d);
-            }
-        }
-    }
-    // Suppress across all digit values so overlapping matches of different
-    // digits collapse to the single strongest reading.
-    let digits = suppress(digits, digit_w, digit_h, 0.5);
-    timer.lap("digit detection");
-
-    // Assemble "mm:ss" readings: a valid time is two digits immediately to the
-    // left of a colon and two immediately to its right, all on the same line.
-    let mut times: Vec<FoundTime> = Vec::new();
-    for colon in &colons {
-        let colon_center_y = colon.y as f64 + colon_h as f64 / 2.0;
-
-        let mut right: Vec<Detection> = Vec::new();
-        let mut left: Vec<Detection> = Vec::new();
-        for d in &digits {
-            if ((d.y as f64 + digit_h as f64 / 2.0) - colon_center_y).abs() >= digit_h as f64 * 0.35 {
-                continue; // not on the colon's text line
-            }
-            if d.x as f64 >= colon.x as f64 + colon_w as f64 * 0.3 {
-                right.push(*d);
-            } else if (d.x + d.w) as f64 <= colon.x as f64 + colon_w as f64 * 0.7 {
-                left.push(*d);
-            }
-        }
-        if cfg!(debug_assertions) {
-            eprintln!("[ge_cv debug] colon at ({},{}) left={} right={}", colon.x, colon.y, left.len(), right.len());
-            for d in &digits {
-                if ((d.y as f64 + digit_h as f64 / 2.0) - colon_center_y).abs() < digit_h as f64 * 0.35 {
-                    eprintln!("[ge_cv debug]   digit {} @ ({},{}) score={:.3}", d.value, d.x, d.y, d.score);
-                }
-            }
-        }
-        if right.len() < 2 || left.len() < 2 {
-            continue;
-        }
-        right.sort_by(|a, b| a.x.cmp(&b.x));
-        left.sort_by(|a, b| b.x.cmp(&a.x));
-
-        let r0 = right[0];
-        let r1 = right[1];
-        let l0 = left[0];
-        let l1 = left[1];
-
-        // Spacing checks (in digit-width fractions): the inner digits must hug
-        // the colon and the outer digits must abut the inner ones.
-        let adj_right = (r0.x - (colon.x + colon_w)) as f64;
-        let adj_left = (colon.x - (l0.x + l0.w)) as f64;
-        let gap_right = (r1.x - (r0.x + r0.w)) as f64;
-        let gap_left = (l0.x - (l1.x + l1.w)) as f64;
-        if adj_right < -(digit_w as f64) * 0.4
-            || adj_right > digit_w as f64 * 0.6
-            || adj_left < -(digit_w as f64) * 0.4
-            || adj_left > digit_w as f64 * 0.6
-            || gap_right.abs() > digit_w as f64 * 0.6
-            || gap_left.abs() > digit_w as f64 * 0.6
-        {
-            continue;
-        }
-
-        let minutes = l1.value * 10 + l0.value;
-        let seconds = r0.value * 10 + r1.value;
-        let total_seconds = minutes * 60 + seconds;
-        if cfg!(debug_assertions) {
-            eprintln!(
-                "[ge_cv debug] accepted time {}:{} from colon ({},{}) minutes={} seconds={} total={}",
-                l1.value, l0.value, colon.x, colon.y, minutes, seconds, total_seconds,
-            );
-        }
-
-        // It's impossible for a level to last longer than 0x3ff seconds (limited by Goldeneye's save format).
-        if total_seconds < 0x3ff {
-            times.push(FoundTime { y: colon.y, x: colon.x, seconds: total_seconds });
-        }
-    }
-
-    // Order top-to-bottom (bucketed by line) then left-to-right.
-    let line_bucket = digit_h as f64 * 0.5;
-    times.sort_by(|a, b| {
-        let ra = (a.y as f64 / line_bucket).round() as i32;
-        let rb = (b.y as f64 / line_bucket).round() as i32;
-        if ra != rb { ra.cmp(&rb) } else { a.x.cmp(&b.x) }
-    });
-
+    let times = if colon_tmpl.empty() || digit_width_sum == 0 {
+        Vec::new()
+    } else {
+        find_times_band(&frame, &colon_tmpl, &digit_tmpls)?
+    };
     result.times = times.into_iter().map(|t| t.seconds).collect();
     timer.lap("time assembly");
 

@@ -38,6 +38,7 @@ interface TestResult {
   difficulty?: CheckResult;
   times?: CheckResult;
   runTime: number;
+  runTimePass?: boolean;
 }
 
 const lengthName = Math.max(...screenshots.map((s) => s.name.length), "Test".length);
@@ -121,14 +122,16 @@ for (const runner of runners) {
     });
 
     const result = JSON.parse(stdout);
-    const resultLevel = getLevel(result.mission, result.part);
     const testResult: TestResult = { runTime: result.runtime_ms };
 
     testResult.lang = { value: result.lang, pass: result.lang === screenshot.lang, expected: screenshot.lang };
-    testResult.level = { value: resultLevel, pass: resultLevel === screenshot.level, expected: screenshot.level };
-    totalTests += 2;
+    totalTests += 1;
 
     if (screenshot.screen === "stats") {
+      const resultLevel = getLevel(result.mission, result.part);
+      testResult.level = { value: resultLevel, pass: resultLevel === screenshot.level, expected: screenshot.level };
+      totalTests += 1;
+
       const [timesStr] = screenshot.extra;
       const times = timesStr.split("_").map((digits) => {
         const mm = digits.slice(0, 2);
@@ -142,11 +145,8 @@ for (const runner of runners) {
         expected: times,
       };
       totalTests += 1;
-    }
 
-    let resultDifficulty: Difficulty | undefined;
-    // @ts-expect-error we filter out levels above with a TODO
-    if (screenshot.screen !== "select" && screenshot.screen !== "levels") {
+      let resultDifficulty: Difficulty | undefined;
       resultDifficulty = NumberDifficultyMap.get(result.difficulty);
       testResult.difficulty = {
         value: abbrDifficulty(resultDifficulty),
@@ -154,6 +154,14 @@ for (const runner of runners) {
         expected: abbrDifficulty(screenshot.difficulty),
       };
       totalTests += 1;
+    } else {
+      testResult.times = {
+        value: result.times,
+        pass: Array.isArray(result.times) && result.times.length === 0,
+        expected: [],
+      };
+      testResult.runTimePass = result.runtime_ms < 16;
+      totalTests += 2;
     }
 
     {
@@ -162,11 +170,15 @@ for (const runner of runners) {
       const level = padText(formatCheckResult(testResult.level), lengthLevel);
       const difficulty = padText(formatCheckResult(testResult.difficulty), lengthDifficulty);
       const times = padText(formatCheckResult(testResult.times), lengthTimes);
-      const execTime = padText(chalk.white(testResult.runTime.toFixed(2) + " ms"), lengthRuntime);
+      const runTimeText = testResult.runTime.toFixed(2) + " ms";
+      const execTime = padText((testResult.runTimePass === false ? chalk.red : chalk.white)(runTimeText), lengthRuntime);
       console.log(chalk.grey(`│ ${name} │ ${lang} │ ${level} │ ${difficulty} │ ${times} │ ${execTime} │`));
       passedTests += [testResult.lang, testResult.level, testResult.difficulty, testResult.times].filter(
         (r) => r?.pass,
       ).length;
+      if (testResult.runTimePass !== undefined && testResult.runTimePass) {
+        passedTests += 1;
+      }
 
       results[runner.name][results[runner.name].length - 1].results.push(testResult);
     }
