@@ -287,7 +287,7 @@ fn match_level(bgra_frame: &Mat, lang: &str, templates_dir: &str) -> Result<Leve
         parts.push(load_template(templates_dir, lang, &format!("part{i}"))?);
     }
     let mut diffs = Vec::new();
-    for i in 1..=4 {
+    for i in 0..=3 {
         diffs.push(load_template(templates_dir, lang, &format!("diff{i}"))?);
     }
 
@@ -346,7 +346,8 @@ fn match_level(bgra_frame: &Mat, lang: &str, templates_dir: &str) -> Result<Leve
     // Remaining labels are matched at the established scale.
     result.part = best_label(&label_region, &parts, global_scale, LABEL_THRESHOLD)?;
     timer.lap("part labels");
-    result.difficulty = best_label(&label_region, &diffs, global_scale, LABEL_THRESHOLD)?;
+    let difficulty_label = best_label(&label_region, &diffs, global_scale, LABEL_THRESHOLD)?;
+    result.difficulty = if difficulty_label >= 0 { difficulty_label.saturating_sub(1) } else { -1 };
     timer.lap("difficulty labels");
 
     // Locate the digit and colon glyphs at the same scale.
@@ -431,6 +432,14 @@ fn match_level(bgra_frame: &Mat, lang: &str, templates_dir: &str) -> Result<Leve
                 left.push(*d);
             }
         }
+        if cfg!(debug_assertions) {
+            eprintln!("[ge_cv debug] colon at ({},{}) left={} right={}", colon.x, colon.y, left.len(), right.len());
+            for d in &digits {
+                if ((d.y as f64 + digit_h as f64 / 2.0) - colon_center_y).abs() < digit_h as f64 * 0.35 {
+                    eprintln!("[ge_cv debug]   digit {} @ ({},{}) score={:.3}", d.value, d.x, d.y, d.score);
+                }
+            }
+        }
         if right.len() < 2 || left.len() < 2 {
             continue;
         }
@@ -460,7 +469,18 @@ fn match_level(bgra_frame: &Mat, lang: &str, templates_dir: &str) -> Result<Leve
 
         let minutes = l1.value * 10 + l0.value;
         let seconds = r0.value * 10 + r1.value;
-        times.push(FoundTime { y: colon.y, x: colon.x, seconds: minutes * 60 + seconds });
+        let total_seconds = minutes * 60 + seconds;
+        if cfg!(debug_assertions) {
+            eprintln!(
+                "[ge_cv debug] accepted time {}:{} from colon ({},{}) minutes={} seconds={} total={}",
+                l1.value, l0.value, colon.x, colon.y, minutes, seconds, total_seconds,
+            );
+        }
+
+        // It's impossible for a level to last longer than 0x3ff seconds (limited by Goldeneye's save format).
+        if total_seconds < 0x3ff {
+            times.push(FoundTime { y: colon.y, x: colon.x, seconds: total_seconds });
+        }
     }
 
     // Order top-to-bottom (bucketed by line) then left-to-right.
