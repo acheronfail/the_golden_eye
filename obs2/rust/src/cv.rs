@@ -11,7 +11,7 @@
 // This is a Rust port of obs2/test_match.cpp + obs2/cv_wrapper.cpp, using the
 // `opencv` crate instead of binding to OpenCV directly.
 
-use opencv::core::{self, Mat, Point, Rect, Size, ToInputArray};
+use opencv::core::{self, Mat, Rect, Size, ToInputArray};
 use opencv::prelude::*;
 use opencv::{Result, imgcodecs, imgproc};
 
@@ -31,27 +31,64 @@ const LABEL_REGION_W: f64 = 0.60;
 const LABEL_REGION_H: f64 = 0.50;
 
 // Region searched for the time colons: they sit in the upper part of the
-// stats table. Anchoring the (full-frame) colon search to this box also
-// discards label colons ("Time:", "Accuracy:") and lower stat rows for free.
-const COLON_REGION_X: f64 = 0.25;
-const COLON_REGION_W: f64 = 0.50;
-const COLON_REGION_Y: f64 = 0.50;
-const COLON_REGION_H: f64 = 0.20;
+// stats table. The box is kept generous because the overlay does not always
+// land in the same place: captures that letterbox or rescale the console
+// output (composite -> HDMI converters, different capture resolutions) push
+// the stats table higher and further left than a clean emulator grab. A wider
+// box tolerates that drift; the "mm:ss" spacing checks downstream still reject
+// label colons ("Time:", "Accuracy:") and other stray matches.
+// The region must reach far enough down that a time-row colon near its lower
+// edge still fits (match_template only reports a colon whose full height lands
+// inside the box). That height offset scales with the source, so a bottom edge
+// of ~0.62 detects the Time and Target/Best rows at every resolution yet still
+// excludes the lower stat table ("Shot total:", "Head hits:"), whose colons
+// only begin around 0.61+ and would need the box to reach ~0.66 to register.
+const COLON_REGION_X: f64 = 0.15;
+const COLON_REGION_W: f64 = 0.62;
+const COLON_REGION_Y: f64 = 0.45;
+const COLON_REGION_H: f64 = 0.17;
 // Correlation needed to accept an individual digit/colon glyph.
 const GLYPH_THRESHOLD: f64 = 0.78;
-// The pre-label gate should only admit very likely time colons. The full
-// extractor still uses GLYPH_THRESHOLD once a time frame is suspected.
-const TIME_GATE_COLON_THRESHOLD: f64 = 0.88;
-const TIME_GATE_SLOT_THRESHOLD: f64 = 0.89;
-const TIME_GATE_STRONG_COLON: f64 = 0.90;
+// The pre-label gate admits a frame only when it finds two colons on the stats
+// time rows (a label colon plus the "mm:ss" separator) AND at least one of them
+// is a confident match. Composite/HDMI sources soften the glyphs, so the count
+// threshold sits in the mid 0.8s, but the peak requirement (0.89) is what keeps
+// busy non-stats screens out: their stray colon-like features top out below it,
+// while a real stats overlay's colons clear 0.91+ even on blurry captures.
+const TIME_GATE_COLON_THRESHOLD: f64 = 0.84;
+const TIME_GATE_STRONG_COLON: f64 = 0.89;
 
-// Candidate scales applied to the templates when locating the stats overlay.
-// The templates are authored at the user's native capture resolution, so 1.0 is
-// tried first and is the common case; the remaining scales let matching survive
-// when the source is captured at a different resolution. A single global scale
-// (the one that best fits the mission label) is then reused for every other
-// template so the glyphs stay crisply aligned.
-const SCALES: [f64; 10] = [1.0, 0.9, 1.1, 0.8, 1.2, 0.75, 1.33, 0.67, 1.5, 0.6];
+// The gate only needs the scales nearest the resolution-implied one, so it
+// rejects non-stats frames after a few cheap matches instead of the full sweep.
+const GATE_SCALE_COUNT: usize = 3;
+
+// The templates are authored from a capture whose visible frame is this tall.
+// The stats overlay scales with the frame, so a source captured at a different
+// height needs the templates resized by (frame_height / REFERENCE_HEIGHT).
+const REFERENCE_HEIGHT: f64 = 1080.0;
+
+// Multipliers searched around the resolution-implied scale. Deriving the scale
+// from the frame height (rather than blindly sweeping a fixed ladder) keeps the
+// search cheap -- a native-resolution frame never matches tiny templates and a
+// 640x480 composite grab never matches full-size ones -- and avoids the
+// wrong-scale false matches a wide sweep produces. 1.0 (the implied scale) is
+// tried first; the neighbours absorb overscan and letterboxing. A single global
+// scale (the one that best fits the mission label) is then reused for every
+// other template so the glyphs stay crisply aligned.
+const SCALE_MULTIPLIERS: [f64; 7] = [1.0, 0.95, 1.05, 0.90, 1.10, 0.85, 1.15];
+
+// Candidate template scales for a frame `frame_height` pixels tall.
+fn candidate_scales(frame_height: i32) -> Vec<f64> {
+    let base = frame_height as f64 / REFERENCE_HEIGHT;
+    SCALE_MULTIPLIERS.iter().map(|m| base * m).collect()
+}
+
+// Templates are authored from a pixel-sharp emulator, but most real sources
+// pass through composite cabling and HDMI converters that blur the glyphs.
+// Softening the (already downscaled) templates with a small Gaussian closes
+// that gap so the normalized correlation stays high on blurry input; it costs
+// almost nothing on sharp input because the kernel is tiny.
+const TEMPLATE_BLUR_KSIZE: i32 = 3;
 
 #[derive(Clone, Copy, Debug)]
 struct Detection {
@@ -92,17 +129,38 @@ fn load_template(dir: &str, lang: &str, name: &str) -> Result<Mat> {
     imgcodecs::imread(&path, imgcodecs::IMREAD_GRAYSCALE)
 }
 
-// Returns `tmpl` resized by `scale` (or a clone of the original when scale == 1.0).
+// Softens `tmpl` in place with a small Gaussian so the sharp emulator-authored
+// templates correlate against blurry composite/HDMI-converted sources. The
+// kernel is clamped to the template size (and forced odd) so tiny glyphs at
+// small scales stay valid.
+fn blurred(tmpl: &Mat) -> Result<Mat> {
+    if tmpl.empty() {
+        return tmpl.try_clone();
+    }
+    let max_k = tmpl.cols().min(tmpl.rows());
+    let mut k = TEMPLATE_BLUR_KSIZE.min(max_k);
+    if k % 2 == 0 {
+        k -= 1;
+    }
+    if k < 3 {
+        return tmpl.try_clone();
+    }
+    let mut out = Mat::default();
+    imgproc::gaussian_blur_def(tmpl, &mut out, Size::new(k, k), 0.0)?;
+    Ok(out)
+}
+
+// Returns `tmpl` resized by `scale` then softened to match blurry sources.
 fn scaled(tmpl: &Mat, scale: f64) -> Result<Mat> {
     if scale == 1.0 {
-        return tmpl.try_clone();
+        return blurred(tmpl);
     }
     let w = ((tmpl.cols() as f64 * scale).round() as i32).max(1);
     let h = ((tmpl.rows() as f64 * scale).round() as i32).max(1);
     let mut out = Mat::default();
     let interp = if scale < 1.0 { imgproc::INTER_AREA } else { imgproc::INTER_LINEAR };
     imgproc::resize(tmpl, &mut out, Size::new(w, h), 0.0, 0.0, interp)?;
-    Ok(out)
+    blurred(&out)
 }
 
 // Best single-location match of `tmpl` against `frame`. Returns the peak
@@ -185,56 +243,18 @@ fn suppress(mut dets: Vec<Detection>, cell_w: i32, cell_h: i32, frac: f64) -> Ve
     kept
 }
 
-fn best_digit_near(
-    frame: &(impl MatTraitConst + ToInputArray),
-    digit_tmpls: &[Mat],
-    expected_x: i32,
-    center_y: i32,
-    digit_w: i32,
-    digit_h: i32,
-) -> Result<Option<Detection>> {
-    let pad_x = (digit_w as f64 * 0.7).round() as i32;
-    let pad_y = (digit_h as f64 * 0.35).round() as i32;
-    let x0 = (expected_x - pad_x).max(0);
-    let y0 = (center_y - digit_h / 2 - pad_y).max(0);
-    let x1 = (expected_x + digit_w + pad_x).min(frame.cols());
-    let y1 = (center_y + digit_h / 2 + pad_y).min(frame.rows());
-    if x1 <= x0 || y1 <= y0 {
-        return Ok(None);
-    }
-
-    let roi = frame.roi(Rect::new(x0, y0, x1 - x0, y1 - y0))?;
-    let mut best: Option<Detection> = None;
-    for (value, tmpl) in digit_tmpls.iter().enumerate().take(10) {
-        if tmpl.empty() || tmpl.rows() > roi.rows() || tmpl.cols() > roi.cols() {
-            continue;
-        }
-
-        let mut matched = Mat::default();
-        imgproc::match_template(&roi, tmpl, &mut matched, imgproc::TM_CCOEFF_NORMED, &core::no_array())?;
-        let mut max_val = 0f64;
-        let mut max_loc = Point::default();
-        core::min_max_loc(&matched, None, Some(&mut max_val), None, Some(&mut max_loc), &core::no_array())?;
-        if max_val >= GLYPH_THRESHOLD && best.map(|d| max_val > d.score).unwrap_or(true) {
-            best = Some(Detection {
-                x: x0 + max_loc.x,
-                y: y0 + max_loc.y,
-                w: tmpl.cols(),
-                score: max_val,
-                value: value as i32,
-            });
-        }
-    }
-
-    Ok(best)
-}
-
+// Counts time colons in the stats region, trying every candidate scale so the
+// gate works regardless of capture resolution (the base template alone only
+// matches an emulator-native grab). Returns the best (count, peak score) seen
+// at any single scale, and stops early once a scale clearly looks like a time
+// frame so common cases stay cheap.
 fn count_time_colons(
     frame: &(impl MatTraitConst + ToInputArray),
-    colon_tmpl: &Mat,
+    base_colon: &Mat,
+    scales: &[f64],
     threshold: f64,
 ) -> Result<(usize, f64)> {
-    if colon_tmpl.empty() {
+    if base_colon.empty() {
         return Ok((0, -1.0));
     }
 
@@ -246,11 +266,27 @@ fn count_time_colons(
         (frame.cols() as f64 * COLON_REGION_W) as i32,
         (frame.rows() as f64 * COLON_REGION_H) as i32,
     ))?;
-    let mut colons = Vec::new();
-    collect_detections(&colon_region, colon_tmpl, threshold, 0, &mut colons)?;
-    let colons = suppress(colons, colon_tmpl.cols(), colon_tmpl.rows(), 0.5);
-    let max_score = colons.iter().map(|d| d.score).fold(-1.0, f64::max);
-    Ok((colons.len(), max_score))
+
+    let mut best_count = 0usize;
+    let mut best_score = -1.0f64;
+    for &scale in scales {
+        let colon_tmpl = scaled(base_colon, scale)?;
+        if colon_tmpl.empty() || colon_tmpl.rows() > colon_region.rows() || colon_tmpl.cols() > colon_region.cols() {
+            continue;
+        }
+        let mut colons = Vec::new();
+        collect_detections(&colon_region, &colon_tmpl, threshold, 0, &mut colons)?;
+        let colons = suppress(colons, colon_tmpl.cols(), colon_tmpl.rows(), 0.5);
+        let max_score = colons.iter().map(|d| d.score).fold(-1.0, f64::max);
+        best_count = best_count.max(colons.len());
+        best_score = best_score.max(max_score);
+        // Two colons on a line, or one very strong colon, already settles the
+        // gate; no later scale can change the outcome.
+        if best_count >= 2 || best_score >= TIME_GATE_STRONG_COLON {
+            break;
+        }
+    }
+    Ok((best_count, best_score))
 }
 
 // Finds a mission number (1-9) by anchoring on ':' in the label region and
@@ -322,108 +358,6 @@ fn find_mission_from_colons(
     Ok(best)
 }
 
-// Recovers all complete "mm:ss" readings in the stats time area. This is kept
-// separate from label matching so non-time frames can be rejected before paying
-// for mission/part/difficulty template scans.
-fn find_times_slot(
-    frame: &(impl MatTraitConst + ToInputArray),
-    colon_tmpl: &Mat,
-    digit_tmpls: &[Mat],
-    colon_threshold: f64,
-) -> Result<Vec<FoundTime>> {
-    if colon_tmpl.empty() || digit_tmpls.len() < 10 {
-        return Ok(Vec::new());
-    }
-
-    let mut digit_width_sum = 0;
-    for t in digit_tmpls.iter().take(10) {
-        if t.empty() {
-            return Ok(Vec::new());
-        }
-        digit_width_sum += t.cols();
-    }
-
-    let colon_w = colon_tmpl.cols();
-    let colon_h = colon_tmpl.rows();
-    let digit_w = digit_width_sum / 10; // representative digit width
-    let digit_h = digit_tmpls[0].rows();
-
-    let colon_x0 = (frame.cols() as f64 * COLON_REGION_X) as i32;
-    let colon_y0 = (frame.rows() as f64 * COLON_REGION_Y) as i32;
-    let colon_region = frame.roi(Rect::new(
-        colon_x0,
-        colon_y0,
-        (frame.cols() as f64 * COLON_REGION_W) as i32,
-        (frame.rows() as f64 * COLON_REGION_H) as i32,
-    ))?;
-    let mut colons = Vec::new();
-    collect_detections(&colon_region, colon_tmpl, colon_threshold, 0, &mut colons)?;
-    // Offset back into frame coordinates.
-    for c in &mut colons {
-        c.x += colon_x0;
-        c.y += colon_y0;
-    }
-    let colons = suppress(colons, colon_w, colon_h, 0.5);
-
-    // Assemble "mm:ss" readings: a valid time is two digits immediately to the
-    // left of a colon and two immediately to its right, all on the same line.
-    let mut times: Vec<FoundTime> = Vec::new();
-    for colon in &colons {
-        let colon_center_y = colon.y + colon_h / 2;
-        let l0 = best_digit_near(frame, digit_tmpls, colon.x - digit_w, colon_center_y, digit_w, digit_h)?;
-        let l1 = best_digit_near(frame, digit_tmpls, colon.x - digit_w * 2, colon_center_y, digit_w, digit_h)?;
-        let r0 = best_digit_near(frame, digit_tmpls, colon.x + colon_w, colon_center_y, digit_w, digit_h)?;
-        let r1 = best_digit_near(frame, digit_tmpls, colon.x + colon_w + digit_w, colon_center_y, digit_w, digit_h)?;
-        if cfg!(debug_assertions) {
-            eprintln!("[ge_cv debug] colon at ({},{}) slots={:?}", colon.x, colon.y, [l1, l0, r0, r1]);
-        }
-        let (Some(l1), Some(l0), Some(r0), Some(r1)) = (l1, l0, r0, r1) else {
-            continue;
-        };
-
-        // Spacing checks (in digit-width fractions): the inner digits must hug
-        // the colon and the outer digits must abut the inner ones.
-        let adj_right = (r0.x - (colon.x + colon_w)) as f64;
-        let adj_left = (colon.x - (l0.x + l0.w)) as f64;
-        let gap_right = (r1.x - (r0.x + r0.w)) as f64;
-        let gap_left = (l0.x - (l1.x + l1.w)) as f64;
-        if adj_right < -(digit_w as f64) * 0.4
-            || adj_right > digit_w as f64 * 0.6
-            || adj_left < -(digit_w as f64) * 0.4
-            || adj_left > digit_w as f64 * 0.6
-            || gap_right.abs() > digit_w as f64 * 0.6
-            || gap_left.abs() > digit_w as f64 * 0.6
-        {
-            continue;
-        }
-
-        let minutes = l1.value * 10 + l0.value;
-        let seconds = r0.value * 10 + r1.value;
-        let total_seconds = minutes * 60 + seconds;
-        if cfg!(debug_assertions) {
-            eprintln!(
-                "[ge_cv debug] accepted time {}:{} from colon ({},{}) minutes={} seconds={} total={}",
-                l1.value, l0.value, colon.x, colon.y, minutes, seconds, total_seconds,
-            );
-        }
-
-        // It's impossible for a level to last longer than 0x3ff seconds (limited by Goldeneye's save format).
-        if total_seconds < 0x3ff {
-            times.push(FoundTime { y: colon.y, x: colon.x, seconds: total_seconds });
-        }
-    }
-
-    // Order top-to-bottom (bucketed by line) then left-to-right.
-    let line_bucket = digit_h as f64 * 0.5;
-    times.sort_by(|a, b| {
-        let ra = (a.y as f64 / line_bucket).round() as i32;
-        let rb = (b.y as f64 / line_bucket).round() as i32;
-        if ra != rb { ra.cmp(&rb) } else { a.x.cmp(&b.x) }
-    });
-
-    Ok(times)
-}
-
 fn find_times_band(
     frame: &(impl MatTraitConst + ToInputArray),
     colon_tmpl: &Mat,
@@ -460,7 +394,13 @@ fn find_times_band(
         c.x += colon_x0;
         c.y += colon_y0;
     }
-    let colons = suppress(colons, colon_w, colon_h, 0.5);
+    // Widen the colon suppression horizontally (cell_w = 2*colon_w gives a
+    // ~colon_w radius) so a side-lobe peak a few pixels from the true colon is
+    // merged away; a stray second colon next to the real one would otherwise
+    // anchor a bogus reading off the neighbouring glyphs. The vertical radius is
+    // left at half a colon height so the Time and Best-Time rows (~one digit
+    // height apart) stay distinct.
+    let colons = suppress(colons, colon_w * 2, colon_h, 0.5);
 
     let band_pad_x = digit_w * 3;
     let band_pad_y = digit_h;
@@ -484,7 +424,14 @@ fn find_times_band(
             }
         }
     }
-    let digits = suppress(digits, digit_w, digit_h, 0.5);
+    // Suppress with a wider neighbourhood (0.7 of a digit cell) than the colon
+    // pass uses: two adjacent glyphs blur together into a phantom "8" centred in
+    // the gap between them, a few pixels from each real digit. Real digits sit a
+    // full digit-width (~1.1 cells) apart, so a 0.7-cell radius drops the lower
+    // scoring phantom without ever merging two genuine digits. Without this the
+    // phantom is picked as one of the two nearest digits and corrupts the
+    // reading (e.g. "00" -> "80", "30" -> "38").
+    let digits = suppress(digits, digit_w, digit_h, 0.7);
 
     let mut times: Vec<FoundTime> = Vec::new();
     for colon in &colons {
@@ -598,12 +545,14 @@ impl CvMatcher {
         imgproc::cvt_color_def(bgra_frame, &mut frame, imgproc::COLOR_BGRA2GRAY)?;
         timer.lap("grayscale");
 
-        let (time_colon_count, best_time_colon) = count_time_colons(&frame, &self.colon, TIME_GATE_COLON_THRESHOLD)?;
-        let has_time = time_colon_count >= 2
-            || best_time_colon >= TIME_GATE_STRONG_COLON
-            || (time_colon_count == 1
-                && best_time_colon >= TIME_GATE_SLOT_THRESHOLD
-                && !find_times_slot(&frame, &self.colon, &self.digits, TIME_GATE_COLON_THRESHOLD)?.is_empty());
+        // Scales to try are derived from the frame height, so each resolution
+        // only searches the handful of scales near its own.
+        let scales = candidate_scales(frame.rows());
+
+        let gate_scales = &scales[..GATE_SCALE_COUNT.min(scales.len())];
+        let (time_colon_count, best_time_colon) =
+            count_time_colons(&frame, &self.colon, gate_scales, TIME_GATE_COLON_THRESHOLD)?;
+        let has_time = time_colon_count >= 2 && best_time_colon >= TIME_GATE_STRONG_COLON;
         timer.lap("time gate");
         if !has_time {
             result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
@@ -623,9 +572,9 @@ impl CvMatcher {
         // Determine the global scale from mission glyphs by anchoring on ':' in the
         // label region and selecting the strongest single digit immediately left of
         // that colon.
-        let mut global_scale = 1.0;
+        let mut global_scale = scales[0];
         let mut best_mission_score = GLYPH_THRESHOLD;
-        for &scale in &SCALES {
+        for &scale in &scales {
             let colon_tmpl = scaled(&self.colon, scale)?;
             let mut digit_tmpls = Vec::with_capacity(10);
             for v in 0..=9 {

@@ -131,11 +131,22 @@ for (const runner of runners) {
     testResult.lang = { value: result.lang, pass: result.lang === screenshot.lang, expected: screenshot.lang };
     totalTests += 1;
 
-    if (screenshot.screen === "stats") {
+    if (screenshot.screen === "stats" || screenshot.screen === "start") {
       const resultLevel = getLevel(result.mission, result.part);
       testResult.level = { value: resultLevel, pass: resultLevel === screenshot.level, expected: screenshot.level };
       totalTests += 1;
 
+      let resultDifficulty: Difficulty | undefined;
+      resultDifficulty = NumberDifficultyMap.get(result.difficulty);
+      testResult.difficulty = {
+        value: abbrDifficulty(resultDifficulty),
+        pass: resultDifficulty === screenshot.difficulty,
+        expected: abbrDifficulty(screenshot.difficulty),
+      };
+      totalTests += 1;
+    }
+
+    if (screenshot.screen === "stats") {
       const [timesStr] = screenshot.extra;
       const times = timesStr.split("_").map((digits) => {
         const mm = digits.slice(0, 2);
@@ -147,15 +158,6 @@ for (const runner of runners) {
         value: result.times,
         pass: JSON.stringify(result.times) === JSON.stringify(times),
         expected: times,
-      };
-      totalTests += 1;
-
-      let resultDifficulty: Difficulty | undefined;
-      resultDifficulty = NumberDifficultyMap.get(result.difficulty);
-      testResult.difficulty = {
-        value: abbrDifficulty(resultDifficulty),
-        pass: resultDifficulty === screenshot.difficulty,
-        expected: abbrDifficulty(screenshot.difficulty),
       };
       totalTests += 1;
     } else {

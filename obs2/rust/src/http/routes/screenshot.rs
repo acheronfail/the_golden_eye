@@ -19,7 +19,15 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
         CString::new(params.source).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
     let mut timer = PhaseTimer::new();
-    let matcher = crate::cv::CvMatcher::new("en", "/home/acheronfail/src/ge-obs/obs2/cv_templates").unwrap();
+    let lang = std::env::var("GE_CV_LANG");
+    let template_dir = std::env::var("GE_CV_TEMPLATE_DIR");
+    let matcher = match (lang, template_dir) {
+        (Ok(lang), Ok(template_dir)) => Some(crate::cv::CvMatcher::new(&lang, &template_dir).unwrap()),
+        (_, _) => {
+            tracing::error!("Please set GE_CV_LANG & GE_CV_TEMPLATE_DIR in the environment");
+            None
+        }
+    };
     timer.lap("matcher init");
 
     // Render the source into a BGRA buffer owned by the C side.
@@ -32,9 +40,11 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
 
     timer.lap("obs frame");
 
-    let result = matcher.match_level_from_raw_bytes(frame, width, height);
-    timer.lap("cv match");
-    tracing::info!(?result, "match result");
+    if let Some(matcher) = matcher {
+        let result = matcher.match_level_from_raw_bytes(frame, width, height);
+        timer.lap("cv match");
+        tracing::info!(?result, "match result");
+    }
 
     // Encode while we still own the buffer, then hand it straight back to the
     // C allocator regardless of whether encoding succeeded.
