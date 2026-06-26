@@ -261,6 +261,13 @@ if(APPLE)
 else()
   # On Linux, the C++ shim from opencv-rust needs libstdc++.
   target_link_libraries(${PLUGIN_NAME} PRIVATE stdc++)
+  # OBS dlopen()s the plugin, so LD_LIBRARY_PATH isn't inherited. Embed the
+  # OpenCV library search path as an RPATH so the dynamic linker can find the
+  # OpenCV .so files regardless of how OBS was launched.
+  set_target_properties(${PLUGIN_NAME} PROPERTIES
+        BUILD_RPATH "${OPENCV_LIBRARY_DIRS}"
+        INSTALL_RPATH "${OPENCV_LIBRARY_DIRS}"
+  )
 endif()
 
 if(WIN32)
