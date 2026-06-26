@@ -1,5 +1,8 @@
 # The Golden Eye
 
+error: os_dlopen(/home/acheronfail/src/ge-obs/obs2/build/the_golden_eye.so->/home/acheronfail/src/ge-obs/obs2/build/the_golden_eye.so): libopencv_imgcodecs.so.410: cannot open shared object file: No such file or directory
+
+
 ## Development
 
 System dependencies:
