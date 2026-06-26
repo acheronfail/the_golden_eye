@@ -41,7 +41,7 @@ interface TestResult {
   runTimePass?: boolean;
 }
 
-const lengthName = Math.max(...screenshots.map((s) => s.name.length), "Test".length);
+const lengthName = Math.max(...screenshots.map((s) => s.tag.length + ": ".length + s.name.length), "Test".length);
 const lengthLang = 6; // " Lang "
 const lengthLevel = 11; // " Surface 2 "
 const lengthDifficulty = 12; // " Difficulty "
@@ -165,13 +165,16 @@ for (const runner of runners) {
     }
 
     {
-      const name = padText(chalk.white(screenshot.name), lengthName, "left");
+      const name = padText(chalk.white(screenshot.tag + ": " + screenshot.name), lengthName, "left");
       const lang = padText(formatCheckResult(testResult.lang), lengthLang);
       const level = padText(formatCheckResult(testResult.level), lengthLevel);
       const difficulty = padText(formatCheckResult(testResult.difficulty), lengthDifficulty);
       const times = padText(formatCheckResult(testResult.times), lengthTimes);
       const runTimeText = testResult.runTime.toFixed(2) + " ms";
-      const execTime = padText((testResult.runTimePass === false ? chalk.red : chalk.white)(runTimeText), lengthRuntime);
+      const execTime = padText(
+        (testResult.runTimePass === false ? chalk.red : chalk.white)(runTimeText),
+        lengthRuntime,
+      );
       console.log(chalk.grey(`│ ${name} │ ${lang} │ ${level} │ ${difficulty} │ ${times} │ ${execTime} │`));
       passedTests += [testResult.lang, testResult.level, testResult.difficulty, testResult.times].filter(
         (r) => r?.pass,

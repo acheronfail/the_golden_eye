@@ -3,6 +3,7 @@
 
 	let imageData = $state<string | null>(null);
 	let sources = $state<{ name: string; id: string }[]>([]);
+	let monitoring = $state(false);
 
 	const getSources = async () => {
 		const res = await fetch(apiUrl('/api/v1/sources'));
@@ -15,6 +16,30 @@
 		const blob = await res.blob();
 		const url = URL.createObjectURL(blob);
 		imageData = url;
+	};
+
+	const startMonitor = (sourceName: string) => async () => {
+		const res = await fetch(apiUrl(`/api/v1/monitor/start`), {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ sourceName })
+		});
+		if (res.ok) {
+			monitoring = true;
+		} else {
+			alert(`Request error: ${res.status} ${await res.text()}`);
+		}
+	};
+	const stopMonitor = async () => {
+		const res = await fetch(apiUrl(`/api/v1/monitor/stop`), {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' }
+		});
+		if (res.ok) {
+			monitoring = false;
+		} else {
+			alert(`Request error: ${res.status} ${await res.text()}`);
+		}
 	};
 </script>
 
@@ -36,13 +61,24 @@
 			<h2 class="mb-2 text-xl font-semibold">Available Sources:</h2>
 			<ul class="list-inside list-disc">
 				{#each sources as source}
-					<li>
+					<li class="flex gap-4">
 						{source.name}
-						{#if ['screen_capture', 'macos-avcapture-fast', 'v4l2_input'].includes(source.id)}
+						{#if ['screen_capture', 'macos-avcapture', 'macos-avcapture-fast', 'v4l2_input'].includes(source.id)}
 							<button
-								class="ml-2 rounded bg-green-500 px-2 py-1 text-white hover:bg-green-600"
+								class="ml-2 rounded bg-blue-500 px-2 py-1 text-white hover:bg-blue-600"
 								onclick={getScreenshot(source.name)}>get screenshot</button
 							>
+							{#if !monitoring}
+								<button
+									class="ml-2 rounded bg-green-500 px-2 py-1 text-white hover:bg-green-600"
+									onclick={startMonitor(source.name)}>start monitor</button
+								>
+							{:else}
+								<button
+									class="ml-2 rounded bg-red-500 px-2 py-1 text-white hover:bg-red-600"
+									onclick={stopMonitor}>stop monitor</button
+								>
+							{/if}
 						{/if}
 					</li>
 				{/each}

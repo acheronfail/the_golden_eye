@@ -2,7 +2,7 @@ use std::ffi::CString;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::Json;
 use axum::extract::State;
@@ -84,7 +84,17 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
 /// Hot loop: capture the source frame, run the level matcher, log the result,
 /// and repeat until asked to stop.
 fn monitor_loop(source_name: CString, stop: Arc<AtomicBool>) {
-    let matcher = match crate::cv::CvMatcher::new("en", "/home/acheronfail/src/ge-obs/obs2/cv_templates") {
+    let lang = std::env::var("GE_CV_LANG");
+    let template_dir = std::env::var("GE_CV_TEMPLATE_DIR");
+    let (lang, template_dir) = match (lang, template_dir) {
+        (Ok(lang), Ok(template_dir)) => (lang, template_dir),
+        (_, _) => {
+            tracing::error!("Please set GE_CV_LANG & GE_CV_TEMPLATE_DIR in the environment");
+            return;
+        }
+    };
+
+    let matcher = match crate::cv::CvMatcher::new(&lang, &template_dir) {
         Ok(matcher) => matcher,
         Err(err) => {
             tracing::error!("failed to init matcher for monitor: {err}");
@@ -93,7 +103,7 @@ fn monitor_loop(source_name: CString, stop: Arc<AtomicBool>) {
     };
 
     while !stop.load(Ordering::Relaxed) {
-        let s = Instant::now();
+        // let s = Instant::now();
 
         // Render the source into a BGRA buffer owned by the C side.
         let mut width: u32 = 0;
@@ -105,13 +115,18 @@ fn monitor_loop(source_name: CString, stop: Arc<AtomicBool>) {
             continue;
         }
 
-        let ft = s.elapsed().as_millis();
+        // let ft = s.elapsed().as_millis();
 
         let result = matcher.match_level_from_raw_bytes(frame, width, height);
         // Hand the buffer straight back to the C allocator once we're done with it.
         unsafe { crate::ffi::free(frame.cast()) };
 
-        tracing::info!(ft, ?result, "match");
+        match result {
+            // Ok(info) if info.difficulty != -1 => tracing::info!(?info),
+            // Ok(_) => {},
+            Ok(info) => tracing::info!(?info),
+            Err(e) => tracing::error!("err: {}", e.message),
+        }
     }
 
     tracing::info!("monitor loop exiting");

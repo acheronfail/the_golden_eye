@@ -10,6 +10,7 @@ export const Screens = ["007opts", "abort", "complete", "kia", "failed", "levels
 export type Screen = (typeof Screens)[number];
 
 export interface ScreenshotInfo {
+  tag: string;
   name: string;
   lang: string;
   screen: Screen;
@@ -20,46 +21,67 @@ export interface ScreenshotInfo {
 }
 
 export const getScreenshots = async () => {
-  const screenshotDir = path.join(__dirname, "./screenshots");
-  return await fsp.readdir(screenshotDir).then((entries) =>
-    entries.map((entry): ScreenshotInfo => {
-      const filePath = path.join(screenshotDir, entry);
-      const name = path.basename(entry, ".png");
+  const screenshotDirs = await fsp
+    .readdir(__dirname)
+    .then((entries) =>
+      Promise.all(
+        entries
+          .filter((entry) => entry.startsWith("screenshots"))
+          .map(async (entry) => {
+            const fullPath = path.join(__dirname, entry);
+            const isDir = await fsp.stat(fullPath).then(
+              (s) => s.isDirectory(),
+              () => false,
+            );
+            return { fullPath, isDir };
+          }),
+      ),
+    )
+    .then((paths) => paths.filter((p) => p.isDir).map((p) => p.fullPath));
 
-      const [lang, screenStr, levelNumStr, difficultyStr, ...extra] = name.split(" - ");
-
-      const screen = Screens.find((s) => s === screenStr);
-      if (!screen) {
-        throw new Error(`Invalid screen name in filename: ${entry}`);
-      }
-
-      if (screen === "levels") {
-        return { name, lang, screen, extra, filePath };
-      }
-
-      const level = NumberLevelMap.get(parseInt(levelNumStr, 10));
-      if (!level) {
-        throw new Error(`Invalid level number in filename: ${entry}`);
-      }
-
-      if (screen === "select") {
-        return { name, lang, screen, level, extra, filePath };
-      }
-
-      const difficulty = Difficulties.find((d) => d === difficultyStr);
-      if (!difficulty) {
-        throw new Error(`Invalid difficulty in filename: ${entry}`);
-      }
-
-      return {
-        name,
-        lang,
-        screen,
-        level,
-        difficulty,
-        extra,
-        filePath,
-      };
-    }),
+  const allScreenshotPaths = await Promise.all(
+    screenshotDirs.map((dir) => fsp.readdir(dir).then((entries) => entries.map((entry) => path.join(dir, entry)))),
   );
+
+  return allScreenshotPaths.flat().map((filePath): ScreenshotInfo => {
+    const entry = path.basename(filePath);
+    const name = path.basename(entry, ".png");
+    const tag = path.basename(path.dirname(filePath)).replace('screenshots-', '');
+
+    const [lang, screenStr, levelNumStr, difficultyStr, ...extra] = name.split(" - ");
+
+    const screen = Screens.find((s) => s === screenStr);
+    if (!screen) {
+      throw new Error(`Invalid screen name in filename: ${entry}`);
+    }
+
+    if (screen === "levels") {
+      return { tag, name, lang, screen, extra, filePath };
+    }
+
+    const level = NumberLevelMap.get(parseInt(levelNumStr, 10));
+    if (!level) {
+      throw new Error(`Invalid level number in filename: ${entry}`);
+    }
+
+    if (screen === "select") {
+      return { tag, name, lang, screen, level, extra, filePath };
+    }
+
+    const difficulty = Difficulties.find((d) => d === difficultyStr);
+    if (!difficulty) {
+      throw new Error(`Invalid difficulty in filename: ${entry}`);
+    }
+
+    return {
+      tag,
+      name,
+      lang,
+      screen,
+      level,
+      difficulty,
+      extra,
+      filePath,
+    };
+  });
 };

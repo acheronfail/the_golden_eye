@@ -19,6 +19,9 @@ export LLAMA_GGUF_PATH := "models/" + model + "-llm.gguf"
 export LLAMA_MMPROJ_PATH := "models/" + model + "-mmproj.gguf"
 export DYLD_FALLBACK_LIBRARY_PATH := "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib"
 
+export GE_CV_LANG := "en"
+export GE_CV_TEMPLATE_DIR := justfile_directory() / "obs2/cv_templates"
+
 _default:
     just -l
 
@@ -62,6 +65,8 @@ obs-flatpak: make-release
       --talk-name=org.freedesktop.secrets \
       --talk-name=org.freedesktop.portal.Desktop \
       --env=LD_LIBRARY_PATH="/app/lib" \
+      --env=GE_CV_LANG="{{GE_CV_LANG}}" \
+      --env=GE_CV_TEMPLATE_DIR="{{GE_CV_TEMPLATE_DIR}}" \
       --env=OBS_PLUGINS_PATH="$(pwd)" \
       --env=OBS_PLUGINS_DATA_PATH="$(pwd)" \
       com.obsproject.Studio
