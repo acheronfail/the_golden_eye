@@ -8,4 +8,5 @@ generated-tokens.json
 .DS_Store
 build/
 .cache
+obs2/vendor/opencv-static/
 test_results.json

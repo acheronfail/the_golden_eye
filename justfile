@@ -9,6 +9,11 @@ llama_cpp_linux := "https://github.com/ggml-org/llama.cpp/releases/download/b911
 obs_version := "32.1.2"
 obs_headers := "obs2/vendor/obs"
 
+# Pinned OpenCV release built by `just opencv-static` and the prefix it installs
+# into. The prefix is auto-detected by obs2/CMakeLists.txt (OPENCV_STATIC).
+opencv_version := "4.11.0"
+opencv_static_prefix := "obs2/vendor/opencv-static"
+
 export LLAMA_GGUF_PATH := "models/" + model + "-llm.gguf"
 export LLAMA_MMPROJ_PATH := "models/" + model + "-mmproj.gguf"
 export DYLD_FALLBACK_LIBRARY_PATH := "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib"
@@ -89,6 +94,70 @@ obs-headers:
     cp -r "${clone_dir}/obs-studio/frontend/api" "${dest_dir}/frontend"
 
     echo "{{ obs_version }}" > "${dest_dir}/OBS_VERSION"
+
+# Build a minimal, fully static OpenCV (core + imgproc + imgcodecs, with its
+# third-party codecs bundled) into vendor/opencv-static. Once present, the
+# obs2 CMake build auto-detects it (OPENCV_STATIC) and links OpenCV statically,
+# so the resulting plugin is portable across Linux distros without needing a
+# matching system OpenCV. Delete the prefix to force a rebuild. Linux only;
+# macOS links Homebrew's OpenCV dynamically.
+[linux]
+opencv-static:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    prefix="$(pwd)/{{ opencv_static_prefix }}"
+    if [ -f "${prefix}/lib/pkgconfig/opencv4.pc" ]; then
+      echo "Static OpenCV already built at ${prefix}"
+      echo "Delete it to rebuild: rm -rf ${prefix}"
+      exit 0
+    fi
+
+    work="$(mktemp -d)"
+    trap 'rm -rf "${work}"' EXIT
+
+    echo "Downloading OpenCV {{ opencv_version }} ..."
+    wget -O "${work}/opencv.tar.gz" \
+      "https://github.com/opencv/opencv/archive/refs/tags/{{ opencv_version }}.tar.gz"
+    tar xzf "${work}/opencv.tar.gz" -C "${work}"
+    src="${work}/opencv-{{ opencv_version }}"
+
+    # Static libs are linked into the plugin's .so, so everything must be PIC.
+    # We build only the modules the matcher uses and force OpenCV to compile its
+    # own zlib/libpng/libjpeg so nothing is pulled from the host at runtime.
+    cmake -S "${src}" -B "${work}/build" \
+      -D CMAKE_BUILD_TYPE=Release \
+      -D CMAKE_INSTALL_PREFIX="${prefix}" \
+      -D BUILD_LIST=core,imgproc,imgcodecs \
+      -D BUILD_SHARED_LIBS=OFF \
+      -D ENABLE_PIC=ON \
+      -D CMAKE_POSITION_INDEPENDENT_CODE=ON \
+      -D OPENCV_GENERATE_PKGCONFIG=ON \
+      -D OPENCV_FORCE_3RDPARTY_BUILD=ON \
+      -D BUILD_ZLIB=ON \
+      -D BUILD_PNG=ON \
+      -D BUILD_JPEG=ON \
+      -D BUILD_TIFF=OFF -D WITH_TIFF=OFF \
+      -D BUILD_WEBP=OFF -D WITH_WEBP=OFF \
+      -D BUILD_OPENJPEG=OFF -D WITH_OPENJPEG=OFF \
+      -D BUILD_OPENEXR=OFF -D WITH_OPENEXR=OFF \
+      -D WITH_JASPER=OFF \
+      -D WITH_FFMPEG=OFF -D WITH_GSTREAMER=OFF \
+      -D WITH_GTK=OFF -D WITH_QT=OFF -D WITH_OPENGL=OFF \
+      -D WITH_1394=OFF -D WITH_V4L=OFF -D WITH_LAPACK=OFF \
+      -D WITH_PROTOBUF=OFF -D WITH_GPHOTO2=OFF -D WITH_GDAL=OFF \
+      -D WITH_FREETYPE=OFF -D WITH_IPP=OFF -D WITH_ITT=OFF \
+      -D WITH_TBB=OFF -D WITH_OPENMP=OFF -D WITH_CUDA=OFF \
+      -D BUILD_opencv_apps=OFF -D BUILD_TESTS=OFF -D BUILD_PERF_TESTS=OFF \
+      -D BUILD_EXAMPLES=OFF -D BUILD_DOCS=OFF -D BUILD_JAVA=OFF \
+      -D BUILD_opencv_python3=OFF
+
+    cmake --build "${work}/build" -j"$(nproc)"
+    cmake --install "${work}/build"
+
+    echo
+    echo "Static OpenCV installed to ${prefix}"
+    echo "Now run 'just make' / 'just obs' — CMake auto-detects the static prefix."
 
 run:
     npm run obs
