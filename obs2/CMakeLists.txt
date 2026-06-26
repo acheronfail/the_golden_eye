@@ -62,19 +62,16 @@ endif()
 # over when CMake links the static archive into the plugin — we have to add
 # OpenCV (and the C++ stdlib) to the plugin's link line ourselves.
 #
-# By default we link the system OpenCV dynamically via pkg-config. That's the
-# only supported mode on macOS, and the fallback on Linux. On Linux you can
-# instead vendor a fully static OpenCV into vendor/opencv-static (built by
-# `just opencv-static`); when that prefix is present we link OpenCV statically
-# so the distributed plugin doesn't depend on the host's OpenCV .so files
-# (portability across distros).
+# We always link OpenCV statically from vendor/opencv-static (built by
+# `just opencv-static`). This makes the distributed plugin self-contained and
+# portable — no dependency on a matching system OpenCV at runtime on any platform.
 set(GE_OPENCV_STATIC_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/vendor/opencv-static")
 # Auto-detect the vendored static OpenCV unless the caller pins it explicitly
 # with -DOPENCV_STATIC=ON/OFF. Deliberately not a cached option(): that would
 # go stale if the build was configured before `just opencv-static` ran, so we
 # re-detect on every configure instead.
 if(NOT DEFINED OPENCV_STATIC)
-  if(NOT APPLE AND EXISTS "${GE_OPENCV_STATIC_PREFIX}/lib/pkgconfig/opencv4.pc")
+  if(EXISTS "${GE_OPENCV_STATIC_PREFIX}/lib/pkgconfig/opencv4.pc")
     set(OPENCV_STATIC ON)
   else()
     set(OPENCV_STATIC OFF)
@@ -84,8 +81,8 @@ endif()
 if(OPENCV_STATIC)
   if(NOT EXISTS "${GE_OPENCV_STATIC_PREFIX}/lib/pkgconfig/opencv4.pc")
     message(FATAL_ERROR
-            "OPENCV_STATIC is ON but no static OpenCV was found at "
-            "${GE_OPENCV_STATIC_PREFIX}. Build it first with: just opencv-static")
+            "No vendored static OpenCV found at ${GE_OPENCV_STATIC_PREFIX}. "
+            "Build it first with: just opencv-static")
   endif()
   message(STATUS "Linking static OpenCV from ${GE_OPENCV_STATIC_PREFIX}")
 
@@ -131,7 +128,13 @@ if(OPENCV_STATIC)
     get_filename_component(_b "${_a}" NAME)
     list(APPEND _ge_cv_libs_list "static=${_b}")
   endforeach()
-  list(APPEND _ge_cv_libs_list dl m pthread rt)
+  # System libs that OpenCV's static archives pull in.  rt and dl are
+  # Linux-only; macOS provides equivalent functionality in libc itself.
+  if(APPLE)
+    list(APPEND _ge_cv_libs_list m pthread)
+  else()
+    list(APPEND _ge_cv_libs_list dl m pthread rt)
+  endif()
 
   string(REPLACE ";" "," _ge_cv_include "${OPENCV_INCLUDE_DIRS}")
   set(_ge_cv_libpaths
@@ -144,10 +147,18 @@ if(OPENCV_STATIC)
         "OPENCV_DISABLE_PROBES=pkg_config,cmake,vcpkg_cmake,vcpkg")
 
   # The full static link line (-L.../-l...) for the plugin's own link step.
+  # pkg_check_modules mangles "-framework Foo" from Libs.private into "-lFoo",
+  # which the linker rejects. Strip those here; the real frameworks are added
+  # explicitly via find_library() below.
+  # OPENCV_STATIC_LDFLAGS is a CMake list (semicolon-separated). pkg_check_modules
+  # splits "-framework AppKit" into two items: "-framework" and "AppKit". When
+  # passed to the linker the bare "AppKit" token becomes "-lAppKit", which fails.
+  # Remove both items; the framework is added explicitly via find_library() below.
   set(GE_OPENCV_LINK ${OPENCV_STATIC_LDFLAGS})
+  list(REMOVE_ITEM GE_OPENCV_LINK "-framework" "AppKit")
 else()
-  pkg_check_modules(OPENCV REQUIRED IMPORTED_TARGET opencv4)
-  set(GE_OPENCV_LINK PkgConfig::OPENCV)
+  message(FATAL_ERROR
+          "No vendored static OpenCV found. Run 'just opencv-static' first.")
 endif()
 
 #
@@ -319,11 +330,9 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
     ${OBS_LIBRARIES}
     ${OBS_FRONTEND_LIBRARIES}
     rust_libs
-    # Pulls in the OpenCV libraries the C++ shim in libge_rust.a references
-    # (cv::Mat, cv::imgproc, ...). Either an imported pkg-config target (system
-    # dynamic OpenCV) or the full static link line, depending on OPENCV_STATIC.
-    # Listed after rust_libs so the static archives that define these symbols
-    # come after the archive that uses them on the link line.
+    # Pulls in the OpenCV static archives the C++ shim in libge_rust.a references
+    # (cv::Mat, cv::imgproc, ...). Listed after rust_libs so the archives that
+    # define these symbols come after the archive that uses them on the link line.
     ${GE_OPENCV_LINK}
 )
 
@@ -335,11 +344,13 @@ if(APPLE)
   find_library(FOUNDATION_FW           Foundation           REQUIRED)
   find_library(SYSTEM_CONFIGURATION_FW SystemConfiguration  REQUIRED)
   find_library(CORE_FOUNDATION_FW      CoreFoundation       REQUIRED)
+  find_library(APPKIT_FW               AppKit               REQUIRED)
   target_link_libraries(${PLUGIN_NAME} PRIVATE
         ${SECURITY_FW}
         ${FOUNDATION_FW}
         ${SYSTEM_CONFIGURATION_FW}
         ${CORE_FOUNDATION_FW}
+        ${APPKIT_FW}
         -lresolv
         # libc++ provides the C++ runtime symbols the opencv-rust shim
         # depends on (operator new/delete, __cxa_*, __gxx_personality_v0).
@@ -350,16 +361,6 @@ if(APPLE)
 else()
   # On Linux, the C++ shim from opencv-rust needs libstdc++.
   target_link_libraries(${PLUGIN_NAME} PRIVATE stdc++)
-  if(NOT OPENCV_STATIC)
-    # OBS dlopen()s the plugin, so LD_LIBRARY_PATH isn't inherited. Embed the
-    # OpenCV library search path as an RPATH so the dynamic linker can find the
-    # OpenCV .so files regardless of how OBS was launched. Not needed for a
-    # static OpenCV, which has no .so files to locate at runtime.
-    set_target_properties(${PLUGIN_NAME} PROPERTIES
-          BUILD_RPATH "${OPENCV_LIBRARY_DIRS}"
-          INSTALL_RPATH "${OPENCV_LIBRARY_DIRS}"
-    )
-  endif()
 endif()
 
 if(WIN32)

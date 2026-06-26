@@ -12,6 +12,7 @@ obs_headers := "obs2/vendor/obs"
 # Pinned OpenCV release built by `just opencv-static` and the prefix it installs
 # into. The prefix is auto-detected by obs2/CMakeLists.txt (OPENCV_STATIC).
 opencv_version := "4.11.0"
+cmake_version  := "3.31.7"
 opencv_static_prefix := "obs2/vendor/opencv-static"
 
 export LLAMA_GGUF_PATH := "models/" + model + "-llm.gguf"
@@ -98,10 +99,8 @@ obs-headers:
 # Build a minimal, fully static OpenCV (core + imgproc + imgcodecs, with its
 # third-party codecs bundled) into vendor/opencv-static. Once present, the
 # obs2 CMake build auto-detects it (OPENCV_STATIC) and links OpenCV statically,
-# so the resulting plugin is portable across Linux distros without needing a
-# matching system OpenCV. Delete the prefix to force a rebuild. Linux only;
-# macOS links Homebrew's OpenCV dynamically.
-[linux]
+# so the resulting plugin is portable without needing a matching system OpenCV.
+# Delete the prefix to force a rebuild.
 opencv-static:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -122,10 +121,38 @@ opencv-static:
     tar xzf "${work}/opencv.tar.gz" -C "${work}"
     src="${work}/opencv-{{ opencv_version }}"
 
-    # Static libs are linked into the plugin's .so, so everything must be PIC.
-    # We build only the modules the matcher uses and force OpenCV to compile its
-    # own zlib/libpng/libjpeg so nothing is pulled from the host at runtime.
-    cmake -S "${src}" -B "${work}/build" \
+    # Download a pinned CMake so the build is independent of whatever version
+    # the system has installed.
+    if [ "$(uname)" = "Darwin" ]; then
+      cmake_platform="macos-universal"
+      jobs="$(sysctl -n hw.logicalcpu)"
+    else
+      cmake_platform="linux-x86_64"
+      jobs="$(nproc)"
+    fi
+    cmake_name="cmake-{{ cmake_version }}-${cmake_platform}"
+    wget -O "${work}/cmake.tar.gz" \
+      "https://github.com/Kitware/CMake/releases/download/v{{ cmake_version }}/${cmake_name}.tar.gz"
+    tar xzf "${work}/cmake.tar.gz" -C "${work}"
+    if [ "$(uname)" = "Darwin" ]; then
+      cmake_bin="${work}/${cmake_name}/CMake.app/Contents/bin/cmake"
+    else
+      cmake_bin="${work}/${cmake_name}/bin/cmake"
+    fi
+
+    # Platform-specific flags: macOS doesn't have V4L/GTK/1394; LAPACK is
+    # available via Accelerate but we don't need it for our minimal build.
+    platform_flags=""
+    if [ "$(uname)" = "Darwin" ]; then
+      platform_flags="-D WITH_AVFOUNDATION=OFF -D WITH_LAPACK=OFF"
+    else
+      platform_flags="-D WITH_1394=OFF -D WITH_V4L=OFF -D WITH_GTK=OFF -D WITH_LAPACK=OFF"
+    fi
+
+    # Static libs are linked into the plugin's .so/.dylib, so everything must
+    # be PIC. We build only the modules the matcher uses and force OpenCV to
+    # compile its own zlib/libpng/libjpeg so nothing is pulled from the host.
+    "${cmake_bin}" -S "${src}" -B "${work}/build" \
       -D CMAKE_BUILD_TYPE=Release \
       -D CMAKE_INSTALL_PREFIX="${prefix}" \
       -D BUILD_LIST=core,imgproc,imgcodecs \
@@ -143,17 +170,17 @@ opencv-static:
       -D BUILD_OPENEXR=OFF -D WITH_OPENEXR=OFF \
       -D WITH_JASPER=OFF \
       -D WITH_FFMPEG=OFF -D WITH_GSTREAMER=OFF \
-      -D WITH_GTK=OFF -D WITH_QT=OFF -D WITH_OPENGL=OFF \
-      -D WITH_1394=OFF -D WITH_V4L=OFF -D WITH_LAPACK=OFF \
+      -D WITH_QT=OFF -D WITH_OPENGL=OFF \
       -D WITH_PROTOBUF=OFF -D WITH_GPHOTO2=OFF -D WITH_GDAL=OFF \
       -D WITH_FREETYPE=OFF -D WITH_IPP=OFF -D WITH_ITT=OFF \
-      -D WITH_TBB=OFF -D WITH_OPENMP=OFF -D WITH_CUDA=OFF \
+      -D WITH_TBB=OFF -D WITH_OPENMP=OFF -D WITH_CUDA=OFF -D WITH_OPENCL=OFF -D WITH_AVIF=OFF \
       -D BUILD_opencv_apps=OFF -D BUILD_TESTS=OFF -D BUILD_PERF_TESTS=OFF \
       -D BUILD_EXAMPLES=OFF -D BUILD_DOCS=OFF -D BUILD_JAVA=OFF \
-      -D BUILD_opencv_python3=OFF
+      -D BUILD_opencv_python3=OFF \
+      ${platform_flags}
 
-    cmake --build "${work}/build" -j"$(nproc)"
-    cmake --install "${work}/build"
+    "${cmake_bin}" --build "${work}/build" -j"${jobs}"
+    "${cmake_bin}" --install "${work}/build"
 
     echo
     echo "Static OpenCV installed to ${prefix}"
