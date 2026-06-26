@@ -72,7 +72,11 @@ const padText = (text: string, width: number, align: "left" | "center" | "right"
   }
 };
 
-const results: Record<string, { name: string; results: TestResult[] }[]> = {};
+interface Screenshot {
+  name: string;
+  results: TestResult[];
+}
+const results: Record<string, Screenshot[]> = {};
 for (const runner of runners) {
   results[runner.name] = [];
   console.log(chalk.blue(`Running tests for ${chalk.cyan.bold(runner.name)}...`));
@@ -109,7 +113,7 @@ for (const runner of runners) {
   let totalTests = 0;
   let passedTests = 0;
   for (const screenshot of screenshots) {
-    results[runner.name].push({ name: screenshot.name, results: [] });
+    const screenshotResult: Screenshot = { name: screenshot.tag + ": " + screenshot.name, results: [] };
 
     if (screenshot.screen === "levels") {
       // TODO: implement "screen" to match these
@@ -183,7 +187,22 @@ for (const runner of runners) {
         passedTests += 1;
       }
 
-      results[runner.name][results[runner.name].length - 1].results.push(testResult);
+      // Only add failing tests to the results.
+      const didFail = [
+        testResult.difficulty?.pass === false,
+        testResult.lang?.pass === false,
+        testResult.level?.pass === false,
+        // testResult.runTimePass === false,
+        testResult.times?.pass === false,
+      ].some((result) => result);
+
+      if (didFail) {
+        if (!results[runner.name].includes(screenshotResult)) {
+          results[runner.name].push(screenshotResult);
+        }
+
+        screenshotResult.results.push(testResult);
+      }
     }
   }
 
