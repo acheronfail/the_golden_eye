@@ -42,3 +42,10 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 
 [dev-dependencies]
 http-body-util = "0.1.3"
+
+[profile.release]
+# Reducing binary size. Read the git commit with this change for detailed savings.
+# See: https://github.com/johnthagen/min-sized-rust
+strip = true
+lto = true
+codegen-units = 1
