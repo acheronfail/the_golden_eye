@@ -584,7 +584,7 @@ impl CvMatcher {
     pub fn match_level_from_raw_bytes(&self, data: *mut u8, w: u32, h: u32) -> Result<LevelMatch> {
         let total_bytes = (w * h * 4) as usize;
         let data_slice = unsafe { std::slice::from_raw_parts(data, total_bytes) };
-        let bgra_frame = Mat::new_rows_cols_with_bytes::<u8>(h as i32, w as i32, data_slice)?;
+        let bgra_frame = Mat::new_rows_cols_with_bytes::<core::Vec4b>(h as i32, w as i32, data_slice)?;
         self.match_level_from_bgra_frame(&bgra_frame)
     }
 

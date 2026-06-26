@@ -23,6 +23,7 @@ configure_file(
 )
 
 # Find OBS libraries to link against
+find_package(PkgConfig REQUIRED)
 if(APPLE)
   set(OBS_FW_DIR "/Applications/OBS.app/Contents/Frameworks")
   set(OBS_LIBRARY "${OBS_FW_DIR}/libobs.framework/libobs")
@@ -35,7 +36,6 @@ if(APPLE)
   set(OBS_LIBRARIES ${OBS_LIBRARY})
   set(OBS_FRONTEND_LIBRARIES ${OBS_FRONTEND_LIBRARY})
 else()
-  find_package(PkgConfig REQUIRED)
   pkg_check_modules(OBS REQUIRED libobs)
 
   # Arch exposes obs-frontend-api via pkg-config, but Debian-based distros
@@ -55,6 +55,14 @@ else()
     set(OBS_FRONTEND_LIBRARIES ${OBS_FRONTEND_LIBRARY})
   endif()
 endif()
+
+# OpenCV is referenced by the Rust staticlib (the `opencv-rust` crate compiles
+# a C++ shim into libge_rust.a). When cargo builds the test_match binary it
+# follows the crate's cargo:rustc-link-lib directives, but those don't carry
+# over when CMake links the static archive into the plugin — we have to add
+# the OpenCV dynamic libs (and the C++ stdlib) to the plugin's link line
+# ourselves.
+pkg_check_modules(OPENCV REQUIRED IMPORTED_TARGET opencv4)
 
 #
 # Build frontend
@@ -225,6 +233,9 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
     ${OBS_LIBRARIES}
     ${OBS_FRONTEND_LIBRARIES}
     rust_libs
+    # Pulls in the OpenCV dynamic libraries the C++ shim in libge_rust.a
+    # references (cv::Mat, cv::imgproc, ...).
+    PkgConfig::OPENCV
 )
 
 if(APPLE)
@@ -234,12 +245,22 @@ if(APPLE)
   find_library(SECURITY_FW             Security             REQUIRED)
   find_library(FOUNDATION_FW           Foundation           REQUIRED)
   find_library(SYSTEM_CONFIGURATION_FW SystemConfiguration  REQUIRED)
+  find_library(CORE_FOUNDATION_FW      CoreFoundation       REQUIRED)
   target_link_libraries(${PLUGIN_NAME} PRIVATE
         ${SECURITY_FW}
         ${FOUNDATION_FW}
         ${SYSTEM_CONFIGURATION_FW}
+        ${CORE_FOUNDATION_FW}
         -lresolv
+        # libc++ provides the C++ runtime symbols the opencv-rust shim
+        # depends on (operator new/delete, __cxa_*, __gxx_personality_v0).
+        c++
+        # The opencv-rust shim also links iconv on macOS.
+        iconv
     )
+else()
+  # On Linux, the C++ shim from opencv-rust needs libstdc++.
+  target_link_libraries(${PLUGIN_NAME} PRIVATE stdc++)
 endif()
 
 if(WIN32)
