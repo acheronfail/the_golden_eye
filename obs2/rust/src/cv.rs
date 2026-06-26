@@ -17,6 +17,16 @@ use opencv::{Result, imgcodecs, imgproc};
 
 use crate::timer::PhaseTimer;
 
+// Set GE_CV_DEBUG to dump intermediate match scores/detections to stderr.
+fn dbg_on() -> bool {
+    std::env::var_os("GE_CV_DEBUG").is_some()
+}
+macro_rules! dbg_cv {
+    ($($arg:tt)*) => {
+        if dbg_on() { eprintln!($($arg)*); }
+    };
+}
+
 // Correlation needed to accept a mission/part/difficulty label match.
 const LABEL_THRESHOLD: f64 = 0.70;
 // A mission match this strong means the current scale is essentially exact, so
@@ -47,20 +57,43 @@ const COLON_REGION_X: f64 = 0.15;
 const COLON_REGION_W: f64 = 0.62;
 const COLON_REGION_Y: f64 = 0.45;
 const COLON_REGION_H: f64 = 0.17;
+
+// Region searched by the entry gate for the stats-overlay header colons. Both
+// the level-start (briefing) screen and the post-mission stats screen carry the
+// same three left-aligned header rows ("<Difficulty>:", "Mission N:",
+// "Part <roman>:"), each ending in a colon, in the upper-left of the frame.
+// Counting strong colons here admits both screens (so the start screen's
+// mission/part/difficulty can be read) while still rejecting busy gameplay
+// frames, which lack a tidy stack of label colons in this band.
+const HEADER_REGION_X: f64 = 0.08;
+const HEADER_REGION_W: f64 = 0.56;
+const HEADER_REGION_Y: f64 = 0.18;
+const HEADER_REGION_H: f64 = 0.30;
+
+// Region searched for the "PRIMARY OBJECTIVES:" banner that marks the level-start
+// (briefing) screen. It sits in the upper-middle of the frame, below the header
+// rows. A generous box absorbs the overlay drift that composite/HDMI capture
+// introduces.
+const OBJECTIVES_REGION_X: f64 = 0.05;
+const OBJECTIVES_REGION_W: f64 = 0.80;
+const OBJECTIVES_REGION_Y: f64 = 0.32;
+const OBJECTIVES_REGION_H: f64 = 0.25;
+// Correlation needed to accept the objectives banner. The banner is a long,
+// distinctive string that clears ~0.94 even on softened composite captures,
+// while stats screens (no banner) top out below 0.70 in this band, so a
+// threshold in between cleanly separates the two screens.
+const OBJECTIVES_THRESHOLD: f64 = 0.82;
 // Correlation needed to accept an individual digit/colon glyph.
 const GLYPH_THRESHOLD: f64 = 0.78;
-// The pre-label gate admits a frame only when it finds two colons on the stats
-// time rows (a label colon plus the "mm:ss" separator) AND at least one of them
-// is a confident match. Composite/HDMI sources soften the glyphs, so the count
-// threshold sits in the mid 0.8s, but the peak requirement (0.89) is what keeps
-// busy non-stats screens out: their stray colon-like features top out below it,
-// while a real stats overlay's colons clear 0.91+ even on blurry captures.
+// The entry gate admits a frame only when it finds two header colons (the
+// "<Difficulty>:" / "Mission N:" / "Part <roman>:" stack) AND at least one is a
+// confident match. Composite/HDMI sources and window-chrome captures soften the
+// glyphs, so the count threshold sits in the low 0.8s and the peak requirement
+// at 0.85 -- low enough to admit a blurry windowed jp grab (whose colons top out
+// near 0.87) yet high enough that busy gameplay frames, lacking a tidy colon
+// stack, stay out. Non-stats frames that do slip through still read no times.
 const TIME_GATE_COLON_THRESHOLD: f64 = 0.84;
-const TIME_GATE_STRONG_COLON: f64 = 0.89;
-
-// The gate only needs the scales nearest the resolution-implied one, so it
-// rejects non-stats frames after a few cheap matches instead of the full sweep.
-const GATE_SCALE_COUNT: usize = 3;
+const TIME_GATE_STRONG_COLON: f64 = 0.85;
 
 // The templates are authored from a capture whose visible frame is this tall.
 // The stats overlay scales with the frame, so a source captured at a different
@@ -189,12 +222,41 @@ fn best_label(
     let mut best_score_v = threshold;
     for (i, t) in templates.iter().enumerate() {
         let s = best_score(frame, &scaled(t, scale)?)?;
+        dbg_cv!("[label] idx={} scale={scale:.3} score={s:.3}", i + 1);
         if s >= best_score_v {
             best_score_v = s;
             best = i as i32 + 1;
         }
     }
     Ok(best)
+}
+
+// Like `best_label`, but also sweeps `scales` and returns the (1-based winner,
+// scale) pair with the strongest correlation. Used to recover the true overlay
+// scale when the scale implied by the frame height is wrong -- e.g. a capture
+// that includes window chrome or letterboxing, where the overlay fills less of
+// the frame than its pixel height suggests. Whole-word labels are scale
+// sensitive, so the scale that best fits one is the overlay's real scale.
+fn best_label_over_scales(
+    frame: &(impl MatTraitConst + ToInputArray),
+    templates: &[Mat],
+    scales: &[f64],
+    threshold: f64,
+) -> Result<(i32, f64)> {
+    let mut best = -1;
+    let mut best_score_v = threshold;
+    let mut best_scale = scales.first().copied().unwrap_or(1.0);
+    for &scale in scales {
+        for (i, t) in templates.iter().enumerate() {
+            let s = best_score(frame, &scaled(t, scale)?)?;
+            if s >= best_score_v {
+                best_score_v = s;
+                best = i as i32 + 1;
+                best_scale = scale;
+            }
+        }
+    }
+    Ok((best, best_scale))
 }
 
 // Collects every location where `tmpl` matches `frame` above `threshold`.
@@ -243,28 +305,30 @@ fn suppress(mut dets: Vec<Detection>, cell_w: i32, cell_h: i32, frac: f64) -> Ve
     kept
 }
 
-// Counts time colons in the stats region, trying every candidate scale so the
-// gate works regardless of capture resolution (the base template alone only
-// matches an emulator-native grab). Returns the best (count, peak score) seen
-// at any single scale, and stops early once a scale clearly looks like a time
-// frame so common cases stay cheap.
-fn count_time_colons(
+// Counts colons inside `region` (fractional x/y/w/h of the frame), trying every
+// candidate scale so the gate works regardless of capture resolution (the base
+// template alone only matches an emulator-native grab). Returns the best
+// (count, peak score) seen at any single scale, and stops early once a scale
+// clearly clears the bar so common cases stay cheap.
+fn count_colons_in_region(
     frame: &(impl MatTraitConst + ToInputArray),
     base_colon: &Mat,
     scales: &[f64],
     threshold: f64,
+    region: (f64, f64, f64, f64),
 ) -> Result<(usize, f64)> {
     if base_colon.empty() {
         return Ok((0, -1.0));
     }
 
-    let colon_x0 = (frame.cols() as f64 * COLON_REGION_X) as i32;
-    let colon_y0 = (frame.rows() as f64 * COLON_REGION_Y) as i32;
+    let (rx, ry, rw, rh) = region;
+    let colon_x0 = (frame.cols() as f64 * rx) as i32;
+    let colon_y0 = (frame.rows() as f64 * ry) as i32;
     let colon_region = frame.roi(Rect::new(
         colon_x0,
         colon_y0,
-        (frame.cols() as f64 * COLON_REGION_W) as i32,
-        (frame.rows() as f64 * COLON_REGION_H) as i32,
+        (frame.cols() as f64 * rw) as i32,
+        (frame.rows() as f64 * rh) as i32,
     ))?;
 
     let mut best_count = 0usize;
@@ -482,6 +546,7 @@ fn find_times_band(
         }
     }
 
+    dbg_cv!("[times] colons={} times={:?}", colons.len(), times.iter().map(|t| (t.x, t.y, t.seconds)).collect::<Vec<_>>());
     let line_bucket = digit_h as f64 * 0.5;
     times.sort_by(|a, b| {
         let ra = (a.y as f64 / line_bucket).round() as i32;
@@ -503,6 +568,11 @@ pub struct CvMatcher {
     diffs: Vec<Mat>,
     colon: Mat,
     digits: Vec<Mat>,
+    // "PRIMARY OBJECTIVES:" banner. Present only on the level-start (briefing)
+    // screen, which shares the mission/part/difficulty header with the stats
+    // screen but carries no time rows. Detecting it lets the matcher report the
+    // start screen's labels without mistaking its objective list for times.
+    objectives: Mat,
 }
 
 impl CvMatcher {
@@ -525,7 +595,35 @@ impl CvMatcher {
             digits.push(load_template(templates_dir, lang, &format!("digit{v}"))?);
         }
 
-        Ok(CvMatcher { parts, diffs, colon, digits })
+        let objectives = load_template(templates_dir, lang, "objectives")?;
+
+        Ok(CvMatcher { parts, diffs, colon, digits, objectives })
+    }
+
+    // True when the "PRIMARY OBJECTIVES:" banner is present, i.e. this is the
+    // level-start briefing screen rather than the post-mission stats screen.
+    // The banner sits in the upper-middle of the frame; it is matched there at
+    // the header scale already established from the mission glyphs.
+    fn detect_briefing(&self, frame: &Mat, scale: f64) -> Result<bool> {
+        if self.objectives.empty() {
+            return Ok(false);
+        }
+        let tmpl = scaled(&self.objectives, scale)?;
+        if tmpl.empty() || tmpl.rows() > frame.rows() || tmpl.cols() > frame.cols() {
+            return Ok(false);
+        }
+        // The banner spans the left-of-centre columns in the upper-middle band.
+        let x0 = (frame.cols() as f64 * OBJECTIVES_REGION_X) as i32;
+        let y0 = (frame.rows() as f64 * OBJECTIVES_REGION_Y) as i32;
+        let w = ((frame.cols() as f64 * OBJECTIVES_REGION_W) as i32).min(frame.cols() - x0);
+        let h = ((frame.rows() as f64 * OBJECTIVES_REGION_H) as i32).min(frame.rows() - y0);
+        if w < tmpl.cols() || h < tmpl.rows() {
+            return Ok(false);
+        }
+        let region = frame.roi(Rect::new(x0, y0, w, h))?;
+        let score = best_score(&region, &tmpl)?;
+        dbg_cv!("[briefing] objectives_score={score:.3}");
+        Ok(score >= OBJECTIVES_THRESHOLD)
     }
 
     pub fn match_level_from_raw_bytes(&self, data: *mut u8, w: u32, h: u32) -> Result<LevelMatch> {
@@ -549,12 +647,26 @@ impl CvMatcher {
         // only searches the handful of scales near its own.
         let scales = candidate_scales(frame.rows());
 
-        let gate_scales = &scales[..GATE_SCALE_COUNT.min(scales.len())];
-        let (time_colon_count, best_time_colon) =
-            count_time_colons(&frame, &self.colon, gate_scales, TIME_GATE_COLON_THRESHOLD)?;
-        let has_time = time_colon_count >= 2 && best_time_colon >= TIME_GATE_STRONG_COLON;
-        timer.lap("time gate");
-        if !has_time {
+        // Entry gate: the stats overlay (both the level-start briefing and the
+        // post-mission stats screen) carries a stack of left-aligned header
+        // rows, each ending in a colon ("<Difficulty>:", "Mission N:",
+        // "Part <roman>:"). Requiring two strong colons in that header band
+        // admits both screens while rejecting busy gameplay frames cheaply.
+        let (header_colon_count, best_header_colon) = count_colons_in_region(
+            &frame,
+            &self.colon,
+            &scales,
+            TIME_GATE_COLON_THRESHOLD,
+            (HEADER_REGION_X, HEADER_REGION_Y, HEADER_REGION_W, HEADER_REGION_H),
+        )?;
+        let has_header = header_colon_count >= 2 && best_header_colon >= TIME_GATE_STRONG_COLON;
+        dbg_cv!(
+            "[gate] header_colons={header_colon_count} best_colon={best_header_colon:.3} has_header={has_header} frame={}x{}",
+            frame.cols(),
+            frame.rows()
+        );
+        timer.lap("header gate");
+        if !has_header {
             result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
             return Ok(result);
         }
@@ -582,6 +694,7 @@ impl CvMatcher {
             }
 
             let found = find_mission_from_colons(&label_region, &colon_tmpl, &digit_tmpls)?;
+            dbg_cv!("[mission] scale={scale:.3} found_mission={} score={:.3}", found.mission, found.score);
             if found.score >= best_mission_score {
                 best_mission_score = found.score;
                 global_scale = scale;
@@ -597,6 +710,20 @@ impl CvMatcher {
 
         // Remaining labels are matched at the established scale.
         result.part = best_label(&label_region, &self.parts, global_scale, LABEL_THRESHOLD)?;
+        // The mission scale comes from a colon-anchored single digit, which is
+        // scale tolerant and can settle on a scale where the scale-sensitive
+        // whole-word labels no longer fit (captures with window chrome or
+        // letterboxing). If the part label is missing at that scale, re-derive
+        // the overlay scale from the part label itself and reuse it below.
+        if result.part < 0 {
+            let (part, part_scale) =
+                best_label_over_scales(&label_region, &self.parts, &scales, LABEL_THRESHOLD)?;
+            if part >= 0 {
+                result.part = part;
+                global_scale = part_scale;
+                dbg_cv!("[scale recovery] part={part} scale={part_scale:.3}");
+            }
+        }
         timer.lap("part labels");
         let difficulty_label = best_label(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD)?;
         result.difficulty = if difficulty_label >= 0 { difficulty_label.saturating_sub(1) } else { -1 };
@@ -613,7 +740,16 @@ impl CvMatcher {
         }
         timer.lap("load glyph templates");
 
-        let times = if colon_tmpl.empty() || digit_width_sum == 0 {
+        // The level-start (briefing) screen shares the header above but lists
+        // mission objectives where the stats screen lists timed rows. Detecting
+        // the "PRIMARY OBJECTIVES:" banner identifies that screen so its
+        // objective list is never mis-read as times. The banner is matched at
+        // the established scale over the upper-middle band where it sits.
+        let is_briefing = self.detect_briefing(&frame, global_scale)?;
+        dbg_cv!("[briefing] is_briefing={is_briefing}");
+        timer.lap("briefing detect");
+
+        let times = if is_briefing || colon_tmpl.empty() || digit_width_sum == 0 {
             Vec::new()
         } else {
             find_times_band(&frame, &colon_tmpl, &digit_tmpls)?
