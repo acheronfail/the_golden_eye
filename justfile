@@ -50,12 +50,13 @@ make-release:
     cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBROWSER_DEV=OFF && make
 
 # builds the project and runs obs
-obs: make
+obs: make-release
     cd obs2/build && OBS_PLUGINS_PATH=$(pwd) OBS_PLUGINS_DATA_PATH=$(pwd) obs
 
 # builds the project and runs Flatpak OBS with this plugin build mounted
-obs-flatpak: make
+obs-flatpak: make-release
     cd obs2/build && flatpak run \
+      --device=dri \
       --filesystem="$(pwd):ro" \
       --socket=session-bus \
       --talk-name=org.freedesktop.secrets \

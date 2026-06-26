@@ -2,12 +2,12 @@ use std::ffi::CString;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
-use axum::Json;
 use serde::Deserialize;
 
 use crate::http::AppState;
@@ -93,6 +93,8 @@ fn monitor_loop(source_name: CString, stop: Arc<AtomicBool>) {
     };
 
     while !stop.load(Ordering::Relaxed) {
+        let s = Instant::now();
+
         // Render the source into a BGRA buffer owned by the C side.
         let mut width: u32 = 0;
         let mut height: u32 = 0;
@@ -103,11 +105,13 @@ fn monitor_loop(source_name: CString, stop: Arc<AtomicBool>) {
             continue;
         }
 
+        let ft = s.elapsed().as_millis();
+
         let result = matcher.match_level_from_raw_bytes(frame, width, height);
         // Hand the buffer straight back to the C allocator once we're done with it.
         unsafe { crate::ffi::free(frame.cast()) };
 
-        tracing::info!(?result, "monitor match result");
+        tracing::info!(ft, ?result, "match");
     }
 
     tracing::info!("monitor loop exiting");
