@@ -24,6 +24,9 @@ pub struct AppStateInner {
     /// The Discord "now streaming" message posted when a stream starts, kept so
     /// the stop handler can edit it in place rather than posting a new message.
     pub stream_message: Mutex<Option<StreamMessage>>,
+    /// The currently running monitor, if any. Enforces a single monitor at a
+    /// time: `/api/v1/monitor/start` fails while this is `Some`.
+    pub monitor: std::sync::Mutex<Option<routes::monitor::MonitorHandle>>,
     /// Application configuration, resolved from the environment at startup.
     pub config: Config,
 }
@@ -77,6 +80,8 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
     let app = Router::new()
         .route("/api/v1/record/start", post(routes::record::handle_start))
         .route("/api/v1/record/stop", post(routes::record::handle_stop))
+        .route("/api/v1/monitor/start", post(routes::monitor::handle_start))
+        .route("/api/v1/monitor/stop", post(routes::monitor::handle_stop))
         .route("/api/v1/sources", get(routes::sources::handler))
         .route("/api/v1/screenshot", get(routes::screenshot::handler))
         .route(OAUTH_CALLBACK_PATH, get(routes::oauth::handle_callback))

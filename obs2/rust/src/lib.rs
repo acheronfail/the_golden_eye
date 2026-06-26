@@ -77,6 +77,7 @@ pub extern "C" fn ge_rust_start() {
     let state = Arc::new(AppStateInner {
         oauth_pending: tokio::sync::Mutex::new(None),
         stream_message: tokio::sync::Mutex::new(None),
+        monitor: std::sync::Mutex::new(None),
         config,
     });
 
