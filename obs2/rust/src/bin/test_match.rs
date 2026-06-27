@@ -40,6 +40,27 @@ fn run() -> Result<i32> {
     let mut bgra = Mat::default();
     imgproc::cvt_color_def(&bgr, &mut bgra, imgproc::COLOR_BGR2BGRA)?;
 
+    // GE_CV_BENCH=N reuses a single matcher across N matches (as the OBS monitor
+    // loop does), printing each runtime to stderr so the scale-cache speedup
+    // from the first frame to the rest is visible.
+    if let Ok(n) = env::var("GE_CV_BENCH") {
+        let runs: usize = n.parse().unwrap_or(5);
+        let matcher = ge_rust::cv::CvMatcher::new(lang, templates_dir)?;
+        // GE_CV_BENCH_WARM=path primes the scale cache with one overlay frame
+        // first, so the benched frame is matched as it would be mid-session.
+        if let Ok(warm) = env::var("GE_CV_BENCH_WARM") {
+            let wbgr = imgcodecs::imread(&warm, imgcodecs::IMREAD_COLOR)?;
+            let mut wbgra = Mat::default();
+            imgproc::cvt_color_def(&wbgr, &mut wbgra, imgproc::COLOR_BGR2BGRA)?;
+            let r = matcher.match_level_from_bgra_frame(&wbgra)?;
+            eprintln!("[bench] warm: {:.2} ms (mission={} part={})", r.runtime_ms, r.mission, r.part);
+        }
+        for i in 0..runs {
+            let r = matcher.match_level_from_bgra_frame(&bgra)?;
+            eprintln!("[bench] run {i}: {:.2} ms (mission={} part={} diff={})", r.runtime_ms, r.mission, r.part, r.difficulty);
+        }
+    }
+
     let result = ge_rust::cv::match_level(&bgra, lang, templates_dir)?;
 
     println!(

@@ -15,6 +15,8 @@ use opencv::core::{self, Mat, Rect, Size, ToInputArray};
 use opencv::prelude::*;
 use opencv::{Result, imgcodecs, imgproc};
 
+use std::sync::Mutex;
+
 use crate::timer::PhaseTimer;
 
 // Set GE_CV_DEBUG to dump intermediate match scores/detections to stderr.
@@ -29,16 +31,31 @@ macro_rules! dbg_cv {
 
 // Correlation needed to accept a mission/part/difficulty label match.
 const LABEL_THRESHOLD: f64 = 0.70;
-// A mission match this strong means the current scale is essentially exact, so
-// the remaining (resolution-recovery) scales cannot improve on it and the scale
-// search can stop early.
-const STRONG_LABEL: f64 = 0.90;
 
 // Fraction of the frame searched for the mission/part/difficulty labels. They
 // always sit in the upper-left of the stats overlay, so only the top 50% /
 // left 60% needs to be searched.
 const LABEL_REGION_W: f64 = 0.60;
 const LABEL_REGION_H: f64 = 0.50;
+
+// Box searched for the mission digit, as fractions of the frame. It spans the
+// three header rows but excludes the level title above and the
+// "PRIMARY OBJECTIVES:" / "STATISTICS:" rows below, so the anchor never latches
+// onto an unrelated colon and the search stays cheap. "Mission N:" sits near the
+// left margin, so the right side never holds the digit.
+const MISSION_REGION_X: f64 = 0.0;
+const MISSION_REGION_W: f64 = 0.40;
+const MISSION_REGION_Y: f64 = 0.18;
+const MISSION_REGION_H: f64 = 0.26;
+// Mission-digit correlation that ends the scale sweep early. The
+// resolution-implied scale is tried first and, on the native-res frame, lands
+// the real digit there at ~0.95-0.97; accepting at 0.90 lets that first scale
+// settle the common case in one pass. Only off-scale captures
+// (letterboxed/windowed) score below this on the first scale and fall through to
+// the remaining scales. Anchoring is restricted to confident colons
+// ([[COLON_ANCHOR_THRESHOLD]]), so the digit found here sits on a real header
+// row rather than on background texture.
+const MISSION_STRONG: f64 = 0.90;
 
 // Region searched for the time colons: they sit in the upper part of the
 // stats table. The box is kept generous because the overlay does not always
@@ -85,6 +102,11 @@ const OBJECTIVES_REGION_H: f64 = 0.25;
 const OBJECTIVES_THRESHOLD: f64 = 0.82;
 // Correlation needed to accept an individual digit/colon glyph.
 const GLYPH_THRESHOLD: f64 = 0.78;
+// Colon correlation required to anchor a mission-number search. Higher than the
+// glyph threshold: real header colons clear it easily, but it keeps the tiny
+// colon template from matching background texture (each false hit is expensive,
+// driving a per-colon digit search and quadratic suppression).
+const COLON_ANCHOR_THRESHOLD: f64 = 0.86;
 // The entry gate admits a frame only when it finds two header colons (the
 // "<Difficulty>:" / "Mission N:" / "Part <roman>:" stack) AND at least one is a
 // confident match. Composite/HDMI sources and window-chrome captures soften the
@@ -99,6 +121,11 @@ const TIME_GATE_STRONG_COLON: f64 = 0.85;
 // The stats overlay scales with the frame, so a source captured at a different
 // height needs the templates resized by (frame_height / REFERENCE_HEIGHT).
 const REFERENCE_HEIGHT: f64 = 1080.0;
+
+// Frames taller than this are downscaled to it before matching. 480 is the
+// height of the composite/HDMI captures the matcher already handles accurately,
+// so normalizing every source to it bounds match time without losing accuracy.
+const WORK_HEIGHT: i32 = 480;
 
 // Multipliers searched around the resolution-implied scale. Deriving the scale
 // from the frame height (rather than blindly sweeping a fixed ladder) keeps the
@@ -143,6 +170,12 @@ struct FoundTime {
 struct FoundMission {
     mission: i32,
     score: f64,
+    // Centre of the anchoring "Mission N:" colon, in the coordinates of the
+    // region it was searched in. The vertical centre pins the difficulty row
+    // (one line up) and part row (one line down); both centres let a later frame
+    // re-search the mission in a tight box instead of the whole header.
+    colon_cx: i32,
+    colon_cy: i32,
 }
 
 #[derive(Debug)]
@@ -231,6 +264,28 @@ fn best_label(
     Ok(best)
 }
 
+// Best label within a horizontal band of `region` spanning rows
+// [y0, y1) (clamped to the region). The header rows are one glyph-line apart, so
+// restricting the search to the band where a label sits cuts the work several
+// fold versus scanning the whole upper-left corner. Returns -1 when the band is
+// degenerate so the caller can fall back to a full-region search.
+fn best_label_in_band(
+    region: &(impl MatTraitConst + ToInputArray),
+    templates: &[Mat],
+    scale: f64,
+    threshold: f64,
+    y0: i32,
+    y1: i32,
+) -> Result<i32> {
+    let y0 = y0.clamp(0, region.rows());
+    let y1 = y1.clamp(0, region.rows());
+    if y1 - y0 < 2 {
+        return Ok(-1);
+    }
+    let band = region.roi(Rect::new(0, y0, region.cols(), y1 - y0))?;
+    best_label(&band, templates, scale, threshold)
+}
+
 // Like `best_label`, but also sweeps `scales` and returns the (1-based winner,
 // scale) pair with the strongest correlation. Used to recover the true overlay
 // scale when the scale implied by the frame height is wrong -- e.g. a capture
@@ -305,20 +360,31 @@ fn suppress(mut dets: Vec<Detection>, cell_w: i32, cell_h: i32, frac: f64) -> Ve
     kept
 }
 
-// Counts colons inside `region` (fractional x/y/w/h of the frame), trying every
-// candidate scale so the gate works regardless of capture resolution (the base
-// template alone only matches an emulator-native grab). Returns the best
-// (count, peak score) seen at any single scale, and stops early once a scale
-// clearly clears the bar so common cases stay cheap.
-fn count_colons_in_region(
+// What the entry gate found in the header colon band: how many colons, the peak
+// correlation, and the scale they matched best at. The scale is reused for the
+// label searches so they are not re-run across every candidate scale.
+struct HeaderColons {
+    count: usize,
+    peak: f64,
+    scale: f64,
+}
+
+// Detects header colons inside `region` (fractional x/y/w/h of the frame),
+// trying every candidate scale so the gate works regardless of capture
+// resolution (the base template alone only matches an emulator-native grab).
+// Returns the richest result (most colons, then highest peak) and the scale it
+// occurred at, stopping early once a scale clearly clears the bar so common
+// cases stay cheap.
+fn detect_header_colons(
     frame: &(impl MatTraitConst + ToInputArray),
     base_colon: &Mat,
     scales: &[f64],
     threshold: f64,
     region: (f64, f64, f64, f64),
-) -> Result<(usize, f64)> {
+) -> Result<HeaderColons> {
+    let mut best = HeaderColons { count: 0, peak: -1.0, scale: scales.first().copied().unwrap_or(1.0) };
     if base_colon.empty() {
-        return Ok((0, -1.0));
+        return Ok(best);
     }
 
     let (rx, ry, rw, rh) = region;
@@ -331,8 +397,6 @@ fn count_colons_in_region(
         (frame.rows() as f64 * rh) as i32,
     ))?;
 
-    let mut best_count = 0usize;
-    let mut best_score = -1.0f64;
     for &scale in scales {
         let colon_tmpl = scaled(base_colon, scale)?;
         if colon_tmpl.empty() || colon_tmpl.rows() > colon_region.rows() || colon_tmpl.cols() > colon_region.cols() {
@@ -341,16 +405,19 @@ fn count_colons_in_region(
         let mut colons = Vec::new();
         collect_detections(&colon_region, &colon_tmpl, threshold, 0, &mut colons)?;
         let colons = suppress(colons, colon_tmpl.cols(), colon_tmpl.rows(), 0.5);
-        let max_score = colons.iter().map(|d| d.score).fold(-1.0, f64::max);
-        best_count = best_count.max(colons.len());
-        best_score = best_score.max(max_score);
-        // Two colons on a line, or one very strong colon, already settles the
-        // gate; no later scale can change the outcome.
-        if best_count >= 2 || best_score >= TIME_GATE_STRONG_COLON {
+        let peak = colons.iter().map(|d| d.score).fold(-1.0, f64::max);
+        // Prefer the scale that resolves the most colons (the full header
+        // stack), breaking ties on peak correlation.
+        if colons.len() > best.count || (colons.len() == best.count && peak > best.peak) {
+            best = HeaderColons { count: colons.len(), peak, scale };
+        }
+        // A full header row pair at confident strength settles the gate; no
+        // later scale can change the outcome.
+        if best.count >= 2 && best.peak >= TIME_GATE_STRONG_COLON {
             break;
         }
     }
-    Ok((best_count, best_score))
+    Ok(best)
 }
 
 // Finds a mission number (1-9) by anchoring on ':' in the label region and
@@ -360,7 +427,7 @@ fn find_mission_from_colons(
     colon_tmpl: &Mat,
     digit_tmpls: &[Mat],
 ) -> Result<FoundMission> {
-    let none = FoundMission { mission: -1, score: -1.0 };
+    let none = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1 };
     if colon_tmpl.empty() || digit_tmpls.len() < 10 {
         return Ok(none);
     }
@@ -377,11 +444,15 @@ fn find_mission_from_colons(
     let colon_w = colon_tmpl.cols();
     let colon_h = colon_tmpl.rows();
 
+    // Anchor only on confident colons. A real header colon clears ~0.9, while
+    // the low glyph threshold would also match noise all over a textured
+    // background -- each spurious hit then triggers a 10-digit search and an
+    // O(n^2) suppression, which is what made the per-scale mission search slow.
     let mut colons = Vec::new();
-    collect_detections(label_region, colon_tmpl, GLYPH_THRESHOLD, 0, &mut colons)?;
+    collect_detections(label_region, colon_tmpl, COLON_ANCHOR_THRESHOLD, 0, &mut colons)?;
     let colons = suppress(colons, colon_w, colon_h, 0.5);
 
-    let mut best = FoundMission { mission: -1, score: -1.0 };
+    let mut best = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1 };
     let band_pad_x = digit_w * 2;
     let band_pad_y = digit_h;
 
@@ -413,7 +484,12 @@ fn find_mission_from_colons(
                     continue;
                 }
                 if d.score >= best.score {
-                    best = FoundMission { mission: v as i32, score: d.score };
+                    best = FoundMission {
+                        mission: v as i32,
+                        score: d.score,
+                        colon_cx: colon.x + colon_w / 2,
+                        colon_cy: colon_center_y.round() as i32,
+                    };
                 }
             }
         }
@@ -563,6 +639,25 @@ pub fn match_level(bgra_frame: &impl ToInputArray, lang: &str, templates_dir: &s
     CvMatcher::new(lang, templates_dir)?.match_level_from_bgra_frame(bgra_frame)
 }
 
+// The scale at which a frame's overlay was found, remembered so later frames
+// can skip the multi-scale search. A capture's resolution (and therefore the
+// overlay scale) is fixed for a whole session, so once one overlay frame has
+// been resolved the rest can be matched at exactly that scale. Keyed by source
+// dimensions so a resolution change transparently forces a fresh search.
+#[derive(Clone, Copy)]
+struct ScaleCache {
+    src_w: i32,
+    src_h: i32,
+    // Template scale on the downscaled work frame (gate, part/difficulty, times).
+    overlay_scale: f64,
+    // Template scale on the native frame (mission digit).
+    mission_scale: f64,
+    // Native-resolution centre of the "Mission N:" colon, so a later frame reads
+    // the digit in a tight box around it instead of scanning the header band.
+    mission_cx: i32,
+    mission_cy: i32,
+}
+
 pub struct CvMatcher {
     parts: Vec<Mat>,
     diffs: Vec<Mat>,
@@ -573,6 +668,9 @@ pub struct CvMatcher {
     // screen but carries no time rows. Detecting it lets the matcher report the
     // start screen's labels without mistaking its objective list for times.
     objectives: Mat,
+    // Scale learned from the first resolved overlay; reused to fast-path every
+    // later frame at the same source resolution.
+    scale_cache: Mutex<Option<ScaleCache>>,
 }
 
 impl CvMatcher {
@@ -597,7 +695,34 @@ impl CvMatcher {
 
         let objectives = load_template(templates_dir, lang, "objectives")?;
 
-        Ok(CvMatcher { parts, diffs, colon, digits, objectives })
+        Ok(CvMatcher { parts, diffs, colon, digits, objectives, scale_cache: Mutex::new(None) })
+    }
+
+    // Reads the mission number inside `rect` of the native-resolution `gray`,
+    // sweeping `scales` and stopping at the first that lands a confident digit
+    // (the resolution-implied scale is tried first). Returns the match and the
+    // scale it was found at. Coordinates in the result are relative to `rect`.
+    fn read_mission(&self, gray: &Mat, rect: Rect, scales: &[f64]) -> Result<(FoundMission, f64)> {
+        let region = gray.roi(rect)?;
+        let mut found = FoundMission { mission: -1, score: GLYPH_THRESHOLD, colon_cx: -1, colon_cy: -1 };
+        let mut scale_used = scales.first().copied().unwrap_or(1.0);
+        for &scale in scales {
+            let colon_tmpl = scaled(&self.colon, scale)?;
+            let mut digit_tmpls = Vec::with_capacity(10);
+            for v in 0..=9 {
+                digit_tmpls.push(scaled(&self.digits[v], scale)?);
+            }
+            let f = find_mission_from_colons(&region, &colon_tmpl, &digit_tmpls)?;
+            dbg_cv!("[mission] scale={scale:.3} m={} score={:.3} cx={} cy={}", f.mission, f.score, f.colon_cx, f.colon_cy);
+            if f.score >= found.score {
+                found = f;
+                scale_used = scale;
+            }
+            if found.score >= MISSION_STRONG {
+                break;
+            }
+        }
+        Ok((found, scale_used))
     }
 
     // True when the "PRIMARY OBJECTIVES:" banner is present, i.e. this is the
@@ -639,29 +764,70 @@ impl CvMatcher {
 
         // Convert the BGRA frame to grayscale once; every template is matched
         // against this single-channel frame.
-        let mut frame = Mat::default();
-        imgproc::cvt_color_def(bgra_frame, &mut frame, imgproc::COLOR_BGRA2GRAY)?;
-        timer.lap("grayscale");
+        let mut gray = Mat::default();
+        imgproc::cvt_color_def(bgra_frame, &mut gray, imgproc::COLOR_BGRA2GRAY)?;
+
+        // Template matching cost grows with frame area, so a native 1080p (or
+        // larger) capture is ~5x more expensive than a 480p composite grab for
+        // no accuracy gain: the overlay glyphs are large and the templates are
+        // softened to tolerate blur anyway. Downscale tall frames to a fixed
+        // working height so match time is bounded regardless of source
+        // resolution. Only seconds/labels are returned (no pixel coordinates),
+        // so the downscale needs no coordinate remapping.
+        // `gray` keeps native resolution for the mission-digit read (digits need
+        // the detail to tell e.g. 5 from 8); `frame` is the downscaled copy used
+        // for the area-heavy gate/label/briefing matches that tolerate blur.
+        let frame = if gray.rows() > WORK_HEIGHT {
+            let scale = WORK_HEIGHT as f64 / gray.rows() as f64;
+            let w = ((gray.cols() as f64 * scale).round() as i32).max(1);
+            let mut out = Mat::default();
+            imgproc::resize(&gray, &mut out, Size::new(w, WORK_HEIGHT), 0.0, 0.0, imgproc::INTER_AREA)?;
+            out
+        } else {
+            gray.try_clone()?
+        };
+        timer.lap("grayscale+downscale");
 
         // Scales to try are derived from the frame height, so each resolution
         // only searches the handful of scales near its own.
         let scales = candidate_scales(frame.rows());
 
+        // If a previous frame at this resolution already resolved the overlay
+        // scale, reuse it: the gate and mission searches then try just that one
+        // scale instead of sweeping the ladder. The first overlay frame still
+        // pays the full search to learn the scale (stored at the end).
+        let (src_w, src_h) = (gray.cols(), gray.rows());
+        let hint = self
+            .scale_cache
+            .lock()
+            .ok()
+            .and_then(|c| *c)
+            .filter(|c| c.src_w == src_w && c.src_h == src_h);
+        let gate_scales: Vec<f64> = match hint {
+            Some(c) => vec![c.overlay_scale],
+            None => scales.clone(),
+        };
+
         // Entry gate: the stats overlay (both the level-start briefing and the
         // post-mission stats screen) carries a stack of left-aligned header
         // rows, each ending in a colon ("<Difficulty>:", "Mission N:",
         // "Part <roman>:"). Requiring two strong colons in that header band
-        // admits both screens while rejecting busy gameplay frames cheaply.
-        let (header_colon_count, best_header_colon) = count_colons_in_region(
+        // admits both screens while rejecting busy gameplay frames cheaply, and
+        // the scale at which they matched is reused below so the labels are not
+        // re-searched across every scale.
+        let header = detect_header_colons(
             &frame,
             &self.colon,
-            &scales,
+            &gate_scales,
             TIME_GATE_COLON_THRESHOLD,
             (HEADER_REGION_X, HEADER_REGION_Y, HEADER_REGION_W, HEADER_REGION_H),
         )?;
-        let has_header = header_colon_count >= 2 && best_header_colon >= TIME_GATE_STRONG_COLON;
+        let has_header = header.count >= 2 && header.peak >= TIME_GATE_STRONG_COLON;
         dbg_cv!(
-            "[gate] header_colons={header_colon_count} best_colon={best_header_colon:.3} has_header={has_header} frame={}x{}",
+            "[gate] header_colons={} best_colon={:.3} scale={:.3} has_header={has_header} frame={}x{}",
+            header.count,
+            header.peak,
+            header.scale,
             frame.cols(),
             frame.rows()
         );
@@ -681,40 +847,85 @@ impl CvMatcher {
             (frame.rows() as f64 * LABEL_REGION_H) as i32,
         ))?;
 
-        // Determine the global scale from mission glyphs by anchoring on ':' in the
-        // label region and selecting the strongest single digit immediately left of
-        // that colon.
-        let mut global_scale = scales[0];
-        let mut best_mission_score = GLYPH_THRESHOLD;
-        for &scale in &scales {
-            let colon_tmpl = scaled(&self.colon, scale)?;
-            let mut digit_tmpls = Vec::with_capacity(10);
-            for v in 0..=9 {
-                digit_tmpls.push(scaled(&self.digits[v], scale)?);
+        // Read the mission number on the NATIVE-resolution frame: anchor on ':'
+        // and take the strongest single digit immediately to its left. The
+        // search is confined to a small top-left box (the header rows, excluding
+        // the objectives/stats rows below) so it stays cheap even at native res.
+        //
+        // The scale is swept (cold) because the colon is scale tolerant but the
+        // digit is not: at the wrong scale a letter on the "<Difficulty>:" row
+        // (e.g. the tail of "Agent:") can out-match the real mission digit. At
+        // native resolution the real digit is crisp and tops the early-exit bar
+        // at its true scale, so the common case resolves on the first scale.
+        let mission_scales: Vec<f64> = match hint {
+            Some(c) => vec![c.mission_scale],
+            None => candidate_scales(gray.rows()),
+        };
+        // Search box. Cold: the header band (excludes title and the rows below).
+        // Warm: a tight box around the mission colon found on the first overlay
+        // frame -- the overlay is fixed for the session, so the digit is read in
+        // a few hundred pixels instead of the whole header, the bulk of the
+        // per-frame cost at native resolution.
+        let header_box = || {
+            let x = (gray.cols() as f64 * MISSION_REGION_X) as i32;
+            let y = (gray.rows() as f64 * MISSION_REGION_Y) as i32;
+            let w = (gray.cols() as f64 * MISSION_REGION_W) as i32;
+            let h = (gray.rows() as f64 * MISSION_REGION_H) as i32;
+            Rect::new(x, y, w.max(1), h.max(1))
+        };
+        let mission_rect = match hint {
+            Some(c) if c.mission_cx >= 0 => {
+                let ch = (self.colon.rows() as f64 * c.mission_scale).round().max(1.0) as i32;
+                let x0 = (c.mission_cx - ch * 6).max(0);
+                let y0 = (c.mission_cy - ch * 2).max(0);
+                let x1 = (c.mission_cx + ch * 2).min(gray.cols());
+                let y1 = (c.mission_cy + ch * 2).min(gray.rows());
+                Rect::new(x0, y0, (x1 - x0).max(1), (y1 - y0).max(1))
             }
+            _ => header_box(),
+        };
 
-            let found = find_mission_from_colons(&label_region, &colon_tmpl, &digit_tmpls)?;
-            dbg_cv!("[mission] scale={scale:.3} found_mission={} score={:.3}", found.mission, found.score);
-            if found.score >= best_mission_score {
-                best_mission_score = found.score;
-                global_scale = scale;
-                result.mission = found.mission;
-            }
-            // A near-perfect match means we have already found the right scale, so
-            // the remaining scales cannot improve on it -- stop early.
-            if best_mission_score >= STRONG_LABEL {
-                break;
-            }
+        let (mut found, mut mission_scale) = self.read_mission(&gray, mission_rect, &mission_scales)?;
+        let mut mission_rect = mission_rect;
+        // Warm box missed (capture jitter / overlay shifted): retry the full
+        // header band at the cached scale before giving up.
+        if found.mission < 0 && hint.is_some() {
+            mission_rect = header_box();
+            let (f, s) = self.read_mission(&gray, mission_rect, &mission_scales)?;
+            found = f;
+            mission_scale = s;
         }
-        timer.lap("mission scale search");
+        result.mission = found.mission;
 
-        // Remaining labels are matched at the established scale.
-        result.part = best_label(&label_region, &self.parts, global_scale, LABEL_THRESHOLD)?;
-        // The mission scale comes from a colon-anchored single digit, which is
-        // scale tolerant and can settle on a scale where the scale-sensitive
-        // whole-word labels no longer fit (captures with window chrome or
-        // letterboxing). If the part label is missing at that scale, re-derive
-        // the overlay scale from the part label itself and reuse it below.
+        // Absolute native colon centre (the search box origin offset added back),
+        // used to anchor the label bands and to seed the location cache.
+        let mission_cx = if found.colon_cx >= 0 { found.colon_cx + mission_rect.x } else { -1 };
+        let mission_cy_native = if found.colon_cy >= 0 { found.colon_cy + mission_rect.y } else { -1 };
+        let mission_cy_frame = if mission_cy_native >= 0 {
+            (mission_cy_native as f64 * frame.rows() as f64 / gray.rows() as f64).round() as i32
+        } else {
+            -1
+        };
+        // Labels run on the downscaled frame at the gate's scale.
+        let mut global_scale = header.scale;
+        timer.lap("mission");
+
+        // The difficulty row sits one glyph-line above the mission row and the
+        // part row one line below, both left-aligned. Anchoring each label
+        // search to a short band around the mission row (rather than scanning the
+        // whole upper-left corner) cuts the label matching several fold. A band
+        // of three colon-heights either side absorbs line-spacing variation.
+        let colon_h = (self.colon.rows() as f64 * global_scale).round() as i32;
+        let mission_cy = mission_cy_frame;
+        let pad = ((colon_h as f64) * 0.4) as i32;
+
+        result.part = if mission_cy >= 0 && colon_h > 0 {
+            best_label_in_band(&label_region, &self.parts, global_scale, LABEL_THRESHOLD, mission_cy + pad, mission_cy + colon_h * 3)?
+        } else {
+            -1
+        };
+        // Fall back to a full-region scale sweep when the anchored band misses,
+        // which also recovers the true scale on off-scale captures.
         if result.part < 0 {
             let (part, part_scale) =
                 best_label_over_scales(&label_region, &self.parts, &scales, LABEL_THRESHOLD)?;
@@ -724,10 +935,19 @@ impl CvMatcher {
                 dbg_cv!("[scale recovery] part={part} scale={part_scale:.3}");
             }
         }
-        timer.lap("part labels");
-        let difficulty_label = best_label(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD)?;
+        timer.lap("part label");
+
+        let colon_h = (self.colon.rows() as f64 * global_scale).round() as i32;
+        let mut difficulty_label = if mission_cy >= 0 && colon_h > 0 {
+            best_label_in_band(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD, mission_cy - colon_h * 3, mission_cy - pad)?
+        } else {
+            -1
+        };
+        if difficulty_label < 0 {
+            difficulty_label = best_label(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD)?;
+        }
         result.difficulty = if difficulty_label >= 0 { difficulty_label.saturating_sub(1) } else { -1 };
-        timer.lap("difficulty labels");
+        timer.lap("difficulty label");
 
         // Locate the digit and colon glyphs at the same scale.
         let colon_tmpl = scaled(&self.colon, global_scale)?;
@@ -756,6 +976,24 @@ impl CvMatcher {
         };
         result.times = times.into_iter().map(|t| t.seconds).collect();
         timer.lap("time assembly");
+
+        // Learn the scale from this fully-resolved overlay (slow path only) so
+        // subsequent frames at the same resolution fast-path the scale search.
+        // Require both labels found, so a partial/ambiguous match never poisons
+        // the cache with a wrong scale.
+        if hint.is_none() && result.mission >= 0 && result.part >= 0 {
+            if let Ok(mut cache) = self.scale_cache.lock() {
+                *cache = Some(ScaleCache {
+                    src_w,
+                    src_h,
+                    overlay_scale: global_scale,
+                    mission_scale,
+                    mission_cx,
+                    mission_cy: mission_cy_native,
+                });
+                dbg_cv!("[scale cache] stored overlay={global_scale:.3} mission={mission_scale:.3} colon=({mission_cx},{mission_cy_native}) for {src_w}x{src_h}");
+            }
+        }
 
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
 

@@ -166,7 +166,7 @@ for (const runner of runners) {
         pass: Array.isArray(result.times) && result.times.length === 0,
         expected: [],
       };
-      testResult.runTimePass = result.runtime_ms < 16;
+      testResult.runTimePass = screenshot.tag === "emu" ? true : result.runtime_ms < 16;
       totalTests += 2;
     }
 
@@ -194,7 +194,7 @@ for (const runner of runners) {
         testResult.difficulty?.pass === false,
         testResult.lang?.pass === false,
         testResult.level?.pass === false,
-        // testResult.runTimePass === false,
+        testResult.runTimePass === false,
         testResult.times?.pass === false,
       ].some((result) => result);
 
