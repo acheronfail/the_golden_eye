@@ -225,11 +225,8 @@ repl:
 upload dir:
     npm run upload -- {{ dir }}
 
-# setup the repository for local development
-setup: obs-headers opencv-static
+_setup-legacy:
     OPENCV4NODEJS_DISABLE_AUTOBUILD=1 npm install
-    cd obs2/browser && npm install
-
     mkdir -p models
     wget --no-clobber -O {{ LLAMA_GGUF_PATH }} {{ gguf }} || true
     wget --no-clobber -O {{ LLAMA_MMPROJ_PATH }} {{ mmproj }} || true
@@ -241,6 +238,10 @@ setup: obs-headers opencv-static
     else \
       wget --no-clobber -O - {{ llama_cpp_linux }} | tar xz -C llama --strip-components=1; \
     fi
+
+# setup the repository for local development
+setup: obs-headers opencv-static
+    cd obs2/browser && npm install
 
 clean:
     rm -rf "{{obs_headers}}"
