@@ -2,22 +2,20 @@
   "lsp": {
     "clangd": {
       "initialization_options": {
-        "compilationDatabasePath": "obs2/build",
-      },
+        "compilationDatabasePath": "obs2/build"
+      }
     },
     "rust-analyzer": {
       "initialization_options": {
         "linkedProjects": ["obs2/rust/Cargo.toml"],
         "cargo": {
+          // We set these in the justfile, but also set them here for rust-analyzer.
           "extraEnv": {
             "BROWSER_BUNDLE": "../../../../browser/build/index.html",
-            // rust-analyzer invokes cargo outside CMake, so it misses the macOS
-            // libclang discovery logic from obs2/CMakeLists.txt. Include both common
-            // install locations so bindgen/opencv can find libclang in editor checks.
-            "DYLD_FALLBACK_LIBRARY_PATH": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib",
-          },
-        },
-      },
-    },
-  },
+            "DYLD_FALLBACK_LIBRARY_PATH": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib"
+          }
+        }
+      }
+    }
+  }
 }

@@ -1,11 +1,12 @@
 import { basename, dirname, relative } from 'node:path';
 import adapter from '@sveltejs/adapter-static';
 
-// Output location is the single source of truth defined by CMake via
-// $BROWSER_BUNDLE. Required with no fallback so the path is never guessed.
+// Output location comes from $BROWSER_BUNDLE, whose single source of truth is
+// the justfile (CMake forwards it to this build). Required with no fallback so
+// the path is never guessed.
 const bundle = process.env.BROWSER_BUNDLE;
 if (!bundle) {
-	console.warn('BROWSER_BUNDLE is not set; build via CMake (or set the env var)');
+	console.warn('BROWSER_BUNDLE is not set; build via `just` (or set the env var)');
 }
 
 const outDir = bundle && relative(import.meta.dirname, dirname(bundle));

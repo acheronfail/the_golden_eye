@@ -1,23 +1,33 @@
 set dotenv-load
 
+#
+# legacy (v1) variables
+#
+
 model := "gemma-4-E4B-it"
 gguf := "https://huggingface.co/unsloth/" + model + "-GGUF/resolve/main/" + model + "-Q4_K_M.gguf?download=true"
 mmproj := "https://huggingface.co/unsloth/" + model + "-GGUF/resolve/main/mmproj-BF16.gguf?download=true"
 llama_cpp_macos := "https://github.com/ggml-org/llama.cpp/releases/download/b9106/llama-b9106-bin-macos-arm64.tar.gz"
 llama_cpp_linux := "https://github.com/ggml-org/llama.cpp/releases/download/b9113/llama-b9113-bin-ubuntu-vulkan-x64.tar.gz"
-
-obs_version := "32.1.2"
-obs_headers := "obs2/vendor/obs"
-
-# Pinned OpenCV release built by `just opencv-static` and the prefix it installs
-# into. The prefix is auto-detected by obs2/CMakeLists.txt (OPENCV_STATIC).
-opencv_version := "4.11.0"
-cmake_version  := "3.31.7"
-opencv_static_prefix := "obs2/vendor/opencv-static"
-
 export LLAMA_GGUF_PATH := "models/" + model + "-llm.gguf"
 export LLAMA_MMPROJ_PATH := "models/" + model + "-mmproj.gguf"
+
+#
+# Build variables
+#
+
+obs_version := "32.1.2"
+obs_headers := justfile_directory() / "obs2/vendor/obs"
+opencv_version := "4.11.0"
+cmake_version  := "3.31.7"
+
+export BROWSER_BUNDLE := justfile_directory() / "obs2/browser/build/index.html"
 export DYLD_FALLBACK_LIBRARY_PATH := "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib"
+export OPENCV_PREFIX := justfile_directory() /  "obs2/vendor/opencv-static"
+
+#
+# Runtime variables
+#
 
 export GE_CV_LANG := "en"
 export GE_CV_TEMPLATE_DIR := justfile_directory() / "obs2/cv_templates"
@@ -43,6 +53,23 @@ test: make-release
 
 test-watch: make-release
     npm run test-watch
+
+# runs the rust tests (cv matcher + monitor loop) against the fixture screenshots
+test-rust *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f "$BROWSER_BUNDLE" ]; then
+      echo "browser bundle not found at $BROWSER_BUNDLE — run 'just make-release' first" >&2
+      exit 1
+    fi
+
+    # The /usr/bin/env shebang strips DYLD_* (macOS SIP), so re-export it here for
+    # opencv's build script (it needs libclang via this path). A dedicated target
+    # dir keeps cargo's system-opencv build from thrashing against the CMake
+    # build's static-opencv artifacts in target/release.
+    export DYLD_FALLBACK_LIBRARY_PATH="{{DYLD_FALLBACK_LIBRARY_PATH}}"
+    export CARGO_TARGET_DIR="{{justfile_directory()}}/obs2/rust/target/test"
+    cd "{{justfile_directory()}}/obs2/rust" && cargo test --release {{args}}
 
 make:
     mkdir -p obs2/build
@@ -102,19 +129,16 @@ obs-headers:
 
     echo "{{ obs_version }}" > "${dest_dir}/OBS_VERSION"
 
-# Build a minimal, fully static OpenCV (core + imgproc + imgcodecs, with its
-# third-party codecs bundled) into vendor/opencv-static. Once present, the
-# obs2 CMake build auto-detects it (OPENCV_STATIC) and links OpenCV statically,
-# so the resulting plugin is portable without needing a matching system OpenCV.
+# Compile OpenCV statically, so we don't have to depend on users having it
+# installed on their system in order to use the plugin.
 # Delete the prefix to force a rebuild.
 opencv-static:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    prefix="$(pwd)/{{ opencv_static_prefix }}"
-    if [ -f "${prefix}/lib/pkgconfig/opencv4.pc" ]; then
-      echo "Static OpenCV already built at ${prefix}"
-      echo "Delete it to rebuild: rm -rf ${prefix}"
+    if [ -f "${OPENCV_PREFIX}/lib/pkgconfig/opencv4.pc" ]; then
+      echo "Static OpenCV already built at ${OPENCV_PREFIX}"
+      echo "Delete it to rebuild: rm -rf ${OPENCV_PREFIX}"
       exit 0
     fi
 
@@ -160,7 +184,7 @@ opencv-static:
     # compile its own zlib/libpng/libjpeg so nothing is pulled from the host.
     "${cmake_bin}" -S "${src}" -B "${work}/build" \
       -D CMAKE_BUILD_TYPE=Release \
-      -D CMAKE_INSTALL_PREFIX="${prefix}" \
+      -D CMAKE_INSTALL_PREFIX="${OPENCV_PREFIX}" \
       -D BUILD_LIST=core,imgproc,imgcodecs \
       -D BUILD_SHARED_LIBS=OFF \
       -D ENABLE_PIC=ON \
@@ -189,7 +213,7 @@ opencv-static:
     "${cmake_bin}" --install "${work}/build"
 
     echo
-    echo "Static OpenCV installed to ${prefix}"
+    echo "Static OpenCV installed to ${OPENCV_PREFIX}"
     echo "Now run 'just make' / 'just obs' — CMake auto-detects the static prefix."
 
 run:
@@ -201,8 +225,8 @@ repl:
 upload dir:
     npm run upload -- {{ dir }}
 
-# download models and download llama-server
-setup: obs-headers
+# setup the repository for local development
+setup: obs-headers opencv-static
     OPENCV4NODEJS_DISABLE_AUTOBUILD=1 npm install
     cd obs2/browser && npm install
 
@@ -219,10 +243,11 @@ setup: obs-headers
     fi
 
 clean:
-    rm -rf "{{ obs_headers }}"
+    rm -rf "{{obs_headers}}"
     rm -rf "node_modules"
     rm -rf "obs2/browser/node_modules"
     rm -rf "obs2/ge_rust.h"
     rm -rf "obs2/build"
     rm -rf "esp32-input-monitor/.pio"
+    rm -rf "{{OPENCV_PREFIX}}"
     cd "obs2/rust" && cargo clean

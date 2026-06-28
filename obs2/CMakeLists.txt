@@ -62,104 +62,84 @@ endif()
 # over when CMake links the static archive into the plugin — we have to add
 # OpenCV (and the C++ stdlib) to the plugin's link line ourselves.
 #
-# We always link OpenCV statically from vendor/opencv-static (built by
-# `just opencv-static`). This makes the distributed plugin self-contained and
+# OpenCV is always linked statically from vendor/opencv-static (built by
+# `just opencv-static`), so the distributed plugin is self-contained and
 # portable — no dependency on a matching system OpenCV at runtime on any platform.
 set(GE_OPENCV_STATIC_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/vendor/opencv-static")
-# Auto-detect the vendored static OpenCV unless the caller pins it explicitly
-# with -DOPENCV_STATIC=ON/OFF. Deliberately not a cached option(): that would
-# go stale if the build was configured before `just opencv-static` ran, so we
-# re-detect on every configure instead.
-if(NOT DEFINED OPENCV_STATIC)
-  if(EXISTS "${GE_OPENCV_STATIC_PREFIX}/lib/pkgconfig/opencv4.pc")
-    set(OPENCV_STATIC ON)
-  else()
-    set(OPENCV_STATIC OFF)
-  endif()
-endif()
-
-if(OPENCV_STATIC)
-  if(NOT EXISTS "${GE_OPENCV_STATIC_PREFIX}/lib/pkgconfig/opencv4.pc")
-    message(FATAL_ERROR
-            "No vendored static OpenCV found at ${GE_OPENCV_STATIC_PREFIX}. "
-            "Build it first with: just opencv-static")
-  endif()
-  message(STATUS "Linking static OpenCV from ${GE_OPENCV_STATIC_PREFIX}")
-
-  # Put the vendored static install at the front of pkg-config's search path so
-  # both CMake (below) and cargo (the opencv-rust build) resolve this opencv4.pc
-  # instead of the system one. PKG_CONFIG_PATH is colon-separated.
-  set(_ge_static_pc
-      "${GE_OPENCV_STATIC_PREFIX}/lib/pkgconfig:${GE_OPENCV_STATIC_PREFIX}/lib64/pkgconfig")
-  if(DEFINED ENV{PKG_CONFIG_PATH})
-    set(ENV{PKG_CONFIG_PATH} "${_ge_static_pc}:$ENV{PKG_CONFIG_PATH}")
-  else()
-    set(ENV{PKG_CONFIG_PATH} "${_ge_static_pc}")
-  endif()
-
-  # Read the *static* link set (Libs + Libs.private) so we pick up OpenCV's
-  # bundled third-party archives (libpng, zlib, ...) and the required system
-  # libs, in the correct link order. The plugin links these raw flags directly.
-  pkg_check_modules(OPENCV REQUIRED opencv4)
-
-  # opencv-rust's own pkg-config probe doesn't pass `--static`, so it would miss
-  # the bundled third-party archives and fail to link test_match. Hand it the
-  # link set explicitly via the crate's `environment` probe, and disable the
-  # other probes so it can't silently fall back to the system OpenCV. This also
-  # makes cargo compile the C++ shim against the vendored headers, keeping the
-  # ABI in sync with the archives CMake links into the plugin below.
-  #
-  # We must feed opencv-rust the *real* archive basenames, not the pkg-config
-  # short names: OpenCV installs its bundled 3rdparty archives with a doubled
-  # "lib" prefix (liblibpng.a, liblibjpeg-turbo.a) and opencv-rust strips one
-  # leading "lib" (+ extension) from each name before emitting -l. Feeding it
-  # pkg-config's "libpng"/"libjpeg-turbo" yields -lpng/-ljpeg-turbo, which fails
-  # to find the archive (and would silently grab the system libpng); feeding the
-  # real "liblibpng.a" yields -llibpng, which resolves correctly.
-  file(GLOB _ge_cv_3rdparty "${GE_OPENCV_STATIC_PREFIX}/lib/opencv4/3rdparty/*.a")
-  # OpenCV modules first, in dependency order, then the bundled 3rdparty
-  # archives (GLOB sorts alphabetically: jpeg, png, zlib — png before zlib, as
-  # required), then the system libs the static build pulls in.
-  set(_ge_cv_libs_list
-        "static=libopencv_imgcodecs.a"
-        "static=libopencv_imgproc.a"
-        "static=libopencv_core.a")
-  foreach(_a ${_ge_cv_3rdparty})
-    get_filename_component(_b "${_a}" NAME)
-    list(APPEND _ge_cv_libs_list "static=${_b}")
-  endforeach()
-  # System libs that OpenCV's static archives pull in.  rt and dl are
-  # Linux-only; macOS provides equivalent functionality in libc itself.
-  if(APPLE)
-    list(APPEND _ge_cv_libs_list m pthread)
-  else()
-    list(APPEND _ge_cv_libs_list dl m pthread rt)
-  endif()
-
-  string(REPLACE ";" "," _ge_cv_include "${OPENCV_INCLUDE_DIRS}")
-  set(_ge_cv_libpaths
-        "${GE_OPENCV_STATIC_PREFIX}/lib,${GE_OPENCV_STATIC_PREFIX}/lib/opencv4/3rdparty")
-  string(REPLACE ";" "," _ge_cv_libs "${_ge_cv_libs_list}")
-  list(APPEND RUST_BUILD_ENV
-        "OPENCV_INCLUDE_PATHS=${_ge_cv_include}"
-        "OPENCV_LINK_PATHS=${_ge_cv_libpaths}"
-        "OPENCV_LINK_LIBS=${_ge_cv_libs}"
-        "OPENCV_DISABLE_PROBES=pkg_config,cmake,vcpkg_cmake,vcpkg")
-
-  # The full static link line (-L.../-l...) for the plugin's own link step.
-  # pkg_check_modules mangles "-framework Foo" from Libs.private into "-lFoo",
-  # which the linker rejects. Strip those here; the real frameworks are added
-  # explicitly via find_library() below.
-  # OPENCV_STATIC_LDFLAGS is a CMake list (semicolon-separated). pkg_check_modules
-  # splits "-framework AppKit" into two items: "-framework" and "AppKit". When
-  # passed to the linker the bare "AppKit" token becomes "-lAppKit", which fails.
-  # Remove both items; the framework is added explicitly via find_library() below.
-  set(GE_OPENCV_LINK ${OPENCV_STATIC_LDFLAGS})
-  list(REMOVE_ITEM GE_OPENCV_LINK "-framework" "AppKit")
-else()
+if(NOT EXISTS "${GE_OPENCV_STATIC_PREFIX}/lib/pkgconfig/opencv4.pc")
   message(FATAL_ERROR
-          "No vendored static OpenCV found. Run 'just opencv-static' first.")
+          "Vendored static OpenCV not found at ${GE_OPENCV_STATIC_PREFIX}.\n"
+          "Build it first with:  just opencv-static")
 endif()
+message(STATUS "Linking static OpenCV from ${GE_OPENCV_STATIC_PREFIX}")
+
+# Put the vendored static install at the front of pkg-config's search path so
+# both CMake (below) and cargo (the opencv-rust build) resolve this opencv4.pc
+# instead of the system one. PKG_CONFIG_PATH is colon-separated.
+set(_ge_static_pc
+    "${GE_OPENCV_STATIC_PREFIX}/lib/pkgconfig:${GE_OPENCV_STATIC_PREFIX}/lib64/pkgconfig")
+if(DEFINED ENV{PKG_CONFIG_PATH})
+  set(ENV{PKG_CONFIG_PATH} "${_ge_static_pc}:$ENV{PKG_CONFIG_PATH}")
+else()
+  set(ENV{PKG_CONFIG_PATH} "${_ge_static_pc}")
+endif()
+
+# Read the *static* link set (Libs + Libs.private) so we pick up OpenCV's
+# bundled third-party archives (libpng, zlib, ...) and the required system
+# libs, in the correct link order. The plugin links these raw flags directly.
+pkg_check_modules(OPENCV REQUIRED opencv4)
+
+# opencv-rust's own pkg-config probe doesn't pass `--static`, so it would miss
+# the bundled third-party archives and fail to link test_match. Hand it the
+# link set explicitly via the crate's `environment` probe, and disable the
+# other probes so it can't silently fall back to the system OpenCV. This also
+# makes cargo compile the C++ shim against the vendored headers, keeping the
+# ABI in sync with the archives CMake links into the plugin below.
+#
+# We must feed opencv-rust the *real* archive basenames, not the pkg-config
+# short names: OpenCV installs its bundled 3rdparty archives with a doubled
+# "lib" prefix (liblibpng.a, liblibjpeg-turbo.a) and opencv-rust strips one
+# leading "lib" (+ extension) from each name before emitting -l. Feeding it
+# pkg-config's "libpng"/"libjpeg-turbo" yields -lpng/-ljpeg-turbo, which fails
+# to find the archive (and would silently grab the system libpng); feeding the
+# real "liblibpng.a" yields -llibpng, which resolves correctly.
+file(GLOB _ge_cv_3rdparty "${GE_OPENCV_STATIC_PREFIX}/lib/opencv4/3rdparty/*.a")
+# OpenCV modules first, in dependency order, then the bundled 3rdparty
+# archives (GLOB sorts alphabetically: jpeg, png, zlib — png before zlib, as
+# required), then the system libs the static build pulls in.
+set(_ge_cv_libs_list
+      "static=libopencv_imgcodecs.a"
+      "static=libopencv_imgproc.a"
+      "static=libopencv_core.a")
+foreach(_a ${_ge_cv_3rdparty})
+  get_filename_component(_b "${_a}" NAME)
+  list(APPEND _ge_cv_libs_list "static=${_b}")
+endforeach()
+# System libs that OpenCV's static archives pull in.  rt and dl are
+# Linux-only; macOS provides equivalent functionality in libc itself.
+if(APPLE)
+  list(APPEND _ge_cv_libs_list m pthread)
+else()
+  list(APPEND _ge_cv_libs_list dl m pthread rt)
+endif()
+
+string(REPLACE ";" "," _ge_cv_include "${OPENCV_INCLUDE_DIRS}")
+set(_ge_cv_libpaths
+      "${GE_OPENCV_STATIC_PREFIX}/lib,${GE_OPENCV_STATIC_PREFIX}/lib/opencv4/3rdparty")
+string(REPLACE ";" "," _ge_cv_libs "${_ge_cv_libs_list}")
+list(APPEND RUST_BUILD_ENV
+      "OPENCV_INCLUDE_PATHS=${_ge_cv_include}"
+      "OPENCV_LINK_PATHS=${_ge_cv_libpaths}"
+      "OPENCV_LINK_LIBS=${_ge_cv_libs}"
+      "OPENCV_DISABLE_PROBES=pkg_config,cmake,vcpkg_cmake,vcpkg")
+
+# The full static link line (-L.../-l...) for the plugin's own link step.
+# OPENCV_STATIC_LDFLAGS is a CMake list (semicolon-separated). pkg_check_modules
+# splits "-framework AppKit" into two items: "-framework" and "AppKit". When
+# passed to the linker the bare "AppKit" token becomes "-lAppKit", which fails.
+# Remove both items; the framework is added explicitly via find_library() below.
+set(GE_OPENCV_LINK ${OPENCV_STATIC_LDFLAGS})
+list(REMOVE_ITEM GE_OPENCV_LINK "-framework" "AppKit")
 
 #
 # Build frontend
@@ -189,10 +169,17 @@ if(BROWSER_DEV)
         COMMENT "Skipping frontend build (BROWSER_DEV=ON; using dev-server redirect)"
     )
 else()
-  # Single source of truth for the embedded bundle path. Passed to the frontend
-  # build (svelte.config.js reads $BROWSER_BUNDLE to decide its output location)
-  # and to the Rust build (include_str!(env!("BROWSER_BUNDLE"))).
-  set(BROWSER_BUNDLE "${BROWSER_DIR}/build/index.html")
+  # The embedded bundle path. The justfile is the single source of truth and
+  # exports BROWSER_BUNDLE, so honour it from the environment when present; fall
+  # back to the standard build output when CMake is invoked directly (without
+  # the justfile env). Passed on to the frontend build (svelte.config.js reads
+  # $BROWSER_BUNDLE to decide its output location) and to the Rust build
+  # (include_str!(env!("BROWSER_BUNDLE"))).
+  if(DEFINED ENV{BROWSER_BUNDLE})
+    set(BROWSER_BUNDLE "$ENV{BROWSER_BUNDLE}")
+  else()
+    set(BROWSER_BUNDLE "${BROWSER_DIR}/build/index.html")
+  endif()
 
   # Track frontend sources and key build inputs so the bundle only rebuilds
   # when one of them is newer than the generated HTML.
