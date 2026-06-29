@@ -48,11 +48,11 @@ dev:
     trap 'kill "$dev_pid" 2>/dev/null || true' EXIT
     OBS_PLUGINS_PATH="$(pwd)" OBS_PLUGINS_DATA_PATH="$(pwd)" obs
 
-test: make-release
-    cd test && npm run test
+test *filter: make-release
+    cd test && npm run test -- {{filter}}
 
-test-watch: make-release
-    cd test && npm run test-watch
+test-watch *filter: make-release
+    cd test && npm run test-watch -- {{filter}}
 
 # runs the rust tests (cv matcher + monitor loop) against the fixture screenshots
 test-rust *args:

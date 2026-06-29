@@ -8,6 +8,9 @@ import { getLevel } from "./levels.ts";
 import { abbrDifficulty, NumberDifficultyMap, type Difficulty } from "./difficulty.ts";
 import { runners } from "./runners.ts";
 
+const [filter] = process.argv.slice(2);
+const filterRe = filter?.trim() ? new RegExp(filter) : null;
+
 const execCommand = async (command: string) => {
   try {
     return await promisify(cp.exec)(command);
@@ -79,9 +82,18 @@ interface Screenshot {
   name: string;
   results: TestResult[];
 }
-const results: Record<string, Screenshot[]> = {};
+const results: Record<
+  string,
+  { results: Screenshot[]; totalTests: number; totalChecks: number; passedChecks: number; skippedTests: number }
+> = {};
 for (const runner of runners) {
-  results[runner.name] = [];
+  results[runner.name] = {
+    totalChecks: 0,
+    totalTests: 0,
+    passedChecks: 0,
+    skippedTests: 0,
+    results: [],
+  };
   console.log(chalk.blue(`Running tests for ${chalk.cyan.bold(runner.name)}...`));
 
   // ┌─────────────────────────┐
@@ -114,15 +126,15 @@ for (const runner of runners) {
     );
   }
 
-  let totalTests = 0;
-  let passedTests = 0;
   for (const screenshot of screenshots) {
     const screenshotResult: Screenshot = { name: screenshot.tag + ": " + screenshot.name, results: [] };
 
-    if (screenshot.screen === "levels") {
-      // TODO: implement "screen" to match these
+    if (filterRe ? filterRe.exec(screenshot.filePath) === null : false) {
+      results[runner.name].skippedTests++;
       continue;
     }
+
+    results[runner.name].totalTests++;
 
     process.env.GE_LANG = screenshot.lang;
     const { stdout } = await execCommand(runner.command(screenshot.filePath)).finally(() => {
@@ -133,19 +145,19 @@ for (const runner of runners) {
     const testResult: TestResult = { runTime: result.runtime_ms };
 
     testResult.lang = { value: result.lang, pass: result.lang === screenshot.lang, expected: screenshot.lang };
-    totalTests += 1;
+    results[runner.name].totalChecks += 1;
 
     testResult.screen = {
       value: result.screen,
       pass: result.screen === screenshot.screen,
       expected: screenshot.screen,
     };
-    totalTests += 1;
+    results[runner.name].totalChecks += 1;
 
     if (["stats", "start", "complete", "failed", "abort", "kia"].includes(screenshot.screen)) {
       const resultLevel = getLevel(result.mission, result.part);
       testResult.level = { value: resultLevel, pass: resultLevel === screenshot.level, expected: screenshot.level };
-      totalTests += 1;
+      results[runner.name].totalChecks += 1;
 
       let resultDifficulty: Difficulty | undefined;
       resultDifficulty = NumberDifficultyMap.get(result.difficulty);
@@ -154,7 +166,7 @@ for (const runner of runners) {
         pass: resultDifficulty === screenshot.difficulty,
         expected: abbrDifficulty(screenshot.difficulty),
       };
-      totalTests += 1;
+      results[runner.name].totalChecks += 1;
     }
 
     if (screenshot.screen === "stats") {
@@ -170,7 +182,7 @@ for (const runner of runners) {
         pass: JSON.stringify(result.times) === JSON.stringify(times),
         expected: times,
       };
-      totalTests += 1;
+      results[runner.name].totalChecks += 1;
     } else {
       testResult.times = {
         value: result.times,
@@ -178,7 +190,7 @@ for (const runner of runners) {
         expected: [],
       };
       testResult.runTimePass = screenshot.tag === "emu" ? true : result.runtime_ms < 16;
-      totalTests += 2;
+      results[runner.name].totalChecks += 2;
     }
 
     {
@@ -194,11 +206,15 @@ for (const runner of runners) {
         lengthRuntime,
       );
       console.log(chalk.grey(`│ ${name} │ ${lang} │ ${screen} │ ${level} │ ${difficulty} │ ${times} │ ${execTime} │`));
-      passedTests += [testResult.lang, testResult.screen, testResult.level, testResult.difficulty, testResult.times].filter(
-        (r) => r?.pass,
-      ).length;
+      results[runner.name].passedChecks += [
+        testResult.lang,
+        testResult.screen,
+        testResult.level,
+        testResult.difficulty,
+        testResult.times,
+      ].filter((r) => r?.pass).length;
       if (testResult.runTimePass !== undefined && testResult.runTimePass) {
-        passedTests += 1;
+        results[runner.name].passedChecks += 1;
       }
 
       // Only add failing tests to the results.
@@ -212,8 +228,8 @@ for (const runner of runners) {
       ].some((result) => result);
 
       if (didFail) {
-        if (!results[runner.name].includes(screenshotResult)) {
-          results[runner.name].push(screenshotResult);
+        if (!results[runner.name].results.includes(screenshotResult)) {
+          results[runner.name].results.push(screenshotResult);
         }
 
         screenshotResult.results.push(testResult);
@@ -224,15 +240,18 @@ for (const runner of runners) {
   console.log(chalk.grey(`└${"─".repeat(lengthWidth)}┘`));
   // log the % of all passed tests
   {
-    const passed = chalk.green.bold(passedTests);
-    const total = chalk.bold(totalTests);
-    const pct = (passedTests / totalTests) * 100;
+    const passed = chalk.green.bold(results[runner.name].passedChecks);
+    const total = chalk.bold(results[runner.name].totalChecks);
+    const pct = (results[runner.name].passedChecks / results[runner.name].totalChecks) * 100;
     const pctStr = (pct === 100 ? chalk.green : chalk.red)(`${pct.toFixed(2)}%`);
-    console.log(chalk.blue(`Passed ${passed} out of ${total} tests: ${pctStr}`));
+    console.log(chalk.blue(`Passed ${passed} out of ${total} checks: ${pctStr}`));
+    console.log(
+      chalk.blue(`Total tests run: ${results[runner.name].totalTests} (skipped: ${results[runner.name].skippedTests})`),
+    );
   }
 
   console.log();
 }
 
-await fs.writeFile("test_results.json", JSON.stringify(results, null, 2), "utf-8");
+await fs.writeFile("test_results.json", JSON.stringify({ results }, null, 2), "utf-8");
 console.log(chalk.blue(`Test results written to ${chalk.cyan.bold("test_results.json")}`));

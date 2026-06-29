@@ -102,6 +102,25 @@ const SCREEN_THRESHOLD: f64 = 0.78;
 // (x, y, w, h) as fractions of the frame.
 const SCREEN_BANNER_REGION: (f64, f64, f64, f64) = (0.04, 0.39, 0.56, 0.11);
 const SCREEN_STATUS_REGION: (f64, f64, f64, f64) = (0.18, 0.47, 0.48, 0.10);
+// The mission-select grid ("levels" screen) carries none of the header colons
+// the other overlays share, so the entry gate rejects it. It is instead
+// recognized by the distinctive film-strip divider that separates its four
+// rows of level thumbnails: a tan horizontal bar flanked above and below by a
+// row of sprocket-hole dots. That divider is part of the static film-strip
+// frame, so it is present (and identical between en/jp) even while the
+// thumbnails are still loading in -- which the report/start overlays and busy
+// gameplay frames never reproduce. The template is matched across the band that
+// holds the three inner dividers; the strongest correlation above this
+// threshold classifies the frame as `Levels`.
+const LEVELS_THRESHOLD: f64 = 0.68;
+// (x, y, w, h) as fractions of the frame: a band over the left half of the
+// film strip spanning the first two inter-row dividers (~0.27 and ~0.50 of the
+// frame at every capture resolution). Two dividers give redundancy -- the
+// floating selection crosshair can sit over one mid-transition -- while a tight
+// band keeps the single template match cheap. The right tab ("PREVIOUS") and
+// the outer margins are excluded.
+const LEVELS_REGION: (f64, f64, f64, f64) = (0.04, 0.20, 0.52, 0.42);
+
 // Correlation needed to accept an individual digit/colon glyph.
 const GLYPH_THRESHOLD: f64 = 0.78;
 // Colon correlation required to anchor a mission-number search. Higher than the
@@ -198,6 +217,7 @@ pub enum Screen {
     Kia,
     Opts007,
     Select,
+    Levels,
 }
 
 impl Screen {
@@ -213,6 +233,7 @@ impl Screen {
             Screen::Kia => "kia",
             Screen::Opts007 => "007opts",
             Screen::Select => "select",
+            Screen::Levels => "levels",
         }
     }
 }
@@ -739,6 +760,9 @@ pub struct CvMatcher {
     status_failed: Mat,
     status_abort: Mat,
     status_kia: Mat,
+    // Film-strip divider of the mission-select grid, used to recognize the
+    // `Levels` screen (which carries no header colons for the gate to latch on).
+    levels: Mat,
     // Scale learned from the first resolved overlay; reused to fast-path every
     // later frame at the same source resolution.
     scale_cache: Mutex<Option<ScaleCache>>,
@@ -772,6 +796,7 @@ impl CvMatcher {
         let status_failed = load_template(templates_dir, lang, "status_failed")?;
         let status_abort = load_template(templates_dir, lang, "status_abort")?;
         let status_kia = load_template(templates_dir, lang, "status_kia")?;
+        let levels = load_template(templates_dir, lang, "levels")?;
 
         Ok(CvMatcher {
             parts,
@@ -786,6 +811,7 @@ impl CvMatcher {
             status_failed,
             status_abort,
             status_kia,
+            levels,
             scale_cache: Mutex::new(None),
         })
     }
@@ -815,6 +841,36 @@ impl CvMatcher {
             }
         }
         Ok((found, scale_used))
+    }
+
+    // Detects the mission-select grid by matching its film-strip divider in the
+    // band that holds the three inter-row dividers. Sweeps `scales` (the
+    // resolution-implied scale first) and stops at the first that clears the
+    // threshold, so an in-spec capture settles on the first try. Returns the
+    // peak correlation found.
+    fn detect_levels(&self, frame: &Mat, scales: &[f64]) -> Result<f64> {
+        if self.levels.empty() {
+            return Ok(-1.0);
+        }
+        let (rx, ry, rw, rh) = LEVELS_REGION;
+        let x0 = (frame.cols() as f64 * rx) as i32;
+        let y0 = (frame.rows() as f64 * ry) as i32;
+        let w = ((frame.cols() as f64 * rw) as i32).min(frame.cols() - x0).max(1);
+        let h = ((frame.rows() as f64 * rh) as i32).min(frame.rows() - y0).max(1);
+        let region = frame.roi(Rect::new(x0, y0, w, h))?;
+
+        let mut best = -1.0;
+        for &scale in scales {
+            let s = best_score(&region, &scaled(&self.levels, scale)?)?;
+            dbg_cv!("[levels] scale={scale:.3} score={s:.3}");
+            if s > best {
+                best = s;
+            }
+            if best >= LEVELS_THRESHOLD {
+                break;
+            }
+        }
+        Ok(best)
     }
 
     // Identifies the overlay screen by matching each screen's banner word in
@@ -976,6 +1032,15 @@ impl CvMatcher {
         );
         timer.lap("header gate");
         if !has_header {
+            // No header colons: this is gameplay, a transition, or the
+            // mission-select grid (which shares none of the header rows). Try to
+            // recognize the grid by its film-strip divider before giving up.
+            let levels_score = self.detect_levels(&frame, &scales)?;
+            if levels_score >= LEVELS_THRESHOLD {
+                result.screen = Screen::Levels;
+            }
+            dbg_cv!("[gate] no header; levels_score={levels_score:.3} => {:?}", result.screen);
+            timer.lap("levels detect");
             result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
             return Ok(result);
         }
