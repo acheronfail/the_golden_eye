@@ -34,18 +34,57 @@ export GE_CV_TEMPLATE_DIR := justfile_directory() / "obs2/cv_templates"
 _default:
     just -l
 
-# runs the project in dev mode (hot reloads for the UI)
+# runs the project in dev mode (hot reloads for the UI and the plugin)
+#
+# The plugin is split into a thin shim (loaded by OBS) and a "core" library
+# (the Rust logic + OpenCV), which the shim dlopen's. In dev mode the shim
+# watches the core library on disk and hot-reloads it whenever it's rebuilt —
+# so editing the SvelteKit UI *or* the Rust code reloads live without
+# restarting OBS. The loop below relinks the core whenever Rust sources change.
 dev:
     #!/usr/bin/env bash
     set -euo pipefail
+    root="$(pwd)"
+    # FIFO the rebuild loop pings to tell the plugin shim to hot-reload the core.
+    # Shared with the shim (dev_reload.c) via this env var.
+    export GE_RELOAD_FIFO="${TMPDIR:-/tmp}/ge_the_golden_eye.reload"
     mkdir -p obs2/build
     cd obs2/build
     cmake .. -DCMAKE_BUILD_TYPE=Debug -DBROWSER_DEV=ON
     make
+    build_dir="$(pwd)"
+
+    dev_pids=""
+    cleanup() { [ -n "$dev_pids" ] && kill $dev_pids 2>/dev/null || true; }
+    trap cleanup EXIT
+
+    # Vite dev server: hot reload for the SvelteKit SPA.
     ( cd ../browser && npm run dev ) &
-    dev_pid=$!
-    trap 'kill "$dev_pid" 2>/dev/null || true' EXIT
-    OBS_PLUGINS_PATH="$(pwd)" OBS_PLUGINS_DATA_PATH="$(pwd)" obs
+    dev_pids="$dev_pids $!"
+
+    # Rebuild the core library when the Rust sources change, then ping the shim
+    # so it hot-reloads the new core — a save in obs2/rust reloads inside the
+    # running OBS with no restart. (The ping is skipped until the shim has
+    # created the FIFO, i.e. once OBS has loaded the plugin.)
+    (
+      cd "$build_dir"
+      stamp="$(mktemp)"
+      while true; do
+        if [ -n "$(find "$root/obs2/rust/src" "$root/obs2/rust/Cargo.toml" -newer "$stamp" 2>/dev/null)" ]; then
+          touch "$stamp"
+          echo "[dev] rust change detected — rebuilding core…"
+          if make the_golden_eye_core; then
+            [ -p "$GE_RELOAD_FIFO" ] && ( printf '\n' > "$GE_RELOAD_FIFO" ) &
+          else
+            echo "[dev] core build failed; fix and save again"
+          fi
+        fi
+        sleep 1
+      done
+    ) &
+    dev_pids="$dev_pids $!"
+
+    OBS_PLUGINS_PATH="$build_dir" OBS_PLUGINS_DATA_PATH="$build_dir" obs
 
 test *filter: make-release
     cd test && npm run test -- {{filter}}

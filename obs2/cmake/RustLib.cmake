@@ -1,0 +1,79 @@
+# Rust static library build.
+#
+# Defines the `rust_build` custom target (cargo build) and the `rust_libs`
+# imported target that the core links against. Must be included after
+# OpenCVStatic (it inherits the OPENCV_* probe vars in RUST_BUILD_ENV) and
+# Frontend (rust_build depends on browser_build).
+
+set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
+
+# Built up as a CMake list so each flag expands to a separate cargo argument.
+set(CARGO_BUILD_FLAGS "")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(RUST_PROFILE "debug")
+else()
+  set(RUST_PROFILE "release")
+  list(APPEND CARGO_BUILD_FLAGS --release)
+endif()
+
+# Enable the crate's `dev` feature (permissive CORS) when serving the SPA from
+# the separate-origin Vite dev server.
+if(BROWSER_DEV)
+  list(APPEND CARGO_BUILD_FLAGS --features dev)
+endif()
+
+set(RUST_LIB "${RUST_DIR}/target/${RUST_PROFILE}/libge_rust.a")
+
+# https://github.com/twistedfall/opencv-rust/blob/master/INSTALL.md#macos-package
+if(APPLE)
+  # Get the active developer directory (works for both Xcode and Command Line Tools)
+  execute_process(
+        COMMAND xcode-select --print-path
+        OUTPUT_VARIABLE XCODE_DEVELOPER_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
+  # 1. Define the two possible paths where libclang.dylib could live
+  set(CLANG_PATH_XCODE "${XCODE_DEVELOPER_DIR}/Toolchains/XcodeDefault.xctoolchain/usr/lib")
+  set(CLANG_PATH_CLT "${XCODE_DEVELOPER_DIR}/usr/lib")
+
+  # 2. Determine which path actually exists on the machine
+  if(EXISTS "${CLANG_PATH_XCODE}")
+    set(CHOSEN_DYLD_PATH "${CLANG_PATH_XCODE}")
+  elseif(EXISTS "${CLANG_PATH_CLT}")
+    set(CHOSEN_DYLD_PATH "${CLANG_PATH_CLT}")
+  else()
+    message(FATAL_ERROR "Neither Xcode nor Command Line Tools, try running `xcode-select --install` first.")
+  endif()
+
+  # 3. Append to your Rust environment list
+  list(APPEND RUST_BUILD_ENV
+        "DYLD_FALLBACK_LIBRARY_PATH=${CHOSEN_DYLD_PATH}"
+        "LDFLAGS=-L/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib"
+        "LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}:/usr/local/lib"
+    )
+
+  if(CMAKE_OSX_DEPLOYMENT_TARGET)
+    list(APPEND RUST_BUILD_ENV "MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+  endif()
+endif()
+
+add_custom_target(rust_build ALL
+    COMMAND ${CMAKE_COMMAND} -E env "BROWSER_BUNDLE=${BROWSER_BUNDLE}" ${RUST_BUILD_ENV}
+            cargo build ${CARGO_BUILD_FLAGS} --all-targets
+    WORKING_DIRECTORY "${RUST_DIR}"
+    COMMENT "Building Rust static library (${RUST_PROFILE})"
+    VERBATIM
+)
+
+# The Rust crate embeds browser/build/index.html via include_str!, so the
+# frontend must be built (successfully) first. This also guarantees that a
+# failed browser_build stops the whole build before cargo runs.
+add_dependencies(rust_build browser_build)
+
+# Declare an imported target so we can add it to target_link_libraries.
+add_library(rust_libs STATIC IMPORTED GLOBAL)
+set_target_properties(rust_libs PROPERTIES
+    IMPORTED_LOCATION "${RUST_LIB}"
+)
+add_dependencies(rust_libs rust_build)

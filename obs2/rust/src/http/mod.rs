@@ -1,5 +1,6 @@
 mod routes;
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,7 +11,7 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::{get, post};
-use tokio::net::TcpListener;
+use tokio::net::TcpSocket;
 use tokio::sync::{Mutex, oneshot};
 use tower::ServiceBuilder;
 use tower_http::BoxError;
@@ -98,7 +99,16 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
 
     let app = app.with_state(state.clone());
 
-    let listener = TcpListener::bind(format!("0.0.0.0:{SERVER_PORT}")).await?;
+    // Build the listener with SO_REUSEADDR so we can rebind the port immediately
+    // after a previous server instance is torn down — without it, a client socket
+    // lingering in TIME_WAIT makes the bind fail with "address already in use",
+    // which is exactly what happens on a dev hot reload (stop server, start a new
+    // one on the same port).
+    let addr: SocketAddr = format!("0.0.0.0:{SERVER_PORT}").parse()?;
+    let socket = TcpSocket::new_v4()?;
+    socket.set_reuseaddr(true)?;
+    socket.bind(addr)?;
+    let listener = socket.listen(1024)?;
     tracing::info!("listening on {}", listener.local_addr()?);
     let _ = axum::serve(listener, app)
         .with_graceful_shutdown(async move {

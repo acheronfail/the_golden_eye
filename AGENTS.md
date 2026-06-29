@@ -9,17 +9,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The repo holds **two implementations** living side by side, plus an unrelated ESP32 firmware:
 
 - `obs/` — the original Node.js + OBS WebSocket implementation (driven by `just run`). Spawns a `llama.cpp` server for VLM-based text extraction and a pool of opencv4nodejs worker processes for template matching.
-- `obs2/` — the rewrite as a native OBS plugin (driven by `just obs` / `just dev`). A thin C plugin (`plugin.c`, `obs_bridge.c`) hosts a Rust static library (`obs2/rust/`) that runs an Axum HTTP server on port **31337** and serves a SvelteKit SPA. Template matching is done directly in Rust via the `opencv` crate. This is the "upcoming version."
+- `obs2/` — the rewrite as a native OBS plugin (driven by `just obs` / `just dev`). A thin C shim (`plugin.c`) is the module OBS loads; it `dlopen`s a separate "core" library (`core.c` + `obs_bridge.c`) that hosts a Rust static library (`obs2/rust/`) running an Axum HTTP server on port **31337** and serving a SvelteKit SPA. Template matching is done directly in Rust via the `opencv` crate. This is the "upcoming version."
 - `esp32-input-monitor/` — independent PlatformIO firmware that sniffs N64 controller DATA lines and exposes state over WebSocket. Has its own `README.md` and `pio` build; not wired into the rest of the repo.
 
 ## Architecture (obs2 — the active implementation)
 
 The runtime is a layered stack glued together by CMake:
 
-1. **C plugin** (`obs2/plugin.c`, `obs_bridge.c`) — entry point loaded by OBS. On `obs_module_load` it calls `ge_rust_start()`; on `OBS_FRONTEND_EVENT_STREAMING_STARTED` (for YouTube) it calls `ge_stream_notifier_start()`. `obs_bridge.c` exposes helpers to Rust (e.g. `ge_obs_get_source_frame` renders an OBS source to a BGRA buffer).
-2. **Rust staticlib** (`obs2/rust/`, crate `ge_rust`) — `lib.rs` owns a global `tokio::Runtime` inside a `Mutex<Option<ServerHandle>>`. FFI entry points (`ge_rust_start`, `ge_rust_stop`, `ge_stream_notifier_start/stop`) are `extern "C"` and spawn work onto the runtime without blocking the caller. `cv.rs` contains the level/time matcher; `stream_notifier.rs` posts Discord webhooks; `http/` is the Axum app.
-3. **Axum HTTP server** — listens on `0.0.0.0:31337`. Routes: `/api/v1/record/{start,stop}`, `/api/v1/sources`, `/api/v1/screenshot`, `/oauth/callback`, and `/` (serves the embedded SPA via `include_str!(env!("BROWSER_BUNDLE"))`). Shared `AppState` holds the pending OAuth oneshot sender, the last Discord stream message (so stop can edit it), and `Config`.
-4. **SvelteKit SPA** (`obs2/browser/`) — Svelte 5 + Tailwind v4 + Vite, built with `@sveltejs/adapter-static`. Output `build/index.html` is embedded into the Rust binary at compile time.
+1. **C shim** (`obs2/plugin.c`) — the library OBS actually loads. It contains no logic; `obs_module_load` `dlopen`s the core library (path baked in at build time as `GE_CORE_LIB_PATH`, overridable via the `GE_CORE_LIB` env var) with `RTLD_NOW` so link errors surface as a catchable, logged `dlopen` failure, then calls `ge_core_load()`. In dev builds (`GE_DEV`, set when `BROWSER_DEV=ON`) it dlopens a throwaway copy (the loader caches by path, so a fresh copy guarantees the rebuilt image loads) and arms the hot reload in `dev_reload.c`: a background thread blocks reading a FIFO (`GE_RELOAD_FIFO`), and on each ping reloads the core (`ge_core_unload` → `dlclose` → reopen → `ge_core_load`). The dev build pings the FIFO after each successful rebuild — no polling.
+2. **C core** (`obs2/core.c`, `obs_bridge.c`) — the heavy library the shim hosts. `ge_core_load` calls `ge_rust_start()` and registers the frontend callback; on `OBS_FRONTEND_EVENT_STREAMING_STARTED` (for YouTube) it calls `ge_stream_notifier_start()`. `ge_core_unload` tears it all down (`ge_rust_stop` blocks until the tokio runtime is gone, so no Rust threads survive the `dlclose`). `obs_bridge.c` exposes helpers to Rust (e.g. `ge_obs_get_source_frame` renders an OBS source to a BGRA buffer). Built as a plain shared library in `build/core/` (a subdir so OBS's plugin scan ignores it); links the Rust staticlib, OpenCV, and the OBS libs.
+3. **Rust staticlib** (`obs2/rust/`, crate `ge_rust`) — `lib.rs` owns a global `tokio::Runtime` inside a `Mutex<Option<ServerHandle>>`. FFI entry points (`ge_rust_start`, `ge_rust_stop`, `ge_stream_notifier_start/stop`) are `extern "C"` and spawn work onto the runtime without blocking the caller. `cv.rs` contains the level/time matcher; `stream_notifier.rs` posts Discord webhooks; `http/` is the Axum app.
+4. **Axum HTTP server** — listens on `0.0.0.0:31337`. Routes: `/api/v1/record/{start,stop}`, `/api/v1/sources`, `/api/v1/screenshot`, `/oauth/callback`, and `/` (serves the embedded SPA via `include_str!(env!("BROWSER_BUNDLE"))`). Shared `AppState` holds the pending OAuth oneshot sender, the last Discord stream message (so stop can edit it), and `Config`.
+5. **SvelteKit SPA** (`obs2/browser/`) — Svelte 5 + Tailwind v4 + Vite, built with `@sveltejs/adapter-static`. Output `build/index.html` is embedded into the Rust binary at compile time.
 
 ### Build coupling — important
 
@@ -34,7 +35,8 @@ A failed frontend build stops the chain before cargo runs — don't try to bypas
 **Dev mode** (`-DBROWSER_DEV=ON`, used by `just dev`):
 - Skips the SPA build. Embeds a tiny redirect HTML pointing at `http://localhost:5173` (the Vite dev server).
 - Enables the Rust `dev` feature, which adds permissive CORS so the SPA (different origin) can call the API.
-- `just dev` spins up `vite dev` in parallel with OBS — hot reloads work for the UI; only the plugin needs CMake rebuilds.
+- Compiles the shim with `GE_DEV`, enabling the core-library hot reload (see the C shim above).
+- `just dev` runs `vite dev` (UI hot reload) plus a watch loop that relinks the core (`make the_golden_eye_core`) when `obs2/rust` changes and then pings `GE_RELOAD_FIFO`; the shim hot-reloads the rebuilt core — so editing the UI *or* the Rust code reloads live without restarting OBS.
 
 ### Where things live
 
