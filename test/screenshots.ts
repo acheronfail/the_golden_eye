@@ -6,7 +6,7 @@ import { Difficulties, type Difficulty } from "./difficulty.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export const Screens = ["007opts", "abort", "complete", "kia", "failed", "levels", "select", "start", "stats"] as const;
+export const Screens = ["007opts", "abort", "complete", "kia", "failed", "levels", "select", "start", "stats", "unknown"] as const;
 export type Screen = (typeof Screens)[number];
 
 export interface ScreenshotInfo {
@@ -55,7 +55,7 @@ export const getScreenshots = async () => {
       throw new Error(`Invalid screen name in filename: ${entry}`);
     }
 
-    if (screen === "levels") {
+    if (screen === "levels" || screen === "unknown") {
       return { tag, name, lang, screen, extra, filePath };
     }
 
