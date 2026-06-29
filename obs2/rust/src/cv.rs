@@ -14,6 +14,7 @@
 use opencv::core::{self, Mat, Rect, Size, ToInputArray};
 use opencv::prelude::*;
 use opencv::{Result, imgcodecs, imgproc};
+use serde::Serialize;
 
 use std::sync::Mutex;
 
@@ -206,7 +207,7 @@ struct FoundMission {
 // post-mission report screens, by the status value ("Completed" / "FAILED" /
 // "ABORTED" / "KILLED IN ACTION"). `Unknown` covers gameplay and anything the
 // gate rejects.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Screen {
     Unknown,
     Start,
@@ -238,7 +239,7 @@ impl Screen {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct LevelMatch {
     pub screen: Screen,
     pub mission: i32,
@@ -929,8 +930,21 @@ impl CvMatcher {
         // Recover an off-scale overlay only when the implied scale resolved
         // nothing; the true screen's word climbs above the bar at its real
         // scale while the others stay well below it.
+        //
+        // The banner/status words are long, so their correlation is far more
+        // scale-sensitive than the short colon/digit/label glyphs that fix
+        // `scale` upstream: those tolerate a couple percent of scale error and
+        // still match, so `scale` can settle a hair off the overlay's true
+        // scale. A real-source capture whose overlay sits a few percent off the
+        // resolution-implied scale (composite/HDMI overscan) then peaks *between*
+        // the coarse 5% steps and is missed -- e.g. an av2hdmi start screen whose
+        // banner peaks at ~1.025x scores ~0.94 there but only ~0.73 at 1.0x and
+        // ~0.61 at 1.05x, so the old [0.95, 1.05, ...] ladder never saw it.
+        // Sweep in 2.5% steps out to +/-10% so that in-between peak is caught;
+        // the nearest deviations are tried first and the search stops at the
+        // first scale that clears the bar, so the recovery stays cheap.
         if best_score_v < SCREEN_THRESHOLD {
-            for m in [0.95, 1.05, 0.90, 1.10] {
+            for m in [0.975, 1.025, 0.95, 1.05, 0.925, 1.075, 0.90, 1.10] {
                 search(scale * m, &mut best, &mut best_score_v)?;
                 if best_score_v >= SCREEN_THRESHOLD {
                     break;

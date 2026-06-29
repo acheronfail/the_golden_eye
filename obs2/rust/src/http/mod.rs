@@ -85,6 +85,7 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         .route("/api/v1/monitor/stop", post(routes::monitor::handle_stop))
         .route("/api/v1/sources", get(routes::sources::handler))
         .route("/api/v1/screenshot", get(routes::screenshot::handler))
+        .route("/api/v1/match", post(routes::matcher::handler))
         .route(OAUTH_CALLBACK_PATH, get(routes::oauth::handle_callback))
         .route("/", get(routes::index::handler))
         // fallback for frontend spa

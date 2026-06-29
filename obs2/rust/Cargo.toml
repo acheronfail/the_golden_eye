@@ -28,6 +28,7 @@ cbindgen = "0.29.3"
 [dependencies]
 anyhow = "1.0.102"
 axum = { version = "0.8.9", features = ["macros"] }
+base64 = "0.22.1"
 bmp = "0.5.0"
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 opencv = "0.98.2"
