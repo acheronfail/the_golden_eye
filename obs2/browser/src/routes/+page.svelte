@@ -69,7 +69,10 @@
 		);
 		const blob = await res.blob();
 		const url = URL.createObjectURL(blob);
+
+		const old = imageData;
 		imageData = url;
+		if (old) URL.revokeObjectURL(old);
 	};
 
 	let screenshottingSource = $state<string | null>(null);
