@@ -17,8 +17,49 @@ use opencv::{Result, imgcodecs, imgproc};
 use serde::Serialize;
 
 use std::sync::Mutex;
+use std::sync::OnceLock;
+use std::thread;
 
 use crate::timer::PhaseTimer;
+
+// Cached count of usable cores. OpenCV here is built without TBB/OpenMP, so each
+// `match_template` pins a single core; the per-scale / per-template matches that
+// dominate match time are independent and are spread across the spare cores with
+// `par_map`. Queried once -- the value is fixed for the process.
+fn parallelism() -> usize {
+    static N: OnceLock<usize> = OnceLock::new();
+    *N.get_or_init(|| thread::available_parallelism().map(|p| p.get()).unwrap_or(1))
+}
+
+// Maps `f` over `0..n`, returning the results in index order. The work is split
+// into contiguous chunks run on scoped OS threads so the independent OpenCV
+// template matches in a sweep execute concurrently (a near-linear speedup on
+// multicore, since each match is single-threaded). Tiny `n` or a single-core
+// machine falls back to a serial map so the thread setup is only paid when it
+// wins. Order is preserved, so callers can replay any sequential selection
+// (e.g. early-exit-at-first-hit) over the results and get an identical answer.
+fn par_map<T, F>(n: usize, f: F) -> Vec<T>
+where
+    T: Send,
+    F: Fn(usize) -> T + Sync,
+{
+    let threads = parallelism().min(n);
+    if threads <= 1 {
+        return (0..n).map(f).collect();
+    }
+    let chunk = n.div_ceil(threads);
+    let f = &f;
+    let parts: Vec<Vec<T>> = thread::scope(|s| {
+        let handles: Vec<_> = (0..n)
+            .step_by(chunk)
+            .map(|base| {
+                s.spawn(move || (base..(base + chunk).min(n)).map(|i| f(i)).collect::<Vec<T>>())
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    parts.into_iter().flatten().collect()
+}
 
 // Set GE_CV_DEBUG to dump intermediate match scores/detections to stderr.
 fn dbg_on() -> bool {
@@ -189,6 +230,7 @@ struct FoundTime {
     seconds: i32,
 }
 
+#[derive(Clone, Copy)]
 struct FoundMission {
     mission: i32,
     score: f64,
@@ -325,10 +367,16 @@ fn best_label(
     scale: f64,
     threshold: f64,
 ) -> Result<i32> {
+    // Own the (small) region so the per-template closures can share a `&Mat`
+    // across the scoped threads, then match every label template in parallel.
+    let frame = frame.try_clone()?;
+    let frame = &frame;
+    let scores: Vec<Result<f64>> = par_map(templates.len(), |i| best_score(frame, &scaled(&templates[i], scale)?));
+
     let mut best = -1;
     let mut best_score_v = threshold;
-    for (i, t) in templates.iter().enumerate() {
-        let s = best_score(frame, &scaled(t, scale)?)?;
+    for (i, s) in scores.into_iter().enumerate() {
+        let s = s?;
         dbg_cv!("[label] idx={} scale={scale:.3} score={s:.3}", i + 1);
         if s >= best_score_v {
             best_score_v = s;
@@ -470,23 +518,38 @@ fn detect_header_colons(
         (frame.cols() as f64 * rw) as i32,
         (frame.rows() as f64 * rh) as i32,
     ))?;
+    // Materialize the ROI into an owned Mat once (the region is small) so the
+    // parallel scale closures can share a plain `&Mat` -- the BoxedRef a ROI
+    // yields is not Deref/Sync-shareable across the scoped threads.
+    let colon_region = colon_region.try_clone()?;
+    let colon_region = &colon_region;
 
-    for &scale in scales {
+    // Score every scale in parallel: each one resizes the colon template and
+    // counts suppressed colon hits in the region. The scales are independent,
+    // so this is the per-scale match work spread across cores.
+    let scored: Vec<Result<Option<(usize, f64)>>> = par_map(scales.len(), |i| {
+        let scale = scales[i];
         let colon_tmpl = scaled(base_colon, scale)?;
         if colon_tmpl.empty() || colon_tmpl.rows() > colon_region.rows() || colon_tmpl.cols() > colon_region.cols() {
-            continue;
+            return Ok(None);
         }
         let mut colons = Vec::new();
-        collect_detections(&colon_region, &colon_tmpl, threshold, 0, &mut colons)?;
+        collect_detections(colon_region, &colon_tmpl, threshold, 0, &mut colons)?;
         let colons = suppress(colons, colon_tmpl.cols(), colon_tmpl.rows(), 0.5);
         let peak = colons.iter().map(|d| d.score).fold(-1.0, f64::max);
-        // Prefer the scale that resolves the most colons (the full header
-        // stack), breaking ties on peak correlation.
-        if colons.len() > best.count || (colons.len() == best.count && peak > best.peak) {
-            best = HeaderColons { count: colons.len(), peak, scale };
+        Ok(Some((colons.len(), peak)))
+    });
+
+    // Replay the original sequential selection over the parallel results so the
+    // chosen scale is identical to the serial version: prefer the scale that
+    // resolves the most colons (the full header stack), breaking ties on peak
+    // correlation, and stop at the first scale that lands a confident header
+    // row pair (no later scale can change the outcome).
+    for (i, r) in scored.into_iter().enumerate() {
+        let Some((count, peak)) = r? else { continue };
+        if count > best.count || (count == best.count && peak > best.peak) {
+            best = HeaderColons { count, peak, scale: scales[i] };
         }
-        // A full header row pair at confident strength settles the gate; no
-        // later scale can change the outcome.
         if best.count >= 2 && best.peak >= TIME_GATE_STRONG_COLON {
             break;
         }
@@ -518,6 +581,12 @@ fn find_mission_from_colons(
     let colon_w = colon_tmpl.cols();
     let colon_h = colon_tmpl.rows();
 
+    // Own the region so the parallel per-digit closures can share a `&Mat`
+    // (a ROI yields a BoxedRef that the scoped threads cannot share). This is
+    // the native-resolution mission box, so it is small and cloned once.
+    let label_region = label_region.try_clone()?;
+    let label_region = &label_region;
+
     // Anchor only on confident colons. A real header colon clears ~0.9, while
     // the low glyph threshold would also match noise all over a textured
     // background -- each spurious hit then triggers a 10-digit search and an
@@ -526,45 +595,62 @@ fn find_mission_from_colons(
     collect_detections(label_region, colon_tmpl, COLON_ANCHOR_THRESHOLD, 0, &mut colons)?;
     let colons = suppress(colons, colon_w, colon_h, 0.5);
 
-    let mut best = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1 };
     let band_pad_x = digit_w * 2;
     let band_pad_y = digit_h;
 
-    for colon in &colons {
+    // Each (colon, digit) pair is an independent template search. At native
+    // resolution the digit templates are large and there can be several anchor
+    // colons, so this is the bulk of the mission cost; fan the pairs across the
+    // cores and reduce to the single strongest digit immediately left of a
+    // colon afterwards. Each work item returns its own best candidate so the
+    // final reduction reproduces the serial "highest-scoring digit wins".
+    let work: Vec<(usize, usize)> =
+        (0..colons.len()).flat_map(|c| (1..=9).map(move |v| (c, v))).collect();
+    let partials: Vec<Result<Option<FoundMission>>> = par_map(work.len(), |k| {
+        let (ci, v) = work[k];
+        let colon = colons[ci];
         let x0 = (colon.x - band_pad_x).max(0);
         let y0 = (colon.y - band_pad_y).max(0);
         let x1 = (colon.x + (colon_w / 2).max(1)).min(label_region.cols());
         let y1 = (colon.y + colon_h + band_pad_y).min(label_region.rows());
         if x1 <= x0 || y1 <= y0 {
-            continue;
+            return Ok(None);
         }
-
         let roi = label_region.roi(Rect::new(x0, y0, x1 - x0, y1 - y0))?;
         let colon_center_y = colon.y as f64 + colon_h as f64 / 2.0;
-        for v in 1..=9 {
-            let mut per_value = Vec::new();
-            collect_detections(&roi, &digit_tmpls[v], GLYPH_THRESHOLD, v as i32, &mut per_value)?;
-            for mut d in per_value {
-                d.x += x0;
-                d.y += y0;
-                if ((d.y as f64 + digit_h as f64 / 2.0) - colon_center_y).abs() >= digit_h as f64 * 0.35 {
-                    continue;
-                }
-                if (d.x + d.w) as f64 > colon.x as f64 + colon_w as f64 * 0.7 {
-                    continue;
-                }
-                let adj_left = (colon.x - (d.x + d.w)) as f64;
-                if adj_left < -(digit_w as f64) * 0.4 || adj_left > digit_w as f64 * 0.6 {
-                    continue;
-                }
-                if d.score >= best.score {
-                    best = FoundMission {
-                        mission: v as i32,
-                        score: d.score,
-                        colon_cx: colon.x + colon_w / 2,
-                        colon_cy: colon_center_y.round() as i32,
-                    };
-                }
+        let mut per_value = Vec::new();
+        collect_detections(&roi, &digit_tmpls[v], GLYPH_THRESHOLD, v as i32, &mut per_value)?;
+        let mut best: Option<FoundMission> = None;
+        for mut d in per_value {
+            d.x += x0;
+            d.y += y0;
+            if ((d.y as f64 + digit_h as f64 / 2.0) - colon_center_y).abs() >= digit_h as f64 * 0.35 {
+                continue;
+            }
+            if (d.x + d.w) as f64 > colon.x as f64 + colon_w as f64 * 0.7 {
+                continue;
+            }
+            let adj_left = (colon.x - (d.x + d.w)) as f64;
+            if adj_left < -(digit_w as f64) * 0.4 || adj_left > digit_w as f64 * 0.6 {
+                continue;
+            }
+            if best.map_or(true, |b| d.score >= b.score) {
+                best = Some(FoundMission {
+                    mission: v as i32,
+                    score: d.score,
+                    colon_cx: colon.x + colon_w / 2,
+                    colon_cy: colon_center_y.round() as i32,
+                });
+            }
+        }
+        Ok(best)
+    });
+
+    let mut best = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1 };
+    for p in partials {
+        if let Some(cand) = p? {
+            if cand.score >= best.score {
+                best = cand;
             }
         }
     }
@@ -771,6 +857,21 @@ pub struct CvMatcher {
 
 impl CvMatcher {
     pub fn new(lang: &str, templates_dir: &str) -> Result<Self> {
+        // Pin OpenCV's own parallel backend to a single thread. On macOS that
+        // backend is GCD, which fans every `match_template` out across the GCD
+        // thread pool. We instead drive parallelism explicitly with `par_map`
+        // (one thread per independent template/scale match), so leaving OpenCV
+        // multi-threaded too would oversubscribe the cores -- N concurrent
+        // matches each spawning M internal threads -- and produce large
+        // tail-latency spikes (frames occasionally taking 3-5x the median).
+        // One match == one core keeps the per-frame time tight and predictable,
+        // which is what matters for never missing a single-frame overlay.
+        // `GE_CV_THREADS` (the benchmarking hook) opts out so the internal
+        // backend can still be measured in isolation.
+        if std::env::var_os("GE_CV_THREADS").is_none() {
+            let _ = core::set_num_threads(1);
+        }
+
         // Load the label templates.
         let mut parts = Vec::new();
         for i in 1..=5 {
@@ -825,6 +926,13 @@ impl CvMatcher {
         let region = gray.roi(rect)?;
         let mut found = FoundMission { mission: -1, score: GLYPH_THRESHOLD, colon_cx: -1, colon_cy: -1 };
         let mut scale_used = scales.first().copied().unwrap_or(1.0);
+        // Sweep scales sequentially so the early-exit is preserved: a single
+        // scale's mission read is expensive at native resolution (the digit
+        // templates are large), so the resolution-implied scale -- tried first
+        // and almost always the right one -- must short-circuit the rest rather
+        // than every scale being matched up front. The parallelism instead lives
+        // inside `find_mission_from_colons`, which fans the per-digit searches of
+        // the one scale that runs across the cores.
         for &scale in scales {
             let colon_tmpl = scaled(&self.colon, scale)?;
             let mut digit_tmpls = Vec::with_capacity(10);
@@ -858,12 +966,20 @@ impl CvMatcher {
         let y0 = (frame.rows() as f64 * ry) as i32;
         let w = ((frame.cols() as f64 * rw) as i32).min(frame.cols() - x0).max(1);
         let h = ((frame.rows() as f64 * rh) as i32).min(frame.rows() - y0).max(1);
-        let region = frame.roi(Rect::new(x0, y0, w, h))?;
+        // Own the ROI so the parallel scale closures share a plain `&Mat`.
+        let region = frame.roi(Rect::new(x0, y0, w, h))?.try_clone()?;
+        let region = &region;
 
+        // Score the divider at every scale in parallel (the dominant cost on a
+        // rejected/unknown frame, where no scale clears the bar and all run).
+        let scores: Vec<Result<f64>> = par_map(scales.len(), |i| best_score(region, &scaled(&self.levels, scales[i])?));
+
+        // Replay the sequential early-exit selection so the result matches the
+        // serial version exactly: the first scale to clear the threshold wins.
         let mut best = -1.0;
-        for &scale in scales {
-            let s = best_score(&region, &scaled(&self.levels, scale)?)?;
-            dbg_cv!("[levels] scale={scale:.3} score={s:.3}");
+        for (i, s) in scores.into_iter().enumerate() {
+            let s = s?;
+            dbg_cv!("[levels] scale={:.3} score={s:.3}", scales[i]);
             if s > best {
                 best = s;
             }
@@ -915,12 +1031,17 @@ impl CvMatcher {
         let mut best = Screen::Unknown;
         let mut best_score_v = -1.0;
         let search = |scale: f64, best: &mut Screen, best_score_v: &mut f64| -> Result<()> {
-            for (scr, tmpl, region) in candidates {
-                let s = best_score(region, &scaled(tmpl, scale)?)?;
-                dbg_cv!("[screen] {scr:?} scale={scale:.3} score={s:.3}");
+            // Match all eight banner/status templates for this scale in parallel,
+            // then fold in index order so ties resolve exactly as the serial
+            // version did.
+            let scores: Vec<Result<f64>> =
+                par_map(candidates.len(), |i| best_score(candidates[i].2, &scaled(candidates[i].1, scale)?));
+            for (i, s) in scores.into_iter().enumerate() {
+                let s = s?;
+                dbg_cv!("[screen] {:?} scale={scale:.3} score={s:.3}", candidates[i].0);
                 if s > *best_score_v {
                     *best_score_v = s;
-                    *best = scr;
+                    *best = candidates[i].0;
                 }
             }
             Ok(())
@@ -1049,7 +1170,16 @@ impl CvMatcher {
             // No header colons: this is gameplay, a transition, or the
             // mission-select grid (which shares none of the header rows). Try to
             // recognize the grid by its film-strip divider before giving up.
-            let levels_score = self.detect_levels(&frame, &scales)?;
+            //
+            // Reuse the cached overlay scale when one is known: the film-strip
+            // divider scales with the frame exactly as the stats overlay does,
+            // so once any overlay frame this session has pinned the resolution's
+            // scale, the grid only needs checking at that one scale. This is the
+            // common steady-state path -- most gameplay frames have no header --
+            // so dropping it from a full ladder sweep to a single scale keeps the
+            // matcher cheap on every non-overlay frame. A cold session (no hint)
+            // still sweeps the full ladder via `gate_scales == scales`.
+            let levels_score = self.detect_levels(&frame, &gate_scales)?;
             if levels_score >= LEVELS_THRESHOLD {
                 result.screen = Screen::Levels;
             }
