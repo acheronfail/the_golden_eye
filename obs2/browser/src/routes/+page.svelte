@@ -73,7 +73,9 @@
 	};
 
 	const getScreenshot = (sourceName: string) => async () => {
-		const res = await fetch(apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}`));
+		const res = await fetch(
+			apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}&lang=${encodeURIComponent(lang)}`)
+		);
 		const blob = await res.blob();
 		const url = URL.createObjectURL(blob);
 		imageData = url;
@@ -85,7 +87,7 @@
 		const res = await fetch(apiUrl(`/api/v1/monitor/start`), {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ sourceName })
+			body: JSON.stringify({ sourceName, lang })
 		});
 		if (res.ok) {
 			monitoring = true;

@@ -24,6 +24,8 @@ pub struct MonitorHandle {
 pub struct StartParams {
     /// Name of the OBS source to monitor, as reported by `/api/v1/sources`.
     source_name: String,
+    /// Language of the templates to match against (e.g. `en`, `jp`).
+    lang: String,
 }
 
 /// Source of frames for the monitor loop. OBS captures in production; tests
@@ -75,13 +77,12 @@ pub struct MonitorSession {
 }
 
 impl MonitorSession {
-    /// Builds a session, reading `GE_CV_LANG` and `GE_CV_TEMPLATE_DIR` from the
-    /// environment (as the rest of the plugin does).
-    pub fn from_env() -> anyhow::Result<Self> {
-        let lang = std::env::var("GE_CV_LANG").map_err(|_| anyhow::anyhow!("GE_CV_LANG is not set"))?;
+    /// Builds a session with the given language, reading `GE_CV_TEMPLATE_DIR`
+    /// from the environment (as the rest of the plugin does).
+    pub fn from_env(lang: &str) -> anyhow::Result<Self> {
         let template_dir =
             std::env::var("GE_CV_TEMPLATE_DIR").map_err(|_| anyhow::anyhow!("GE_CV_TEMPLATE_DIR is not set"))?;
-        Self::new(&lang, &template_dir)
+        Self::new(lang, &template_dir)
     }
 
     /// Builds a session with an explicit language and template directory.
@@ -137,7 +138,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // Build the session (and its fresh, empty scale cache) up front so any
     // configuration error surfaces as a failed request rather than a thread that
     // silently exits.
-    let session = MonitorSession::from_env().map_err(|err| {
+    let session = MonitorSession::from_env(&params.lang).map_err(|err| {
         tracing::error!("failed to start monitor: {err}");
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher")
     })?;

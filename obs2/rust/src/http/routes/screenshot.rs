@@ -12,6 +12,8 @@ use crate::timer::PhaseTimer;
 pub struct Params {
     /// Name of the OBS source to capture, as reported by `/api/v1/sources`.
     source: String,
+    /// Language of the templates to match against (e.g. `en`, `jp`).
+    lang: String,
 }
 
 pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> {
@@ -19,12 +21,10 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
         CString::new(params.source).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
     let mut timer = PhaseTimer::new();
-    let lang = std::env::var("GE_CV_LANG");
-    let template_dir = std::env::var("GE_CV_TEMPLATE_DIR");
-    let matcher = match (lang, template_dir) {
-        (Ok(lang), Ok(template_dir)) => Some(crate::cv::CvMatcher::new(&lang, &template_dir).unwrap()),
-        (_, _) => {
-            tracing::error!("Please set GE_CV_LANG & GE_CV_TEMPLATE_DIR in the environment");
+    let matcher = match std::env::var("GE_CV_TEMPLATE_DIR") {
+        Ok(template_dir) => Some(crate::cv::CvMatcher::new(&params.lang, &template_dir).unwrap()),
+        Err(_) => {
+            tracing::error!("Please set GE_CV_TEMPLATE_DIR in the environment");
             None
         }
     };

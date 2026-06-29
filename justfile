@@ -29,7 +29,6 @@ export OPENCV_PREFIX := justfile_directory() /  "obs2/vendor/opencv-static"
 # Runtime variables
 #
 
-export GE_CV_LANG := "en"
 export GE_CV_TEMPLATE_DIR := justfile_directory() / "obs2/cv_templates"
 
 _default:
@@ -92,7 +91,6 @@ obs-flatpak: make-release
       --talk-name=org.freedesktop.secrets \
       --talk-name=org.freedesktop.portal.Desktop \
       --env=LD_LIBRARY_PATH="/app/lib" \
-      --env=GE_CV_LANG="{{GE_CV_LANG}}" \
       --env=GE_CV_TEMPLATE_DIR="{{GE_CV_TEMPLATE_DIR}}" \
       --env=OBS_PLUGINS_PATH="$(pwd)" \
       --env=OBS_PLUGINS_DATA_PATH="$(pwd)" \
