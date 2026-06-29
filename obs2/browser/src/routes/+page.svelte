@@ -5,7 +5,6 @@
 	let sources = $state<{ name: string; id: string }[]>([]);
 	let monitoring = $state(false);
 	let lang = $state<'en' | 'jp'>('jp');
-	let lastSourceUsed = $state<string | null>(null);
 	let statsScreenIndex = $state(0);
 	let startScreenIndex = $state(0);
 	let failedScreenIndex = $state(0);
@@ -45,16 +44,6 @@
 		return values;
 	});
 
-	let interval: number | null = null;
-	$effect(() => {
-		if (!lastSourceUsed) return;
-
-		interval = setInterval(() => {
-			lastSourceUsed && getScreenshot(lastSourceUsed)();
-		}, 150);
-		return () => interval && clearInterval(interval);
-	});
-
 	const saveScreenshotAndAdvance = (nameList: string[], index: number) => () => {
 		if (!imageData) throw new Error('cannot screenshot without image data');
 
@@ -74,13 +63,25 @@
 
 	const getScreenshot = (sourceName: string) => async () => {
 		const res = await fetch(
-			apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}&lang=${encodeURIComponent(lang)}`)
+			apiUrl(
+				`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}&lang=${encodeURIComponent(lang)}`
+			)
 		);
 		const blob = await res.blob();
 		const url = URL.createObjectURL(blob);
 		imageData = url;
+	};
 
-		lastSourceUsed = sourceName;
+	let screenshottingSource = $state<string | null>(null);
+	const stopScreenshotting = () => {
+		screenshottingSource = null;
+	};
+	const startScreenshotting = (sourceName: string) => async () => {
+		screenshottingSource = sourceName;
+		while (screenshottingSource) {
+			await getScreenshot(screenshottingSource)();
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
 	};
 
 	const startMonitor = (sourceName: string) => async () => {
@@ -139,10 +140,23 @@
 					<li class="flex gap-4">
 						{source.name}
 						{#if ['screen_capture', 'macos-avcapture', 'macos-avcapture-fast', 'v4l2_input'].includes(source.id)}
-							<button
-								class="ml-2 rounded bg-blue-500 px-2 py-1 text-white hover:bg-blue-600"
-								onclick={getScreenshot(source.name)}>get screenshot</button
-							>
+							{#if !screenshottingSource}
+								<button
+									class="ml-2 rounded bg-blue-500 px-2 py-1 text-white hover:bg-blue-600"
+									onclick={getScreenshot(source.name)}>get screenshot</button
+								>
+							{/if}
+							{#if screenshottingSource}
+								<button
+									class="ml-2 rounded bg-red-500 px-2 py-1 text-white hover:bg-red-600"
+									onclick={stopScreenshotting}>stop screenshotting</button
+								>
+							{:else}
+								<button
+									class="ml-2 rounded bg-amber-500 px-2 py-1 text-white hover:bg-amber-600"
+									onclick={startScreenshotting(source.name)}>start screenshotting</button
+								>
+							{/if}
 							{#if !monitoring}
 								<button
 									class="ml-2 rounded bg-green-500 px-2 py-1 text-white hover:bg-green-600"
@@ -220,16 +234,14 @@
 				>
 				<button
 					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
-					onclick={() =>
-						(statsScreenIndex = (statsScreenIndex + 1) % statsScreenNames.length)}>+1</button
+					onclick={() => (statsScreenIndex = (statsScreenIndex + 1) % statsScreenNames.length)}
+					>+1</button
 				>
 				<button
 					class="rounded bg-blue-500 px-2 py-1 font-mono text-sm text-white hover:bg-blue-600"
 					onclick={() =>
-						(statsScreenIndex = saveScreenshotAndAdvance(
-							statsScreenNames,
-							statsScreenIndex
-						)())}>save "{statsScreenNames[statsScreenIndex]}.bmp"</button
+						(statsScreenIndex = saveScreenshotAndAdvance(statsScreenNames, statsScreenIndex)())}
+					>save "{statsScreenNames[statsScreenIndex]}.bmp"</button
 				>
 			</div>
 
