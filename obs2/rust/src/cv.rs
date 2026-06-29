@@ -616,6 +616,16 @@ fn find_times_band(
 
         let minutes = l1.value * 10 + l0.value;
         let seconds = r0.value * 10 + r1.value;
+        // A time is an "mm:ss" value capped at 0x3ff (1023) seconds, so its
+        // seconds field is always 0-59 and its minutes field never exceeds 17
+        // (17:02 = 1022 is the largest in-range value; 18:00 already overflows).
+        // A phantom colon landing a few pixels from a real one reads its
+        // neighbouring glyphs in the wrong order and yields an impossible field
+        // (e.g. "11:71" off the "01:17" row); rejecting out-of-range minutes or
+        // seconds drops that bogus reading without touching any genuine time.
+        if seconds >= 60 || minutes > 17 {
+            continue;
+        }
         let total_seconds = minutes * 60 + seconds;
         if total_seconds < 0x3ff {
             times.push(FoundTime { y: colon.y, x: colon.x, seconds: total_seconds });

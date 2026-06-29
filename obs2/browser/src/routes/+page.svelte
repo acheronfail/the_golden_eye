@@ -38,7 +38,7 @@
 		const values: string[] = [];
 		for (let i = 1; i <= 20; i++) {
 			for (const d of ['Agent', 'Secret Agent', '00 Agent']) {
-				values.push(`${lang} - stats - ${i} - ${d} - TODO`);
+				values.push(`${lang} - stats - ${i} - ${d} - TIMES_HERE`);
 			}
 		}
 
