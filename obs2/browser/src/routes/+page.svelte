@@ -4,6 +4,32 @@
 	let imageData = $state<string | null>(null);
 	let sources = $state<{ name: string; id: string }[]>([]);
 	let monitoring = $state(false);
+	let screenIndex = $state(0);
+	let lang = $state<'en' | 'jp'>('jp');
+	let lastSourceUsed = $state<string | null>(null);
+
+	let allScreenshotNames = $derived.by(() => {
+		const values: string[] = [];
+		for (let i = 1; i <= 20; i++) {
+			for (const d of ['Agent', 'Secret Agent', '00 Agent']) {
+				values.push(`${lang} - start - ${i} - ${d}`);
+			}
+		}
+
+		return values;
+	});
+
+	const saveScreenshotAndAdvance = async () => {
+		if (!imageData) return;
+
+		const link = document.createElement('a');
+		link.href = imageData;
+		link.download = `${allScreenshotNames[screenIndex]}.bmp`;
+		link.click();
+
+		screenIndex = (screenIndex + 1) % allScreenshotNames.length;
+		lastSourceUsed && (await getScreenshot(lastSourceUsed)());
+	};
 
 	const getSources = async () => {
 		const res = await fetch(apiUrl('/api/v1/sources'));
@@ -16,6 +42,8 @@
 		const blob = await res.blob();
 		const url = URL.createObjectURL(blob);
 		imageData = url;
+
+		lastSourceUsed = sourceName;
 	};
 
 	const startMonitor = (sourceName: string) => async () => {
@@ -47,9 +75,19 @@
 
 <div>
 	<h1 class="mb-4 text-2xl font-bold">Welcome to Goldeneye!</h1>
-	<p class="mb-4">
-		This is the main dashboard. Here you can set up your ROIs and view the live feed from OBS.
-	</p>
+	<p class="mb-4">This is the main dashboard.</p>
+
+	<fieldset class="mb-4">
+		<legend class="mb-2 font-semibold">Language:</legend>
+		<label class="mr-4">
+			<input type="radio" name="lang" value="en" bind:group={lang} />
+			English
+		</label>
+		<label>
+			<input type="radio" name="lang" value="jp" bind:group={lang} />
+			Japanese
+		</label>
+	</fieldset>
 
 	<button
 		class="mb-4 rounded bg-blue-500 px-4 py-2 font-semibold text-white hover:bg-blue-600"
@@ -85,14 +123,28 @@
 			</ul>
 		</div>
 	{:else}
-		<p class="mb-4 text-gray-500">
-			No sources found. Please make sure OBS is running and has sources set up.
-		</p>
+		<p class="mb-4 text-gray-500">No sources, click "get sources" to fetch them from OBS.</p>
 	{/if}
 
 	{#if imageData}
-		<div class="mb-4">
-			<h2 class="mb-2 text-xl font-semibold">Screenshot:</h2>
+		<div class="flex w-1/2 flex-col gap-4 p-2">
+			<h2 class="text-xl font-semibold">Screenshot:</h2>
+			<div class="flex flex-row gap-2">
+				<button
+					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
+					onclick={() =>
+						(screenIndex =
+							(screenIndex - 1 + allScreenshotNames.length) % allScreenshotNames.length)}>-1</button
+				>
+				<button
+					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
+					onclick={() => (screenIndex = (screenIndex + 1) % allScreenshotNames.length)}>+1</button
+				>
+				<button
+					class="rounded bg-blue-500 px-2 py-1 font-mono text-sm text-white hover:bg-blue-600"
+					onclick={saveScreenshotAndAdvance}>save "{allScreenshotNames[screenIndex]}.bmp"</button
+				>
+			</div>
 			<img src={imageData} alt="OBS Screenshot" class="max-w-full rounded" />
 		</div>
 	{/if}

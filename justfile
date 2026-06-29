@@ -49,10 +49,10 @@ dev:
     OBS_PLUGINS_PATH="$(pwd)" OBS_PLUGINS_DATA_PATH="$(pwd)" obs
 
 test: make-release
-    npm run test
+    cd test && npm run test
 
 test-watch: make-release
-    npm run test-watch
+    cd test && npm run test-watch
 
 # runs the rust tests (cv matcher + monitor loop) against the fixture screenshots
 test-rust *args:
@@ -242,6 +242,7 @@ _setup-legacy:
 # setup the repository for local development
 setup: obs-headers opencv-static
     cd obs2/browser && npm install
+    cd test && npm install
 
 clean:
     rm -rf "{{obs_headers}}"
