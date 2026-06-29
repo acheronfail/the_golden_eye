@@ -34,6 +34,7 @@ const formatCheckResult = (result: CheckResult | undefined): string => {
 
 interface TestResult {
   lang?: CheckResult;
+  screen?: CheckResult;
   level?: CheckResult;
   difficulty?: CheckResult;
   times?: CheckResult;
@@ -43,6 +44,7 @@ interface TestResult {
 
 const lengthName = Math.max(...screenshots.map((s) => s.tag.length + ": ".length + s.name.length), "Test".length);
 const lengthLang = 6; // " Lang "
+const lengthScreen = 9; // " 007opts "
 const lengthLevel = 11; // " Surface 2 "
 const lengthDifficulty = 12; // " Difficulty "
 const lengthTimes = 13; // " SSS,SSS,SSS "
@@ -50,12 +52,13 @@ const lengthRuntime = 10; // " 1234.56 ms "
 const lengthWidth =
   lengthName +
   lengthLang +
+  lengthScreen +
   lengthLevel +
   lengthDifficulty +
   lengthTimes +
   lengthRuntime +
-  12 /* padding */ +
-  5; /* separators */
+  14 /* padding */ +
+  6; /* separators */
 
 const padText = (text: string, width: number, align: "left" | "center" | "right" = "center"): string => {
   const padding = Math.max(0, width - stripAnsi(text).length);
@@ -100,6 +103,7 @@ for (const runner of runners) {
           [
             h("Test", lengthName),
             h("Lang", lengthLang),
+            h("Screen", lengthScreen),
             h("Level", lengthLevel),
             h("Difficulty", lengthDifficulty),
             h("Times", lengthTimes),
@@ -131,7 +135,12 @@ for (const runner of runners) {
     testResult.lang = { value: result.lang, pass: result.lang === screenshot.lang, expected: screenshot.lang };
     totalTests += 1;
 
-    // TODO: add a test for "screen" so the matcher knows which screen is which
+    testResult.screen = {
+      value: result.screen,
+      pass: result.screen === screenshot.screen,
+      expected: screenshot.screen,
+    };
+    totalTests += 1;
 
     if (["stats", "start", "complete", "failed", "abort", "kia"].includes(screenshot.screen)) {
       const resultLevel = getLevel(result.mission, result.part);
@@ -175,6 +184,7 @@ for (const runner of runners) {
     {
       const name = padText(chalk.white(screenshot.tag + ": " + screenshot.name), lengthName, "left");
       const lang = padText(formatCheckResult(testResult.lang), lengthLang);
+      const screen = padText(formatCheckResult(testResult.screen), lengthScreen);
       const level = padText(formatCheckResult(testResult.level), lengthLevel);
       const difficulty = padText(formatCheckResult(testResult.difficulty), lengthDifficulty);
       const times = padText(formatCheckResult(testResult.times), lengthTimes);
@@ -183,8 +193,8 @@ for (const runner of runners) {
         (testResult.runTimePass === false ? chalk.red : chalk.white)(runTimeText),
         lengthRuntime,
       );
-      console.log(chalk.grey(`│ ${name} │ ${lang} │ ${level} │ ${difficulty} │ ${times} │ ${execTime} │`));
-      passedTests += [testResult.lang, testResult.level, testResult.difficulty, testResult.times].filter(
+      console.log(chalk.grey(`│ ${name} │ ${lang} │ ${screen} │ ${level} │ ${difficulty} │ ${times} │ ${execTime} │`));
+      passedTests += [testResult.lang, testResult.screen, testResult.level, testResult.difficulty, testResult.times].filter(
         (r) => r?.pass,
       ).length;
       if (testResult.runTimePass !== undefined && testResult.runTimePass) {
@@ -195,6 +205,7 @@ for (const runner of runners) {
       const didFail = [
         testResult.difficulty?.pass === false,
         testResult.lang?.pass === false,
+        testResult.screen?.pass === false,
         testResult.level?.pass === false,
         testResult.runTimePass === false,
         testResult.times?.pass === false,

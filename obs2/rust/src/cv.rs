@@ -87,19 +87,21 @@ const HEADER_REGION_W: f64 = 0.56;
 const HEADER_REGION_Y: f64 = 0.18;
 const HEADER_REGION_H: f64 = 0.30;
 
-// Region searched for the "PRIMARY OBJECTIVES:" banner that marks the level-start
-// (briefing) screen. It sits in the upper-middle of the frame, below the header
-// rows. A generous box absorbs the overlay drift that composite/HDMI capture
-// introduces.
-const OBJECTIVES_REGION_X: f64 = 0.05;
-const OBJECTIVES_REGION_W: f64 = 0.80;
-const OBJECTIVES_REGION_Y: f64 = 0.32;
-const OBJECTIVES_REGION_H: f64 = 0.25;
-// Correlation needed to accept the objectives banner. The banner is a long,
-// distinctive string that clears ~0.94 even on softened composite captures,
-// while stats screens (no banner) top out below 0.70 in this band, so a
-// threshold in between cleanly separates the two screens.
-const OBJECTIVES_THRESHOLD: f64 = 0.82;
+// Screen classification. Every header screen carries a banner word one line
+// below the "<Difficulty>:" / "Mission N:" / "Part <roman>:" stack
+// ("PRIMARY OBJECTIVES:", "STATISTICS:", "SPECIAL OPTIONS:", "DIFFICULTY:");
+// the four post-mission report screens instead carry the same "REPORT:" banner
+// and are told apart by the status value one line lower ("Completed" /
+// "FAILED" / "ABORTED" / "KILLED IN ACTION"). The banner sits in the upper
+// band below the header; the status value sits in the band just beneath it,
+// left of the per-objective result column on the right. Each template is
+// matched in its band and the strongest above this threshold wins. The bands
+// are kept generous so composite/HDMI overlay drift still lands the text
+// inside them.
+const SCREEN_THRESHOLD: f64 = 0.78;
+// (x, y, w, h) as fractions of the frame.
+const SCREEN_BANNER_REGION: (f64, f64, f64, f64) = (0.04, 0.39, 0.56, 0.11);
+const SCREEN_STATUS_REGION: (f64, f64, f64, f64) = (0.18, 0.47, 0.48, 0.10);
 // Correlation needed to accept an individual digit/colon glyph.
 const GLYPH_THRESHOLD: f64 = 0.78;
 // Colon correlation required to anchor a mission-number search. Higher than the
@@ -178,8 +180,46 @@ struct FoundMission {
     colon_cy: i32,
 }
 
+// Which overlay screen a frame shows. All of these except `Levels` (the
+// unimplemented mission grid) share the mission/part/difficulty header; they
+// are told apart by the banner word below it ("STATISTICS:", "SPECIAL
+// OPTIONS:", "DIFFICULTY:", "PRIMARY OBJECTIVES:") or, for the four
+// post-mission report screens, by the status value ("Completed" / "FAILED" /
+// "ABORTED" / "KILLED IN ACTION"). `Unknown` covers gameplay and anything the
+// gate rejects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Screen {
+    Unknown,
+    Start,
+    Stats,
+    Complete,
+    Failed,
+    Abort,
+    Kia,
+    Opts007,
+    Select,
+}
+
+impl Screen {
+    // Strings match the `ScreenshotInfo.screen` values used by the test suite.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Screen::Unknown => "unknown",
+            Screen::Start => "start",
+            Screen::Stats => "stats",
+            Screen::Complete => "complete",
+            Screen::Failed => "failed",
+            Screen::Abort => "abort",
+            Screen::Kia => "kia",
+            Screen::Opts007 => "007opts",
+            Screen::Select => "select",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct LevelMatch {
+    pub screen: Screen,
     pub mission: i32,
     pub part: i32,
     pub difficulty: i32,
@@ -191,7 +231,14 @@ pub struct LevelMatch {
 // Returns an empty Mat when the file is missing or unreadable.
 fn load_template(dir: &str, lang: &str, name: &str) -> Result<Mat> {
     let path = format!("{dir}/{lang}-{name}.png");
-    // imread returns an empty Mat (not an error) when the file is missing.
+    // Some templates are intentionally absent for a language (e.g. jp has no
+    // difficulty-select banner). Skip the read in that case so OpenCV does not
+    // log a spurious "can't open/read file" warning; an empty Mat means the
+    // same "no template" to every caller.
+    if !std::path::Path::new(&path).exists() {
+        return Ok(Mat::default());
+    }
+    // imread returns an empty Mat (not an error) when the file is unreadable.
     imgcodecs::imread(&path, imgcodecs::IMREAD_GRAYSCALE)
 }
 
@@ -218,6 +265,11 @@ fn blurred(tmpl: &Mat) -> Result<Mat> {
 
 // Returns `tmpl` resized by `scale` then softened to match blurry sources.
 fn scaled(tmpl: &Mat, scale: f64) -> Result<Mat> {
+    // A missing template loads as an empty Mat (e.g. jp has no difficulty-select
+    // banner); resizing it would assert, so pass it through untouched.
+    if tmpl.empty() {
+        return tmpl.try_clone();
+    }
     if scale == 1.0 {
         return blurred(tmpl);
     }
@@ -673,11 +725,20 @@ pub struct CvMatcher {
     diffs: Vec<Mat>,
     colon: Mat,
     digits: Vec<Mat>,
-    // "PRIMARY OBJECTIVES:" banner. Present only on the level-start (briefing)
-    // screen, which shares the mission/part/difficulty header with the stats
-    // screen but carries no time rows. Detecting it lets the matcher report the
-    // start screen's labels without mistaking its objective list for times.
+    // Banner templates that identify the screen. `objectives` ("PRIMARY
+    // OBJECTIVES:") marks the level-start briefing; `statistics` ("STATISTICS:")
+    // the post-mission stats screen; `special` ("SPECIAL OPTIONS:") the 007
+    // options screen; `difficulty` ("DIFFICULTY:") the difficulty-select screen.
     objectives: Mat,
+    statistics: Mat,
+    special: Mat,
+    difficulty: Mat,
+    // Status-value templates for the four report screens, which share a
+    // "REPORT:" banner and differ only in the status word one line below.
+    status_complete: Mat,
+    status_failed: Mat,
+    status_abort: Mat,
+    status_kia: Mat,
     // Scale learned from the first resolved overlay; reused to fast-path every
     // later frame at the same source resolution.
     scale_cache: Mutex<Option<ScaleCache>>,
@@ -704,8 +765,29 @@ impl CvMatcher {
         }
 
         let objectives = load_template(templates_dir, lang, "objectives")?;
+        let statistics = load_template(templates_dir, lang, "statistics")?;
+        let special = load_template(templates_dir, lang, "special")?;
+        let difficulty = load_template(templates_dir, lang, "difficulty")?;
+        let status_complete = load_template(templates_dir, lang, "status_complete")?;
+        let status_failed = load_template(templates_dir, lang, "status_failed")?;
+        let status_abort = load_template(templates_dir, lang, "status_abort")?;
+        let status_kia = load_template(templates_dir, lang, "status_kia")?;
 
-        Ok(CvMatcher { parts, diffs, colon, digits, objectives, scale_cache: Mutex::new(None) })
+        Ok(CvMatcher {
+            parts,
+            diffs,
+            colon,
+            digits,
+            objectives,
+            statistics,
+            special,
+            difficulty,
+            status_complete,
+            status_failed,
+            status_abort,
+            status_kia,
+            scale_cache: Mutex::new(None),
+        })
     }
 
     // Reads the mission number inside `rect` of the native-resolution `gray`,
@@ -735,30 +817,73 @@ impl CvMatcher {
         Ok((found, scale_used))
     }
 
-    // True when the "PRIMARY OBJECTIVES:" banner is present, i.e. this is the
-    // level-start briefing screen rather than the post-mission stats screen.
-    // The banner sits in the upper-middle of the frame; it is matched there at
-    // the header scale already established from the mission glyphs.
-    fn detect_briefing(&self, frame: &Mat, scale: f64) -> Result<bool> {
-        if self.objectives.empty() {
-            return Ok(false);
+    // Identifies the overlay screen by matching each screen's banner word in
+    // the band below the header, and the four report screens' status values in
+    // the band beneath that, at the scale already established from the header
+    // glyphs. The strongest match above the threshold wins; nothing above it
+    // leaves the screen `Unknown`. Reading the screen lets the caller skip the
+    // time search on every screen but `Stats` (the only one with timed rows).
+    //
+    // A single scale is enough for the common case because the banner/status
+    // words are short and scale-tolerant -- the long "KILLED IN ACTION" status
+    // is templated on just its distinctive "ACTION" so it stays as tolerant as
+    // the rest. Only when that single pass comes up `Unknown` (an overlay
+    // captured a few percent off the header-implied scale) is a small
+    // neighbour-scale sweep run to recover it, so the per-frame cost stays at
+    // one match per template for nearly every frame.
+    fn classify_screen(&self, frame: &Mat, scale: f64) -> Result<Screen> {
+        // Sub-region of `frame` given as fractional (x, y, w, h).
+        let region = |r: (f64, f64, f64, f64)| -> Result<Mat> {
+            let (rx, ry, rw, rh) = r;
+            let x0 = (frame.cols() as f64 * rx) as i32;
+            let y0 = (frame.rows() as f64 * ry) as i32;
+            let w = ((frame.cols() as f64 * rw) as i32).min(frame.cols() - x0).max(1);
+            let h = ((frame.rows() as f64 * rh) as i32).min(frame.rows() - y0).max(1);
+            frame.roi(Rect::new(x0, y0, w, h))?.try_clone()
+        };
+        let banner = region(SCREEN_BANNER_REGION)?;
+        let status = region(SCREEN_STATUS_REGION)?;
+
+        let candidates: [(Screen, &Mat, &Mat); 8] = [
+            (Screen::Start, &self.objectives, &banner),
+            (Screen::Stats, &self.statistics, &banner),
+            (Screen::Opts007, &self.special, &banner),
+            (Screen::Select, &self.difficulty, &banner),
+            (Screen::Complete, &self.status_complete, &status),
+            (Screen::Failed, &self.status_failed, &status),
+            (Screen::Abort, &self.status_abort, &status),
+            (Screen::Kia, &self.status_kia, &status),
+        ];
+
+        let mut best = Screen::Unknown;
+        let mut best_score_v = -1.0;
+        let search = |scale: f64, best: &mut Screen, best_score_v: &mut f64| -> Result<()> {
+            for (scr, tmpl, region) in candidates {
+                let s = best_score(region, &scaled(tmpl, scale)?)?;
+                dbg_cv!("[screen] {scr:?} scale={scale:.3} score={s:.3}");
+                if s > *best_score_v {
+                    *best_score_v = s;
+                    *best = scr;
+                }
+            }
+            Ok(())
+        };
+
+        search(scale, &mut best, &mut best_score_v)?;
+        // Recover an off-scale overlay only when the implied scale resolved
+        // nothing; the true screen's word climbs above the bar at its real
+        // scale while the others stay well below it.
+        if best_score_v < SCREEN_THRESHOLD {
+            for m in [0.95, 1.05, 0.90, 1.10] {
+                search(scale * m, &mut best, &mut best_score_v)?;
+                if best_score_v >= SCREEN_THRESHOLD {
+                    break;
+                }
+            }
         }
-        let tmpl = scaled(&self.objectives, scale)?;
-        if tmpl.empty() || tmpl.rows() > frame.rows() || tmpl.cols() > frame.cols() {
-            return Ok(false);
-        }
-        // The banner spans the left-of-centre columns in the upper-middle band.
-        let x0 = (frame.cols() as f64 * OBJECTIVES_REGION_X) as i32;
-        let y0 = (frame.rows() as f64 * OBJECTIVES_REGION_Y) as i32;
-        let w = ((frame.cols() as f64 * OBJECTIVES_REGION_W) as i32).min(frame.cols() - x0);
-        let h = ((frame.rows() as f64 * OBJECTIVES_REGION_H) as i32).min(frame.rows() - y0);
-        if w < tmpl.cols() || h < tmpl.rows() {
-            return Ok(false);
-        }
-        let region = frame.roi(Rect::new(x0, y0, w, h))?;
-        let score = best_score(&region, &tmpl)?;
-        dbg_cv!("[briefing] objectives_score={score:.3}");
-        Ok(score >= OBJECTIVES_THRESHOLD)
+
+        dbg_cv!("[screen] => {best:?} ({best_score_v:.3})");
+        Ok(if best_score_v >= SCREEN_THRESHOLD { best } else { Screen::Unknown })
     }
 
     pub fn match_level_from_raw_bytes(&self, data: *mut u8, w: u32, h: u32) -> Result<LevelMatch> {
@@ -776,7 +901,8 @@ impl CvMatcher {
     }
 
     pub fn match_level_from_bgra_frame(&self, bgra_frame: &impl ToInputArray) -> Result<LevelMatch> {
-        let mut result = LevelMatch { mission: -1, part: -1, difficulty: -1, times: Vec::new(), runtime_ms: 0.0 };
+        let mut result =
+            LevelMatch { screen: Screen::Unknown, mission: -1, part: -1, difficulty: -1, times: Vec::new(), runtime_ms: 0.0 };
         let mut timer = PhaseTimer::new();
 
         // Convert the BGRA frame to grayscale once; every template is matched
@@ -977,16 +1103,16 @@ impl CvMatcher {
         }
         timer.lap("load glyph templates");
 
-        // The level-start (briefing) screen shares the header above but lists
-        // mission objectives where the stats screen lists timed rows. Detecting
-        // the "PRIMARY OBJECTIVES:" banner identifies that screen so its
-        // objective list is never mis-read as times. The banner is matched at
-        // the established scale over the upper-middle band where it sits.
-        let is_briefing = self.detect_briefing(&frame, global_scale)?;
-        dbg_cv!("[briefing] is_briefing={is_briefing}");
-        timer.lap("briefing detect");
+        // Identify the overlay screen from its banner / status value. Only the
+        // stats screen carries timed rows, so reading the screen lets the time
+        // search be skipped on every other screen (start lists objectives, the
+        // report screens list per-objective results, etc.), which would
+        // otherwise be mis-read as times.
+        let screen = self.classify_screen(&frame, global_scale)?;
+        result.screen = screen;
+        timer.lap("screen classify");
 
-        let times = if is_briefing || colon_tmpl.empty() || digit_width_sum == 0 {
+        let times = if screen != Screen::Stats || colon_tmpl.empty() || digit_width_sum == 0 {
             Vec::new()
         } else {
             find_times_band(&frame, &colon_tmpl, &digit_tmpls)?

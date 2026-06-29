@@ -70,6 +70,7 @@ fn run() -> Result<i32> {
             "image": { "path": image_path, "width": bgra.cols(), "height": bgra.rows() },
             "lang": lang,
             "templates_dir": templates_dir,
+            "screen": result.screen.as_str(),
             "mission": result.mission,
             "part": result.part,
             "difficulty": result.difficulty,
