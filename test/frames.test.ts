@@ -131,7 +131,9 @@ for (const runner of runners) {
     testResult.lang = { value: result.lang, pass: result.lang === screenshot.lang, expected: screenshot.lang };
     totalTests += 1;
 
-    if (screenshot.screen === "stats" || screenshot.screen === "start") {
+    // TODO: add a test for "screen" so the matcher knows which screen is which
+
+    if (["stats", "start", "complete", "failed", "abort", "kia"].includes(screenshot.screen)) {
       const resultLevel = getLevel(result.mission, result.part);
       testResult.level = { value: resultLevel, pass: resultLevel === screenshot.level, expected: screenshot.level };
       totalTests += 1;

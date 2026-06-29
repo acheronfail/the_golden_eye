@@ -4,11 +4,13 @@
 	let imageData = $state<string | null>(null);
 	let sources = $state<{ name: string; id: string }[]>([]);
 	let monitoring = $state(false);
-	let screenIndex = $state(0);
 	let lang = $state<'en' | 'jp'>('jp');
 	let lastSourceUsed = $state<string | null>(null);
+	let statsScreenIndex = $state(0);
+	let startScreenIndex = $state(0);
+	let failedScreenIndex = $state(0);
 
-	let allScreenshotNames = $derived.by(() => {
+	let allStartScreenNames = $derived.by(() => {
 		const values: string[] = [];
 		for (let i = 1; i <= 20; i++) {
 			for (const d of ['Agent', 'Secret Agent', '00 Agent']) {
@@ -19,16 +21,49 @@
 		return values;
 	});
 
-	const saveScreenshotAndAdvance = async () => {
-		if (!imageData) return;
+	let allFailedScreenNames = $derived.by(() => {
+		const values: string[] = [];
+		for (let i = 1; i <= 20; i++) {
+			for (const d of ['Agent', 'Secret Agent', '00 Agent']) {
+				for (const s of ['complete', 'failed', 'abort', 'kia']) {
+					values.push(`${lang} - ${s} - ${i} - ${d}`);
+				}
+			}
+		}
+
+		return values;
+	});
+
+	let statsScreenNames = $derived.by(() => {
+		const values: string[] = [];
+		for (let i = 1; i <= 20; i++) {
+			for (const d of ['Agent', 'Secret Agent', '00 Agent']) {
+				values.push(`${lang} - stats - ${i} - ${d} - TODO`);
+			}
+		}
+
+		return values;
+	});
+
+	let interval: number | null = null;
+	$effect(() => {
+		if (!lastSourceUsed) return;
+
+		interval = setInterval(() => {
+			lastSourceUsed && getScreenshot(lastSourceUsed)();
+		}, 150);
+		return () => interval && clearInterval(interval);
+	});
+
+	const saveScreenshotAndAdvance = (nameList: string[], index: number) => () => {
+		if (!imageData) throw new Error('cannot screenshot without image data');
 
 		const link = document.createElement('a');
 		link.href = imageData;
-		link.download = `${allScreenshotNames[screenIndex]}.bmp`;
+		link.download = `${nameList[index]}.bmp`;
 		link.click();
 
-		screenIndex = (screenIndex + 1) % allScreenshotNames.length;
-		lastSourceUsed && (await getScreenshot(lastSourceUsed)());
+		return (index + 1) % nameList.length;
 	};
 
 	const getSources = async () => {
@@ -133,18 +168,69 @@
 				<button
 					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
 					onclick={() =>
-						(screenIndex =
-							(screenIndex - 1 + allScreenshotNames.length) % allScreenshotNames.length)}>-1</button
+						(startScreenIndex =
+							(startScreenIndex - 1 + allStartScreenNames.length) % allStartScreenNames.length)}
+					>-1</button
 				>
 				<button
 					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
-					onclick={() => (screenIndex = (screenIndex + 1) % allScreenshotNames.length)}>+1</button
+					onclick={() => (startScreenIndex = (startScreenIndex + 1) % allStartScreenNames.length)}
+					>+1</button
 				>
 				<button
 					class="rounded bg-blue-500 px-2 py-1 font-mono text-sm text-white hover:bg-blue-600"
-					onclick={saveScreenshotAndAdvance}>save "{allScreenshotNames[screenIndex]}.bmp"</button
+					onclick={() =>
+						(startScreenIndex = saveScreenshotAndAdvance(allStartScreenNames, startScreenIndex)())}
+					>save "{allStartScreenNames[startScreenIndex]}.bmp"</button
 				>
 			</div>
+
+			<div class="flex flex-row gap-2">
+				<button
+					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
+					onclick={() =>
+						(failedScreenIndex =
+							(failedScreenIndex - 1 + allFailedScreenNames.length) % allFailedScreenNames.length)}
+					>-1</button
+				>
+				<button
+					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
+					onclick={() =>
+						(failedScreenIndex = (failedScreenIndex + 1) % allFailedScreenNames.length)}>+1</button
+				>
+				<button
+					class="rounded bg-blue-500 px-2 py-1 font-mono text-sm text-white hover:bg-blue-600"
+					onclick={() =>
+						(failedScreenIndex = saveScreenshotAndAdvance(
+							allFailedScreenNames,
+							failedScreenIndex
+						)())}>save "{allFailedScreenNames[failedScreenIndex]}.bmp"</button
+				>
+			</div>
+
+			<div class="flex flex-row gap-2">
+				<button
+					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
+					onclick={() =>
+						(statsScreenIndex =
+							(statsScreenIndex - 1 + statsScreenNames.length) % statsScreenNames.length)}
+					>-1</button
+				>
+				<button
+					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
+					onclick={() =>
+						(statsScreenIndex = (statsScreenIndex + 1) % statsScreenNames.length)}>+1</button
+				>
+				<button
+					class="rounded bg-blue-500 px-2 py-1 font-mono text-sm text-white hover:bg-blue-600"
+					onclick={() =>
+						(statsScreenIndex = saveScreenshotAndAdvance(
+							statsScreenNames,
+							statsScreenIndex
+						)())}>save "{statsScreenNames[statsScreenIndex]}.bmp"</button
+				>
+			</div>
+
 			<img src={imageData} alt="OBS Screenshot" class="max-w-full rounded" />
 		</div>
 	{/if}
