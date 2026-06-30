@@ -10,7 +10,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
 use serde::Deserialize;
 
-use crate::cv::{CvMatcher, LevelMatch};
+use crate::cv::{CaptureRegion, CvMatcher, LevelMatch};
 use crate::http::AppState;
 
 /// A running monitor: the worker thread plus the flag used to ask it to stop.
@@ -38,6 +38,11 @@ pub trait FrameSource {
     fn capture<F, R>(&mut self, use_frame: F) -> Option<R>
     where
         F: FnOnce(&[u8], u32, u32) -> R;
+
+    /// Offer the source a capture transform the matcher has learned, so it can
+    /// have the GPU crop + un-stretch future frames at capture time. Sources
+    /// that can't reshape their frames (test fixtures) ignore it.
+    fn set_capture_region(&mut self, _region: Option<CaptureRegion>) {}
 }
 
 /// Frame source backed by the live OBS source named at construction. Owns a
@@ -47,6 +52,11 @@ pub trait FrameSource {
 struct ObsSource {
     name: CString,
     ctx: *mut crate::ffi::GeCaptureCtx,
+    // The calibrated capture transform, once the matcher has learned one. Latched
+    // on first sight: a stretched source's transform is fixed for the session, and
+    // once frames arrive pre-normalized the matcher reports no further calibration,
+    // so re-reading it would (incorrectly) clear the transform we want to keep.
+    region: Option<CaptureRegion>,
 }
 
 impl ObsSource {
@@ -57,7 +67,7 @@ impl ObsSource {
         if ctx.is_null() {
             return None;
         }
-        Some(ObsSource { name, ctx })
+        Some(ObsSource { name, ctx, region: None })
     }
 }
 
@@ -74,20 +84,35 @@ impl FrameSource for ObsSource {
         F: FnOnce(&[u8], u32, u32) -> R,
     {
         // Render the source into a BGRA buffer owned by the C side, reusing the
-        // context's surfaces. Cap the capture at the matcher's working height so
-        // a large upscaled source (e.g. 1080p) is downscaled on the GPU to ~480p
+        // context's surfaces.
+        //
+        // Uncalibrated: cap the capture at the matcher's working height so a
+        // large upscaled source (e.g. 1080p) is downscaled on the GPU to ~480p
         // before it ever reaches OpenCV -- the game is ~480p at most, so there's
         // no detail to lose, and it keeps match time bounded and consistent.
+        //
+        // Calibrated (stretched source): render the learned 4:3 sub-rectangle
+        // straight to a 480p-tall 4:3 frame, so the GPU crops the bars and undoes
+        // the stretch and the matcher needs no CPU resize.
+        let region = self.region.map(|r| {
+            let out_height = crate::cv::WORK_HEIGHT as u32;
+            let out_width = ((out_height as f32 * r.out_aspect).round() as u32).max(1);
+            crate::ffi::GeCaptureRegion {
+                crop_x: r.crop_x,
+                crop_y: r.crop_y,
+                crop_w: r.crop_w,
+                crop_h: r.crop_h,
+                out_width,
+                out_height,
+            }
+        });
+        let region_ptr = region.as_ref().map_or(std::ptr::null(), |r| r as *const _);
+        let max_height = if region.is_some() { 0 } else { crate::cv::WORK_HEIGHT as u32 };
+
         let mut width: u32 = 0;
         let mut height: u32 = 0;
         let frame = unsafe {
-            crate::ffi::ge_capture_get_frame(
-                self.ctx,
-                self.name.as_ptr(),
-                crate::cv::WORK_HEIGHT as u32,
-                &mut width,
-                &mut height,
-            )
+            crate::ffi::ge_capture_get_frame(self.ctx, self.name.as_ptr(), max_height, region_ptr, &mut width, &mut height)
         };
         if frame.is_null() {
             return None;
@@ -98,6 +123,16 @@ impl FrameSource for ObsSource {
         // Hand the buffer straight back to the C allocator now we're done with it.
         unsafe { crate::ffi::free(frame.cast()) };
         Some(out)
+    }
+
+    fn set_capture_region(&mut self, region: Option<CaptureRegion>) {
+        // Latch the first transform learned and keep it: see the field comment.
+        if self.region.is_none() {
+            if let Some(r) = region {
+                tracing::info!(?r, "calibrated capture region; cropping/un-stretching on the GPU");
+                self.region = Some(r);
+            }
+        }
     }
 }
 
@@ -144,7 +179,13 @@ impl MonitorSession {
     {
         while !stop.load(Ordering::Relaxed) {
             match source.capture(|bytes, w, h| self.match_frame(bytes, w, h)) {
-                Some(result) => on_result(result),
+                Some(result) => {
+                    // Once the matcher has calibrated this source's aspect, hand
+                    // the transform to the capture layer so subsequent frames are
+                    // cropped + un-stretched on the GPU at capture time.
+                    source.set_capture_region(self.matcher.capture_region());
+                    on_result(result);
+                }
                 None => {
                     // No frame this tick. Re-check the stop flag before sleeping
                     // so an exhausted source (e.g. a test fixture that sets the

@@ -101,8 +101,8 @@ void ge_capture_destroy(ge_capture_ctx *ctx) {
   free(ctx);
 }
 
-uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint32_t max_height, uint32_t *out_width,
-                              uint32_t *out_height) {
+uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint32_t max_height,
+                              const struct ge_capture_region *region, uint32_t *out_width, uint32_t *out_height) {
   if (!ctx || !source_name) {
     return NULL;
   }
@@ -122,19 +122,52 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
     return NULL;
   }
 
-  // The render target downscales to max_height (preserving aspect ratio) when
-  // the source is taller, so a 1080p (or larger) upscaled feed is captured as a
-  // cheap ~480p frame: far less data to map back and far less work for OpenCV.
-  // max_height == 0, or a source already no taller, captures at native size.
-  uint32_t width = src_width;
-  uint32_t height = src_height;
-  if (max_height != 0 && src_height > max_height) {
-    // Round to nearest to minimise aspect drift; clamp to at least 1px wide.
-    width = (uint32_t)(((uint64_t)src_width * max_height + src_height / 2) / src_height);
-    if (width == 0) {
-      width = 1;
+  // Source rectangle to project onto the render target. Defaults to the whole
+  // source; a calibrated region narrows it to the 4:3 picture.
+  float ortho_x0 = 0.0f;
+  float ortho_y0 = 0.0f;
+  float ortho_x1 = (float)src_width;
+  float ortho_y1 = (float)src_height;
+
+  uint32_t width;
+  uint32_t height;
+  if (region && region->out_width != 0 && region->out_height != 0) {
+    // Calibrated capture: render only the source sub-rectangle holding the 4:3
+    // picture into the exact output size, so the GPU crops any pillarbox bars
+    // and undoes the stretch in one pass. Clamp the (possibly stale) fractions
+    // to the unit square so a bad calibration can never sample outside source.
+    float cx = region->crop_x < 0.0f ? 0.0f : region->crop_x;
+    float cy = region->crop_y < 0.0f ? 0.0f : region->crop_y;
+    float cw = region->crop_w <= 0.0f ? 1.0f : region->crop_w;
+    float ch = region->crop_h <= 0.0f ? 1.0f : region->crop_h;
+    if (cx + cw > 1.0f) {
+      cw = 1.0f - cx;
     }
-    height = max_height;
+    if (cy + ch > 1.0f) {
+      ch = 1.0f - cy;
+    }
+    ortho_x0 = cx * (float)src_width;
+    ortho_y0 = cy * (float)src_height;
+    ortho_x1 = (cx + cw) * (float)src_width;
+    ortho_y1 = (cy + ch) * (float)src_height;
+    width = region->out_width;
+    height = region->out_height;
+  } else {
+    // The render target downscales to max_height (preserving aspect ratio) when
+    // the source is taller, so a 1080p (or larger) upscaled feed is captured as
+    // a cheap ~480p frame: far less data to map back and far less work for
+    // OpenCV. max_height == 0, or a source already no taller, captures at native
+    // size.
+    width = src_width;
+    height = src_height;
+    if (max_height != 0 && src_height > max_height) {
+      // Round to nearest to minimise aspect drift; clamp to at least 1px wide.
+      width = (uint32_t)(((uint64_t)src_width * max_height + src_height / 2) / src_height);
+      if (width == 0) {
+        width = 1;
+      }
+      height = max_height;
+    }
   }
 
   *out_width = width;
@@ -166,9 +199,10 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
     struct vec4 background;
     vec4_zero(&background);
     gs_clear(GS_CLEAR_COLOR, &background, 0.0f, 0);
-    // Project the source's full pixel space onto the (possibly smaller) render
-    // target; the GPU scales the source to the target size as it rasterizes.
-    gs_ortho(0.0f, (float)src_width, 0.0f, (float)src_height, -100.0f, 100.0f);
+    // Project the selected source rectangle (the whole source, or a calibrated
+    // sub-rectangle) onto the render target; the GPU scales it to the target
+    // size as it rasterizes, cropping and un-stretching in the same pass.
+    gs_ortho(ortho_x0, ortho_x1, ortho_y0, ortho_y1, -100.0f, 100.0f);
     gs_blend_state_push();
     gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
     obs_source_video_render(source);
@@ -209,7 +243,7 @@ uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, u
     return NULL;
   }
 
-  uint8_t *frame = ge_capture_get_frame(ctx, source_name, 0, out_width, out_height);
+  uint8_t *frame = ge_capture_get_frame(ctx, source_name, 0, NULL, out_width, out_height);
   ge_capture_destroy(ctx);
   return frame;
 }

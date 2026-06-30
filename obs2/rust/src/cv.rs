@@ -192,6 +192,46 @@ const REFERENCE_HEIGHT: f64 = 1080.0;
 // GPU does it for free), making this internal downscale a no-op on those frames.
 pub const WORK_HEIGHT: i32 = 480;
 
+// GoldenEye always renders a 4:3 image. Some HDMI converters take that 4:3
+// signal and stretch it to fill a 16:9 frame, so every on-screen glyph comes
+// out wider than it is tall. The matcher derives a single uniform scale from
+// the frame height and matches templates at that one scale, so a horizontally
+// stretched frame defeats it: the glyph width no longer matches the template.
+//
+// Every overlay the matcher reads (level briefing, post-mission stats, the
+// report screens, the options/difficulty screens) is drawn on the same big
+// manilla folder. That folder is the one object always on screen whose true
+// proportions are known, so it is used to calibrate: locate the folder, measure
+// its width:height, and if it is wider than the folder ever is at 4:3 the
+// picture has been stretched. The calibration (a horizontal squish back to 4:3)
+// is learned once per source resolution and reused for every later frame --
+// including frames with no folder of their own (the mission-select grid), which
+// inherit the resolution's transform. See [`CvMatcher::calibrate_aspect`].
+const TARGET_ASPECT: f64 = 4.0 / 3.0;
+// The manilla folder's width:height measures ~1.20-1.26 across clean 4:3
+// captures (the spread is overscan in the vertical extent, not real shape
+// change). A folder wider than this is the tell-tale of a horizontally
+// stretched picture; the threshold sits comfortably between that native band
+// and the ~1.66 a 16:9-stretched folder measures.
+const FOLDER_STRETCH_ASPECT: f64 = 1.45;
+// Height the frame is downscaled to for the one-off folder measurement. The
+// folder's aspect is scale-invariant, so a small frame measures it just as well
+// and keeps the cold-frame calibration cheap.
+const FOLDER_DETECT_HEIGHT: i32 = 360;
+// A column/row counts as part of the folder when at least this fraction of it
+// is warm (manilla) pixels. High enough to ignore the stray warm specks in a
+// thumbnail photo, low enough to include the folder's softer rounded edges.
+const FOLDER_PROJ_FRAC: f64 = 0.25;
+// A detected warm region smaller than this fraction of the frame (either axis)
+// is rejected as not-a-folder -- gameplay can have warm patches, but the menu
+// folder always fills most of the frame.
+const FOLDER_MIN_FRAC: f64 = 0.40;
+// A column whose mean brightness is below this counts as a (black) pillarbox
+// bar rather than content. Real captures put their bars at ~0 while the
+// GoldenEye background texture never falls near it, so a stretched frame's
+// content extent is trimmed of any bars before it is squished back to 4:3.
+const BAR_BRIGHTNESS: f64 = 24.0;
+
 // Multipliers searched around the resolution-implied scale. Deriving the scale
 // from the frame height (rather than blindly sweeping a fixed ladder) keeps the
 // search cheap -- a native-resolution frame never matches tiny templates and a
@@ -206,6 +246,113 @@ const SCALE_MULTIPLIERS: [f64; 7] = [1.0, 0.95, 1.05, 0.90, 1.10, 0.85, 1.15];
 fn candidate_scales(frame_height: i32) -> Vec<f64> {
     let base = frame_height as f64 / REFERENCE_HEIGHT;
     SCALE_MULTIPLIERS.iter().map(|m| base * m).collect()
+}
+
+// Horizontal extent [left, right] (inclusive) of the non-bar content in a
+// grayscale frame: the first and last columns whose mean brightness rises above
+// `bar_brightness`. Dark pillarbox bars flanking the picture are trimmed; a
+// frame with no bars yields the full width. Returns the full width if every
+// column reads as dark (degenerate frame), so callers never act on it.
+fn content_h_extent(gray: &Mat, bar_brightness: f64) -> Result<(i32, i32)> {
+    let w = gray.cols();
+    if w <= 0 {
+        return Ok((0, 0));
+    }
+    // Collapse the rows to a single row of per-column means.
+    let mut col_means = Mat::default();
+    core::reduce(gray, &mut col_means, 0, core::REDUCE_AVG, core::CV_64F)?;
+    let means = col_means.data_typed::<f64>()?;
+
+    let mut left = 0;
+    while left < w && means[left as usize] < bar_brightness {
+        left += 1;
+    }
+    if left >= w {
+        return Ok((0, w - 1));
+    }
+    let mut right = w - 1;
+    while right > left && means[right as usize] < bar_brightness {
+        right -= 1;
+    }
+    Ok((left, right))
+}
+
+// First and last index along `dim` (0 = columns, 1 = rows) of `mask` where the
+// mean (a 0..255 fraction of set pixels) exceeds `frac`. Returns (-1, -1) when
+// no line clears the bar. `mask` is an 8-bit 0/255 image.
+fn first_last_above(mask: &Mat, dim: i32, frac: f64) -> Result<(i32, i32)> {
+    let mut reduced = Mat::default();
+    core::reduce(mask, &mut reduced, dim, core::REDUCE_AVG, core::CV_64F)?;
+    let data = reduced.data_typed::<f64>()?;
+    let threshold = frac * 255.0;
+    let mut lo = -1i32;
+    let mut hi = -1i32;
+    for (i, &v) in data.iter().enumerate() {
+        if v > threshold {
+            if lo < 0 {
+                lo = i as i32;
+            }
+            hi = i as i32;
+        }
+    }
+    Ok((lo, hi))
+}
+
+// Measures the width:height of the manilla folder in a `w`x`h` BGRA frame, or
+// `None` when no folder-like region is present (gameplay, the mission-select
+// grid, a transition). The folder is the large warm (high-red, bright) block
+// that backs every menu overlay; it is isolated with a colour+brightness mask
+// and its extent read off the row/column projections of that mask, so interior
+// dark elements (the briefing photo, the stats text) don't shrink the box. The
+// frame is downscaled first -- the aspect is scale-invariant and this only runs
+// once per resolution, so working small keeps the cold-frame calibration cheap.
+fn detect_folder_aspect(bgra_frame: &impl ToInputArray, w: i32, h: i32) -> Result<Option<f64>> {
+    if w <= 0 || h <= 0 {
+        return Ok(None);
+    }
+    let dh = FOLDER_DETECT_HEIGHT.min(h);
+    let dw = (((w as f64) * (dh as f64 / h as f64)).round() as i32).max(1);
+    // Downscale the BGRA frame directly (no full-resolution colour conversion).
+    let mut small = Mat::default();
+    imgproc::resize(bgra_frame, &mut small, Size::new(dw, dh), 0.0, 0.0, imgproc::INTER_AREA)?;
+
+    let mut channels: core::Vector<Mat> = core::Vector::new();
+    core::split(&small, &mut channels)?;
+    let b = channels.get(0)?;
+    let r = channels.get(2)?;
+    let mut gray = Mat::default();
+    imgproc::cvt_color_def(&small, &mut gray, imgproc::COLOR_BGRA2GRAY)?;
+
+    // Warm = red clearly above blue (manilla, not the green background) AND
+    // bright. Each predicate is a binary mask; AND them into the folder mask.
+    let mut warm = Mat::default();
+    {
+        let mut rb = Mat::default();
+        core::subtract(&r, &b, &mut rb, &core::no_array(), -1)?;
+        // r - b > 15 (THRESH_BINARY keeps values strictly above the threshold).
+        imgproc::threshold(&rb, &mut warm, 15.0, 255.0, imgproc::THRESH_BINARY)?;
+    }
+    {
+        let mut bright = Mat::default();
+        imgproc::threshold(&gray, &mut bright, 120.0, 255.0, imgproc::THRESH_BINARY)?;
+        let mut combined = Mat::default();
+        core::bitwise_and(&warm, &bright, &mut combined, &core::no_array())?;
+        warm = combined;
+    }
+
+    let (x0, x1) = first_last_above(&warm, 0, FOLDER_PROJ_FRAC)?;
+    let (y0, y1) = first_last_above(&warm, 1, FOLDER_PROJ_FRAC)?;
+    if x0 < 0 || y0 < 0 {
+        return Ok(None);
+    }
+    let fw = (x1 - x0 + 1) as f64;
+    let fh = (y1 - y0 + 1) as f64;
+    // Reject a stray warm patch: the menu folder always fills most of the frame.
+    if fw < dw as f64 * FOLDER_MIN_FRAC || fh < dh as f64 * FOLDER_MIN_FRAC {
+        return Ok(None);
+    }
+    dbg_cv!("[folder] box {fw}x{fh} on {dw}x{dh} aspect={:.3}", fw / fh);
+    Ok(Some(fw / fh))
 }
 
 // Templates are authored from a pixel-sharp emulator, but most real sources
@@ -852,6 +999,77 @@ struct ScaleCache {
     mission_cy: i32,
 }
 
+// The aspect correction learned for a source resolution: the horizontal window
+// of the frame that holds the 4:3 picture, and the width that window is resized
+// to (height is never touched -- the converters that stretch only ever stretch
+// horizontally). Learned once from the first frame that shows a manilla folder
+// and reused for every later frame at the same resolution, so a stretched
+// mission-select grid (which has no folder of its own) is still corrected.
+#[derive(Clone, Copy)]
+struct AspectCalibration {
+    // Source dimensions this calibration was measured for.
+    src_w: i32,
+    src_h: i32,
+    // Horizontal content window to keep (drops any dark pillarbox bars).
+    crop_x: i32,
+    crop_w: i32,
+    // Width to resize the kept window to; the height is left unchanged.
+    target_w: i32,
+}
+
+// The learned aspect correction expressed as a source-relative capture
+// transform: the sub-rectangle of the source that holds the 4:3 picture
+// (fractions in [0, 1]) and the aspect ratio it should be resized to. The
+// monitor hands this to the capture layer so the GPU crops and un-stretches
+// future frames in one pass, instead of the matcher redoing it on the CPU every
+// frame. Fractions are resolution-independent, so they apply regardless of the
+// height the capture downscales to.
+#[derive(Clone, Copy, Debug)]
+pub struct CaptureRegion {
+    pub crop_x: f32,
+    pub crop_y: f32,
+    pub crop_w: f32,
+    pub crop_h: f32,
+    // Width:height the cropped rectangle should be resized to (always 4:3 here).
+    pub out_aspect: f32,
+}
+
+impl AspectCalibration {
+    // A calibration that leaves the frame untouched (already 4:3 / pillarboxed).
+    fn identity(src_w: i32, src_h: i32) -> Self {
+        AspectCalibration { src_w, src_h, crop_x: 0, crop_w: src_w, target_w: src_w }
+    }
+
+    // As a source-relative capture transform. Horizontal crop only -- the
+    // converters stretch horizontally, so the full height is always kept. The
+    // crop is a fraction of the frame width, which equals the same fraction of
+    // the source width (the capture downscale preserves the horizontal aspect).
+    fn capture_region(&self) -> CaptureRegion {
+        CaptureRegion {
+            crop_x: self.crop_x as f32 / self.src_w as f32,
+            crop_y: 0.0,
+            crop_w: self.crop_w as f32 / self.src_w as f32,
+            crop_h: 1.0,
+            out_aspect: self.target_w as f32 / self.src_h as f32,
+        }
+    }
+
+    fn is_identity(&self) -> bool {
+        self.crop_x == 0 && self.crop_w == self.src_w && self.target_w == self.src_w
+    }
+
+    // Applies the correction to a grayscale frame.
+    fn apply(&self, gray: &Mat) -> Result<Mat> {
+        if self.is_identity() {
+            return gray.try_clone();
+        }
+        let window = gray.roi(Rect::new(self.crop_x, 0, self.crop_w, gray.rows()))?;
+        let mut out = Mat::default();
+        imgproc::resize(&window, &mut out, Size::new(self.target_w.max(1), gray.rows()), 0.0, 0.0, imgproc::INTER_AREA)?;
+        Ok(out)
+    }
+}
+
 pub struct CvMatcher {
     parts: Vec<Mat>,
     diffs: Vec<Mat>,
@@ -877,6 +1095,9 @@ pub struct CvMatcher {
     // Scale learned from the first resolved overlay; reused to fast-path every
     // later frame at the same source resolution.
     scale_cache: Mutex<Option<ScaleCache>>,
+    // Aspect correction learned from the first frame that shows a manilla
+    // folder; reused for every later frame at the same source resolution.
+    aspect_cache: Mutex<Option<AspectCalibration>>,
 }
 
 impl CvMatcher {
@@ -939,7 +1160,67 @@ impl CvMatcher {
             status_kia,
             levels,
             scale_cache: Mutex::new(None),
+            aspect_cache: Mutex::new(None),
         })
+    }
+
+    // Returns `gray` corrected to 4:3 when the source is a stretched 4:3 picture,
+    // or unchanged otherwise. The correction is learned once per source
+    // resolution (the "calibration" step) and cached: on the first frame at a
+    // new resolution it looks for the manilla folder and, if that folder is
+    // wider than it ever is at 4:3, records the horizontal squish that restores
+    // it. Frames with no folder (gameplay, the mission-select grid) don't
+    // calibrate on their own but inherit a calibration learned from an earlier
+    // menu frame this session -- so once any folder has been seen, the whole
+    // session's frames are corrected.
+    fn calibrate_aspect(&self, bgra_frame: &impl ToInputArray, gray: &Mat) -> Result<Mat> {
+        let (w, h) = (gray.cols(), gray.rows());
+
+        // Reuse the calibration already learned for this resolution.
+        if let Some(c) = self.aspect_cache.lock().ok().and_then(|c| *c).filter(|c| c.src_w == w && c.src_h == h) {
+            return c.apply(gray);
+        }
+
+        // Cold: measure the folder to decide whether this resolution is
+        // stretched. The colour test needs the original (non-grayscale) frame.
+        let Some(folder_aspect) = detect_folder_aspect(bgra_frame, w, h)? else {
+            // No folder on this frame -- can't calibrate yet. Match it as-is and
+            // leave the cache empty so a later menu frame can calibrate.
+            return gray.try_clone();
+        };
+
+        let calib = if folder_aspect > FOLDER_STRETCH_ASPECT {
+            // Stretched: the picture is 4:3 squeezed wide. Trim any dark side
+            // bars, then squish the remaining content back to a 4:3 width.
+            let (left, right) = content_h_extent(gray, BAR_BRIGHTNESS)?;
+            let crop_w = (right - left + 1).max(1);
+            let target_w = (((h as f64) * TARGET_ASPECT).round() as i32).max(1);
+            dbg_cv!("[calibrate] {w}x{h} folder_aspect={folder_aspect:.3} stretched -> crop {left}+{crop_w} squish to {target_w}");
+            AspectCalibration { src_w: w, src_h: h, crop_x: left, crop_w, target_w }
+        } else {
+            // Folder is correctly proportioned (clean 4:3 or pillarboxed): no
+            // correction. Cache identity so later frames skip the measurement.
+            dbg_cv!("[calibrate] {w}x{h} folder_aspect={folder_aspect:.3} not stretched");
+            AspectCalibration::identity(w, h)
+        };
+
+        if let Ok(mut cache) = self.aspect_cache.lock() {
+            *cache = Some(calib);
+        }
+        calib.apply(gray)
+    }
+
+    /// The capture transform learned for the current source, or `None` while the
+    /// source is uncalibrated (no folder seen yet) or already 4:3 (no correction
+    /// needed). The monitor feeds this back to the capture layer so the GPU
+    /// crops + un-stretches future frames directly. Once a non-`None` value is
+    /// returned it stays stable for the session's source resolution.
+    pub fn capture_region(&self) -> Option<CaptureRegion> {
+        let calib = (*self.aspect_cache.lock().ok()?)?;
+        if calib.is_identity() {
+            return None;
+        }
+        Some(calib.capture_region())
     }
 
     // Reads the mission number inside `rect` of the native-resolution `gray`,
@@ -1124,6 +1405,12 @@ impl CvMatcher {
         // against this single-channel frame.
         let mut gray = Mat::default();
         imgproc::cvt_color_def(bgra_frame, &mut gray, imgproc::COLOR_BGRA2GRAY)?;
+
+        // Restore a 4:3 picture that an HDMI converter stretched to a wider
+        // aspect, so the glyphs regain the proportions the templates expect.
+        // Calibrated once per resolution off the manilla folder; a no-op on
+        // clean 4:3 grabs and on 4:3 content pillarboxed in 16:9.
+        let gray = self.calibrate_aspect(bgra_frame, &gray)?;
 
         // Template matching cost grows with frame area, so a native 1080p (or
         // larger) capture is ~5x more expensive than a 480p composite grab for

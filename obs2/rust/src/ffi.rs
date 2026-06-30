@@ -10,6 +10,21 @@ pub struct GeCaptureCtx {
     _private: [u8; 0],
 }
 
+/// Optional capture transform handed to [`ge_capture_get_frame`] once the
+/// matcher has calibrated the source's true 4:3 picture. `crop_*` are fractions
+/// in `[0, 1]` of the source; only that sub-rectangle is rendered, scaled per
+/// axis to fill `out_width` x `out_height`. Mirrors `struct ge_capture_region`
+/// in `obs_bridge.h` -- the field layout must stay in sync.
+#[repr(C)]
+pub struct GeCaptureRegion {
+    pub crop_x: f32,
+    pub crop_y: f32,
+    pub crop_w: f32,
+    pub crop_h: f32,
+    pub out_width: u32,
+    pub out_height: u32,
+}
+
 unsafe extern "C" {
     pub fn obs_frontend_recording_start();
     pub fn obs_frontend_recording_stop();
@@ -28,15 +43,20 @@ unsafe extern "C" {
     /// Renders the named source into a freshly `malloc`'d BGRA buffer using the
     /// context's reusable surfaces. Same ownership contract as
     /// [`ge_obs_get_source_frame`]: the caller owns the buffer and must release
-    /// it with [`free`]. When `max_height` is non-zero and the source is taller,
-    /// the frame is downscaled on the GPU to that height (preserving aspect
-    /// ratio); pass 0 to capture at native resolution. The captured dimensions
-    /// are written to the out params, and the stagesurface is recreated if they
-    /// change. Returns null if the source can't be found or rendered.
+    /// it with [`free`]. When `region` is non-null, only its source
+    /// sub-rectangle is captured, resized to `region.out_width` x
+    /// `region.out_height` (`max_height` is ignored). When `region` is null and
+    /// `max_height` is non-zero and the source is taller, the frame is
+    /// downscaled on the GPU to that height (preserving aspect ratio); pass null
+    /// and 0 to capture the whole source at native resolution. The captured
+    /// dimensions are written to the out params, and the stagesurface is
+    /// recreated if they change. Returns null if the source can't be found or
+    /// rendered.
     pub fn ge_capture_get_frame(
         ctx: *mut GeCaptureCtx,
         source_name: *const c_char,
         max_height: u32,
+        region: *const GeCaptureRegion,
         out_width: *mut u32,
         out_height: *mut u32,
     ) -> *mut u8;
