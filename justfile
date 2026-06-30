@@ -75,7 +75,7 @@ dev:
         if [ -n "$(find "$root/obs2/rust/src" "$root/obs2/rust/Cargo.toml" -newer "$stamp" 2>/dev/null)" ]; then
           touch "$stamp"
           echo "[dev] rust change detected — rebuilding core…"
-          if make the_golden_eye_core; then
+          if make golden_core; then
             [ -p "$GE_RELOAD_FIFO" ] && ( printf '\n' > "$GE_RELOAD_FIFO" ) &
           else
             echo "[dev] core build failed; fix and save again"

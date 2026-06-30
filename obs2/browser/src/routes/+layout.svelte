@@ -35,15 +35,19 @@
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 
-<header class="flex items-center border-b border-b-amber-400">
-	<pre class={bannerClass}>{bannerText}</pre>
+<div class="flex min-h-screen flex-col">
+	<header class="flex items-center border-b border-b-amber-400">
+		<a href="/">
+			<pre class={bannerClass}>{bannerText}</pre>
+		</a>
 
-	<ul class="ml-4 inline-flex gap-4 font-mono text-sm text-amber-400">
-		{#each links as link}
-			{@const isActive = page.url.pathname === link.href}
-			<a class={isActive ? liActiveClass : liClass} href={link.href}> <li>{link.label}</li></a>
-		{/each}
-	</ul>
-</header>
+		<ul class="ml-4 inline-flex gap-4 font-mono text-sm text-amber-400">
+			{#each links as link}
+				{@const isActive = page.url.pathname === link.href}
+				<a class={isActive ? liActiveClass : liClass} href={link.href}> <li>{link.label}</li></a>
+			{/each}
+		</ul>
+	</header>
 
-{@render children()}
+	{@render children()}
+</div>

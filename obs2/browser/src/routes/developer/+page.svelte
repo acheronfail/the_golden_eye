@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { apiUrl } from '$lib/api';
 	import { settings } from '$lib/settings.svelte';
-	import InputLang from '../../lib/InputLang.svelte';
 
 	const knownVideoSourceIds = [
 		'screen_capture',
@@ -23,7 +22,7 @@
 		const values: string[] = [];
 		for (let i = 1; i <= 20; i++) {
 			for (const d of ['Agent', 'Secret Agent', '00 Agent']) {
-				values.push(`${settings.lang} - start - ${i} - ${d}`);
+				values.push(`${settings.developerLang} - start - ${i} - ${d}`);
 			}
 		}
 
@@ -35,7 +34,7 @@
 		for (let i = 1; i <= 20; i++) {
 			for (const d of ['Agent', 'Secret Agent', '00 Agent']) {
 				for (const s of ['complete', 'failed', 'abort', 'kia']) {
-					values.push(`${settings.lang} - ${s} - ${i} - ${d}`);
+					values.push(`${settings.developerLang} - ${s} - ${i} - ${d}`);
 				}
 			}
 		}
@@ -47,7 +46,7 @@
 		const values: string[] = [];
 		for (let i = 1; i <= 20; i++) {
 			for (const d of ['Agent', 'Secret Agent', '00 Agent']) {
-				values.push(`${settings.lang} - stats - ${i} - ${d} - TIMES_HERE`);
+				values.push(`${settings.developerLang} - stats - ${i} - ${d} - TIMES_HERE`);
 			}
 		}
 
@@ -76,7 +75,7 @@
 	const getScreenshot = (sourceName: string) => async () => {
 		const res = await fetch(
 			apiUrl(
-				`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}&lang=${encodeURIComponent(settings.lang)}`
+				`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}`
 			)
 		);
 		const blob = await res.blob();
@@ -102,7 +101,19 @@
 <div class="flex flex-col gap-4 p-4">
 	<h1 class="mb-4 text-2xl font-bold">Developer Utilities</h1>
 
-	<InputLang />
+	<fieldset>
+		<legend class="mb-2 font-semibold">Language:</legend>
+		<div class="flex flex-col pl-4">
+			<label class="mr-4">
+				<input type="radio" name="lang" value="en" bind:group={settings.developerLang} />
+				English
+			</label>
+			<label>
+				<input type="radio" name="lang" value="jp" bind:group={settings.developerLang} />
+				Japanese
+			</label>
+		</div>
+	</fieldset>
 
 	<div class="flex flex-col gap-4">
 		<div class="flex flex-row gap-2">

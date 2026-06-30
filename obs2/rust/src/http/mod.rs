@@ -92,6 +92,7 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         .route("/api/v1/record/stop", post(routes::record::handle_stop))
         .route("/api/v1/monitor/start", post(routes::monitor::handle_start))
         .route("/api/v1/monitor/stop", post(routes::monitor::handle_stop))
+        .route("/api/v1/monitor/status", get(routes::monitor::handle_status))
         .route("/api/v1/monitor/ws", get(routes::monitor::handle_ws))
         .route("/api/v1/sources", get(routes::sources::handler))
         .route("/api/v1/screenshot", get(routes::screenshot::handler))

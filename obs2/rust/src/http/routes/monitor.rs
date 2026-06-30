@@ -21,6 +21,10 @@ pub struct MonitorHandle {
     mailbox: Arc<FrameMailbox>,
     producer: ProducerPtr,
     thread: JoinHandle<()>,
+    /// The source name and language this monitor was started with, retained so
+    /// `/api/v1/monitor/status` can report what is currently being monitored.
+    source_name: String,
+    lang: String,
 }
 
 /// The leaked `ProducerCtx` pointer, made `Send` so the handle can move to the
@@ -338,8 +342,40 @@ impl MonitorSession {
     }
 }
 
+/// Current monitor status. `enabled` is always present; the source/language are
+/// only included while a monitor is running (omitted from the JSON otherwise).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorStatus {
+    enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lang: Option<String>,
+}
+
+/// Reports whether a monitor is currently running, and if so which source and
+/// language it was started with -- so the frontend can restore its state on load.
+#[axum::debug_handler]
+pub async fn handle_status(State(state): State<AppState>) -> Json<MonitorStatus> {
+    let guard = state.monitor.lock().unwrap_or_else(|p| p.into_inner());
+    let status = match guard.as_ref() {
+        Some(handle) => MonitorStatus {
+            enabled: true,
+            source_name: Some(handle.source_name.clone()),
+            lang: Some(handle.lang.clone()),
+        },
+        None => MonitorStatus { enabled: false, source_name: None, lang: None },
+    };
+    Json(status)
+}
+
 #[axum::debug_handler]
 pub async fn handle_start(State(state): State<AppState>, Json(params): Json<StartParams>) -> Result<impl IntoResponse> {
+    // Keep the original strings for the status endpoint; `source_name` is also
+    // converted to a CString below for the C capture bridge.
+    let status_source_name = params.source_name.clone();
+    let lang = params.lang.clone();
     let source_name =
         CString::new(params.source_name).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
@@ -431,7 +467,13 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         }
     };
 
-    *guard = Some(MonitorHandle { mailbox, producer: ProducerPtr(producer), thread });
+    *guard = Some(MonitorHandle {
+        mailbox,
+        producer: ProducerPtr(producer),
+        thread,
+        source_name: status_source_name,
+        lang,
+    });
     tracing::info!("monitor started");
 
     Ok(StatusCode::OK)
@@ -455,7 +497,7 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
         // Destructure up front so the closure captures the Send `ProducerPtr`
         // field, not the inner raw pointer (disjoint closure capture would reach
         // through a `ProducerPtr(producer)` pattern). Unwrap it as a local after.
-        let MonitorHandle { mailbox, producer, thread } = handle;
+        let MonitorHandle { mailbox, producer, thread, .. } = handle;
         let producer = producer.0;
         // Stop new frames first. `ge_obs_unregister_frame_callback` serializes
         // with callback invocation, so once it returns the producer callback is

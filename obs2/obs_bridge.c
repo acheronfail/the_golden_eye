@@ -15,6 +15,14 @@ struct ge_source_names_ctx {
 
 static bool ge_collect_source_names_callback(void *data, obs_source_t *source) {
   struct ge_source_names_ctx *ctx = (struct ge_source_names_ctx *)data;
+
+  /* Only collect sources we can render frames from -- those that produce video.
+   * Skips audio-only sources (mics, desktop audio, etc.) which have no frames to
+   * grab via ge_capture_get_frame. */
+  if ((obs_source_get_output_flags(source) & OBS_SOURCE_VIDEO) == 0) {
+    return true;
+  }
+
   const char *name = obs_source_get_name(source);
   const char *id = obs_source_get_id(source);
   size_t name_len = strlen(name);

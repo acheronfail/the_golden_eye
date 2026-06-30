@@ -1,170 +1,80 @@
 <script lang="ts">
-	import { apiUrl, wsUrl } from '$lib/api';
-	import { settings } from '$lib/settings.svelte';
-	import { onMount } from 'svelte';
-	import InputLang from '../lib/InputLang.svelte';
+	import { goto } from '$app/navigation';
+	import { getSources, screenshotUrl, type ObsSource } from '../lib/api';
+	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
+	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
 
-	const knownVideoSourceIds = [
-		'screen_capture',
-		'macos-avcapture',
-		'macos-avcapture-fast',
-		'ffmpeg_source',
-		'v4l2_input'
-	];
+	let sources = $state<ObsSource[] | null>(null);
+	let reloading = $state(false);
+	// Bumped on each reload and woven into the screenshot URLs so the browser
+	// re-fetches the previews (the URL is otherwise identical and would be cached).
+	let previewVersion = $state(0);
 
-	/** The level match the backend pushes over the monitor WebSocket. Mirrors
-	 * the Rust `LevelMatch` struct (`runtime_ms` is included but the backend
-	 * only pushes a new message when the rest of the state changes). */
-	type LevelMatch = {
-		screen: string;
-		mission: number;
-		part: number;
-		difficulty: number;
-		times: number[];
-		runtime_ms: number;
-	};
-
-	let sources = $state<{ name: string; id: string }[]>([]);
-	let sourcesLoading = $state(false);
-	let monitoring = $state<string | null>(null);
-	let matchSocket: WebSocket | null = null;
-	let match = $state<LevelMatch | null>(null);
-
-	const getSources = async () => {
-		sourcesLoading = true;
-		const res = await fetch(apiUrl('/api/v1/sources'));
-		const data = await res.json();
-		sources = data;
-		setTimeout(() => (sourcesLoading = false), 250);
-	};
-
-	// Open a WebSocket to the backend that pushes the latest LevelMatch (as JSON)
-	// whenever the matched state changes. For now we just log it; the UI will be
-	// built later.
-	const connectMatchSocket = () => {
-		matchSocket?.close();
-		const socket = new WebSocket(wsUrl('/api/v1/monitor/ws'));
-		socket.onmessage = (event) => {
-			match = JSON.parse(event.data) as LevelMatch;
-			console.log('level match', match);
-		};
-		socket.onclose = () => {
-			if (matchSocket === socket) matchSocket = null;
-		};
-		matchSocket = socket;
-	};
-	const disconnectMatchSocket = () => {
-		matchSocket?.close();
-		matchSocket = null;
-	};
-
-	const startMonitor = (sourceName: string) => async () => {
-		const res = await fetch(apiUrl(`/api/v1/monitor/start`), {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ sourceName, lang: settings.lang })
-		});
-		if (res.ok) {
-			monitoring = sourceName;
-			connectMatchSocket();
-		} else {
-			alert(`Request error: ${res.status} ${await res.text()}`);
+	// Re-query OBS for its current sources. Used both for the initial load and the
+	// manual "refresh" button, so the list can be updated without a full page reload.
+	const reload = async () => {
+		reloading = true;
+		try {
+			sources = await getSources();
+			previewVersion++;
+		} finally {
+			reloading = false;
 		}
 	};
+	reload();
 
-	const stopMonitor = async () => {
-		const res = await fetch(apiUrl(`/api/v1/monitor/stop`), {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' }
-		});
-		if (res.ok) {
-			monitoring = null;
-			match = null;
-			disconnectMatchSocket();
-		} else {
-			alert(`Request error: ${res.status} ${await res.text()}`);
-		}
-	};
+	let options = $derived<Option[]>(
+		(sources ?? []).map((s) => ({ title: s.name, detail: s.id, key: s.name }))
+	);
 
-	onMount(() => {
-		// FIXME: this doesn't stop the monitor when a refresh happens, but we should do that
-		return async () => {
-			if (monitoring) {
-				await stopMonitor();
-			}
-		};
-	});
+	const select = (option: Option) => goto(`/source/${encodeURIComponent(option.title)}`);
 </script>
 
-<div class="flex flex-col gap-4 p-4">
-	<h1 class="text-2xl font-bold">Welcome to Goldeneye!</h1>
-	<p>Make sure to select the right language for the version of Goldeneye you're using!</p>
+<svelte:head>
+	<title>Setup</title>
+</svelte:head>
 
-	<InputLang />
+<!-- A live preview of each source, fetched asynchronously by the browser so the
+	user can recognise which capture is which. The frame is letterboxed on black to
+	preserve aspect ratio, and broken/uncaptured sources just hide the image. -->
+{#snippet leading(option: Option)}
+	<img
+		src="{screenshotUrl(option.title)}&v={previewVersion}"
+		alt="Preview of {option.title}"
+		loading="lazy"
+		onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
+		class="h-36 shrink-0 border border-slate-600 bg-black object-contain"
+	/>
+{/snippet}
 
-	<div class="flex flex-col gap-4">
-		<div class="flex flex-row gap-2">
-			<h2 class="text-xl font-semibold">Available Sources:</h2>
-			<button
-				class="rounded bg-blue-500 px-2 py-1 font-semibold text-white hover:bg-blue-600 disabled:bg-slate-500 disabled:text-slate-300"
-				disabled={sourcesLoading}
-				onclick={getSources}>load sources</button
-			>
+<WizardFrame
+	step={1}
+	title="Choose your capture source"
+	subtitle="Pick the OBS source attached to your N64's video output."
+>
+	{#if sources === null}
+		<p class="font-mono text-sm text-neutral-500">Loading sources…</p>
+	{:else if sources.length === 0}
+		<div class="rounded-md border border-neutral-700 bg-neutral-950/60 px-4 py-6 text-center">
+			<p class="text-sm text-neutral-300">No OBS sources found.</p>
+			<p class="mt-1 font-mono text-xs text-neutral-500">
+				Add a video capture source in OBS, then reload the page or refresh OBS sources.
+			</p>
 		</div>
+	{:else}
+		<OptionList {options} onSelect={select} {leading} />
+	{/if}
 
-		{#if sources.length == 0}
-			<p class="text-gray-500">No sources, click "load sources" to fetch them from OBS.</p>
-		{:else}
-			<ul class="grid grid-cols-[max-content_1fr] items-center gap-x-4 gap-y-3">
-				{#each sources as source}
-					<li class="contents">
-						<span class="text-right font-mono">{source.name}: </span>
-
-						<div class="flex flex-wrap gap-2">
-							{#if knownVideoSourceIds.includes(source.id)}
-								{#if monitoring === source.name}
-									<button
-										class="rounded bg-red-500 px-2 py-1 text-white hover:bg-red-600"
-										onclick={stopMonitor}>stop monitor</button
-									>
-								{:else}
-									<button
-										class="rounded bg-green-500 px-2 py-1 text-white hover:bg-green-600 disabled:bg-slate-500 disabled:text-slate-300"
-										disabled={!!monitoring}
-										onclick={startMonitor(source.name)}>start monitor</button
-									>
-								{/if}
-							{:else}
-								<span class="font-mono text-gray-400">(not a video source)</span>
-							{/if}
-						</div>
-					</li>
-				{/each}
-			</ul>
-		{/if}
-	</div>
-
-	{#if match}
-		<div class="grid grid-cols-[max-content_1fr] items-center gap">
-			<span>Screen:</span>
-			<span>{match.screen}</span>
-
-			{#if match.difficulty !== -1}
-				<span>Difficulty:</span>
-				<span>{match.difficulty}</span>
-			{/if}
-
-			{#if match.mission !== -1 && match.part !== -1}
-				<span>mission:</span>
-				<span>{match.mission}</span>
-				<span>part: {match.part}</span>
-				<span>{match.part}</span>
-			{/if}
-
-			{#if match.times}
-				<span>Times:</span>
-				<pre>{JSON.stringify(match.times)}</pre>
-			{/if}
+	{#if sources !== null}
+		<div class="mt-6 flex justify-center">
+			<button
+				type="button"
+				onclick={reload}
+				disabled={reloading}
+				class="font-mono border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-500 underline-offset-2 transition-colors hover:text-amber-300 hover:border-amber-300 hover:cursor-pointer disabled:text-neutral-700 disabled:no-underline"
+			>
+				{reloading ? 'refreshing…' : 'refresh OBS sources'}
+			</button>
 		</div>
 	{/if}
-</div>
+</WizardFrame>

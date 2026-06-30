@@ -2,7 +2,7 @@ import { browser } from '$app/environment';
 import { z } from 'zod';
 
 const SettingsSchema = z.object({
-	lang: z.union([z.literal('en'), z.literal('jp')]),
+	developerLang: z.union([z.literal('en'), z.literal('jp')])
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -27,7 +27,7 @@ export const settings = new (class {
 	// Monitor
 	//
 
-	lang = $state(storedSettings?.lang ?? 'en');
+	developerLang = $state(storedSettings?.developerLang ?? 'en');
 
 	//
 	// Stored
@@ -35,7 +35,7 @@ export const settings = new (class {
 
 	savedState = $derived(
 		JSON.stringify({
-			lang: this.lang,
+			developerLang: this.developerLang
 		})
 	);
 })();
