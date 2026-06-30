@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { apiUrl } from '$lib/api';
 	import { settings } from '$lib/settings.svelte';
+	import InputLang from '../../lib/InputLang.svelte';
 
 	const knownVideoSourceIds = [
 		'screen_capture',
@@ -12,6 +13,7 @@
 
 	let imageData = $state<string | null>(null);
 	let sources = $state<{ name: string; id: string }[]>([]);
+	let sourcesLoading = $state(false);
 	let screenshottingSource = $state<string | null>(null);
 	let statsScreenIndex = $state(0);
 	let startScreenIndex = $state(0);
@@ -64,9 +66,11 @@
 	};
 
 	const getSources = async () => {
+		sourcesLoading = true;
 		const res = await fetch(apiUrl('/api/v1/sources'));
 		const data = await res.json();
 		sources = data;
+		setTimeout(() => (sourcesLoading = false), 250);
 	};
 
 	const getScreenshot = (sourceName: string) => async () => {
@@ -96,33 +100,23 @@
 </script>
 
 <div class="flex flex-col gap-4 p-4">
-	<fieldset class="mb-4">
-		<legend class="mb-2 font-semibold">Language:</legend>
-		<div class="flex flex-col pl-4">
-			<label class="mr-4">
-				<input type="radio" name="lang" value="en" bind:group={settings.lang} />
-				English
-			</label>
-			<label>
-				<input type="radio" name="lang" value="jp" bind:group={settings.lang} />
-				Japanese
-			</label>
+	<h1 class="mb-4 text-2xl font-bold">Developer Utilities</h1>
+
+	<InputLang />
+
+	<div class="flex flex-col gap-4">
+		<div class="flex flex-row gap-2">
+			<h2 class="text-xl font-semibold">Available Sources:</h2>
+			<button
+				class="rounded bg-blue-500 px-2 py-1 font-semibold text-white hover:bg-blue-600 disabled:bg-slate-500 disabled:text-slate-300"
+				disabled={sourcesLoading}
+				onclick={getSources}>refresh sources</button
+			>
 		</div>
-	</fieldset>
 
-	<div>
-		<button
-			class="rounded bg-blue-500 px-2 py-1 font-semibold text-white hover:bg-blue-600"
-			onclick={getSources}>get sources</button
-		>
-	</div>
-
-	{#if sources.length == 0}
-		<p class="mb-4 text-gray-500">No sources, click "get sources" to fetch them from OBS.</p>
-	{:else}
-		<div class="flex flex-col gap-4">
-			<h2 class="mb-2 text-xl font-semibold">Available Sources:</h2>
-
+		{#if sources.length == 0}
+			<p class="text-gray-500">No sources, click "refresh sources" to fetch them from OBS.</p>
+		{:else}
 			<ul class="grid grid-cols-[max-content_1fr] items-center gap-x-4 gap-y-3">
 				{#each sources as source}
 					<li class="contents">
@@ -142,9 +136,10 @@
 										class="rounded bg-red-500 px-2 py-1 text-white hover:bg-red-600"
 										onclick={stopScreenshotting}>stop screenshotting</button
 									>
-								{:else if !screenshottingSource}
+								{:else}
 									<button
-										class="rounded bg-amber-500 px-2 py-1 text-white hover:bg-amber-600"
+										class="rounded bg-amber-500 px-2 py-1 text-white hover:bg-amber-600 disabled:bg-slate-500 disabled:text-slate-300"
+										disabled={!!screenshottingSource}
 										onclick={startScreenshotting(source.name)}>start screenshotting</button
 									>
 								{/if}
@@ -155,8 +150,8 @@
 					</li>
 				{/each}
 			</ul>
-		</div>
-	{/if}
+		{/if}
+	</div>
 
 	{#if imageData}
 		<div class="flex w-1/2 flex-col gap-4 p-2">

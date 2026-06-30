@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { apiUrl, wsUrl } from '$lib/api';
 	import { settings } from '$lib/settings.svelte';
+	import { onMount } from 'svelte';
+	import InputLang from '../lib/InputLang.svelte';
 
 	const knownVideoSourceIds = [
 		'screen_capture',
@@ -23,14 +25,17 @@
 	};
 
 	let sources = $state<{ name: string; id: string }[]>([]);
+	let sourcesLoading = $state(false);
 	let monitoring = $state<string | null>(null);
 	let matchSocket: WebSocket | null = null;
 	let match = $state<LevelMatch | null>(null);
 
 	const getSources = async () => {
+		sourcesLoading = true;
 		const res = await fetch(apiUrl('/api/v1/sources'));
 		const data = await res.json();
 		sources = data;
+		setTimeout(() => (sourcesLoading = false), 250);
 	};
 
 	// Open a WebSocket to the backend that pushes the latest LevelMatch (as JSON)
@@ -80,37 +85,36 @@
 			alert(`Request error: ${res.status} ${await res.text()}`);
 		}
 	};
+
+	onMount(() => {
+		// FIXME: this doesn't stop the monitor when a refresh happens, but we should do that
+		return async () => {
+			if (monitoring) {
+				await stopMonitor();
+			}
+		};
+	});
 </script>
 
-<div>
-	<h1 class="mb-4 text-2xl font-bold">Welcome to Goldeneye!</h1>
-	<p class="mb-4">This is the main dashboard.</p>
+<div class="flex flex-col gap-4 p-4">
+	<h1 class="text-2xl font-bold">Welcome to Goldeneye!</h1>
+	<p>Make sure to select the right language for the version of Goldeneye you're using!</p>
 
-	<fieldset class="mb-4">
-		<legend class="mb-2 font-semibold">Language:</legend>
-		<div class="flex flex-col pl-4">
-			<label class="mr-4">
-				<input type="radio" name="lang" value="en" bind:group={settings.lang} />
-				English
-			</label>
-			<label>
-				<input type="radio" name="lang" value="jp" bind:group={settings.lang} />
-				Japanese
-			</label>
+	<InputLang />
+
+	<div class="flex flex-col gap-4">
+		<div class="flex flex-row gap-2">
+			<h2 class="text-xl font-semibold">Available Sources:</h2>
+			<button
+				class="rounded bg-blue-500 px-2 py-1 font-semibold text-white hover:bg-blue-600 disabled:bg-slate-500 disabled:text-slate-300"
+				disabled={sourcesLoading}
+				onclick={getSources}>refresh sources</button
+			>
 		</div>
-	</fieldset>
 
-	<button
-		class="mb-4 rounded bg-blue-500 px-4 py-2 font-semibold text-white hover:bg-blue-600"
-		onclick={getSources}>get sources</button
-	>
-
-	{#if sources.length == 0}
-		<p class="mb-4 text-gray-500">No sources, click "get sources" to fetch them from OBS.</p>
-	{:else}
-		<div class="flex flex-col gap-4">
-			<h2 class="mb-2 text-xl font-semibold">Available Sources:</h2>
-
+		{#if sources.length == 0}
+			<p class="text-gray-500">No sources, click "refresh sources" to fetch them from OBS.</p>
+		{:else}
 			<ul class="grid grid-cols-[max-content_1fr] items-center gap-x-4 gap-y-3">
 				{#each sources as source}
 					<li class="contents">
@@ -118,15 +122,16 @@
 
 						<div class="flex flex-wrap gap-2">
 							{#if knownVideoSourceIds.includes(source.id)}
-								{#if !monitoring}
-									<button
-										class="rounded bg-green-500 px-2 py-1 text-white hover:bg-green-600"
-										onclick={startMonitor(source.name)}>start monitor</button
-									>
-								{:else if monitoring === source.name}
+								{#if monitoring === source.name}
 									<button
 										class="rounded bg-red-500 px-2 py-1 text-white hover:bg-red-600"
 										onclick={stopMonitor}>stop monitor</button
+									>
+								{:else}
+									<button
+										class="rounded bg-green-500 px-2 py-1 text-white hover:bg-green-600 disabled:bg-slate-500 disabled:text-slate-300"
+										disabled={!!monitoring}
+										onclick={startMonitor(source.name)}>start monitor</button
 									>
 								{/if}
 							{:else}
@@ -136,10 +141,30 @@
 					</li>
 				{/each}
 			</ul>
-		</div>
-	{/if}
+		{/if}
+	</div>
 
 	{#if match}
-		<pre>{JSON.stringify(match, null, 2)}</pre>
+		<div class="grid grid-cols-[max-content_1fr] items-center gap">
+			<span>Screen:</span>
+			<span>{match.screen}</span>
+
+			{#if match.difficulty !== -1}
+				<span>Difficulty:</span>
+				<span>{match.difficulty}</span>
+			{/if}
+
+			{#if match.mission !== -1 && match.part !== -1}
+				<span>mission:</span>
+				<span>{match.mission}</span>
+				<span>part: {match.part}</span>
+				<span>{match.part}</span>
+			{/if}
+
+			{#if match.times}
+				<span>Times:</span>
+				<pre>{JSON.stringify(match.times)}</pre>
+			{/if}
+		</div>
 	{/if}
 </div>
