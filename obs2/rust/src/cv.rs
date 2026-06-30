@@ -802,7 +802,29 @@ fn find_times_band(
         if ra != rb { ra.cmp(&rb) } else { a.x.cmp(&b.x) }
     });
 
-    Ok(times)
+    // A single time-colon can register twice when a side-lobe peak survives the
+    // colon suppression -- likeliest at small template scales, where the colon is
+    // only a few pixels wide and the suppression radius (~colon_w) drops below the
+    // side-lobe offset. Both detections anchor the same row and read the same
+    // digits, yielding a duplicate time. Collapse times whose colons sit within a
+    // glyph of each other; two genuine times sharing a row ("Target: .. (Best
+    // Time: ..)") have colons many digit-widths apart and are preserved.
+    // The vertical radius stays well under one row's height: adjacent rows share
+    // the same value-colon x (the times align to a tab stop), so a tall threshold
+    // would fold two real rows into one. A side-lobe duplicate sits within a
+    // couple of pixels of its twin, far inside this bound.
+    let dedup_dy = (digit_h as f64 * 0.3) as i32;
+    let mut deduped: Vec<FoundTime> = Vec::with_capacity(times.len());
+    for t in times {
+        let dup = deduped
+            .iter()
+            .any(|k| (t.x - k.x).abs() < digit_w * 2 && (t.y - k.y).abs() < dedup_dy);
+        if !dup {
+            deduped.push(t);
+        }
+    }
+
+    Ok(deduped)
 }
 
 // Matches the GoldenEye level-stats overlay in a single BGRA frame against the
