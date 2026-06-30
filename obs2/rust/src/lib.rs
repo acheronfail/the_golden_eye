@@ -74,10 +74,12 @@ pub extern "C" fn ge_rust_start() {
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
+    let (match_tx, _) = tokio::sync::watch::channel(None);
     let state = Arc::new(AppStateInner {
         oauth_pending: tokio::sync::Mutex::new(None),
         stream_message: tokio::sync::Mutex::new(None),
         monitor: std::sync::Mutex::new(None),
+        match_tx,
         config,
     });
 

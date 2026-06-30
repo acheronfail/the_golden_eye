@@ -1,9 +1,22 @@
 <script lang="ts">
-	import { apiUrl } from '$lib/api';
+	import { apiUrl, wsUrl } from '$lib/api';
+
+	/** The level match the backend pushes over the monitor WebSocket. Mirrors
+	 * the Rust `LevelMatch` struct (`runtime_ms` is included but the backend
+	 * only pushes a new message when the rest of the state changes). */
+	type LevelMatch = {
+		screen: string;
+		mission: number;
+		part: number;
+		difficulty: number;
+		times: number[];
+		runtime_ms: number;
+	};
 
 	let imageData = $state<string | null>(null);
 	let sources = $state<{ name: string; id: string }[]>([]);
 	let monitoring = $state(false);
+	let matchSocket: WebSocket | null = null;
 	let lang = $state<'en' | 'jp'>('jp');
 	let statsScreenIndex = $state(0);
 	let startScreenIndex = $state(0);
@@ -87,6 +100,26 @@
 		}
 	};
 
+	// Open a WebSocket to the backend that pushes the latest LevelMatch (as JSON)
+	// whenever the matched state changes. For now we just log it; the UI will be
+	// built later.
+	const connectMatchSocket = () => {
+		matchSocket?.close();
+		const socket = new WebSocket(wsUrl('/api/v1/monitor/ws'));
+		socket.onmessage = (event) => {
+			const match = JSON.parse(event.data) as LevelMatch;
+			console.log('level match', match);
+		};
+		socket.onclose = () => {
+			if (matchSocket === socket) matchSocket = null;
+		};
+		matchSocket = socket;
+	};
+	const disconnectMatchSocket = () => {
+		matchSocket?.close();
+		matchSocket = null;
+	};
+
 	const startMonitor = (sourceName: string) => async () => {
 		const res = await fetch(apiUrl(`/api/v1/monitor/start`), {
 			method: 'POST',
@@ -95,6 +128,7 @@
 		});
 		if (res.ok) {
 			monitoring = true;
+			connectMatchSocket();
 		} else {
 			alert(`Request error: ${res.status} ${await res.text()}`);
 		}
@@ -106,6 +140,7 @@
 		});
 		if (res.ok) {
 			monitoring = false;
+			disconnectMatchSocket();
 		} else {
 			alert(`Request error: ${res.status} ${await res.text()}`);
 		}

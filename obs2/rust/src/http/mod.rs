@@ -13,10 +13,12 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use tokio::net::TcpSocket;
 use tokio::sync::{Mutex, oneshot};
+use tokio::sync::watch;
 use tower::ServiceBuilder;
 use tower_http::BoxError;
 
 use crate::config::Config;
+use crate::cv::LevelMatch;
 
 pub struct AppStateInner {
     /// Holds the sender end of a one-shot channel while an OAuth flow is in
@@ -28,6 +30,13 @@ pub struct AppStateInner {
     /// The currently running monitor, if any. Enforces a single monitor at a
     /// time: `/api/v1/monitor/start` fails while this is `Some`.
     pub monitor: std::sync::Mutex<Option<routes::monitor::MonitorHandle>>,
+    /// Latest `LevelMatch` from the running monitor, broadcast to connected
+    /// WebSocket clients. `None` when no monitor is running (set on stop). The
+    /// monitor worker only sends a new value when the matched state changes
+    /// (ignoring `runtime_ms`), so subscribers aren't flooded with duplicates.
+    /// `watch` retains the latest value, so a client connecting mid-run sees the
+    /// current match immediately.
+    pub match_tx: watch::Sender<Option<LevelMatch>>,
     /// Application configuration, resolved from the environment at startup.
     pub config: Config,
 }
@@ -83,6 +92,7 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         .route("/api/v1/record/stop", post(routes::record::handle_stop))
         .route("/api/v1/monitor/start", post(routes::monitor::handle_start))
         .route("/api/v1/monitor/stop", post(routes::monitor::handle_stop))
+        .route("/api/v1/monitor/ws", get(routes::monitor::handle_ws))
         .route("/api/v1/sources", get(routes::sources::handler))
         .route("/api/v1/screenshot", get(routes::screenshot::handler))
         .route("/api/v1/match", post(routes::matcher::handler))

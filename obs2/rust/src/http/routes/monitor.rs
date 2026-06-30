@@ -3,10 +3,12 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 
 use axum::Json;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Result};
+use axum::response::{IntoResponse, Response, Result};
 use serde::Deserialize;
+use tokio::sync::watch;
 
 use crate::cv::{CaptureRegion, CvMatcher, LevelMatch};
 use crate::http::AppState;
@@ -393,12 +395,27 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // never ties up the async runtime's worker threads. The session is moved
     // onto the thread and dropped when the loop exits, clearing the cache.
     let worker_mailbox = mailbox.clone();
+    // Broadcast each new match to connected WebSocket clients. We dedup here so
+    // the channel only fires when the matched state actually changes (ignoring
+    // `runtime_ms`), rather than every frame.
+    let match_tx = state.match_tx.clone();
     let thread = std::thread::Builder::new()
         .name("ge-monitor".to_owned())
         .spawn(move || {
             let mut source = ObsSource { mailbox: worker_mailbox, region };
+            let mut last: Option<LevelMatch> = None;
             session.run(&mut source, |result| match result {
-                Ok(info) => tracing::info!(?info),
+                Ok(info) => {
+                    tracing::info!(?info);
+                    let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&info));
+                    if changed {
+                        last = Some(info.clone());
+                        // Ignore send errors: with no subscribers there is no
+                        // receiver, but `watch` still retains the value for the
+                        // next client to connect.
+                        let _ = match_tx.send(Some(info));
+                    }
+                }
                 Err(e) => tracing::error!("err: {}", e.message),
             });
             tracing::info!("monitor loop exiting");
@@ -457,9 +474,70 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
     .await
     .ok();
 
+    // Clear the last broadcast match so WebSocket clients see the monitor has
+    // stopped (and a later `start` doesn't briefly replay the previous run's
+    // final match before a fresh one is matched).
+    let _ = state.match_tx.send(None);
+
     tracing::info!("monitor stopped");
 
     Ok(StatusCode::OK)
+}
+
+/// Upgrades the connection to a WebSocket that streams the latest `LevelMatch`
+/// as JSON. The current match (if any) is sent immediately on connect, then a
+/// new message is pushed each time the matched state changes -- see
+/// [`AppStateInner::match_tx`](crate::http::AppStateInner).
+pub async fn handle_ws(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
+}
+
+async fn handle_socket(mut socket: WebSocket, state: AppState) {
+    let mut rx = state.match_tx.subscribe();
+
+    // Send the current value up front so a client connecting mid-run isn't
+    // blank until the next change.
+    if send_current(&mut socket, &mut rx).await.is_err() {
+        return;
+    }
+
+    loop {
+        tokio::select! {
+            // The broadcast value changed: forward it.
+            changed = rx.changed() => {
+                // Err means the sender was dropped (server shutting down).
+                if changed.is_err() {
+                    break;
+                }
+                if send_current(&mut socket, &mut rx).await.is_err() {
+                    break;
+                }
+            }
+            // Drain inbound frames so we notice the client closing/erroring.
+            // We don't expect any meaningful client messages.
+            inbound = socket.recv() => {
+                match inbound {
+                    Some(Ok(_)) => {}
+                    // Closed or errored.
+                    _ => break,
+                }
+            }
+        }
+    }
+}
+
+/// Serializes the current `LevelMatch` (if any) and sends it over `socket`,
+/// marking the watch value as seen. A `None` value (no monitor running) sends
+/// nothing.
+async fn send_current(socket: &mut WebSocket, rx: &mut watch::Receiver<Option<LevelMatch>>) -> Result<(), axum::Error> {
+    let payload = {
+        let value = rx.borrow_and_update();
+        value.as_ref().and_then(|m| serde_json::to_string(m).ok())
+    };
+    if let Some(text) = payload {
+        socket.send(Message::Text(text.into())).await?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

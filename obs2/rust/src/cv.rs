@@ -430,7 +430,7 @@ impl Screen {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct LevelMatch {
     pub screen: Screen,
     pub mission: i32,
@@ -438,6 +438,19 @@ pub struct LevelMatch {
     pub difficulty: i32,
     pub times: Vec<i32>,
     pub runtime_ms: f64,
+}
+
+impl LevelMatch {
+    /// Whether this match describes the same on-screen state as `other`,
+    /// ignoring `runtime_ms` (the per-frame match cost, which changes every
+    /// frame and would otherwise defeat any "only on change" deduplication).
+    pub fn same_state(&self, other: &LevelMatch) -> bool {
+        self.screen == other.screen
+            && self.mission == other.mission
+            && self.part == other.part
+            && self.difficulty == other.difficulty
+            && self.times == other.times
+    }
 }
 
 // Loads "<dir>/<lang>-<name>.png" as a single-channel (grayscale) template.
