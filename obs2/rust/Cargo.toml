@@ -30,8 +30,17 @@ anyhow = "1.0.102"
 axum = { version = "0.8.9", features = ["macros"] }
 base64 = "0.22.1"
 bmp = "0.5.0"
+# Statically linked against the vendored FFmpeg in obs2/vendor/ffmpeg-static
+# (built by `just ffmpeg-static`). The `static` feature makes ffmpeg-sys-next
+# probe pkg-config with --static; CMake/justfile point PKG_CONFIG_PATH at the
+# vendored prefix so it resolves there rather than a system FFmpeg.
+ffmpeg-next = { version = "8.1.0", features = ["static"] }
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-opencv = "0.98.2"
+# `clang-runtime` makes opencv's binding generator load libclang at runtime.
+# ffmpeg-sys-next pulls in bindgen with the `runtime` feature, which unifies
+# `clang-sys/runtime` on for the whole build; without matching it here, opencv's
+# generator panics with "libclang shared library is not loaded on this thread".
+opencv = { version = "0.98.2", features = ["clang-runtime"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "form", "native-tls", "charset", "http2", "system-proxy"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"

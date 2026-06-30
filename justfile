@@ -16,14 +16,16 @@ export LLAMA_MMPROJ_PATH := "models/" + model + "-mmproj.gguf"
 # Build variables
 #
 
-obs_version := "32.1.2"
 obs_headers := justfile_directory() / "obs2/vendor/obs"
+obsapi_version := "32.1.2"
 opencv_version := "4.11.0"
+ffmpeg_version := "8.0"
 cmake_version  := "3.31.7"
 
 export BROWSER_BUNDLE := justfile_directory() / "obs2/browser/build/index.html"
 export DYLD_FALLBACK_LIBRARY_PATH := "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib"
 export OPENCV_PREFIX := justfile_directory() /  "obs2/vendor/opencv-static"
+export FFMPEG_PREFIX := justfile_directory() /  "obs2/vendor/ffmpeg-static"
 
 #
 # Runtime variables
@@ -107,6 +109,10 @@ test-rust *args:
     # build's static-opencv artifacts in target/release.
     export DYLD_FALLBACK_LIBRARY_PATH="{{DYLD_FALLBACK_LIBRARY_PATH}}"
     export CARGO_TARGET_DIR="{{justfile_directory()}}/obs2/rust/target/test"
+    # ffmpeg-next is built with the `static` feature, so point pkg-config at the
+    # vendored static FFmpeg (built by `just ffmpeg-static`) just like the CMake
+    # build does — otherwise ffmpeg-sys-next falls back to a system FFmpeg.
+    export PKG_CONFIG_PATH="{{FFMPEG_PREFIX}}/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     cd "{{justfile_directory()}}/obs2/rust" && cargo test --release {{args}}
 
 make:
@@ -149,7 +155,7 @@ obs-headers:
     clone_dir=$(mktemp -d)
     git clone \
       --depth 1 \
-      --branch "{{ obs_version }}" \
+      --branch "{{ obsapi_version }}" \
       --filter=blob:none \
       --sparse \
       https://github.com/obsproject/obs-studio.git \
@@ -164,7 +170,7 @@ obs-headers:
     cp -r "${clone_dir}/obs-studio/libobs" "${dest_dir}/"
     cp -r "${clone_dir}/obs-studio/frontend/api" "${dest_dir}/frontend"
 
-    echo "{{ obs_version }}" > "${dest_dir}/OBS_VERSION"
+    echo "{{ obsapi_version }}" > "${dest_dir}/OBS_VERSION"
 
 # Compile OpenCV statically, so we don't have to depend on users having it
 # installed on their system in order to use the plugin.
@@ -253,6 +259,61 @@ opencv-static:
     echo "Static OpenCV installed to ${OPENCV_PREFIX}"
     echo "Now run 'just make' / 'just obs' — CMake auto-detects the static prefix."
 
+# Compile FFmpeg statically, the same way we do OpenCV, so we don't have to
+# depend on users having it installed in order to use the plugin. `ffmpeg-next`
+# (the Rust crate) links these archives via pkg-config; CMake links them into
+# the plugin's own link step (see cmake/FFmpegStatic.cmake).
+# Delete the prefix to force a rebuild.
+#
+# x86_64 hosts need `nasm` (or `yasm`) for FFmpeg's hand-written assembly;
+# arm64 (Apple Silicon) does not.
+ffmpeg-static:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [ -f "${FFMPEG_PREFIX}/lib/pkgconfig/libavcodec.pc" ]; then
+      echo "Static FFmpeg already built at ${FFMPEG_PREFIX}"
+      echo "Delete it to rebuild: rm -rf ${FFMPEG_PREFIX}"
+      exit 0
+    fi
+
+    work="$(mktemp -d)"
+    trap 'rm -rf "${work}"' EXIT
+
+    echo "Downloading FFmpeg {{ ffmpeg_version }} ..."
+    wget -O "${work}/ffmpeg.tar.xz" \
+      "https://ffmpeg.org/releases/ffmpeg-{{ ffmpeg_version }}.tar.xz"
+    tar xJf "${work}/ffmpeg.tar.xz" -C "${work}"
+    src="${work}/ffmpeg-{{ ffmpeg_version }}"
+
+    if [ "$(uname)" = "Darwin" ]; then
+      jobs="$(sysctl -n hw.logicalcpu)"
+    else
+      jobs="$(nproc)"
+    fi
+
+    # Static, PIC, self-contained build. `--disable-autodetect` pins the build to
+    # FFmpeg's own built-in codecs/muxers only (no x264, no system zlib/lzma, no
+    # platform frameworks), so the resulting archives don't drag host libraries
+    # into the plugin — mirroring the way `opencv-static` forces its own zlib/png.
+    # The archives are linked into the plugin's .so/.dylib, so everything is PIC.
+    cd "${src}"
+    ./configure \
+      --prefix="${FFMPEG_PREFIX}" \
+      --enable-static \
+      --disable-shared \
+      --enable-pic \
+      --disable-autodetect \
+      --disable-programs \
+      --disable-doc \
+      --disable-debug
+    make -j"${jobs}"
+    make install
+
+    echo
+    echo "Static FFmpeg installed to ${FFMPEG_PREFIX}"
+    echo "Now run 'just make' / 'just obs' — CMake auto-detects the static prefix."
+
 run:
     npm run obs
 
@@ -277,7 +338,7 @@ _setup-legacy:
     fi
 
 # setup the repository for local development
-setup: obs-headers opencv-static
+setup: obs-headers opencv-static ffmpeg-static
     cd obs2/browser && npm install
     cd test && npm install
 
@@ -289,4 +350,5 @@ clean:
     rm -rf "obs2/build"
     rm -rf "esp32-input-monitor/.pio"
     rm -rf "{{OPENCV_PREFIX}}"
+    rm -rf "{{FFMPEG_PREFIX}}"
     cd "obs2/rust" && cargo clean

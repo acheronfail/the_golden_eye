@@ -5,8 +5,8 @@
 System dependencies:
 
 * Common: `rustup`, `nodejs`
-* Debian: `libdbus-1-dev libssl-dev opencv pkg-config`
-* Arch Linux: `cmake obs-studio opencv`
+* Debian: OBS (system or flatpak) + `libdbus-1-dev libssl-dev nasm opencv pkg-config`
+* Arch Linux: OBS (system or flatpak) + `cmake nasm opencv`
 * macOS:
     * `brew install cmake opencv`
     * Have OBS installed in `/Applications`
@@ -15,9 +15,6 @@ Setup `.env` file:
 
 * Copy `.env.sample` to `.env`
 * Add in variables
-* Arch Linux needs:
-    * `OPENCV_INCLUDE_DIR="/usr/include/opencv4"`
-    * `OPENCV_LIB_DIR="/usr/lib"`
 
 Get started:
 

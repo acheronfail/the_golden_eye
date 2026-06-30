@@ -12,7 +12,7 @@
 # and surface link errors as a catchable dlopen failure.
 #
 # The core library name (used by the shim to find it).
-set(CORE_NAME ${PLUGIN_NAME}_core)
+set(CORE_NAME golden_core)
 
 add_library(${CORE_NAME} SHARED)
 
@@ -57,6 +57,9 @@ target_link_libraries(${CORE_NAME} PRIVATE
     # (cv::Mat, cv::imgproc, ...). Listed after rust_libs so the archives that
     # define these symbols come after the archive that uses them on the link line.
     ${GE_OPENCV_LINK}
+    # Likewise, the FFmpeg static archives that ge_rust.a references via the
+    # ffmpeg-next crate (libav*, libsw*). Also listed after rust_libs.
+    ${GE_FFMPEG_LINK}
 )
 
 if(APPLE)
