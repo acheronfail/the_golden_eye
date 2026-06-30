@@ -188,7 +188,9 @@ const REFERENCE_HEIGHT: f64 = 1080.0;
 // Frames taller than this are downscaled to it before matching. 480 is the
 // height of the composite/HDMI captures the matcher already handles accurately,
 // so normalizing every source to it bounds match time without losing accuracy.
-const WORK_HEIGHT: i32 = 480;
+// Exposed so the live capture can downscale to the same height up front (the
+// GPU does it for free), making this internal downscale a no-op on those frames.
+pub const WORK_HEIGHT: i32 = 480;
 
 // Multipliers searched around the resolution-implied scale. Deriving the scale
 // from the frame height (rather than blindly sweeping a fixed ladder) keeps the

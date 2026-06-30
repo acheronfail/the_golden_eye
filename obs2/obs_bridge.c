@@ -33,21 +33,6 @@ static bool ge_collect_source_names_callback(void *data, obs_source_t *source) {
   return true;
 }
 
-struct ge_find_source_by_name_ctx {
-  const char *target_name;
-  obs_source_t *found;
-};
-
-static bool ge_find_source_by_name_proc(void *data, obs_source_t *source) {
-  struct ge_find_source_by_name_ctx *ctx = (struct ge_find_source_by_name_ctx *)data;
-  const char *name = obs_source_get_name(source);
-  if (strcmp(name, ctx->target_name) == 0) {
-    ctx->found = obs_source_get_ref(source);
-    return false;
-  }
-  return true;
-}
-
 void ge_obs_collect_source_names(char *buffer, size_t buffer_size) {
   struct ge_source_names_ctx ctx = {
       .buffer = buffer,
@@ -64,30 +49,92 @@ void ge_obs_collect_source_names(char *buffer, size_t buffer_size) {
   }
 }
 
-uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, uint32_t *out_height) {
-  obs_source_t *source = NULL;
+/* Reusable GPU surfaces for repeated captures. Creating and destroying a
+ * texrender + stagesurface on every frame churns GPU memory; a long-running
+ * caller (the monitor's hot loop) instead holds one of these and reuses the
+ * surfaces across frames. */
+struct ge_capture_ctx {
+  gs_texrender_t *texrender;
+  gs_stagesurf_t *stagesurface;
+  /* Dimensions the stagesurface was created for. The stagesurface is bound to
+   * a resolution, so it's recreated when the source size changes; the
+   * texrender is resolution-agnostic (reset before each render) and reused. */
+  uint32_t width;
+  uint32_t height;
+};
 
-  if (!source_name) {
+ge_capture_ctx *ge_capture_create(void) {
+  struct ge_capture_ctx *ctx = (struct ge_capture_ctx *)calloc(1, sizeof(*ctx));
+  if (!ctx) {
     return NULL;
   }
 
-  struct ge_find_source_by_name_ctx ctx = {
-      .target_name = source_name,
-      .found = NULL,
-  };
-  obs_enum_sources(ge_find_source_by_name_proc, &ctx);
-  source = ctx.found;
+  /* The texrender is independent of resolution, so create it once up front.
+   * The stagesurface is created lazily on the first frame (and whenever the
+   * source resolution changes) since it must match the frame dimensions. */
+  obs_enter_graphics();
+  ctx->texrender = gs_texrender_create(GS_BGRA, GS_ZS_NONE);
+  obs_leave_graphics();
 
+  if (!ctx->texrender) {
+    free(ctx);
+    return NULL;
+  }
+
+  return ctx;
+}
+
+void ge_capture_destroy(ge_capture_ctx *ctx) {
+  if (!ctx) {
+    return;
+  }
+
+  obs_enter_graphics();
+  if (ctx->stagesurface) {
+    gs_stagesurface_destroy(ctx->stagesurface);
+  }
+  if (ctx->texrender) {
+    gs_texrender_destroy(ctx->texrender);
+  }
+  obs_leave_graphics();
+
+  free(ctx);
+}
+
+uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint32_t max_height, uint32_t *out_width,
+                              uint32_t *out_height) {
+  if (!ctx || !source_name) {
+    return NULL;
+  }
+
+  // Looked up fresh each frame so the capture transparently follows the named
+  // source being (re)created or removed. Returns a new ref we must release.
+  obs_source_t *source = obs_get_source_by_name(source_name);
   if (!source) {
     return NULL;
   }
 
-  uint32_t width = obs_source_get_width(source);
-  uint32_t height = obs_source_get_height(source);
+  uint32_t src_width = obs_source_get_width(source);
+  uint32_t src_height = obs_source_get_height(source);
 
-  if (width == 0 || height == 0) {
+  if (src_width == 0 || src_height == 0) {
     obs_source_release(source);
     return NULL;
+  }
+
+  // The render target downscales to max_height (preserving aspect ratio) when
+  // the source is taller, so a 1080p (or larger) upscaled feed is captured as a
+  // cheap ~480p frame: far less data to map back and far less work for OpenCV.
+  // max_height == 0, or a source already no taller, captures at native size.
+  uint32_t width = src_width;
+  uint32_t height = src_height;
+  if (max_height != 0 && src_height > max_height) {
+    // Round to nearest to minimise aspect drift; clamp to at least 1px wide.
+    width = (uint32_t)(((uint64_t)src_width * max_height + src_height / 2) / src_height);
+    if (width == 0) {
+      width = 1;
+    }
+    height = max_height;
   }
 
   *out_width = width;
@@ -102,30 +149,41 @@ uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, u
 
   obs_enter_graphics();
 
-  gs_texrender_t *texrender = gs_texrender_create(GS_BGRA, GS_ZS_NONE);
-  gs_stagesurf_t *stagesurface = gs_stagesurface_create(width, height, GS_BGRA);
+  /* (Re)create the stagesurface when the source resolution changes (including
+   * the first frame). Resetting width/height to 0 on failure forces a retry on
+   * the next frame rather than leaving a stale size cached. */
+  if (!ctx->stagesurface || ctx->width != width || ctx->height != height) {
+    if (ctx->stagesurface) {
+      gs_stagesurface_destroy(ctx->stagesurface);
+    }
+    ctx->stagesurface = gs_stagesurface_create(width, height, GS_BGRA);
+    ctx->width = ctx->stagesurface ? width : 0;
+    ctx->height = ctx->stagesurface ? height : 0;
+  }
 
-  gs_texrender_reset(texrender);
-  if (gs_texrender_begin(texrender, width, height)) {
+  gs_texrender_reset(ctx->texrender);
+  if (ctx->stagesurface && gs_texrender_begin(ctx->texrender, width, height)) {
     struct vec4 background;
     vec4_zero(&background);
     gs_clear(GS_CLEAR_COLOR, &background, 0.0f, 0);
-    gs_ortho(0.0f, (float)width, 0.0f, (float)height, -100.0f, 100.0f);
+    // Project the source's full pixel space onto the (possibly smaller) render
+    // target; the GPU scales the source to the target size as it rasterizes.
+    gs_ortho(0.0f, (float)src_width, 0.0f, (float)src_height, -100.0f, 100.0f);
     gs_blend_state_push();
     gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
     obs_source_video_render(source);
     gs_blend_state_pop();
-    gs_texrender_end(texrender);
+    gs_texrender_end(ctx->texrender);
 
-    gs_stage_texture(stagesurface, gs_texrender_get_texture(texrender));
+    gs_stage_texture(ctx->stagesurface, gs_texrender_get_texture(ctx->texrender));
 
     uint8_t *mapped_data;
     uint32_t linesize;
-    if (gs_stagesurface_map(stagesurface, &mapped_data, &linesize)) {
+    if (gs_stagesurface_map(ctx->stagesurface, &mapped_data, &linesize)) {
       for (uint32_t y = 0; y < height; y++) {
         memcpy(pixel_buffer + y * width * 4, mapped_data + y * linesize, width * 4);
       }
-      gs_stagesurface_unmap(stagesurface);
+      gs_stagesurface_unmap(ctx->stagesurface);
     } else {
       free(pixel_buffer);
       pixel_buffer = NULL;
@@ -135,10 +193,23 @@ uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, u
     pixel_buffer = NULL;
   }
 
-  gs_stagesurface_destroy(stagesurface);
-  gs_texrender_destroy(texrender);
-
   obs_leave_graphics();
   obs_source_release(source);
   return pixel_buffer;
+}
+
+uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, uint32_t *out_height) {
+  /* One-shot callers (the /screenshot and /match routes) capture a single
+   * frame, so spin up a throwaway context. They capture at native resolution
+   * (max_height 0) -- screenshots feed template authoring and want full detail.
+   * The monitor's hot loop instead holds a context across frames via the
+   * ge_capture_* API directly, and downscales for speed. */
+  ge_capture_ctx *ctx = ge_capture_create();
+  if (!ctx) {
+    return NULL;
+  }
+
+  uint8_t *frame = ge_capture_get_frame(ctx, source_name, 0, out_width, out_height);
+  ge_capture_destroy(ctx);
+  return frame;
 }

@@ -40,9 +40,32 @@ pub trait FrameSource {
         F: FnOnce(&[u8], u32, u32) -> R;
 }
 
-/// Frame source backed by the live OBS source named at construction.
+/// Frame source backed by the live OBS source named at construction. Owns a
+/// capture context whose GPU surfaces are created once (on monitor start) and
+/// reused for every frame, then released when the source is dropped (monitor
+/// stop) -- avoiding the per-frame surface churn of `ge_obs_get_source_frame`.
 struct ObsSource {
     name: CString,
+    ctx: *mut crate::ffi::GeCaptureCtx,
+}
+
+impl ObsSource {
+    /// Creates the source and its reusable capture context. Returns `None` if
+    /// the context (and its GPU surfaces) can't be created.
+    fn new(name: CString) -> Option<Self> {
+        let ctx = unsafe { crate::ffi::ge_capture_create() };
+        if ctx.is_null() {
+            return None;
+        }
+        Some(ObsSource { name, ctx })
+    }
+}
+
+impl Drop for ObsSource {
+    fn drop(&mut self) {
+        // Release the surfaces created in `new`; safe to call on a non-null ctx.
+        unsafe { crate::ffi::ge_capture_destroy(self.ctx) };
+    }
 }
 
 impl FrameSource for ObsSource {
@@ -50,10 +73,22 @@ impl FrameSource for ObsSource {
     where
         F: FnOnce(&[u8], u32, u32) -> R,
     {
-        // Render the source into a BGRA buffer owned by the C side.
+        // Render the source into a BGRA buffer owned by the C side, reusing the
+        // context's surfaces. Cap the capture at the matcher's working height so
+        // a large upscaled source (e.g. 1080p) is downscaled on the GPU to ~480p
+        // before it ever reaches OpenCV -- the game is ~480p at most, so there's
+        // no detail to lose, and it keeps match time bounded and consistent.
         let mut width: u32 = 0;
         let mut height: u32 = 0;
-        let frame = unsafe { crate::ffi::ge_obs_get_source_frame(self.name.as_ptr(), &mut width, &mut height) };
+        let frame = unsafe {
+            crate::ffi::ge_capture_get_frame(
+                self.ctx,
+                self.name.as_ptr(),
+                crate::cv::WORK_HEIGHT as u32,
+                &mut width,
+                &mut height,
+            )
+        };
         if frame.is_null() {
             return None;
         }
@@ -151,7 +186,13 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let thread = std::thread::Builder::new()
         .name("ge-monitor".to_owned())
         .spawn(move || {
-            let mut source = ObsSource { name: source_name };
+            // Create the reusable capture context once, here on the monitor
+            // thread; it (and its GPU surfaces) is dropped when this closure
+            // returns, i.e. on monitor stop.
+            let Some(mut source) = ObsSource::new(source_name) else {
+                tracing::error!("failed to create capture context; monitor not started");
+                return;
+            };
             session.run(&mut source, &thread_stop, |result| match result {
                 Ok(info) => tracing::info!(?info),
                 Err(e) => tracing::error!("err: {}", e.message),
