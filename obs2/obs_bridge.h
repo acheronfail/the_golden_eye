@@ -10,6 +10,14 @@ uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, u
 void ge_obs_recording_start(void);
 void ge_obs_recording_stop(void);
 
+/* Whether the replay buffer is *enabled* in the active profile's output
+ * settings (the "Enable Replay Buffer" checkbox). This is distinct from whether
+ * it is currently running -- a disabled replay buffer can never be started, so
+ * the frontend checks this before letting the user begin a session. Reads the
+ * profile config (SimpleOutput.RecRB / AdvOut.RecRB depending on the output
+ * mode); returns false if the config can't be read. */
+bool ge_obs_replay_buffer_enabled(void);
+
 /* Push-model per-frame notifications. While registered, `cb(param, cx, cy)` is
  * invoked once per rendered frame on the OBS graphics thread, inside an active
  * graphics context -- so the callback may capture frames via ge_capture_get_frame

@@ -2,13 +2,35 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { settings, STORAGE_KEY } from '../lib/settings.svelte';
+	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 
 	let { children } = $props();
 
 	$effect(() => {
 		console.debug('Settings changed, saving to localStorage:', settings.savedState);
 		localStorage.setItem(STORAGE_KEY, settings.savedState);
+	});
+
+	// The wizard can't do anything useful without the replay buffer, so re-check
+	// its status on load and on every navigation. Re-runs whenever the path
+	// changes (referenced below so it's tracked as a dependency).
+	$effect(() => {
+		page.url.pathname;
+		refreshReplayBuffer();
+	});
+
+	// While the replay buffer is confirmed disabled, force the user back to `/`
+	// (which explains how to enable it). `/` and the dev-only `/developer` tools
+	// are exempt so the user has somewhere to land and debugging still works. An
+	// unknown status (null) never redirects — we only act on a definitive "off".
+	$effect(() => {
+		const path = page.url.pathname;
+		const exempt = path === '/' || path === '/developer';
+		if (replayBuffer.status?.enabled === false && !exempt) {
+			goto('/');
+		}
 	});
 
 	const bannerClass =

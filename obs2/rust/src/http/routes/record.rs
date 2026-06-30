@@ -1,3 +1,4 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
@@ -22,4 +23,24 @@ pub async fn handle_stop(State(_): State<AppState>) -> Result<impl IntoResponse>
     }
 
     Ok(StatusCode::OK)
+}
+
+/// Replay-buffer status. `enabled` reflects the OBS profile setting (the
+/// recorder needs it on to save clips); `active` whether it is currently
+/// running. Mirrored by the frontend's `ReplayBufferStatus`.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayBufferStatus {
+    enabled: bool,
+    active: bool,
+}
+
+/// Reports whether the replay buffer is enabled in OBS (and running), so the
+/// frontend can prompt the user to enable it before starting a session.
+#[axum::debug_handler]
+pub async fn handle_replay_status(State(_): State<AppState>) -> Json<ReplayBufferStatus> {
+    Json(ReplayBufferStatus {
+        enabled: crate::recording::replay_buffer_enabled(),
+        active: crate::recording::replay_buffer_active(),
+    })
 }

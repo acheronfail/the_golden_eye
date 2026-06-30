@@ -8,10 +8,10 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response, Result};
 use serde::Deserialize;
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 use crate::cv::{CaptureRegion, CvMatcher, LevelMatch};
-use crate::http::AppState;
+use crate::http::{AppState, MonitorEvent};
 
 /// A running monitor. OBS pushes captured frames into `mailbox` from its render
 /// callback (keyed by the leaked `producer` pointer); the worker `thread`
@@ -393,6 +393,11 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher")
     })?;
 
+    // Keep the replay buffer running for the whole session so a run can be saved
+    // out of it at the end. A no-op if it isn't enabled in OBS (the frontend
+    // warns about that) or is already running.
+    crate::recording::ensure_replay_buffer_running();
+
     // Reusable capture context (and its GPU surfaces), created once for the
     // session. Owned by the ProducerCtx below and destroyed when that is dropped
     // on stop. Double-buffered: the render callback runs on the graphics thread,
@@ -435,16 +440,25 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // the channel only fires when the matched state actually changes (ignoring
     // `runtime_ms`), rather than every frame.
     let match_tx = state.match_tx.clone();
+    // Handed to the recorder so it can broadcast a `RecordingSaved` event once a
+    // run's clip is written out of the replay buffer.
+    let event_tx = state.event_tx.clone();
     let thread = std::thread::Builder::new()
         .name("ge-monitor".to_owned())
         .spawn(move || {
             let mut source = ObsSource { mailbox: worker_mailbox, region };
             let mut last: Option<LevelMatch> = None;
+            // Drives the replay-buffer save/trim as the session progresses. Fed
+            // every matched frame (not just state changes) so its save timer is
+            // polled each tick.
+            let mut recording = crate::recording::RecordingState::new(event_tx);
             session.run(&mut source, |result| match result {
                 Ok(info) => {
-                    tracing::info!(?info);
+                    tracing::debug!(?info);
+                    recording.on_frame(std::time::Instant::now(), &info);
                     let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&info));
                     if changed {
+                        tracing::info!(?info);
                         last = Some(info.clone());
                         // Ignore send errors: with no subscribers there is no
                         // receiver, but `watch` still retains the value for the
@@ -526,33 +540,51 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
     Ok(StatusCode::OK)
 }
 
-/// Upgrades the connection to a WebSocket that streams the latest `LevelMatch`
-/// as JSON. The current match (if any) is sent immediately on connect, then a
-/// new message is pushed each time the matched state changes -- see
-/// [`AppStateInner::match_tx`](crate::http::AppStateInner).
+/// Upgrades the connection to a WebSocket that streams [`MonitorEvent`]s as JSON.
+/// The current match (if any) is sent immediately on connect as a `match` event,
+/// then a new `match` is pushed each time the matched state changes (see
+/// [`AppStateInner::match_tx`](crate::http::AppStateInner)); one-off events such
+/// as `recordingSaved` are forwarded as they occur (see
+/// [`AppStateInner::event_tx`](crate::http::AppStateInner)).
 pub async fn handle_ws(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let mut rx = state.match_tx.subscribe();
+    let mut events = state.event_tx.subscribe();
 
-    // Send the current value up front so a client connecting mid-run isn't
+    // Send the current match up front so a client connecting mid-run isn't
     // blank until the next change.
-    if send_current(&mut socket, &mut rx).await.is_err() {
+    if send_current_match(&mut socket, &mut rx).await.is_err() {
         return;
     }
 
     loop {
         tokio::select! {
-            // The broadcast value changed: forward it.
+            // The match state changed: forward it as a `match` event.
             changed = rx.changed() => {
                 // Err means the sender was dropped (server shutting down).
                 if changed.is_err() {
                     break;
                 }
-                if send_current(&mut socket, &mut rx).await.is_err() {
+                if send_current_match(&mut socket, &mut rx).await.is_err() {
                     break;
+                }
+            }
+            // A one-off event was broadcast: forward it verbatim.
+            event = events.recv() => {
+                match event {
+                    Ok(event) => {
+                        if send_event(&mut socket, &event).await.is_err() {
+                            break;
+                        }
+                    }
+                    // This client lagged and the channel dropped some events for
+                    // it; nothing to forward for the skipped ones, so carry on.
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    // Sender dropped (server shutting down).
+                    Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
             // Drain inbound frames so we notice the client closing/erroring.
@@ -568,16 +600,22 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     }
 }
 
-/// Serializes the current `LevelMatch` (if any) and sends it over `socket`,
-/// marking the watch value as seen. A `None` value (no monitor running) sends
-/// nothing.
-async fn send_current(socket: &mut WebSocket, rx: &mut watch::Receiver<Option<LevelMatch>>) -> Result<(), axum::Error> {
-    let payload = {
-        let value = rx.borrow_and_update();
-        value.as_ref().and_then(|m| serde_json::to_string(m).ok())
-    };
-    if let Some(text) = payload {
+/// Serializes `event` to JSON and sends it over `socket`. A serialization error
+/// is swallowed (the event is skipped); a transport error propagates so the
+/// caller can drop the connection.
+async fn send_event(socket: &mut WebSocket, event: &MonitorEvent) -> Result<(), axum::Error> {
+    if let Ok(text) = serde_json::to_string(event) {
         socket.send(Message::Text(text.into())).await?;
+    }
+    Ok(())
+}
+
+/// Sends the current match (if any) as a `match` event, marking the watch value
+/// as seen. A `None` value (no monitor running) sends nothing.
+async fn send_current_match(socket: &mut WebSocket, rx: &mut watch::Receiver<Option<LevelMatch>>) -> Result<(), axum::Error> {
+    let current = rx.borrow_and_update().clone();
+    if let Some(m) = current {
+        send_event(socket, &MonitorEvent::Match(m)).await?;
     }
     Ok(())
 }

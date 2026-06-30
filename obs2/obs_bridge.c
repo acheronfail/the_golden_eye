@@ -2,6 +2,7 @@
 
 #include <obs/libobs/graphics/graphics.h>
 #include <obs/libobs/obs-module.h>
+#include <obs/libobs/util/config-file.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -55,6 +56,22 @@ void ge_obs_collect_source_names(char *buffer, size_t buffer_size) {
   } else {
     buffer[ctx.current_pos] = '\0';
   }
+}
+
+bool ge_obs_replay_buffer_enabled(void) {
+  config_t *config = obs_frontend_get_profile_config();
+  if (!config) {
+    return false;
+  }
+
+  /* The replay-buffer toggle lives in a different section depending on the
+   * output mode: "Advanced" reads AdvOut.RecRB, everything else (Simple) reads
+   * SimpleOutput.RecRB. */
+  const char *mode = config_get_string(config, "Output", "Mode");
+  if (mode && strcmp(mode, "Advanced") == 0) {
+    return config_get_bool(config, "AdvOut", "RecRB");
+  }
+  return config_get_bool(config, "SimpleOutput", "RecRB");
 }
 
 /* Reusable GPU surfaces for repeated captures. Creating and destroying a

@@ -11,9 +11,10 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::{get, post};
+use serde::Serialize;
 use tokio::net::TcpSocket;
 use tokio::sync::{Mutex, oneshot};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 use tower::ServiceBuilder;
 use tower_http::BoxError;
 
@@ -37,6 +38,12 @@ pub struct AppStateInner {
     /// `watch` retains the latest value, so a client connecting mid-run sees the
     /// current match immediately.
     pub match_tx: watch::Sender<Option<LevelMatch>>,
+    /// One-off monitor events broadcast to connected WebSocket clients (e.g. a
+    /// run's clip being saved). Unlike `match_tx`, this carries discrete events
+    /// rather than retained state: a `broadcast` channel fans each event out to
+    /// every current subscriber and keeps nothing for late joiners. Send errors
+    /// (no subscribers) are ignored at the call sites.
+    pub event_tx: broadcast::Sender<MonitorEvent>,
     /// Application configuration, resolved from the environment at startup.
     pub config: Config,
 }
@@ -45,6 +52,37 @@ pub struct AppStateInner {
 pub struct StreamMessage {
     pub id: String,
     pub broadcast_url: String,
+}
+
+/// Messages pushed to monitor WebSocket clients, serialized internally tagged by
+/// `type` so the SPA can discriminate them. `Match` rides the `match_tx` watch
+/// channel (latest-wins, replayed on connect); the remaining variants ride
+/// `event_tx` (one-off, delivered only to currently-connected clients).
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum MonitorEvent {
+    /// The matched on-screen state changed; carries the current match.
+    Match(LevelMatch),
+    /// A run's clip was saved out of the replay buffer and trimmed.
+    RecordingSaved(RecordingSaved),
+}
+
+/// Details of a clip saved out of the replay buffer at the end of a run, pushed
+/// to WebSocket clients as a [`MonitorEvent::RecordingSaved`].
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingSaved {
+    /// Absolute path to the trimmed clip written for the run.
+    pub path: String,
+    /// The full replay-buffer file OBS saved, before trimming.
+    pub replay_path: String,
+    /// Length of the trimmed clip, in seconds.
+    pub duration_secs: f64,
+    /// Whether a failure screen was seen during the run.
+    pub failed: bool,
+    /// The stats-screen match the clip was named from, when one was seen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<LevelMatch>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -90,6 +128,7 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
     let app = Router::new()
         .route("/api/v1/record/start", post(routes::record::handle_start))
         .route("/api/v1/record/stop", post(routes::record::handle_stop))
+        .route("/api/v1/replay-buffer/status", get(routes::record::handle_replay_status))
         .route("/api/v1/monitor/start", post(routes::monitor::handle_start))
         .route("/api/v1/monitor/stop", post(routes::monitor::handle_stop))
         .route("/api/v1/monitor/status", get(routes::monitor::handle_status))

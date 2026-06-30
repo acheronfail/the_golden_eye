@@ -6,7 +6,8 @@
 		getSources,
 		startMonitor as apiStartMonitor,
 		stopMonitor as apiStopMonitor,
-		type LevelMatch
+		type LevelMatch,
+		type RecordingSaved
 	} from '$lib/api';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
 	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
@@ -17,6 +18,8 @@
 	let monitoring = $state(false);
 	let matchSocket: WebSocket | null = null;
 	let match = $state<LevelMatch | null>(null);
+	// The most recent clip the backend saved this session, shown while monitoring.
+	let lastSaved = $state<RecordingSaved | null>(null);
 
 	// The source name comes from the URL, so it may be stale if the user navigated
 	// here from browser history / a manual URL, or renamed the source in OBS. Verify
@@ -60,15 +63,19 @@
 
 	const connectMatchSocket = () => {
 		matchSocket?.close();
-		const socket = connectMonitorSocket(
-			(m) => {
+		const socket = connectMonitorSocket({
+			onMatch: (m) => {
 				match = m;
 				console.log('level match', match);
 			},
-			() => {
+			onRecordingSaved: (saved) => {
+				lastSaved = saved;
+				console.log('recording saved', saved);
+			},
+			onClose: () => {
 				if (matchSocket === socket) matchSocket = null;
 			}
-		);
+		});
 		matchSocket = socket;
 	};
 	const disconnectMatchSocket = () => {
@@ -98,6 +105,7 @@
 			await apiStopMonitor();
 			monitoring = false;
 			match = null;
+			lastSaved = null;
 			disconnectMatchSocket();
 		} catch (err) {
 			alert(err instanceof Error ? err.message : String(err));
@@ -144,6 +152,17 @@
 			{match?.screen ?? '…'}
 		</h1>
 		<p class="mt-6 text-sm text-neutral-400">press escape or space to stop monitoring</p>
+
+		{#if lastSaved}
+			<!-- The most recent clip saved out of the replay buffer this session. -->
+			<div class="mt-8 max-w-full font-mono text-xs text-neutral-400">
+				<p class="tracking-widest text-emerald-400 uppercase">Saved clip</p>
+				<p class="mt-1 break-all text-neutral-300">{lastSaved.path}</p>
+				<p class="mt-1 text-neutral-500">
+					{lastSaved.durationSecs.toFixed(1)}s{lastSaved.failed ? ' · failed' : ''}
+				</p>
+			</div>
+		{/if}
 	</main>
 {:else}
 	<WizardFrame

@@ -1,7 +1,9 @@
 mod config;
 pub mod cv;
 mod ffi;
+mod ffmpeg;
 mod http;
+mod recording;
 mod stream_notifier;
 mod timer;
 
@@ -75,11 +77,16 @@ pub extern "C" fn ge_rust_start() {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
     let (match_tx, _) = tokio::sync::watch::channel(None);
+    // One-off monitor events (recording saved, ...). Capacity bounds how far a
+    // slow client can lag before it drops events; the worker ignores send errors,
+    // so a full/empty channel never blocks frame processing.
+    let (event_tx, _) = tokio::sync::broadcast::channel(64);
     let state = Arc::new(AppStateInner {
         oauth_pending: tokio::sync::Mutex::new(None),
         stream_message: tokio::sync::Mutex::new(None),
         monitor: std::sync::Mutex::new(None),
         match_tx,
+        event_tx,
         config,
     });
 
@@ -157,6 +164,23 @@ pub extern "C" fn ge_stream_notifier_start(service_settings_json: *const c_char)
     };
 
     runtime_handle.spawn(stream_notifier::run(state, settings_json));
+}
+
+/// Called from the OBS frontend event callback on
+/// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED` with the path of the just-saved
+/// replay file (may be null/empty). Wakes whichever recording save is blocked
+/// waiting for the buffer to finish writing, so we never have to poll.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_replay_buffer_saved(path: *const c_char) {
+    let path = if path.is_null() {
+        None
+    } else {
+        // SAFETY: OBS passes a valid NUL-terminated C string; we copy it into an
+        // owned String immediately, so no borrowed lifetime escapes.
+        let s = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
+        if s.is_empty() { None } else { Some(s) }
+    };
+    recording::on_replay_saved(path);
 }
 
 #[unsafe(no_mangle)]

@@ -34,6 +34,24 @@ pub struct GeCaptureRegion {
 unsafe extern "C" {
     pub fn obs_frontend_recording_start();
     pub fn obs_frontend_recording_stop();
+
+    /// Begins the replay buffer output (a no-op if it is not enabled in the
+    /// profile, or already running). Starting is asynchronous.
+    pub fn obs_frontend_replay_buffer_start();
+    /// Stops the replay buffer output. Declared for completeness; the recorder
+    /// leaves the buffer running for the whole monitoring session.
+    #[allow(dead_code)]
+    pub fn obs_frontend_replay_buffer_stop();
+    /// Writes the buffered window to disk. The save is asynchronous; OBS fires
+    /// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED` (handled in `core.c`, forwarded
+    /// to `ge_replay_buffer_saved`) once the file is written.
+    pub fn obs_frontend_replay_buffer_save();
+    /// Whether the replay buffer output is currently running.
+    pub fn obs_frontend_replay_buffer_active() -> bool;
+
+    /// Whether the replay buffer is enabled in the active profile's output
+    /// settings (the "Enable Replay Buffer" checkbox). See the C bridge.
+    pub fn ge_obs_replay_buffer_enabled() -> bool;
     pub fn ge_obs_collect_source_names(buffer: *mut c_char, buffer_size: usize);
     /// Renders the named source to a freshly `malloc`'d BGRA pixel buffer
     /// (`width * height * 4` bytes) and writes its dimensions to the out

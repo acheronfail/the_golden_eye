@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { getSources, screenshotUrl, type ObsSource } from '../lib/api';
+	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
 	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
 
@@ -10,6 +11,10 @@
 	// re-fetches the previews (the URL is otherwise identical and would be cached).
 	let previewVersion = $state(0);
 
+	// The replay buffer must be enabled to record; gate source selection on it.
+	// Anything other than a confirmed "enabled" keeps selection disabled.
+	const replayDisabled = $derived(replayBuffer.status?.enabled !== true);
+
 	// Re-query OBS for its current sources. Used both for the initial load and the
 	// manual "refresh" button, so the list can be updated without a full page reload.
 	const reload = async () => {
@@ -17,6 +22,8 @@
 		try {
 			sources = await getSources();
 			previewVersion++;
+			// Re-check the replay buffer too; the user may have just toggled it.
+			await refreshReplayBuffer();
 		} finally {
 			reloading = false;
 		}
@@ -27,7 +34,10 @@
 		(sources ?? []).map((s) => ({ title: s.name, detail: s.id, key: s.name }))
 	);
 
-	const select = (option: Option) => goto(`/source/${encodeURIComponent(option.title)}`);
+	const select = (option: Option) => {
+		if (replayDisabled) return;
+		goto(`/source/${encodeURIComponent(option.title)}`);
+	};
 </script>
 
 <svelte:head>
@@ -52,6 +62,16 @@
 	title="Choose your capture source"
 	subtitle="Pick the OBS source attached to your N64's video output."
 >
+	{#if replayBuffer.status && !replayBuffer.status.enabled}
+		<div class="mb-4 rounded-md border border-amber-500/60 bg-amber-950/40 px-4 py-3">
+			<p class="text-sm font-semibold text-amber-300">Replay buffer is disabled</p>
+			<p class="mt-1 font-mono text-xs text-amber-200/80">
+				Enable it in OBS under Settings → Output → Replay Buffer, then refresh. You can't pick a
+				source until the replay buffer is on.
+			</p>
+		</div>
+	{/if}
+
 	{#if sources === null}
 		<p class="font-mono text-sm text-neutral-500">Loading sources…</p>
 	{:else if sources.length === 0}
@@ -62,7 +82,7 @@
 			</p>
 		</div>
 	{:else}
-		<OptionList {options} onSelect={select} {leading} />
+		<OptionList {options} onSelect={select} {leading} disabled={replayDisabled} />
 	{/if}
 
 	{#if sources !== null}

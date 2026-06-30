@@ -36,6 +36,22 @@ export const getSources = async (): Promise<ObsSource[]> => {
 	return data;
 };
 
+/** Replay-buffer status reported by the backend. `enabled` reflects the OBS
+ * profile setting (the recorder needs it on to save clips); `active` whether it
+ * is currently running. Mirrors the Rust `ReplayBufferStatus`. */
+export interface ReplayBufferStatus {
+	enabled: boolean;
+	active: boolean;
+}
+
+/** Fetch whether OBS's replay buffer is enabled (and running). Throws on a
+ * non-OK response. */
+export const getReplayBufferStatus = async (): Promise<ReplayBufferStatus> => {
+	const res = await fetch(apiUrl('/api/v1/replay-buffer/status'));
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
 /** The level match the backend pushes over the monitor WebSocket. Mirrors
  * the Rust `LevelMatch` struct (`runtime_ms` is included but the backend
  * only pushes a new message when the rest of the state changes). */
@@ -48,21 +64,60 @@ export interface LevelMatch {
 	runtime_ms: number;
 }
 
+/** Details of a clip the backend saved out of the replay buffer at the end of a
+ * run. Mirrors the Rust `RecordingSaved`. */
+export interface RecordingSaved {
+	/** Absolute path to the trimmed clip written for the run. */
+	path: string;
+	/** The full replay-buffer file OBS saved, before trimming. */
+	replayPath: string;
+	/** Length of the trimmed clip, in seconds. */
+	durationSecs: number;
+	/** Whether a failure screen was seen during the run. */
+	failed: boolean;
+	/** The stats-screen match the clip was named from, when one was seen. */
+	stats?: LevelMatch;
+}
+
+/** A message pushed over the monitor WebSocket. Mirrors the Rust `MonitorEvent`,
+ * which is serialized internally tagged by `type`, so each variant is its
+ * payload plus a discriminating `type` field. */
+export type MonitorEvent =
+	| ({ type: 'match' } & LevelMatch)
+	| ({ type: 'recordingSaved' } & RecordingSaved);
+
+/** Handlers for the messages the monitor WebSocket can push. All are optional;
+ * provide only the ones you care about. */
+export interface MonitorSocketHandlers {
+	/** The matched on-screen state changed (also fired once on connect with the
+	 * current match, if a monitor is running). */
+	onMatch?: (match: LevelMatch) => void;
+	/** A run's clip was saved out of the replay buffer and trimmed. */
+	onRecordingSaved?: (saved: RecordingSaved) => void;
+	/** Fires when the socket closes. */
+	onClose?: () => void;
+}
+
 /**
- * Open a WebSocket to the backend that pushes the latest {@link LevelMatch} (as
- * JSON) whenever the matched state changes. `onMatch` is invoked for each
- * message; `onClose` (optional) fires when the socket closes. Returns the socket
- * so callers can close it.
+ * Open a WebSocket to the backend that pushes {@link MonitorEvent} messages: the
+ * latest {@link LevelMatch} whenever the matched state changes (and once on
+ * connect), plus one-off events such as a recording being saved. Dispatches each
+ * message to the matching handler. Returns the socket so callers can close it.
  */
-export const connectMonitorSocket = (
-	onMatch: (match: LevelMatch) => void,
-	onClose?: () => void
-): WebSocket => {
+export const connectMonitorSocket = (handlers: MonitorSocketHandlers): WebSocket => {
 	const socket = new WebSocket(wsUrl('/api/v1/monitor/ws'));
 	socket.onmessage = (event) => {
-		onMatch(JSON.parse(event.data) as LevelMatch);
+		const msg = JSON.parse(event.data) as MonitorEvent;
+		switch (msg.type) {
+			case 'match':
+				handlers.onMatch?.(msg);
+				break;
+			case 'recordingSaved':
+				handlers.onRecordingSaved?.(msg);
+				break;
+		}
 	};
-	if (onClose) socket.onclose = onClose;
+	if (handlers.onClose) socket.onclose = handlers.onClose;
 	return socket;
 };
 

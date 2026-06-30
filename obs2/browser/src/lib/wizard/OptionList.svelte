@@ -15,7 +15,8 @@
 	let {
 		options,
 		onSelect,
-		leading
+		leading,
+		disabled = false
 	}: {
 		options: Option[];
 		/** Invoked with the chosen option (and its index) on click/Enter/Space. */
@@ -23,6 +24,9 @@
 		/** Optional visual rendered at the start of each row (e.g. a thumbnail).
 		 * Receives the option and its index. */
 		leading?: Snippet<[Option, number]>;
+		/** When true, every option is non-interactive (greyed out, not focusable).
+		 * Used to gate selection until a prerequisite is met. */
+		disabled?: boolean;
 	} = $props();
 
 	let items = $state<HTMLButtonElement[]>([]);
@@ -51,9 +55,10 @@
 		}
 	};
 
-	// Focus the first option on mount so the keyboard works without a click first.
+	// Focus the first option on mount so the keyboard works without a click first
+	// (skipped while disabled — the options aren't focusable then).
 	$effect(() => {
-		items[0]?.focus();
+		if (!disabled) items[0]?.focus();
 	});
 </script>
 
@@ -63,11 +68,13 @@
 			<button
 				bind:this={items[i]}
 				type="button"
+				{disabled}
 				onclick={() => onSelect(option, i)}
 				onkeydown={(e) => onkeydown(e, i)}
 				class="group flex w-full items-center gap-4 rounded-md border border-amber-700 bg-neutral-950/60 px-4 py-3 text-left transition-colors
 					hover:border-amber-400 hover:bg-amber-600 hover:text-black hover:cursor-pointer
-					focus:outline-none focus-visible:border-amber-400 focus-visible:ring-2 focus-visible:ring-amber-400"
+					focus:outline-none focus-visible:border-amber-400 focus-visible:ring-2 focus-visible:ring-amber-400
+					disabled:pointer-events-none disabled:opacity-40"
 			>
 				{#if leading}
 					{@render leading(option, i)}
