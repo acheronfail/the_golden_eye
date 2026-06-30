@@ -75,47 +75,62 @@ impl Drop for FrameBuf {
     }
 }
 
-/// A capacity-one, latest-wins frame mailbox between the OBS producer and the
-/// monitor consumer. The producer overwrites (and frees) any unconsumed frame so
-/// the matcher always works on the freshest frame and never falls behind; when
-/// processing is slower than the frame rate the intermediate frames are dropped
-/// rather than queued. This is the groundwork for a bounded multi-frame buffer.
+/// How many captured frames the mailbox buffers. 1 = always match the freshest
+/// frame (drop any older unconsumed one); a larger value retains a short backlog.
+const FRAME_BUFFER_CAPACITY: usize = 1;
+
+/// A bounded, drop-oldest frame buffer between the OBS producer and the monitor
+/// consumer. Holds at most `capacity` frames; when full, the oldest unconsumed
+/// frame is dropped (and freed) to make room for the newest, so the matcher never
+/// falls behind -- when processing is slower than the frame rate the surplus
+/// frames are discarded rather than queued unboundedly. Frames are delivered
+/// oldest-first (FIFO). At `capacity == 1` this is a latest-wins single slot.
 struct FrameMailbox {
+    /// Maximum number of buffered frames; at least 1.
+    capacity: usize,
     state: Mutex<MailboxState>,
     available: Condvar,
 }
 
 struct MailboxState {
-    /// The pending frame, if any. A newer push replaces (and frees) an older
-    /// unconsumed frame.
-    pending: Option<Frame>,
+    /// Buffered frames, oldest at the front. Capped at `FrameMailbox::capacity`.
+    frames: std::collections::VecDeque<Frame>,
     /// Set on stop: wakes a blocked consumer and makes `push` drop new frames.
     closed: bool,
 }
 
 impl FrameMailbox {
-    fn new() -> Self {
-        FrameMailbox { state: Mutex::new(MailboxState { pending: None, closed: false }), available: Condvar::new() }
+    fn new(capacity: usize) -> Self {
+        let capacity = capacity.max(1);
+        FrameMailbox {
+            capacity,
+            state: Mutex::new(MailboxState { frames: std::collections::VecDeque::with_capacity(capacity), closed: false }),
+            available: Condvar::new(),
+        }
     }
 
-    /// Producer: make `frame` the pending frame, dropping (freeing) any pending
-    /// frame not yet taken -- newest wins. A no-op once closed.
+    /// Producer: append `frame` to the buffer. When the buffer is full the oldest
+    /// frame is dropped (and freed) to make room -- newest always wins. A no-op
+    /// once closed.
     fn push(&self, frame: Frame) {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         if state.closed {
             return; // `frame` is dropped here -> its buffer is freed.
         }
-        state.pending = Some(frame); // any previous pending frame is dropped + freed.
+        if state.frames.len() == self.capacity {
+            state.frames.pop_front(); // drop the oldest unconsumed frame -> freed.
+        }
+        state.frames.push_back(frame);
         drop(state);
         self.available.notify_one();
     }
 
-    /// Consumer: block until a frame is pending or the mailbox is closed. Returns
-    /// the pending frame, or `None` once closed with nothing left to drain.
+    /// Consumer: block until a frame is buffered or the mailbox is closed. Returns
+    /// the oldest buffered frame, or `None` once closed with nothing left to drain.
     fn recv(&self) -> Option<Frame> {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         loop {
-            if let Some(frame) = state.pending.take() {
+            if let Some(frame) = state.frames.pop_front() {
                 return Some(frame);
             }
             if state.closed {
@@ -196,6 +211,8 @@ unsafe extern "C" fn ge_frame_callback(param: *mut c_void, _cx: u32, _cy: u32) {
     // re-lock (OBS tracks the context per thread) -- no deadlock.
     let frame =
         unsafe { crate::ffi::ge_capture_get_frame(producer.ctx, producer.name.as_ptr(), max_height, region_ptr, &mut width, &mut height) };
+    // Null means no frame this tick: the source wasn't renderable, or (with the
+    // double-buffered context) this was the priming call that only stages.
     if frame.is_null() {
         return;
     }
@@ -340,16 +357,22 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
 
     // Reusable capture context (and its GPU surfaces), created once for the
     // session. Owned by the ProducerCtx below and destroyed when that is dropped
-    // on stop.
-    let ctx = unsafe { crate::ffi::ge_capture_create() };
+    // on stop. Double-buffered: the render callback runs on the graphics thread,
+    // so pipelining the readback (map last frame while staging this one) keeps it
+    // from stalling OBS's render. The first frame after start (or a resolution
+    // change) only primes the pipeline and yields no frame -- the callback's
+    // null check skips it.
+    let ctx = unsafe { crate::ffi::ge_capture_create(true) };
     if ctx.is_null() {
         tracing::error!("failed to create capture context; monitor not started");
         return Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to create capture context").into());
     }
 
     // Shared between the OBS producer (render callback) and the worker consumer:
-    // the frame mailbox and the latched capture region.
-    let mailbox = Arc::new(FrameMailbox::new());
+    // the frame mailbox and the latched capture region. Capacity 1 keeps only the
+    // freshest frame (drop-oldest), so the matcher never lags behind real time;
+    // raise it to retain a short backlog.
+    let mailbox = Arc::new(FrameMailbox::new(FRAME_BUFFER_CAPACITY));
     let region = Arc::new(Mutex::new(None));
 
     // Producer state handed to OBS as the render-callback param. Boxed and leaked
@@ -635,24 +658,36 @@ mod tests {
     }
 
     #[test]
-    fn mailbox_keeps_only_the_latest_frame() {
-        let mailbox = FrameMailbox::new();
-        // Two pushes with no intervening recv: the newer frame replaces (and
-        // frees) the older one, so only the latest is delivered.
+    fn mailbox_capacity_one_keeps_only_the_latest_frame() {
+        let mailbox = FrameMailbox::new(1);
+        // Two pushes with no intervening recv: at capacity 1 the newer frame
+        // evicts (and frees) the older one, so only the latest is delivered.
         mailbox.push(owned_frame(1, 10));
         mailbox.push(owned_frame(2, 20));
-        let frame = mailbox.recv().expect("a frame is pending");
+        let frame = mailbox.recv().expect("a frame is buffered");
         assert_eq!(frame.width, 20, "newest frame wins");
         assert_eq!(frame.buf.as_slice(), &[2]);
     }
 
     #[test]
+    fn mailbox_buffers_up_to_capacity_then_drops_oldest() {
+        let mailbox = FrameMailbox::new(2);
+        // Within capacity, frames are retained and delivered oldest-first.
+        mailbox.push(owned_frame(1, 10));
+        mailbox.push(owned_frame(2, 20));
+        // A third push overflows: the oldest (frame 1) is dropped.
+        mailbox.push(owned_frame(3, 30));
+        assert_eq!(mailbox.recv().expect("first").width, 20, "oldest survivor first");
+        assert_eq!(mailbox.recv().expect("second").width, 30, "then the newest");
+    }
+
+    #[test]
     fn mailbox_recv_returns_none_once_closed_and_drained() {
-        let mailbox = FrameMailbox::new();
-        // A frame still pending at close is drained before recv reports closed.
+        let mailbox = FrameMailbox::new(1);
+        // A frame still buffered at close is drained before recv reports closed.
         mailbox.push(owned_frame(7, 30));
         mailbox.close();
-        assert_eq!(mailbox.recv().expect("drains the pending frame").width, 30);
+        assert_eq!(mailbox.recv().expect("drains the buffered frame").width, 30);
         assert!(mailbox.recv().is_none(), "closed and drained -> None");
         // A push after close is dropped, not stored.
         mailbox.push(owned_frame(9, 40));

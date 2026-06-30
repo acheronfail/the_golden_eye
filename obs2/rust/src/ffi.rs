@@ -45,7 +45,14 @@ unsafe extern "C" {
 
     /// Creates a capture context (allocating its reusable texrender). Returns
     /// null on failure. Release it with [`ge_capture_destroy`].
-    pub fn ge_capture_create() -> *mut GeCaptureCtx;
+    ///
+    /// When `double_buffered` is true, the readback is pipelined (stage frame N,
+    /// map frame N-1) so the map never stalls the graphics thread, at the cost
+    /// of one frame of latency. The first [`ge_capture_get_frame`] after creation
+    /// (and after any resolution change) then only primes the pipeline and
+    /// returns null even on success -- treat that as "no frame yet". A
+    /// synchronous (`false`) context returns a frame on every successful call.
+    pub fn ge_capture_create(double_buffered: bool) -> *mut GeCaptureCtx;
     /// Renders the named source into a freshly `malloc`'d BGRA buffer using the
     /// context's reusable surfaces. Same ownership contract as
     /// [`ge_obs_get_source_frame`]: the caller owns the buffer and must release

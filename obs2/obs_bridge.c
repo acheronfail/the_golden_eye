@@ -55,23 +55,35 @@ void ge_obs_collect_source_names(char *buffer, size_t buffer_size) {
  * surfaces across frames. */
 struct ge_capture_ctx {
   gs_texrender_t *texrender;
-  gs_stagesurf_t *stagesurface;
-  /* Dimensions the stagesurface was created for. The stagesurface is bound to
-   * a resolution, so it's recreated when the source size changes; the
-   * texrender is resolution-agnostic (reset before each render) and reused. */
+  /* Stage surface(s) the rendered texture is copied into for CPU readback. A
+   * synchronous context uses one (index 0). A double-buffered context uses both:
+   * it stages frame N into one surface while mapping frame N-1 back from the
+   * other, so the GPU has a full frame interval to finish the copy and the map
+   * never stalls the graphics thread -- at the cost of one frame of latency. */
+  gs_stagesurf_t *stagesurfaces[2];
+  /* Dimensions the stagesurfaces were created for. They're bound to a
+   * resolution, so they're recreated when the source size changes; the texrender
+   * is resolution-agnostic (reset before each render) and reused. */
   uint32_t width;
   uint32_t height;
+  /* When true, double-buffer the readback (see stagesurfaces). Set at creation. */
+  bool double_buffered;
+  /* Double-buffered state: which surface to stage into on the next call, and
+   * whether a previously staged frame is ready to map. Unused when synchronous. */
+  int stage_index;
+  bool primed;
 };
 
-ge_capture_ctx *ge_capture_create(void) {
+ge_capture_ctx *ge_capture_create(bool double_buffered) {
   struct ge_capture_ctx *ctx = (struct ge_capture_ctx *)calloc(1, sizeof(*ctx));
   if (!ctx) {
     return NULL;
   }
+  ctx->double_buffered = double_buffered;
 
   /* The texrender is independent of resolution, so create it once up front.
-   * The stagesurface is created lazily on the first frame (and whenever the
-   * source resolution changes) since it must match the frame dimensions. */
+   * The stagesurfaces are created lazily on the first frame (and whenever the
+   * source resolution changes) since they must match the frame dimensions. */
   obs_enter_graphics();
   ctx->texrender = gs_texrender_create(GS_BGRA, GS_ZS_NONE);
   obs_leave_graphics();
@@ -90,8 +102,10 @@ void ge_capture_destroy(ge_capture_ctx *ctx) {
   }
 
   obs_enter_graphics();
-  if (ctx->stagesurface) {
-    gs_stagesurface_destroy(ctx->stagesurface);
+  for (int i = 0; i < 2; i++) {
+    if (ctx->stagesurfaces[i]) {
+      gs_stagesurface_destroy(ctx->stagesurfaces[i]);
+    }
   }
   if (ctx->texrender) {
     gs_texrender_destroy(ctx->texrender);
@@ -182,20 +196,39 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
 
   obs_enter_graphics();
 
-  /* (Re)create the stagesurface when the source resolution changes (including
-   * the first frame). Resetting width/height to 0 on failure forces a retry on
-   * the next frame rather than leaving a stale size cached. */
-  if (!ctx->stagesurface || ctx->width != width || ctx->height != height) {
-    if (ctx->stagesurface) {
-      gs_stagesurface_destroy(ctx->stagesurface);
+  int surface_count = ctx->double_buffered ? 2 : 1;
+
+  /* (Re)create the stage surface(s) when the source resolution changes (incl.
+   * the first frame). On a double-buffered context this also discards any
+   * previously staged frame -- it was a different size -- so the pipeline
+   * re-primes. Resetting width/height to 0 on failure forces a retry on the next
+   * frame rather than leaving a stale size cached. */
+  if (ctx->width != width || ctx->height != height || !ctx->stagesurfaces[0]) {
+    for (int i = 0; i < 2; i++) {
+      if (ctx->stagesurfaces[i]) {
+        gs_stagesurface_destroy(ctx->stagesurfaces[i]);
+        ctx->stagesurfaces[i] = NULL;
+      }
     }
-    ctx->stagesurface = gs_stagesurface_create(width, height, GS_BGRA);
-    ctx->width = ctx->stagesurface ? width : 0;
-    ctx->height = ctx->stagesurface ? height : 0;
+    bool ok = true;
+    for (int i = 0; i < surface_count; i++) {
+      ctx->stagesurfaces[i] = gs_stagesurface_create(width, height, GS_BGRA);
+      if (!ctx->stagesurfaces[i]) {
+        ok = false;
+        break;
+      }
+    }
+    ctx->width = ok ? width : 0;
+    ctx->height = ok ? height : 0;
+    ctx->stage_index = 0;
+    ctx->primed = false;
   }
 
+  /* Surface we stage this frame into; the synchronous path always uses [0]. */
+  int cur = ctx->double_buffered ? ctx->stage_index : 0;
+
   gs_texrender_reset(ctx->texrender);
-  if (ctx->stagesurface && gs_texrender_begin(ctx->texrender, width, height)) {
+  if (ctx->stagesurfaces[cur] && gs_texrender_begin(ctx->texrender, width, height)) {
     struct vec4 background;
     vec4_zero(&background);
     gs_clear(GS_CLEAR_COLOR, &background, 0.0f, 0);
@@ -209,16 +242,41 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
     gs_blend_state_pop();
     gs_texrender_end(ctx->texrender);
 
-    gs_stage_texture(ctx->stagesurface, gs_texrender_get_texture(ctx->texrender));
+    /* Issue the GPU->staging copy for this frame. */
+    gs_stage_texture(ctx->stagesurfaces[cur], gs_texrender_get_texture(ctx->texrender));
 
-    uint8_t *mapped_data;
-    uint32_t linesize;
-    if (gs_stagesurface_map(ctx->stagesurface, &mapped_data, &linesize)) {
-      for (uint32_t y = 0; y < height; y++) {
-        memcpy(pixel_buffer + y * width * 4, mapped_data + y * linesize, width * 4);
+    /* Choose which staged frame to read back. Synchronous: map the frame we just
+     * staged (the map stalls until the GPU finishes, but there's no latency).
+     * Double-buffered: map the frame staged on the *previous* call from the other
+     * surface, which the GPU has had a full frame interval to complete, so the
+     * map doesn't stall -- except the first call after (re)priming has no
+     * previous frame, so it only stages and returns no frame this tick. */
+    gs_stagesurf_t *map_surface = NULL;
+    if (ctx->double_buffered) {
+      if (ctx->primed) {
+        map_surface = ctx->stagesurfaces[cur ^ 1];
+      } else {
+        ctx->primed = true; /* this frame becomes the "previous" for the next call */
       }
-      gs_stagesurface_unmap(ctx->stagesurface);
+      ctx->stage_index = cur ^ 1; /* stage into the other surface next call */
     } else {
+      map_surface = ctx->stagesurfaces[cur];
+    }
+
+    if (map_surface) {
+      uint8_t *mapped_data;
+      uint32_t linesize;
+      if (gs_stagesurface_map(map_surface, &mapped_data, &linesize)) {
+        for (uint32_t y = 0; y < height; y++) {
+          memcpy(pixel_buffer + y * width * 4, mapped_data + y * linesize, width * 4);
+        }
+        gs_stagesurface_unmap(map_surface);
+      } else {
+        free(pixel_buffer);
+        pixel_buffer = NULL;
+      }
+    } else {
+      /* Priming frame of a double-buffered context: nothing to return yet. */
       free(pixel_buffer);
       pixel_buffer = NULL;
     }
@@ -247,8 +305,10 @@ uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, u
    * frame, so spin up a throwaway context. They capture at native resolution
    * (max_height 0) -- screenshots feed template authoring and want full detail.
    * The monitor's hot loop instead holds a context across frames via the
-   * ge_capture_* API directly, and downscales for speed. */
-  ge_capture_ctx *ctx = ge_capture_create();
+   * ge_capture_* API directly, and downscales for speed. A one-shot capture has
+   * no "next frame" to map back, so it uses a synchronous (not double-buffered)
+   * context: a single get_frame call returns the frame directly. */
+  ge_capture_ctx *ctx = ge_capture_create(false);
   if (!ctx) {
     return NULL;
   }
