@@ -110,12 +110,12 @@
 			<button
 				class="rounded bg-blue-500 px-2 py-1 font-semibold text-white hover:bg-blue-600 disabled:bg-slate-500 disabled:text-slate-300"
 				disabled={sourcesLoading}
-				onclick={getSources}>refresh sources</button
+				onclick={getSources}>load sources</button
 			>
 		</div>
 
 		{#if sources.length == 0}
-			<p class="text-gray-500">No sources, click "refresh sources" to fetch them from OBS.</p>
+			<p class="text-gray-500">No sources, click "load sources" to fetch them from OBS.</p>
 		{:else}
 			<ul class="grid grid-cols-[max-content_1fr] items-center gap-x-4 gap-y-3">
 				{#each sources as source}
