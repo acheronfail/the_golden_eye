@@ -10,6 +10,19 @@ uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, u
 void ge_obs_recording_start(void);
 void ge_obs_recording_stop(void);
 
+/* Push-model per-frame notifications. While registered, `cb(param, cx, cy)` is
+ * invoked once per rendered frame on the OBS graphics thread, inside an active
+ * graphics context -- so the callback may capture frames via ge_capture_get_frame
+ * directly (its nested obs_enter_graphics is a no-op ref-bump on this thread, not
+ * a re-lock). `cx`/`cy` are the main canvas dimensions.
+ *
+ * Unregister before tearing down anything `param` points at:
+ * obs_remove_main_render_callback serializes with callback invocation, so once
+ * ge_obs_unregister_frame_callback returns no callback is running or will start. */
+typedef void (*ge_frame_cb)(void *param, uint32_t cx, uint32_t cy);
+void ge_obs_register_frame_callback(ge_frame_cb cb, void *param);
+void ge_obs_unregister_frame_callback(ge_frame_cb cb, void *param);
+
 /* Opaque capture context holding the reusable GPU render/stage surfaces. A
  * caller that captures repeatedly (the monitor hot loop) creates one, reuses
  * it for every frame, then destroys it, avoiding per-frame surface churn. */

@@ -15,6 +15,12 @@ pub struct GeCaptureCtx {
 /// in `[0, 1]` of the source; only that sub-rectangle is rendered, scaled per
 /// axis to fill `out_width` x `out_height`. Mirrors `struct ge_capture_region`
 /// in `obs_bridge.h` -- the field layout must stay in sync.
+/// Signature of an OBS per-frame render callback, as registered by
+/// [`ge_obs_register_frame_callback`]. Invoked once per rendered frame on the
+/// graphics thread, inside an active graphics context. `cx`/`cy` are the main
+/// canvas dimensions (unused by the monitor, which captures a named source).
+pub type GeFrameCb = unsafe extern "C" fn(param: *mut c_void, cx: u32, cy: u32);
+
 #[repr(C)]
 pub struct GeCaptureRegion {
     pub crop_x: f32,
@@ -62,6 +68,15 @@ unsafe extern "C" {
     ) -> *mut u8;
     /// Destroys a capture context and its surfaces.
     pub fn ge_capture_destroy(ctx: *mut GeCaptureCtx);
+
+    /// Registers a per-frame render callback. While registered, `cb(param, ..)`
+    /// fires once per rendered frame on the graphics thread (inside a graphics
+    /// context), so it may capture via [`ge_capture_get_frame`] directly.
+    pub fn ge_obs_register_frame_callback(cb: GeFrameCb, param: *mut c_void);
+    /// Unregisters a callback registered with [`ge_obs_register_frame_callback`].
+    /// Serializes with callback invocation: once it returns, `cb` is neither
+    /// running nor will run again, so `param` is safe to free.
+    pub fn ge_obs_unregister_frame_callback(cb: GeFrameCb, param: *mut c_void);
 
     /// libc `free`, used to release buffers handed back by the C bridge.
     pub fn free(ptr: *mut c_void);

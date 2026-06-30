@@ -1,8 +1,6 @@
-use std::ffi::CString;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::ffi::{CString, c_void};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
 
 use axum::Json;
 use axum::extract::State;
@@ -13,10 +11,196 @@ use serde::Deserialize;
 use crate::cv::{CaptureRegion, CvMatcher, LevelMatch};
 use crate::http::AppState;
 
-/// A running monitor: the worker thread plus the flag used to ask it to stop.
+/// A running monitor. OBS pushes captured frames into `mailbox` from its render
+/// callback (keyed by the leaked `producer` pointer); the worker `thread`
+/// consumes and matches them. Stopping unregisters the callback, closes the
+/// mailbox to wake the worker, joins it, then frees the producer.
 pub struct MonitorHandle {
-    stop: Arc<AtomicBool>,
+    mailbox: Arc<FrameMailbox>,
+    producer: ProducerPtr,
     thread: JoinHandle<()>,
+}
+
+/// The leaked `ProducerCtx` pointer, made `Send` so the handle can move to the
+/// blocking teardown task.
+///
+/// SAFETY: the pointer is only dereferenced from the OBS graphics thread (the
+/// render callback). The start thread creates it and the stop thread frees it,
+/// but only after `ge_obs_unregister_frame_callback` guarantees no callback is
+/// running -- so it is never aliased across threads concurrently.
+struct ProducerPtr(*mut ProducerCtx);
+unsafe impl Send for ProducerPtr {}
+
+/// A captured BGRA frame and its dimensions, owning its pixel buffer. Frames
+/// from OBS wrap the C-`malloc`'d buffer the capture bridge returns; test frames
+/// own a `Vec`.
+struct Frame {
+    buf: FrameBuf,
+    width: u32,
+    height: u32,
+}
+
+// SAFETY: a `Frame` owns its buffer exclusively and never aliases the raw
+// pointer once constructed, so moving it from the producer (graphics) thread to
+// the consumer (monitor) thread through the mailbox is sound.
+unsafe impl Send for Frame {}
+
+enum FrameBuf {
+    /// Buffer handed back by `ge_capture_get_frame`; released with the C `free`.
+    CMalloc { ptr: *mut u8, len: usize },
+    /// Owned Rust buffer (test fixtures). Only constructed in tests; the OBS
+    /// path always uses `CMalloc`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    Owned(Vec<u8>),
+}
+
+impl FrameBuf {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            // SAFETY: ptr/len describe the single contiguous BGRA buffer this
+            // frame owns exclusively until it is dropped.
+            FrameBuf::CMalloc { ptr, len } => unsafe { std::slice::from_raw_parts(*ptr, *len) },
+            FrameBuf::Owned(bytes) => bytes,
+        }
+    }
+}
+
+impl Drop for FrameBuf {
+    fn drop(&mut self) {
+        if let FrameBuf::CMalloc { ptr, .. } = *self {
+            // SAFETY: allocated by the C capture bridge with malloc; the mailbox
+            // owns it exclusively, so it is freed exactly once here.
+            unsafe { crate::ffi::free(ptr.cast()) };
+        }
+    }
+}
+
+/// A capacity-one, latest-wins frame mailbox between the OBS producer and the
+/// monitor consumer. The producer overwrites (and frees) any unconsumed frame so
+/// the matcher always works on the freshest frame and never falls behind; when
+/// processing is slower than the frame rate the intermediate frames are dropped
+/// rather than queued. This is the groundwork for a bounded multi-frame buffer.
+struct FrameMailbox {
+    state: Mutex<MailboxState>,
+    available: Condvar,
+}
+
+struct MailboxState {
+    /// The pending frame, if any. A newer push replaces (and frees) an older
+    /// unconsumed frame.
+    pending: Option<Frame>,
+    /// Set on stop: wakes a blocked consumer and makes `push` drop new frames.
+    closed: bool,
+}
+
+impl FrameMailbox {
+    fn new() -> Self {
+        FrameMailbox { state: Mutex::new(MailboxState { pending: None, closed: false }), available: Condvar::new() }
+    }
+
+    /// Producer: make `frame` the pending frame, dropping (freeing) any pending
+    /// frame not yet taken -- newest wins. A no-op once closed.
+    fn push(&self, frame: Frame) {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        if state.closed {
+            return; // `frame` is dropped here -> its buffer is freed.
+        }
+        state.pending = Some(frame); // any previous pending frame is dropped + freed.
+        drop(state);
+        self.available.notify_one();
+    }
+
+    /// Consumer: block until a frame is pending or the mailbox is closed. Returns
+    /// the pending frame, or `None` once closed with nothing left to drain.
+    fn recv(&self) -> Option<Frame> {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        loop {
+            if let Some(frame) = state.pending.take() {
+                return Some(frame);
+            }
+            if state.closed {
+                return None;
+            }
+            state = self.available.wait(state).unwrap_or_else(|p| p.into_inner());
+        }
+    }
+
+    /// Mark the mailbox closed and wake the consumer so its `recv` returns.
+    fn close(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.closed = true;
+        drop(state);
+        self.available.notify_one();
+    }
+}
+
+/// State the OBS render callback needs to capture a frame and hand it off: the
+/// reusable capture context (owns its GPU surfaces), the source to capture, the
+/// calibrated region shared with the worker, and the mailbox to push into. Boxed
+/// and passed to OBS as the callback `param`. Owns the capture context and
+/// destroys it on drop (in `handle_stop`, after the callback is unregistered).
+struct ProducerCtx {
+    ctx: *mut crate::ffi::GeCaptureCtx,
+    name: CString,
+    region: Arc<Mutex<Option<CaptureRegion>>>,
+    mailbox: Arc<FrameMailbox>,
+}
+
+// SAFETY: see MonitorHandle -- the box is created on the start thread and
+// dropped on the stop thread, but `ctx` is only ever used on the graphics thread
+// and the two are never concurrent (registration/unregistration fence it).
+unsafe impl Send for ProducerCtx {}
+
+impl Drop for ProducerCtx {
+    fn drop(&mut self) {
+        // Release the GPU surfaces created in `handle_start`. Only reached after
+        // the render callback has been unregistered, so `ctx` is unused.
+        unsafe { crate::ffi::ge_capture_destroy(self.ctx) };
+    }
+}
+
+/// OBS render callback: capture one frame of the monitored source and push it
+/// into the mailbox. Runs on the graphics thread inside a graphics context, once
+/// per rendered frame.
+unsafe extern "C" fn ge_frame_callback(param: *mut c_void, _cx: u32, _cy: u32) {
+    // SAFETY: `param` is the `ProducerCtx` registered in `handle_start`. OBS
+    // serializes this with `ge_obs_unregister_frame_callback`, so it never runs
+    // after the monitor unregisters and frees the box.
+    let producer = unsafe { &*(param as *const ProducerCtx) };
+
+    // Translate the matcher's learned region (if any) into the C capture
+    // transform, so the GPU crops + un-stretches at capture time -- mirrors what
+    // the old pull path did per frame.
+    let region = {
+        let guard = producer.region.lock().unwrap_or_else(|p| p.into_inner());
+        guard.map(|r| {
+            let out_height = crate::cv::WORK_HEIGHT as u32;
+            let out_width = ((out_height as f32 * r.out_aspect).round() as u32).max(1);
+            crate::ffi::GeCaptureRegion {
+                crop_x: r.crop_x,
+                crop_y: r.crop_y,
+                crop_w: r.crop_w,
+                crop_h: r.crop_h,
+                out_width,
+                out_height,
+            }
+        })
+    };
+    let region_ptr = region.as_ref().map_or(std::ptr::null(), |r| r as *const _);
+    let max_height = if region.is_some() { 0 } else { crate::cv::WORK_HEIGHT as u32 };
+
+    let mut width: u32 = 0;
+    let mut height: u32 = 0;
+    // We're already on the graphics thread inside a graphics context, so the
+    // obs_enter_graphics nested inside this call is a no-op ref-bump, not a
+    // re-lock (OBS tracks the context per thread) -- no deadlock.
+    let frame =
+        unsafe { crate::ffi::ge_capture_get_frame(producer.ctx, producer.name.as_ptr(), max_height, region_ptr, &mut width, &mut height) };
+    if frame.is_null() {
+        return;
+    }
+    let len = (width * height * 4) as usize;
+    producer.mailbox.push(Frame { buf: FrameBuf::CMalloc { ptr: frame, len }, width, height });
 }
 
 #[derive(Deserialize)]
@@ -45,37 +229,17 @@ pub trait FrameSource {
     fn set_capture_region(&mut self, _region: Option<CaptureRegion>) {}
 }
 
-/// Frame source backed by the live OBS source named at construction. Owns a
-/// capture context whose GPU surfaces are created once (on monitor start) and
-/// reused for every frame, then released when the source is dropped (monitor
-/// stop) -- avoiding the per-frame surface churn of `ge_obs_get_source_frame`.
+/// Frame source backed by the live OBS source: consumes the frames the render
+/// callback (`ge_frame_callback`) pushes into the shared mailbox. The capture
+/// itself, and the capture context's GPU surfaces, live on the producer side;
+/// this only blocks for the next frame and matches it.
 struct ObsSource {
-    name: CString,
-    ctx: *mut crate::ffi::GeCaptureCtx,
-    // The calibrated capture transform, once the matcher has learned one. Latched
-    // on first sight: a stretched source's transform is fixed for the session, and
-    // once frames arrive pre-normalized the matcher reports no further calibration,
-    // so re-reading it would (incorrectly) clear the transform we want to keep.
-    region: Option<CaptureRegion>,
-}
-
-impl ObsSource {
-    /// Creates the source and its reusable capture context. Returns `None` if
-    /// the context (and its GPU surfaces) can't be created.
-    fn new(name: CString) -> Option<Self> {
-        let ctx = unsafe { crate::ffi::ge_capture_create() };
-        if ctx.is_null() {
-            return None;
-        }
-        Some(ObsSource { name, ctx, region: None })
-    }
-}
-
-impl Drop for ObsSource {
-    fn drop(&mut self) {
-        // Release the surfaces created in `new`; safe to call on a non-null ctx.
-        unsafe { crate::ffi::ge_capture_destroy(self.ctx) };
-    }
+    mailbox: Arc<FrameMailbox>,
+    /// The calibrated capture transform, shared with the producer callback.
+    /// Latched on first sight: a stretched source's transform is fixed for the
+    /// session, and once frames arrive pre-normalized the matcher reports no
+    /// further calibration, so re-reading it would (incorrectly) clear it.
+    region: Arc<Mutex<Option<CaptureRegion>>>,
 }
 
 impl FrameSource for ObsSource {
@@ -83,54 +247,21 @@ impl FrameSource for ObsSource {
     where
         F: FnOnce(&[u8], u32, u32) -> R,
     {
-        // Render the source into a BGRA buffer owned by the C side, reusing the
-        // context's surfaces.
-        //
-        // Uncalibrated: cap the capture at the matcher's working height so a
-        // large upscaled source (e.g. 1080p) is downscaled on the GPU to ~480p
-        // before it ever reaches OpenCV -- the game is ~480p at most, so there's
-        // no detail to lose, and it keeps match time bounded and consistent.
-        //
-        // Calibrated (stretched source): render the learned 4:3 sub-rectangle
-        // straight to a 480p-tall 4:3 frame, so the GPU crops the bars and undoes
-        // the stretch and the matcher needs no CPU resize.
-        let region = self.region.map(|r| {
-            let out_height = crate::cv::WORK_HEIGHT as u32;
-            let out_width = ((out_height as f32 * r.out_aspect).round() as u32).max(1);
-            crate::ffi::GeCaptureRegion {
-                crop_x: r.crop_x,
-                crop_y: r.crop_y,
-                crop_w: r.crop_w,
-                crop_h: r.crop_h,
-                out_width,
-                out_height,
-            }
-        });
-        let region_ptr = region.as_ref().map_or(std::ptr::null(), |r| r as *const _);
-        let max_height = if region.is_some() { 0 } else { crate::cv::WORK_HEIGHT as u32 };
-
-        let mut width: u32 = 0;
-        let mut height: u32 = 0;
-        let frame = unsafe {
-            crate::ffi::ge_capture_get_frame(self.ctx, self.name.as_ptr(), max_height, region_ptr, &mut width, &mut height)
-        };
-        if frame.is_null() {
-            return None;
-        }
-        let total_bytes = (width * height * 4) as usize;
-        let bytes = unsafe { std::slice::from_raw_parts(frame, total_bytes) };
-        let out = use_frame(bytes, width, height);
-        // Hand the buffer straight back to the C allocator now we're done with it.
-        unsafe { crate::ffi::free(frame.cast()) };
-        Some(out)
+        // Block until the producer pushes the next frame, or the mailbox is
+        // closed on stop (returns `None`, ending the run loop). The frame is
+        // dropped at the end of this scope, freeing its C buffer.
+        let frame = self.mailbox.recv()?;
+        Some(use_frame(frame.buf.as_slice(), frame.width, frame.height))
     }
 
     fn set_capture_region(&mut self, region: Option<CaptureRegion>) {
-        // Latch the first transform learned and keep it: see the field comment.
-        if self.region.is_none() {
+        // Latch the first transform learned and keep it (see the field comment);
+        // the producer callback reads this to crop/un-stretch future captures.
+        let mut guard = self.region.lock().unwrap_or_else(|p| p.into_inner());
+        if guard.is_none() {
             if let Some(r) = region {
                 tracing::info!(?r, "calibrated capture region; cropping/un-stretching on the GPU");
-                self.region = Some(r);
+                *guard = Some(r);
             }
         }
     }
@@ -169,33 +300,21 @@ impl MonitorSession {
         self.matcher.match_level_from_bgra_bytes(bytes, width, height)
     }
 
-    /// Hot loop: pull frames from `source`, match each, and pass the result to
-    /// `on_result`, until `stop` is set. When no frame is available the loop
-    /// backs off briefly before retrying.
-    pub fn run<S, F>(&self, source: &mut S, stop: &AtomicBool, mut on_result: F)
+    /// Hot loop: take each frame `source` yields, match it, and pass the result
+    /// to `on_result`. The source blocks until a frame is available, so there is
+    /// no polling; it returns `None` when exhausted (test fixtures) or closed
+    /// (the OBS mailbox on stop), which ends the loop.
+    pub fn run<S, F>(&self, source: &mut S, mut on_result: F)
     where
         S: FrameSource,
         F: FnMut(opencv::Result<LevelMatch>),
     {
-        while !stop.load(Ordering::Relaxed) {
-            match source.capture(|bytes, w, h| self.match_frame(bytes, w, h)) {
-                Some(result) => {
-                    // Once the matcher has calibrated this source's aspect, hand
-                    // the transform to the capture layer so subsequent frames are
-                    // cropped + un-stretched on the GPU at capture time.
-                    source.set_capture_region(self.matcher.capture_region());
-                    on_result(result);
-                }
-                None => {
-                    // No frame this tick. Re-check the stop flag before sleeping
-                    // so an exhausted source (e.g. a test fixture that sets the
-                    // flag) exits promptly instead of waiting out the backoff.
-                    if stop.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-            }
+        while let Some(result) = source.capture(|bytes, w, h| self.match_frame(bytes, w, h)) {
+            // Once the matcher has calibrated this source's aspect, hand the
+            // transform to the capture layer so subsequent frames are cropped +
+            // un-stretched on the GPU at capture time.
+            source.set_capture_region(self.matcher.capture_region());
+            on_result(result);
         }
     }
 }
@@ -219,33 +338,60 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher")
     })?;
 
+    // Reusable capture context (and its GPU surfaces), created once for the
+    // session. Owned by the ProducerCtx below and destroyed when that is dropped
+    // on stop.
+    let ctx = unsafe { crate::ffi::ge_capture_create() };
+    if ctx.is_null() {
+        tracing::error!("failed to create capture context; monitor not started");
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to create capture context").into());
+    }
+
+    // Shared between the OBS producer (render callback) and the worker consumer:
+    // the frame mailbox and the latched capture region.
+    let mailbox = Arc::new(FrameMailbox::new());
+    let region = Arc::new(Mutex::new(None));
+
+    // Producer state handed to OBS as the render-callback param. Boxed and leaked
+    // to a raw pointer for the monitor's lifetime; reclaimed (and the capture
+    // context destroyed) in `handle_stop`.
+    let producer = Box::into_raw(Box::new(ProducerCtx {
+        ctx,
+        name: source_name,
+        region: region.clone(),
+        mailbox: mailbox.clone(),
+    }));
+
+    // From here on OBS pushes a captured frame into the mailbox once per rendered
+    // frame -- the push model that replaces the old capture-in-a-spin-loop.
+    unsafe { crate::ffi::ge_obs_register_frame_callback(ge_frame_callback, producer.cast()) };
+
     // Run the matcher on a dedicated OS thread so its blocking, CPU-bound work
     // never ties up the async runtime's worker threads. The session is moved
     // onto the thread and dropped when the loop exits, clearing the cache.
-    let stop = Arc::new(AtomicBool::new(false));
-    let thread_stop = stop.clone();
+    let worker_mailbox = mailbox.clone();
     let thread = std::thread::Builder::new()
         .name("ge-monitor".to_owned())
         .spawn(move || {
-            // Create the reusable capture context once, here on the monitor
-            // thread; it (and its GPU surfaces) is dropped when this closure
-            // returns, i.e. on monitor stop.
-            let Some(mut source) = ObsSource::new(source_name) else {
-                tracing::error!("failed to create capture context; monitor not started");
-                return;
-            };
-            session.run(&mut source, &thread_stop, |result| match result {
+            let mut source = ObsSource { mailbox: worker_mailbox, region };
+            session.run(&mut source, |result| match result {
                 Ok(info) => tracing::info!(?info),
                 Err(e) => tracing::error!("err: {}", e.message),
             });
             tracing::info!("monitor loop exiting");
-        })
-        .map_err(|err| {
+        });
+    let thread = match thread {
+        Ok(thread) => thread,
+        Err(err) => {
             tracing::error!("failed to spawn monitor thread: {err}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "failed to spawn monitor thread")
-        })?;
+            // Unwind the registration and free the producer (which destroys ctx).
+            unsafe { crate::ffi::ge_obs_unregister_frame_callback(ge_frame_callback, producer.cast()) };
+            drop(unsafe { Box::from_raw(producer) });
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to spawn monitor thread").into());
+        }
+    };
 
-    *guard = Some(MonitorHandle { stop, thread });
+    *guard = Some(MonitorHandle { mailbox, producer: ProducerPtr(producer), thread });
     tracing::info!("monitor started");
 
     Ok(StatusCode::OK)
@@ -262,14 +408,28 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
         return Err((StatusCode::CONFLICT, "no monitor is running").into());
     };
 
-    // Signal the loop to exit, then wait for it on a blocking thread so we don't
-    // stall the async runtime while the in-flight match finishes. Joining the
-    // thread drops the session, releasing the matcher and its scale cache.
+    // Tear down on a blocking thread so we don't stall the async runtime while
+    // the in-flight match finishes. Joining the thread drops the session,
+    // releasing the matcher and its scale cache.
     tokio::task::spawn_blocking(move || {
-        handle.stop.store(true, Ordering::Relaxed);
-        if handle.thread.join().is_err() {
+        // Destructure up front so the closure captures the Send `ProducerPtr`
+        // field, not the inner raw pointer (disjoint closure capture would reach
+        // through a `ProducerPtr(producer)` pattern). Unwrap it as a local after.
+        let MonitorHandle { mailbox, producer, thread } = handle;
+        let producer = producer.0;
+        // Stop new frames first. `ge_obs_unregister_frame_callback` serializes
+        // with callback invocation, so once it returns the producer callback is
+        // neither running nor will run again -- the ProducerCtx (and its capture
+        // context) is then safe to free below.
+        unsafe { crate::ffi::ge_obs_unregister_frame_callback(ge_frame_callback, producer.cast()) };
+        // Wake the worker out of its blocking `recv` so the run loop exits.
+        mailbox.close();
+        if thread.join().is_err() {
             tracing::error!("monitor thread panicked");
         }
+        // Worker is done and no callback can fire: reclaim the producer, whose
+        // Drop destroys the capture context.
+        drop(unsafe { Box::from_raw(producer) });
     })
     .await
     .ok();
@@ -303,12 +463,11 @@ mod tests {
         (bytes, w, h)
     }
 
-    /// Frame source that replays decoded fixtures, then sets `stop` so a `run`
-    /// loop exits once the stream is exhausted.
+    /// Frame source that replays decoded fixtures, returning `None` once the
+    /// stream is exhausted so a `run` loop exits.
     struct FixtureSource {
         frames: Vec<(Vec<u8>, u32, u32)>,
         idx: usize,
-        stop: Arc<AtomicBool>,
     }
 
     impl FrameSource for FixtureSource {
@@ -316,10 +475,7 @@ mod tests {
         where
             F: FnOnce(&[u8], u32, u32) -> R,
         {
-            let (bytes, w, h) = self.frames.get(self.idx).or_else(|| {
-                self.stop.store(true, Ordering::Relaxed);
-                None
-            })?;
+            let (bytes, w, h) = self.frames.get(self.idx)?;
             self.idx += 1;
             Some(use_frame(bytes, *w, *h))
         }
@@ -462,16 +618,44 @@ mod tests {
         ];
         let frames: Vec<_> = files.iter().map(|f| load_bgra(f)).collect();
 
-        let stop = Arc::new(AtomicBool::new(false));
-        let mut source = FixtureSource { frames, idx: 0, stop: stop.clone() };
+        let mut source = FixtureSource { frames, idx: 0 };
         let session = MonitorSession::new("en", TEMPLATES_DIR).expect("session");
 
         let mut results = Vec::new();
-        session.run(&mut source, &stop, |r| results.push(r.expect("match")));
+        session.run(&mut source, |r| results.push(r.expect("match")));
 
         assert_eq!(results.len(), 3, "every fixture frame is processed once");
         assert_eq!(results[0].mission, 9); // start 20 -> Egyptian
         assert_eq!(results[1].times, vec![33, 300, 33]); // stats 03
         assert_eq!(results[2].mission, 5); // start 08 -> Surface 2
+    }
+
+    fn owned_frame(tag: u8, width: u32) -> Frame {
+        Frame { buf: FrameBuf::Owned(vec![tag]), width, height: 1 }
+    }
+
+    #[test]
+    fn mailbox_keeps_only_the_latest_frame() {
+        let mailbox = FrameMailbox::new();
+        // Two pushes with no intervening recv: the newer frame replaces (and
+        // frees) the older one, so only the latest is delivered.
+        mailbox.push(owned_frame(1, 10));
+        mailbox.push(owned_frame(2, 20));
+        let frame = mailbox.recv().expect("a frame is pending");
+        assert_eq!(frame.width, 20, "newest frame wins");
+        assert_eq!(frame.buf.as_slice(), &[2]);
+    }
+
+    #[test]
+    fn mailbox_recv_returns_none_once_closed_and_drained() {
+        let mailbox = FrameMailbox::new();
+        // A frame still pending at close is drained before recv reports closed.
+        mailbox.push(owned_frame(7, 30));
+        mailbox.close();
+        assert_eq!(mailbox.recv().expect("drains the pending frame").width, 30);
+        assert!(mailbox.recv().is_none(), "closed and drained -> None");
+        // A push after close is dropped, not stored.
+        mailbox.push(owned_frame(9, 40));
+        assert!(mailbox.recv().is_none(), "push after close is a no-op");
     }
 }

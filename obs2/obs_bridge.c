@@ -232,6 +232,16 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
   return pixel_buffer;
 }
 
+void ge_obs_register_frame_callback(ge_frame_cb cb, void *param) {
+  /* OBS invokes draw callbacks once per rendered frame, on the graphics thread
+   * inside an active graphics context (see render_main_texture in obs-video.c). */
+  obs_add_main_render_callback(cb, param);
+}
+
+void ge_obs_unregister_frame_callback(ge_frame_cb cb, void *param) {
+  obs_remove_main_render_callback(cb, param);
+}
+
 uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, uint32_t *out_height) {
   /* One-shot callers (the /screenshot and /match routes) capture a single
    * frame, so spin up a throwaway context. They capture at native resolution
