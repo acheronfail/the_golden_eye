@@ -2,8 +2,7 @@ import { browser } from '$app/environment';
 import { z } from 'zod';
 
 const SettingsSchema = z.object({
-	obsUrl: z.string(),
-	obsPassword: z.string()
+	lang: z.union([z.literal('en'), z.literal('jp')]),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -25,11 +24,10 @@ const storedSettings: Settings | null = (() => {
 
 export const settings = new (class {
 	//
-	// OBS
+	// Monitor
 	//
 
-	obsUrl = $state(storedSettings?.obsUrl ?? 'ws://localhost:4455');
-	obsPassword = $state(storedSettings?.obsPassword ?? '');
+	lang = $state(storedSettings?.lang ?? 'en');
 
 	//
 	// Stored
@@ -37,8 +35,7 @@ export const settings = new (class {
 
 	savedState = $derived(
 		JSON.stringify({
-			obsUrl: this.obsUrl,
-			obsPassword: this.obsPassword
+			lang: this.lang,
 		})
 	);
 })();

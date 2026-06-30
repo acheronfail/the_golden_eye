@@ -35,7 +35,7 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
     let mut height: u32 = 0;
     let frame = unsafe { crate::ffi::ge_obs_get_source_frame(source_name.as_ptr(), &mut width, &mut height) };
     if frame.is_null() {
-        return Err((StatusCode::NOT_FOUND, "could not capture source frame").into());
+        return Err((StatusCode::BAD_REQUEST, "could not capture source frame").into());
     }
 
     timer.lap("obs frame");
