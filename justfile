@@ -289,6 +289,7 @@ ffmpeg-static:
       --enable-static \
       --disable-shared \
       --enable-pic \
+      --disable-asm \
       --disable-autodetect \
       --disable-programs \
       --disable-doc \
