@@ -4,6 +4,12 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+html,
+body {
+	height: 100%;
+	overflow: hidden;
+}
+
 @layer components {
 	.btn {
 		@apply inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors duration-200;

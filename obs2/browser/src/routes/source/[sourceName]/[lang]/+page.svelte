@@ -294,7 +294,9 @@
 <svelte:window {onkeydown} />
 
 {#if monitoring}
-	<main class="relative flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
+	<main
+		class="relative flex h-full min-h-0 flex-col items-center justify-center overflow-hidden px-6 py-12 text-center"
+	>
 		<!-- A thick border frames the page area (below the header) to signal
 		     monitoring is live; its colour tracks the recorder state so the state
 		     reads even from peripheral vision. -->

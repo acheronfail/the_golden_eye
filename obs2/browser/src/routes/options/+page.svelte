@@ -82,7 +82,7 @@
 
 <main class="mx-auto w-full max-w-2xl px-6 py-12">
 	<h1 class="text-2xl font-semibold text-amber-300">Options</h1>
-	<p class="mt-2 mb-8 text-sm text-neutral-400">Settings are saved by the plugin.</p>
+	<p class="mt-2 mb-8 text-sm text-neutral-400">Settings are saved automatically.</p>
 
 	<div class="mb-6 flex border-b border-neutral-800" role="tablist" aria-label="Options sections">
 		<button

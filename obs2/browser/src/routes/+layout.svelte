@@ -5,9 +5,10 @@
 	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 
 	let { children } = $props();
+	let contentScroller: HTMLDivElement | undefined;
 
 	onMount(() => {
 		void settings.load().catch((err) => {
@@ -46,6 +47,15 @@
 		}
 	});
 
+	$effect(() => {
+		const path = page.url.pathname;
+		tick().then(() => {
+			if (page.url.pathname === path) {
+				contentScroller?.scrollTo({ top: 0, left: 0 });
+			}
+		});
+	});
+
 	const bannerClass =
 		'inline-block border-r p-2 text-left font-mono text-xs leading-[1.17] whitespace-pre text-amber-400';
 	const bannerText = `\
@@ -67,8 +77,8 @@
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 
-<div class="flex min-h-screen flex-col">
-	<header class="flex items-center border-b border-b-amber-400">
+<div class="flex h-screen min-h-0 flex-col overflow-hidden">
+	<header class="flex shrink-0 items-center border-b border-b-amber-400">
 		<a href="/">
 			<pre class={bannerClass}>{bannerText}</pre>
 		</a>
@@ -81,5 +91,7 @@
 		</ul>
 	</header>
 
-	{@render children()}
+	<div bind:this={contentScroller} class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+		{@render children()}
+	</div>
 </div>
