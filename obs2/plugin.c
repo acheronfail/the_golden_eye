@@ -11,6 +11,7 @@
 
 #include <obs/libobs/obs-module.h>
 #include <obs/libobs/util/base.h>
+#include <obs/libobs/util/bmem.h>
 
 #include <dlfcn.h>
 #include <errno.h>
@@ -95,9 +96,28 @@ static bool bundled_path(const char *relative_path, char *out, size_t out_size) 
   return module_dir(dir, sizeof(dir)) && join_path(out, out_size, dir, relative_path);
 }
 
+static bool configure_template_dir_from_obs(void) {
+  char *template_dir = obs_module_file("cv_templates");
+  if (!template_dir) {
+    return false;
+  }
+
+  int rc = setenv("GE_CV_TEMPLATE_DIR", template_dir, 1);
+  if (rc != 0) {
+    GE_LOG(LOG_WARNING, "failed to set GE_CV_TEMPLATE_DIR: %s", strerror(errno));
+  }
+
+  bfree(template_dir);
+  return rc == 0;
+}
+
 static void configure_template_dir(void) {
   const char *existing = getenv("GE_CV_TEMPLATE_DIR");
   if (existing && *existing) {
+    return;
+  }
+
+  if (configure_template_dir_from_obs()) {
     return;
   }
 
@@ -107,7 +127,7 @@ static void configure_template_dir(void) {
     return;
   }
 
-  if (setenv("GE_CV_TEMPLATE_DIR", template_dir, 0) != 0) {
+  if (setenv("GE_CV_TEMPLATE_DIR", template_dir, 1) != 0) {
     GE_LOG(LOG_WARNING, "failed to set GE_CV_TEMPLATE_DIR: %s", strerror(errno));
   }
 }

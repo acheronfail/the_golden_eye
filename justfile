@@ -108,6 +108,10 @@ make-release:
     mkdir -p obs2/build
     cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBROWSER_DEV=OFF && make
 
+make-package:
+    mkdir -p obs2/build
+    cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBROWSER_DEV=OFF && make package-plugin
+
 # builds the project and runs obs
 obs: make-release
     cd obs2/build && OBS_PLUGINS_PATH=$(pwd) OBS_PLUGINS_DATA_PATH=$(pwd) obs
