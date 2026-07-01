@@ -204,15 +204,12 @@
 		const socket = connectMonitorSocket({
 			onMatch: (m) => {
 				match = m;
-				console.log('level match', match);
 			},
 			onRecordingState: (status) => {
-				console.log('recording state', status);
 				applyRecordingState(status);
 			},
 			onRecordingSaved: (saved) => {
 				lastSaved = saved;
-				console.log('recording saved', saved);
 				// The clip is written: leave the transient "saving"/"skipped stats"
 				// title and settle back to the resting state, ready for the next run.
 				if (recordingState === 'savePending' || recordingState === 'statsSkipped') {

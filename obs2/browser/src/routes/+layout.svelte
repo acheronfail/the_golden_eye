@@ -51,10 +51,6 @@
 		{ href: '/options', label: 'Options' },
 		...(import.meta.hot ? [{ href: '/developer', label: 'Developer' }] : [])
 	];
-
-	$effect(() => {
-		console.log();
-	});
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
