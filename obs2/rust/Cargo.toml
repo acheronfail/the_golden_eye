@@ -52,6 +52,9 @@ tower-http = { version = "0.6.11", features = ["trace", "util", "cors"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["libc", "NSRunningApplication", "NSWorkspace"] }
+
 [dev-dependencies]
 http-body-util = "0.1.3"
 
