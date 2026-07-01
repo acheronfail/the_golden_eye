@@ -20,6 +20,8 @@ use tracing_subscriber::EnvFilter;
 
 use crate::settings::SettingsStore;
 
+const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
+
 /// Holds the tokio runtime that is driving the HTTP server, along with the
 /// signal used to ask the server to shut down gracefully.
 struct ServerHandle {
@@ -94,6 +96,7 @@ pub extern "C" fn ge_rust_start() {
     // C caller is never blocked; the runtime drives the future on its own
     // worker threads.
     let state_clone = state.clone();
+    tracing::info!(version = PLUGIN_VERSION, "starting server");
     runtime.spawn(async move {
         if let Err(error) = http::create_server(shutdown_rx, state_clone).await {
             tracing::error!("http server exited with error: {error}");

@@ -3,7 +3,7 @@
 # Defines the BROWSER_DEV option and the `browser_build` target, and exports
 # BROWSER_BUNDLE — the HTML file the Rust crate embeds via include_str!.
 # Must be included after OpenCVStatic, since the (prod) frontend build command
-# forwards RUST_BUILD_ENV to npm.
+# forwards RUST_BUILD_ENV and the canonical plugin version to npm.
 
 set(BROWSER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/browser")
 
@@ -34,7 +34,9 @@ else()
   # back to the standard build output when CMake is invoked directly (without
   # the justfile env). Passed on to the frontend build (svelte.config.js reads
   # $BROWSER_BUNDLE to decide its output location) and to the Rust build
-  # (include_str!(env!("BROWSER_BUNDLE"))).
+  # (include_str!(env!("BROWSER_BUNDLE"))). The generated VERSION file is a
+  # dependency so changing the canonical plugin version rebuilds the embedded
+  # HTML.
   if(DEFINED ENV{BROWSER_BUNDLE})
     set(BROWSER_BUNDLE "$ENV{BROWSER_BUNDLE}")
   else()
@@ -53,11 +55,15 @@ else()
         "${BROWSER_DIR}/svelte.config.js"
         "${BROWSER_DIR}/tsconfig.json"
         "${BROWSER_DIR}/vite.config.ts"
+        "${GE_PLUGIN_VERSION_FILE}"
     )
 
   add_custom_command(
         OUTPUT "${BROWSER_BUNDLE}"
-        COMMAND ${CMAKE_COMMAND} -E env "BROWSER_BUNDLE=${BROWSER_BUNDLE}" ${RUST_BUILD_ENV}
+        COMMAND ${CMAKE_COMMAND} -E env
+                "BROWSER_BUNDLE=${BROWSER_BUNDLE}"
+                "VITE_GE_PLUGIN_VERSION=${GE_PLUGIN_VERSION}"
+                ${RUST_BUILD_ENV}
                 npm run build
         # Fail the build if the bundle the Rust crate embeds wasn't produced,
         # rather than letting cargo fail later with an opaque include_str! error.

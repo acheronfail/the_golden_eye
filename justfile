@@ -4,6 +4,7 @@
 
 obs_headers := justfile_directory() / "obs2/vendor/obs"
 source_archive_cache := justfile_directory() / "obs2/vendor/archives"
+plugin_version := "0.1.0"
 obsapi_version := "32.1.2"
 opencv_version := "4.11.0"
 ffmpeg_version := "8.0"
@@ -11,6 +12,8 @@ cmake_version := "3.31.7"
 
 export DYLD_FALLBACK_LIBRARY_PATH := "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib"
 export BROWSER_BUNDLE := justfile_directory() / "obs2/browser/build/index.html"
+export GE_PLUGIN_VERSION := plugin_version
+export VITE_GE_PLUGIN_VERSION := plugin_version
 export OPENCV_PREFIX := justfile_directory() / "obs2/vendor/opencv-static"
 export FFMPEG_PREFIX := justfile_directory() / "obs2/vendor/ffmpeg-static"
 
@@ -33,7 +36,7 @@ dev:
     export GE_RELOAD_FIFO="${TMPDIR:-/tmp}/ge_the_golden_eye.reload"
     mkdir -p obs2/build
     cd obs2/build
-    cmake .. -DCMAKE_BUILD_TYPE=Debug -DBROWSER_DEV=ON
+    cmake .. -DCMAKE_BUILD_TYPE=Debug -DBROWSER_DEV=ON -DGE_PLUGIN_VERSION="{{ plugin_version }}"
     make
     build_dir="$(pwd)"
 
@@ -103,23 +106,43 @@ test-rust *args:
 
 make:
     mkdir -p obs2/build
-    cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DBROWSER_DEV=OFF && make
+    cd obs2/build && cmake .. \
+      -DCMAKE_BUILD_TYPE=Debug \
+      -DBROWSER_DEV=OFF \
+      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
+    && make
 
 make-release:
     mkdir -p obs2/build
-    cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBROWSER_DEV=OFF && make
+    cd obs2/build && cmake .. \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBROWSER_DEV=OFF \
+      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
+    && make
 
 make-package:
     mkdir -p obs2/build
-    cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBROWSER_DEV=OFF && cmake --build . --target package-plugin
+    cd obs2/build && cmake .. \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBROWSER_DEV=OFF \
+      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
+    && cmake --build . --target package-plugin
 
 install:
     mkdir -p obs2/build
-    cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBROWSER_DEV=OFF && cmake --build . --target install-plugin
+    cd obs2/build && cmake .. \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBROWSER_DEV=OFF \
+      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
+    && cmake --build . --target install-plugin
 
 uninstall:
     mkdir -p obs2/build
-    cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBROWSER_DEV=OFF && cmake --build . --target uninstall-plugin
+    cd obs2/build && cmake .. \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBROWSER_DEV=OFF \
+      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
+    && cmake --build . --target uninstall-plugin
 
 # builds the project and runs obs
 obs: make-release

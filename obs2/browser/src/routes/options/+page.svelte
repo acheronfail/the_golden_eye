@@ -58,20 +58,38 @@
 			? `${tabBaseClass} border-amber-400 text-amber-300`
 			: `${tabBaseClass} border-transparent text-neutral-400 hover:text-amber-300`;
 	const clipTemplateTokens = [
-		{ value: '{obs_replay_name}', description: 'Original OBS replay-buffer filename without the extension.' },
+		{
+			value: '{obs_replay_name}',
+			description: 'Original OBS replay-buffer filename without the extension.'
+		},
 		{ value: '{level}', description: 'GoldenEye level name, such as Dam, Facility, or Egypt.' },
 		{ value: '{levelNumber}', description: 'GoldenEye level number from 1 through 20.' },
 		{ value: '{time}', description: 'Run time as mm:ss when the stats screen was read.' },
-		{ value: '{difficulty}', description: 'Difficulty name: Agent, Secret Agent, 00 Agent, or 007.' },
+		{
+			value: '{difficulty}',
+			description: 'Difficulty name: Agent, Secret Agent, 00 Agent, or 007.'
+		},
 		{ value: '{status}', description: 'Run result: complete, failed, abort, or kia.' },
 		{ value: '{timestamp}', description: 'ISO timestamp in UTC for when the run completed.' },
-		{ value: '{timestamp_local}', description: 'ISO timestamp in local time for when the run completed.' }
+		{
+			value: '{timestamp_local}',
+			description: 'ISO timestamp in local time for when the run completed.'
+		}
 	];
 	const notificationTemplateTokens = [
 		{ value: '{broadcast_url}', description: 'YouTube broadcast URL for the stream.' },
-		{ value: '{timestamp}', description: 'ISO timestamp in UTC for when the stream event was handled.' },
-		{ value: '{timestamp_local}', description: 'ISO timestamp in local time for when the stream event was handled.' },
-		{ value: '{unix_seconds}', description: 'Unix timestamp in seconds, suitable for Discord timestamp markup.' }
+		{
+			value: '{timestamp}',
+			description: 'ISO timestamp in UTC for when the stream event was handled.'
+		},
+		{
+			value: '{timestamp_local}',
+			description: 'ISO timestamp in local time for when the stream event was handled.'
+		},
+		{
+			value: '{unix_seconds}',
+			description: 'Unix timestamp in seconds, suitable for Discord timestamp markup.'
+		}
 	];
 
 	const normalizeFailedRunLimit = () => {
@@ -402,7 +420,7 @@
 					/>
 					<span class={labelClass}>Enable Discord notifications</span>
 				</label>
-				<p class={hintClass}>Disable notifications without clearing the saved webhook URL.</p>
+				<p class={hintClass}>Enable notifications in Discord for streaming, requires a webhook URL.</p>
 			</section>
 
 			<section class={panelClass}>

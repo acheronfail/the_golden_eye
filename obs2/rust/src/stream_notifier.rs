@@ -5,8 +5,7 @@ use serde::Deserialize;
 
 use crate::http::{AppState, StreamMessage};
 
-pub const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE: &str =
-    "🟢 Bond is now streaming at: {broadcast_url}";
+pub const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE: &str = "🟢 Bond is now streaming at: {broadcast_url}";
 pub const DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE: &str =
     "🔴 Bond stopped streaming at <t:{unix_seconds}:F>: {broadcast_url}";
 

@@ -73,6 +73,8 @@
 		{ href: '/options', label: 'Options' },
 		...(import.meta.hot ? [{ href: '/developer', label: 'Developer' }] : [])
 	];
+
+	const pluginVersion = import.meta.env.VITE_GE_PLUGIN_VERSION ?? '0.0.0';
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
@@ -89,6 +91,8 @@
 				<a class={isActive ? liActiveClass : liClass} href={link.href}> <li>{link.label}</li></a>
 			{/each}
 		</ul>
+
+		<span class="ml-auto shrink-0 px-4 font-mono text-sm text-amber-400">v{pluginVersion}</span>
 	</header>
 
 	<div bind:this={contentScroller} class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">

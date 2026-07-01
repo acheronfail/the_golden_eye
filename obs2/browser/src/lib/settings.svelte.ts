@@ -4,8 +4,7 @@ import { getSettings, putSettings } from './api';
 
 export const DEFAULT_CLIP_FILENAME_TEMPLATE = '{level} - {time} - {difficulty} - {status}';
 export const DEFAULT_POST_RUN_PADDING_SECS = 5;
-export const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE =
-	'\u{1f7e2} Bond is now streaming at: {broadcast_url}';
+export const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE = '\u{1f7e2} Bond is now streaming at: {broadcast_url}';
 export const DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE =
 	'\u{1f534} Bond stopped streaming at <t:{unix_seconds}:F>: {broadcast_url}';
 const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 fn main() {
     // The HTTP server embeds the frontend bundle via include_str!(env!("BROWSER_BUNDLE")), rebuild when it changes.
     println!("cargo:rerun-if-env-changed=BROWSER_BUNDLE");
+    println!("cargo:rerun-if-env-changed=GE_PLUGIN_VERSION");
 
     println!("cargo:rerun-if-env-changed=OPENCV_INCLUDE_PATHS");
     println!("cargo:rerun-if-env-changed=OPENCV_LINK_PATHS");

@@ -73,6 +73,9 @@ if(APPLE)
       COMMAND ${CMAKE_COMMAND} -E copy_directory
               "$<TARGET_BUNDLE_DIR:${PLUGIN_NAME}>"
               "${GE_PACKAGE_ENTRY_PATH}"
+      COMMAND ${CMAKE_COMMAND} -E copy
+              "${GE_PLUGIN_VERSION_FILE}"
+              "${GE_PACKAGE_ENTRY_PATH}/VERSION"
       COMMAND ${CMAKE_COMMAND} -E rm -f "${GE_PACKAGE_ENTRY_PATH}/Contents/Resources/cv_templates/.stamp"
       COMMENT "Staging ${GE_PACKAGE_BASENAME}"
       VERBATIM
@@ -90,6 +93,7 @@ else()
       COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${PLUGIN_NAME}>" "${GE_PACKAGE_BIN_DIR}/"
       COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${CORE_NAME}>" "${GE_PACKAGE_BIN_DIR}/"
       COMMAND ${CMAKE_COMMAND} -E copy_directory "${GE_BUNDLED_TEMPLATE_DIR}" "${GE_PACKAGE_DATA_DIR}/cv_templates"
+      COMMAND ${CMAKE_COMMAND} -E copy "${GE_PLUGIN_VERSION_FILE}" "${GE_PACKAGE_ENTRY_PATH}/VERSION"
       COMMAND ${CMAKE_COMMAND} -E rm -f "${GE_PACKAGE_DATA_DIR}/cv_templates/.stamp"
       COMMENT "Staging ${GE_PACKAGE_BASENAME}"
       VERBATIM
