@@ -20,7 +20,7 @@ use tokio::sync::broadcast;
 
 use crate::cv::{LevelMatch, Screen};
 use crate::ffmpeg;
-use crate::http::{MonitorEvent, RecordingSaved};
+use crate::http::{MonitorEvent, RecordingSaved, RecordingStatus};
 
 /// How long after the stats screen first appears to keep recording before
 /// saving, so the clip includes a few seconds of the stats overlay. The spec
@@ -131,6 +131,14 @@ pub struct RecordingState {
     /// Whether a failure screen (abort / failed / KIA) was seen during the
     /// active run. Tracked for naming/logging; the clip is saved either way.
     failed: bool,
+    /// The post-mission report screen (Complete/Failed/Abort/KIA) match seen
+    /// during the active run, or `None` if the run hasn't reached one yet.
+    /// Presence means the run finished, so backing out to the level grid from
+    /// the report screen (which bypasses the stats screen) still saves the clip;
+    /// its absence means the run was abandoned mid-play, with nothing to save.
+    /// Kept for naming the clip when the stats screen is skipped (report screens
+    /// carry the mission header but no timed rows, so no time is recovered).
+    report: Option<LevelMatch>,
     /// A scheduled save in flight, if any. Independent of the active run: once
     /// set it is always saved when its timer elapses, even if the user backs out
     /// or starts another run in the meantime.
@@ -142,7 +150,26 @@ pub struct RecordingState {
 
 impl RecordingState {
     pub fn new(event_tx: broadcast::Sender<MonitorEvent>) -> Self {
-        RecordingState { clip_start: None, failed: false, pending: None, event_tx }
+        RecordingState { clip_start: None, failed: false, report: None, pending: None, event_tx }
+    }
+
+    /// Broadcast a recorder state transition to connected WebSocket clients.
+    /// Send errors (no subscribers) are ignored -- the state change stands
+    /// regardless of whether anyone is listening.
+    fn emit(&self, status: RecordingStatus) {
+        let _ = self.event_tx.send(MonitorEvent::RecordingState { status });
+    }
+
+    /// Schedule the replay-buffer save for a finished run, `STATS_LINGER` from
+    /// `now`, ending the active run's report tracking. `stats` names the clip --
+    /// the stats-screen match on the normal path, or the report-screen match
+    /// when the stats screen was skipped. Any earlier pending save is flushed
+    /// first so it isn't dropped.
+    fn schedule_save(&mut self, now: Instant, clip_start: Instant, stats: Option<LevelMatch>) {
+        self.flush_pending(now);
+        self.pending = Some(PendingSave { fire_at: now + STATS_LINGER, clip_start, failed: self.failed, stats });
+        self.failed = false;
+        self.report = None;
     }
 
     /// Save and trim the pending clip, if any, anchored to `now` as the save
@@ -166,28 +193,72 @@ impl RecordingState {
                 if self.clip_start.is_none() {
                     self.clip_start = Some(now);
                     self.failed = false;
+                    self.report = None;
                     ensure_replay_buffer_running();
                     tracing::info!("recording session started");
+                    self.emit(RecordingStatus::Started);
                 }
             }
-            // Backing out to the mission grid abandons the *active* run (it never
-            // reached stats, so there's nothing to save). A pending save is
-            // deliberately untouched -- it still fires on its timer below.
+            // Returning to the mission grid. What it means depends on whether the
+            // run reached its post-mission report screen. A pending save from an
+            // earlier run is deliberately untouched either way -- it fires on its
+            // own timer below.
             Screen::Levels => {
-                if self.clip_start.take().is_some() {
-                    self.failed = false;
-                    tracing::info!("recording session abandoned (returned to level select)");
+                if let Some(start) = self.clip_start.take() {
+                    if let Some(report) = self.report.take() {
+                        // The report screen was shown, then the user pressed B to
+                        // return to the grid -- bypassing the stats screen. The run
+                        // still finished, so save the clip on the same linger timer
+                        // as the stats path, naming it from the report screen.
+                        // `schedule_save` clears `failed`, so capture it first.
+                        let failed = self.failed;
+                        tracing::info!("stats screen skipped (report -> level select); saving replay buffer in {:?}", STATS_LINGER);
+                        self.schedule_save(now, start, Some(report));
+                        // Backing out to the grid is the *normal* ending for a
+                        // failed run, so don't flag "skipped stats" -- just move to
+                        // the saving state. Only a completed run whose stats screen
+                        // was bypassed counts as skipped.
+                        self.emit(if failed { RecordingStatus::SavePending } else { RecordingStatus::StatsSkipped });
+                    } else {
+                        // No report screen was seen: the run was abandoned mid-play,
+                        // so there's nothing worth saving.
+                        self.failed = false;
+                        tracing::info!("recording session abandoned (returned to level select)");
+                        self.emit(RecordingStatus::Cancelled);
+                    }
                 }
             }
-            // Failure screens just flag the active run; it still ends at stats.
+            // Failure report screens flag the active run (it still ends at stats)
+            // and mark that the run reached its report screen. Emit only on the
+            // first failure frame (the screen lingers across many frames) so
+            // clients see one transition, not a stream; the specific screen picks
+            // the status so the UI can name *why* the run ended.
             Screen::Failed | Screen::Abort | Screen::Kia => {
                 if self.clip_start.is_some() {
-                    self.failed = true;
+                    self.report.get_or_insert_with(|| m.clone());
+                    if !self.failed {
+                        self.failed = true;
+                        self.emit(match m.screen {
+                            Screen::Abort => RecordingStatus::Aborted,
+                            Screen::Kia => RecordingStatus::Kia,
+                            _ => RecordingStatus::Failed,
+                        });
+                    }
                 }
             }
+            // The mission-complete report screen: also marks the run as having
+            // reached its report screen. Emit `Complete` once -- on the first
+            // report frame of a clean run, or when it clears a failure flagged
+            // earlier this run (so clients can leave the "failed" state). Later
+            // complete frames (the screen lingers) don't re-emit.
             Screen::Complete => {
                 if self.clip_start.is_some() {
-                    self.failed = false;
+                    let first_report = self.report.is_none();
+                    self.report.get_or_insert_with(|| m.clone());
+                    if first_report || self.failed {
+                        self.failed = false;
+                        self.emit(RecordingStatus::Complete);
+                    }
                 }
             }
             // The stats screen ends the run: hand the active run to a pending save
@@ -197,15 +268,9 @@ impl RecordingState {
             // waiting from an earlier run is flushed first so it isn't dropped.
             Screen::Stats => {
                 if let Some(start) = self.clip_start.take() {
-                    self.flush_pending(now);
                     tracing::info!("stats detected; saving replay buffer in {:?}", STATS_LINGER);
-                    self.pending = Some(PendingSave {
-                        fire_at: now + STATS_LINGER,
-                        clip_start: start,
-                        failed: self.failed,
-                        stats: Some(m.clone()),
-                    });
-                    self.failed = false;
+                    self.schedule_save(now, start, Some(m.clone()));
+                    self.emit(RecordingStatus::SavePending);
                 }
             }
             _ => {}
@@ -303,8 +368,8 @@ fn clip_name(stem: &str, failed: bool, stats: Option<&LevelMatch>) -> String {
     let mut name = format!("{stem} - clip");
     if let Some(m) = stats {
         name.push_str(&format!(" - m{:02}-{} d{}", m.mission, m.part, m.difficulty));
-        if let Some(time) = m.times.first() {
-            name.push_str(&format!(" - {time}s"));
+        if let Some(times) = m.times {
+            name.push_str(&format!(" - {}s", times.time));
         }
     }
     if failed {

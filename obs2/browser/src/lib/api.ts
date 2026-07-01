@@ -60,7 +60,15 @@ export interface LevelMatch {
 	mission: number;
 	part: number;
 	difficulty: number;
-	times: number[];
+	/** The stats-screen times split into run / target / best. `null` on any
+	 * screen with no timed rows (start, report screens, gameplay). `target_time`
+	 * is set only when the level was completed on the difficulty its target is
+	 * defined for; `best_time` only once a prior time exists. */
+	times: {
+		time: number;
+		target_time: number | null;
+		best_time: number | null;
+	} | null;
 	runtime_ms: number;
 }
 
@@ -79,11 +87,40 @@ export interface RecordingSaved {
 	stats?: LevelMatch;
 }
 
+/** A transition in the backend recorder's per-run state. Mirrors the Rust
+ * `RecordingStatus`:
+ * - `started` — a run began (the clip's start was anchored);
+ * - `cancelled` — the active run was abandoned mid-play before reaching its
+ *   report screen (back to the level grid), so nothing is saved for it;
+ * - `failed` / `aborted` / `kia` — a failure report screen was seen during the
+ *   run (mission failed / mission aborted / killed in action); the specific one
+ *   names why the run ended. The clip is still saved;
+ * - `complete` — the mission-complete report screen was reached; the run is a
+ *   success (sent once per run, and also clears a prior failure);
+ * - `statsSkipped` — a *completed* run's stats screen was bypassed (the user
+ *   backed out of the report screen to the level grid); the clip is still saved
+ *   (a {@link RecordingSaved} still follows). A failed run backing out this way
+ *   emits `savePending` instead;
+ * - `savePending` — a run ended (at the stats screen, or a failed run backing
+ *   out) and a save was scheduled; a {@link RecordingSaved} follows once the clip
+ *   is written. */
+export type RecordingStatus =
+	| 'started'
+	| 'cancelled'
+	| 'failed'
+	| 'aborted'
+	| 'kia'
+	| 'complete'
+	| 'statsSkipped'
+	| 'savePending';
+
 /** A message pushed over the monitor WebSocket. Mirrors the Rust `MonitorEvent`,
  * which is serialized internally tagged by `type`, so each variant is its
  * payload plus a discriminating `type` field. */
 export type MonitorEvent =
+	| { type: 'version'; buildId: string }
 	| ({ type: 'match' } & LevelMatch)
+	| { type: 'recordingState'; status: RecordingStatus }
 	| ({ type: 'recordingSaved' } & RecordingSaved);
 
 /** Handlers for the messages the monitor WebSocket can push. All are optional;
@@ -92,25 +129,54 @@ export interface MonitorSocketHandlers {
 	/** The matched on-screen state changed (also fired once on connect with the
 	 * current match, if a monitor is running). */
 	onMatch?: (match: LevelMatch) => void;
+	/** The recorder's per-run state changed (started, cancelled, failed, or a
+	 * save was scheduled). */
+	onRecordingState?: (status: RecordingStatus) => void;
 	/** A run's clip was saved out of the replay buffer and trimmed. */
 	onRecordingSaved?: (saved: RecordingSaved) => void;
 	/** Fires when the socket closes. */
 	onClose?: () => void;
 }
 
+/** The build id this page was served with, read from the `<meta>` tag the
+ * backend injects into the SPA's HTML. `null` in dev, where the SPA is served by
+ * Vite (no injection) — the version check is skipped there. */
+const selfBuildId = (): string | null =>
+	document.querySelector('meta[name="ge-build-id"]')?.getAttribute('content') ?? null;
+
+/** Reload the page if the backend is serving a different frontend build than the
+ * one this tab is running. Catches a stale tab — an older cached page, or one
+ * left open across a plugin update — that reconnected to an updated backend. The
+ * entry HTML is served `no-store`, so the reload lands on the current build. */
+const reloadIfStale = (backendBuildId: string): void => {
+	const self = selfBuildId();
+	// No meta tag means dev mode (Vite-served SPA); nothing to compare against.
+	if (self !== null && self !== backendBuildId) {
+		console.warn(`frontend build ${self} differs from backend build ${backendBuildId}; reloading`);
+		window.location.reload();
+	}
+};
+
 /**
- * Open a WebSocket to the backend that pushes {@link MonitorEvent} messages: the
- * latest {@link LevelMatch} whenever the matched state changes (and once on
- * connect), plus one-off events such as a recording being saved. Dispatches each
- * message to the matching handler. Returns the socket so callers can close it.
+ * Open a WebSocket to the backend that pushes {@link MonitorEvent} messages: a
+ * one-off `version` handshake, the latest {@link LevelMatch} whenever the matched
+ * state changes (and once on connect), recorder state transitions, and one-off
+ * events such as a recording being saved. Dispatches each message to the matching
+ * handler. Returns the socket so callers can close it.
  */
 export const connectMonitorSocket = (handlers: MonitorSocketHandlers): WebSocket => {
 	const socket = new WebSocket(wsUrl('/api/v1/monitor/ws'));
 	socket.onmessage = (event) => {
 		const msg = JSON.parse(event.data) as MonitorEvent;
 		switch (msg.type) {
+			case 'version':
+				reloadIfStale(msg.buildId);
+				break;
 			case 'match':
 				handlers.onMatch?.(msg);
+				break;
+			case 'recordingState':
+				handlers.onRecordingState?.(msg.status);
 				break;
 			case 'recordingSaved':
 				handlers.onRecordingSaved?.(msg);

@@ -73,11 +73,7 @@
 	};
 
 	const getScreenshot = (sourceName: string) => async () => {
-		const res = await fetch(
-			apiUrl(
-				`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}`
-			)
-		);
+		const res = await fetch(apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}`));
 		const blob = await res.blob();
 		const url = URL.createObjectURL(blob);
 

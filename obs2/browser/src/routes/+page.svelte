@@ -91,7 +91,7 @@
 				type="button"
 				onclick={reload}
 				disabled={reloading}
-				class="font-mono border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-500 underline-offset-2 transition-colors hover:text-amber-300 hover:border-amber-300 hover:cursor-pointer disabled:text-neutral-700 disabled:no-underline"
+				class="rounded border border-neutral-800 px-2 py-1 font-mono text-xs text-neutral-500 underline-offset-2 transition-colors hover:cursor-pointer hover:border-amber-300 hover:text-amber-300 disabled:text-neutral-700 disabled:no-underline"
 			>
 				{reloading ? 'refreshing…' : 'refresh OBS sources'}
 			</button>

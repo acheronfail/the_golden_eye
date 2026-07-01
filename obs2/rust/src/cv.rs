@@ -20,6 +20,7 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::thread;
 
+use crate::ge;
 use crate::timer::PhaseTimer;
 
 // Cached count of usable cores. OpenCV here is built without TBB/OpenMP, so each
@@ -436,7 +437,15 @@ pub struct LevelMatch {
     pub mission: i32,
     pub part: i32,
     pub difficulty: i32,
-    pub times: Vec<i32>,
+    /// The stats-screen times split into run / target / best (see [`ge::Times`]).
+    /// `None` on any screen that carries no timed rows (start, report, gameplay).
+    pub times: Option<ge::Times>,
+    /// The raw times read off the overlay in top-to-bottom order, before
+    /// classification -- the unclassified source `times` is derived from. Empty
+    /// on screens with no timed rows. Kept for the digit-matching test harness,
+    /// which asserts every rendered row was read correctly; production code uses
+    /// the classified `times` instead.
+    pub raw_times: Vec<i32>,
     pub runtime_ms: f64,
 }
 
@@ -1414,7 +1423,7 @@ impl CvMatcher {
 
     pub fn match_level_from_bgra_frame(&self, bgra_frame: &impl ToInputArray) -> Result<LevelMatch> {
         let mut result =
-            LevelMatch { screen: Screen::Unknown, mission: -1, part: -1, difficulty: -1, times: Vec::new(), runtime_ms: 0.0 };
+            LevelMatch { screen: Screen::Unknown, mission: -1, part: -1, difficulty: -1, times: None, raw_times: Vec::new(), runtime_ms: 0.0 };
         let mut timer = PhaseTimer::new();
 
         // Convert the BGRA frame to grayscale once; every template is matched
@@ -1648,12 +1657,15 @@ impl CvMatcher {
         result.screen = screen;
         timer.lap("screen classify");
 
-        let times = if screen != Screen::Stats || colon_tmpl.empty() || digit_width_sum == 0 {
+        // Read the raw times off the overlay (top-to-bottom), then classify them
+        // into run / target / best using the level's mission/part/difficulty.
+        let times: Vec<i32> = if screen != Screen::Stats || colon_tmpl.empty() || digit_width_sum == 0 {
             Vec::new()
         } else {
-            find_times_band(&frame, &colon_tmpl, &digit_tmpls)?
+            find_times_band(&frame, &colon_tmpl, &digit_tmpls)?.into_iter().map(|t| t.seconds).collect()
         };
-        result.times = times.into_iter().map(|t| t.seconds).collect();
+        result.times = ge::Times::classify(result.mission, result.part, result.difficulty, &times);
+        result.raw_times = times;
         timer.lap("time assembly");
 
         // Learn the scale from this fully-resolved overlay (slow path only) so

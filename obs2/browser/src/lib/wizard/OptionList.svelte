@@ -72,7 +72,7 @@
 				onclick={() => onSelect(option, i)}
 				onkeydown={(e) => onkeydown(e, i)}
 				class="group flex w-full items-center gap-4 rounded-md border border-amber-700 bg-neutral-950/60 px-4 py-3 text-left transition-colors
-					hover:border-amber-400 hover:bg-amber-600 hover:text-black hover:cursor-pointer
+					hover:cursor-pointer hover:border-amber-400 hover:bg-amber-600 hover:text-black
 					focus:outline-none focus-visible:border-amber-400 focus-visible:ring-2 focus-visible:ring-amber-400
 					disabled:pointer-events-none disabled:opacity-40"
 			>

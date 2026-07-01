@@ -554,6 +554,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let mut rx = state.match_tx.subscribe();
     let mut events = state.event_tx.subscribe();
 
+    // Announce which build serves this API first, so a stale tab (older cached
+    // page, or one open across a plugin update) can compare it against its own
+    // build and reload before it starts acting on match/recording events.
+    let version = MonitorEvent::Version { build_id: super::index::BUILD_ID.clone() };
+    if send_event(&mut socket, &version).await.is_err() {
+        return;
+    }
+
     // Send the current match up front so a client connecting mid-run isn't
     // blank until the next change.
     if send_current_match(&mut socket, &mut rx).await.is_err() {
@@ -626,6 +634,12 @@ mod tests {
     use opencv::{imgcodecs, imgproc};
 
     use super::*;
+    use crate::ge::Times;
+
+    // Builds the classified stats-screen times for a test expectation.
+    const fn times(time: i32, target_time: Option<i32>, best_time: Option<i32>) -> Option<Times> {
+        Some(Times { time, target_time, best_time })
+    }
 
     // Templates ship alongside obs2/; screenshots live under test/screenshots-*.
     const TEMPLATES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../cv_templates");
@@ -668,7 +682,7 @@ mod tests {
         mission: i32,
         part: i32,
         difficulty: i32,
-        times: &'static [i32],
+        times: Option<Times>,
     }
 
     // Expected matches spanning both capture resolutions (av2hdmi 640x480,
@@ -681,7 +695,7 @@ mod tests {
             mission: 5,
             part: 1,
             difficulty: 0,
-            times: &[],
+            times: None,
         },
         Case {
             file: "screenshots-av2hdmi/en - start - 16 - Secret Agent.png",
@@ -689,23 +703,26 @@ mod tests {
             mission: 7,
             part: 2,
             difficulty: 1,
-            times: &[],
+            times: None,
         },
         Case {
+            // Dam on Agent; Dam's target is set for Secret Agent, so no target
+            // row shows here -- the second time is the best time.
             file: "screenshots-av2hdmi/en - stats - 01 - Agent - 0119_0119.png",
             lang: "en",
             mission: 1,
             part: 1,
             difficulty: 0,
-            times: &[79, 79],
+            times: times(79, None, Some(79)),
         },
         Case {
+            // Archives on Agent; its target is set for 00 Agent, so no target row.
             file: "screenshots-av2hdmi/en - stats - 11 - Agent - 0043_0043.png",
             lang: "en",
             mission: 6,
             part: 2,
             difficulty: 0,
-            times: &[43, 43],
+            times: times(43, None, Some(43)),
         },
         Case {
             file: "screenshots-emu/en - start - 20 - Agent.png",
@@ -713,15 +730,17 @@ mod tests {
             mission: 9,
             part: 1,
             difficulty: 0,
-            times: &[],
+            times: None,
         },
         Case {
+            // Runway on Agent; its target IS set for Agent, so the target row
+            // shows (middle time), followed by the best time.
             file: "screenshots-emu/en - stats - 03 - Agent - 0033_0500_0033.png",
             lang: "en",
             mission: 1,
             part: 3,
             difficulty: 0,
-            times: &[33, 300, 33],
+            times: times(33, Some(300), Some(33)),
         },
         Case {
             file: "screenshots-emu/jp - start - 01 - 00 Agent.png",
@@ -729,15 +748,16 @@ mod tests {
             mission: 1,
             part: 1,
             difficulty: 2,
-            times: &[],
+            times: None,
         },
         Case {
+            // Dam on Agent (jp); target is Secret Agent, so no target row.
             file: "screenshots-emu/jp - stats - 01 - Agent - 0137_0137.png",
             lang: "jp",
             mission: 1,
             part: 1,
             difficulty: 0,
-            times: &[97, 97],
+            times: times(97, None, Some(97)),
         },
     ];
 
@@ -772,22 +792,22 @@ mod tests {
         // agree -- the cached scale must not change the result.
         let cold = session.match_frame(&dam_b, dam_w, dam_h).expect("cold");
         let warm = session.match_frame(&dam_b, dam_w, dam_h).expect("warm");
-        assert_eq!(cold.times, vec![79, 79]);
+        assert_eq!(cold.times, times(79, None, Some(79)));
         assert_eq!(warm.times, cold.times);
         assert_eq!((warm.mission, warm.part), (cold.mission, cold.part));
 
         // A different resolution in the same session is keyed separately, so the
         // 480p cache never corrupts the 1080p read, and vice versa.
         let other = session.match_frame(&run_b, run_w, run_h).expect("other res");
-        assert_eq!(other.times, vec![33, 300, 33]);
+        assert_eq!(other.times, times(33, Some(300), Some(33)));
         let back = session.match_frame(&dam_b, dam_w, dam_h).expect("back");
-        assert_eq!(back.times, vec![79, 79]);
+        assert_eq!(back.times, times(79, None, Some(79)));
 
         // A fresh session starts cold and reproduces the result exactly,
         // confirming the cache is owned per-session (cleared on stop).
         let session2 = MonitorSession::new("en", TEMPLATES_DIR).expect("session2");
         let fresh = session2.match_frame(&dam_b, dam_w, dam_h).expect("fresh");
-        assert_eq!(fresh.times, vec![79, 79]);
+        assert_eq!(fresh.times, times(79, None, Some(79)));
     }
 
     #[test]
@@ -807,7 +827,7 @@ mod tests {
 
         assert_eq!(results.len(), 3, "every fixture frame is processed once");
         assert_eq!(results[0].mission, 9); // start 20 -> Egyptian
-        assert_eq!(results[1].times, vec![33, 300, 33]); // stats 03
+        assert_eq!(results[1].times, times(33, Some(300), Some(33))); // stats 03 (Runway on Agent: run, target, best)
         assert_eq!(results[2].mission, 5); // start 08 -> Surface 2
     }
 

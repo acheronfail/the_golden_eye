@@ -75,6 +75,7 @@ fn run() -> Result<i32> {
             "part": result.part,
             "difficulty": result.difficulty,
             "times": result.times,
+            "raw_times": result.raw_times,
             "runtime_ms": result.runtime_ms,
         })
     );

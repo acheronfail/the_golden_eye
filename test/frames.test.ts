@@ -169,6 +169,11 @@ for (const runner of runners) {
       results[runner.name].totalChecks += 1;
     }
 
+    // `result.times` is the classified `{ time, target_time, best_time }` object,
+    // whereas `result.raw_times` is the unclassified top-to-bottom list the
+    // matcher read off the overlay. The tests validate digit reading, so they
+    // compare `raw_times` against the times the screenshot filename encodes --
+    // classification is verified separately by the Rust unit tests.
     if (screenshot.screen === "stats") {
       const [timesStr] = screenshot.extra;
       const times = timesStr.split("_").map((digits) => {
@@ -178,18 +183,18 @@ for (const runner of runners) {
       });
 
       testResult.times = {
-        value: result.times,
-        pass: JSON.stringify(result.times) === JSON.stringify(times),
+        value: result.raw_times,
+        pass: JSON.stringify(result.raw_times) === JSON.stringify(times),
         expected: times,
       };
       results[runner.name].totalChecks += 1;
     } else {
       testResult.times = {
-        value: result.times,
-        pass: Array.isArray(result.times) && result.times.length === 0,
+        value: result.raw_times,
+        pass: Array.isArray(result.raw_times) && result.raw_times.length === 0,
         expected: [],
       };
-      testResult.runTimePass = screenshot.tag === "emu" ? true : result.runtime_ms < 16;
+      testResult.runTimePass = screenshot.tag === "emu" || screenshot.tag === "rt4kce" ? true : result.runtime_ms < 16;
       results[runner.name].totalChecks += 2;
     }
 

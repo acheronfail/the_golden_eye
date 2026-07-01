@@ -55,16 +55,67 @@ pub struct StreamMessage {
 }
 
 /// Messages pushed to monitor WebSocket clients, serialized internally tagged by
-/// `type` so the SPA can discriminate them. `Match` rides the `match_tx` watch
-/// channel (latest-wins, replayed on connect); the remaining variants ride
-/// `event_tx` (one-off, delivered only to currently-connected clients).
+/// `type` so the SPA can discriminate them. `Version` is sent once per
+/// connection (a handshake); `Match` rides the `match_tx` watch channel
+/// (latest-wins, replayed on connect); the remaining variants ride `event_tx`
+/// (one-off, delivered only to currently-connected clients).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum MonitorEvent {
+    /// Sent once when a client connects: the build id of the SPA this backend
+    /// serves. The SPA compares it against the build it was itself served with
+    /// (a `<meta>` tag injected into its HTML) and reloads if they differ, so a
+    /// stale tab -- an older cached page, or one left open across a plugin
+    /// update -- picks up the new frontend. See [`routes::index::BUILD_ID`].
+    Version { build_id: String },
     /// The matched on-screen state changed; carries the current match.
     Match(LevelMatch),
+    /// The recorder's run state changed (a run began, was cancelled, saw a
+    /// failure screen, or had its save scheduled). Distinct from `RecordingSaved`,
+    /// which reports the final written clip.
+    RecordingState { status: RecordingStatus },
     /// A run's clip was saved out of the replay buffer and trimmed.
     RecordingSaved(RecordingSaved),
+}
+
+/// A transition in the recorder's per-run state, broadcast so the SPA can
+/// reflect where a run is in its lifecycle. Serialized as a plain string (e.g.
+/// `"started"`) inside the enclosing [`MonitorEvent::RecordingState`].
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RecordingStatus {
+    /// A run began: the replay-buffer clip's start was anchored.
+    Started,
+    /// The active run was abandoned before reaching the stats screen (the user
+    /// returned to the level-select grid), so nothing is saved for it.
+    Cancelled,
+    /// The "mission failed" report screen was seen during the active run. The run
+    /// still ends normally (at the stats screen or on backing out) and the clip is
+    /// saved.
+    Failed,
+    /// The "mission aborted" report screen was seen during the active run (a
+    /// failure, like [`RecordingStatus::Failed`], distinguished so the UI can name
+    /// why the run ended).
+    Aborted,
+    /// The "killed in action" report screen was seen during the active run
+    /// (another failure variant, distinguished for the UI).
+    Kia,
+    /// The mission-complete report screen was reached: the run is a success.
+    /// Emitted once per run -- on the first sight of the complete screen, or, if
+    /// a failure was flagged earlier this run, to clear it (so the SPA can leave
+    /// the "failed" state).
+    Complete,
+    /// The stats screen was bypassed on a *completed* run: the user backed out of
+    /// the mission-complete report screen straight to the level grid, so the run
+    /// ended without the stats screen ever showing. The clip is still saved (on
+    /// the same timer as the stats path) and a [`MonitorEvent::RecordingSaved`]
+    /// still follows. A *failed* run backing out this way is its normal ending, so
+    /// it emits [`RecordingStatus::SavePending`] instead (not "skipped stats").
+    StatsSkipped,
+    /// A run ended at the stats screen (or, via `StatsSkipped`, the report
+    /// screen): a save has been scheduled and will fire a few seconds later. A
+    /// [`MonitorEvent::RecordingSaved`] follows once the clip is written.
+    SavePending,
 }
 
 /// Details of a clip saved out of the replay buffer at the end of a run, pushed

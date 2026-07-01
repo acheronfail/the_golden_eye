@@ -2,6 +2,7 @@ mod config;
 pub mod cv;
 mod ffi;
 mod ffmpeg;
+pub mod ge;
 mod http;
 mod recording;
 mod stream_notifier;
