@@ -1,2 +1,8 @@
-export { DEFAULT_CLIP_FILENAME_TEMPLATE, DEFAULT_POST_RUN_PADDING_SECS, settings } from './settings.svelte';
+export {
+	DEFAULT_CLIP_FILENAME_TEMPLATE,
+	DEFAULT_POST_RUN_PADDING_SECS,
+	DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE,
+	DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE,
+	settings
+} from './settings.svelte';
 export type { RecordingOptions, Settings } from './settings.svelte';

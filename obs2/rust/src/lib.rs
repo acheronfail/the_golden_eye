@@ -1,4 +1,3 @@
-mod config;
 pub mod cv;
 mod ffi;
 mod ffmpeg;
@@ -19,7 +18,6 @@ use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tracing_subscriber::EnvFilter;
 
-use crate::config::Config;
 use crate::settings::SettingsStore;
 
 /// Holds the tokio runtime that is driving the HTTP server, along with the
@@ -56,8 +54,6 @@ pub extern "C" fn ge_rust_start() {
         subscriber.init();
     }
 
-    // Resolve (and log) all configuration once, right after logging is set up.
-    let config = Config::from_env();
     let settings = SettingsStore::load_default();
 
     let mut guard = match SERVER.lock() {
@@ -91,7 +87,6 @@ pub extern "C" fn ge_rust_start() {
         monitor: std::sync::Mutex::new(None),
         match_tx,
         event_tx,
-        config,
         settings,
     });
 

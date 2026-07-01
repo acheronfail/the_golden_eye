@@ -1,9 +1,8 @@
 //! Persisted application settings.
 //!
 //! These are user-editable options shared between the SPA and Rust runtime. The
-//! JSON file is intentionally plain text: the current settings are not secrets,
-//! and keeping Rust as the owner means OBS-triggered workflows can read the same
-//! configuration even when no browser tab is open.
+//! JSON file is intentionally owned by Rust so OBS-triggered workflows can
+//! read the same configuration even when no browser tab is open.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -13,6 +12,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::recording::{DEFAULT_CLIP_FILENAME_TEMPLATE, DEFAULT_POST_RUN_PADDING_SECS, RecordingOptions};
+use crate::stream_notifier::{DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE, DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const LEGACY_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suffix}{failed_suffix}";
@@ -30,6 +30,10 @@ pub struct AppSettings {
     pub clip_filename_template: String,
     pub pre_run_padding_secs: f64,
     pub post_run_padding_secs: f64,
+    pub discord_notifications_enabled: bool,
+    pub discord_webhook_url: String,
+    pub streaming_started_message_template: String,
+    pub streaming_stopped_message_template: String,
 }
 
 impl Default for AppSettings {
@@ -43,6 +47,10 @@ impl Default for AppSettings {
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
             pre_run_padding_secs: 0.0,
             post_run_padding_secs: DEFAULT_POST_RUN_PADDING_SECS,
+            discord_notifications_enabled: true,
+            discord_webhook_url: String::new(),
+            streaming_started_message_template: DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE.to_owned(),
+            streaming_stopped_message_template: DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE.to_owned(),
         }
     }
 }
@@ -63,6 +71,19 @@ impl AppSettings {
             clip_filename_template: clip_filename_template(object.get("clipFilenameTemplate")),
             pre_run_padding_secs: non_negative_f64(object.get("preRunPaddingSecs"), default.pre_run_padding_secs),
             post_run_padding_secs: non_negative_f64(object.get("postRunPaddingSecs"), default.post_run_padding_secs),
+            discord_notifications_enabled: bool_field(
+                object.get("discordNotificationsEnabled"),
+                default.discord_notifications_enabled,
+            ),
+            discord_webhook_url: string_field(object.get("discordWebhookUrl"), &default.discord_webhook_url),
+            streaming_started_message_template: message_template(
+                object.get("streamingStartedMessageTemplate"),
+                DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE,
+            ),
+            streaming_stopped_message_template: message_template(
+                object.get("streamingStoppedMessageTemplate"),
+                DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE,
+            ),
         }
     }
 
@@ -77,6 +98,30 @@ impl AppSettings {
             post_run_padding_secs: self.post_run_padding_secs,
         }
     }
+
+    pub fn notification_options(&self) -> NotificationOptions {
+        NotificationOptions {
+            enabled: self.discord_notifications_enabled,
+            discord_webhook_url: self.discord_webhook_url.trim().to_owned(),
+            streaming_started_message_template: message_template_str(
+                Some(&self.streaming_started_message_template),
+                DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE,
+            ),
+            streaming_stopped_message_template: message_template_str(
+                Some(&self.streaming_stopped_message_template),
+                DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE,
+            ),
+        }
+    }
+}
+
+/// Discord notification behaviour supplied by the frontend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotificationOptions {
+    pub enabled: bool,
+    pub discord_webhook_url: String,
+    pub streaming_started_message_template: String,
+    pub streaming_stopped_message_template: String,
 }
 
 /// In-memory settings plus the path where they are persisted. The mutex is held
@@ -117,6 +162,10 @@ impl SettingsStore {
 
     pub fn get_recording_options(&self) -> RecordingOptions {
         self.get().recording_options()
+    }
+
+    pub fn get_notification_options(&self) -> NotificationOptions {
+        self.get().notification_options()
     }
 
     pub fn set_from_json_value(&self, value: Value) -> anyhow::Result<AppSettings> {
@@ -169,6 +218,15 @@ fn clip_filename_template(value: Option<&Value>) -> String {
     } else {
         value.to_owned()
     }
+}
+
+fn message_template(value: Option<&Value>, fallback: &str) -> String {
+    message_template_str(value.and_then(Value::as_str), fallback)
+}
+
+fn message_template_str(value: Option<&str>, fallback: &str) -> String {
+    let value = value.unwrap_or(fallback);
+    if value.trim().is_empty() { fallback.to_owned() } else { value.to_owned() }
 }
 
 fn non_negative_usize(value: Option<&Value>, fallback: usize) -> usize {
@@ -278,7 +336,11 @@ mod tests {
             "failedRunLimit": "7.9",
             "clipFilenameTemplate": LEGACY_CLIP_FILENAME_TEMPLATE,
             "preRunPaddingSecs": -3,
-            "postRunPaddingSecs": "2.5"
+            "postRunPaddingSecs": "2.5",
+            "discordNotificationsEnabled": false,
+            "discordWebhookUrl": " https://discord.example/webhook ",
+            "streamingStartedMessageTemplate": "",
+            "streamingStoppedMessageTemplate": "Stopped {broadcast_url}"
         }));
 
         assert_eq!(settings.developer_lang, "jp");
@@ -289,6 +351,14 @@ mod tests {
         assert_eq!(settings.clip_filename_template, DEFAULT_CLIP_FILENAME_TEMPLATE);
         assert_eq!(settings.pre_run_padding_secs, 0.0);
         assert_eq!(settings.post_run_padding_secs, 2.5);
+        assert!(!settings.discord_notifications_enabled);
+        assert_eq!(settings.discord_webhook_url, " https://discord.example/webhook ");
+        assert_eq!(settings.streaming_started_message_template, DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE);
+        assert_eq!(settings.streaming_stopped_message_template, "Stopped {broadcast_url}");
+
+        let notification_options = settings.notification_options();
+        assert!(!notification_options.enabled);
+        assert_eq!(notification_options.discord_webhook_url, "https://discord.example/webhook");
     }
 
     #[test]
@@ -306,7 +376,11 @@ mod tests {
                 "failedRunLimit": 3,
                 "clipFilenameTemplate": "{level}",
                 "preRunPaddingSecs": 1.25,
-                "postRunPaddingSecs": 4
+                "postRunPaddingSecs": 4,
+                "discordNotificationsEnabled": false,
+                "discordWebhookUrl": "https://discord.example/webhook",
+                "streamingStartedMessageTemplate": "Started {broadcast_url}",
+                "streamingStoppedMessageTemplate": "Stopped {broadcast_url}"
             }))
             .unwrap();
 

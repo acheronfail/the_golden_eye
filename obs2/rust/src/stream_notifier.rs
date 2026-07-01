@@ -1,9 +1,14 @@
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use serde::Deserialize;
 
 use crate::http::{AppState, StreamMessage};
+
+pub const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE: &str =
+    "🟢 Bond is now streaming at: {broadcast_url}";
+pub const DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE: &str =
+    "🔴 Bond stopped streaming at <t:{unix_seconds}:F>: {broadcast_url}";
 
 #[derive(Debug, Default, Deserialize)]
 #[allow(dead_code)]
@@ -40,11 +45,6 @@ pub async fn stop(state: AppState) {
 }
 
 async fn stop_inner(state: AppState) -> anyhow::Result<()> {
-    let Some(discord_webhook_url) = state.config.discord_webhook_url.as_ref() else {
-        tracing::info!("stream notifier is disabled (missing configuration), skipping stop");
-        return Ok(());
-    };
-
     // The "now streaming" message we posted on start, if any. Take it so a
     // subsequent stop without an intervening start doesn't re-edit it.
     let Some(message) = state.stream_message.lock().await.take() else {
@@ -52,19 +52,26 @@ async fn stop_inner(state: AppState) -> anyhow::Result<()> {
         return Ok(());
     };
 
+    let notification_options = state.settings.get_notification_options();
+    if !notification_options.enabled {
+        tracing::info!("stream notifier is disabled, skipping stop");
+        return Ok(());
+    }
+
     let client = reqwest::Client::new();
-    let edit_url = format!("{}/messages/{}", discord_webhook_url.trim_end_matches('/'), message.id);
-    let unix_seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let edit_url = format!("{}/messages/{}", message.webhook_url.trim_end_matches('/'), message.id);
+    let content = render_notification_template(
+        &notification_options.streaming_stopped_message_template,
+        &message.broadcast_url,
+        SystemTime::now(),
+    );
 
     tracing::info!("editing Discord message {} to mark the stream as ended", message.id);
 
     client
         .patch(&edit_url)
         .json(&serde_json::json!({
-            "content": match state.config.discord_message_name.as_ref() {
-                Some(name) => format!("🔴 {name} has stopped streaming at <t:{unix_seconds}:F>: {}", message.broadcast_url),
-                None => format!("🔴 Stream has ended at <t:{unix_seconds}:F>: {}", message.broadcast_url),
-            },
+            "content": content,
             // SUPPRESS_EMBEDS (1 << 2): hide the auto-generated YouTube link preview.
             "flags": 4
         }))
@@ -78,10 +85,17 @@ async fn stop_inner(state: AppState) -> anyhow::Result<()> {
 }
 
 async fn run_inner(state: AppState, service_settings_json: String) -> anyhow::Result<()> {
-    let Some(discord_webhook_url) = state.config.discord_webhook_url.as_ref() else {
+    let notification_options = state.settings.get_notification_options();
+    if !notification_options.enabled {
+        tracing::info!("stream notifier is disabled, skipping start");
+        return Ok(());
+    }
+
+    if notification_options.discord_webhook_url.is_empty() {
         tracing::info!("stream notifier is disabled (missing configuration), skipping start");
         return Ok(());
-    };
+    }
+    let discord_webhook_url = notification_options.discord_webhook_url;
 
     let settings: ServiceSettings = serde_json::from_str(&service_settings_json)
         .with_context(|| format!("failed to parse service settings JSON: {service_settings_json}"))?;
@@ -94,10 +108,11 @@ async fn run_inner(state: AppState, service_settings_json: String) -> anyhow::Re
     let client = reqwest::Client::new();
 
     let broadcast_url = format!("https://youtu.be/{broadcast_id}");
-    let content = match state.config.discord_message_name.as_ref() {
-        Some(name) => format!("🟢 {name} is now streaming at: {broadcast_url}"),
-        None => format!("🟢 Now streaming: {broadcast_url}"),
-    };
+    let content = render_notification_template(
+        &notification_options.streaming_started_message_template,
+        &broadcast_url,
+        SystemTime::now(),
+    );
     tracing::info!(
         %broadcast_url,
         content = content,
@@ -119,7 +134,118 @@ async fn run_inner(state: AppState, service_settings_json: String) -> anyhow::Re
         .await
         .context("failed to parse Discord webhook response")?;
 
-    *state.stream_message.lock().await = Some(StreamMessage { id: message.id, broadcast_url });
+    *state.stream_message.lock().await =
+        Some(StreamMessage { id: message.id, broadcast_url, webhook_url: discord_webhook_url });
 
     Ok(())
+}
+
+fn render_notification_template(template: &str, broadcast_url: &str, time: SystemTime) -> String {
+    let unix_seconds = system_time_unix_seconds(time);
+    let timestamp = format_iso_utc(time);
+    let timestamp_local = format_iso_local(time);
+
+    template
+        .replace("{broadcast_url}", broadcast_url)
+        .replace("{timestamp}", &timestamp)
+        .replace("{timestamp_local}", &timestamp_local)
+        .replace("{unix_seconds}", &unix_seconds.to_string())
+}
+
+fn system_time_unix_seconds(time: SystemTime) -> i64 {
+    match time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_secs()).unwrap_or(i64::MAX),
+        Err(err) => {
+            let duration = err.duration();
+            let seconds = i64::try_from(duration.as_secs()).unwrap_or(i64::MAX);
+            if duration.subsec_nanos() == 0 { -seconds } else { -seconds - 1 }
+        }
+    }
+}
+
+fn div_floor(a: i64, b: i64) -> i64 {
+    let quotient = a / b;
+    let remainder = a % b;
+    if remainder != 0 && ((remainder > 0) != (b > 0)) { quotient - 1 } else { quotient }
+}
+
+fn utc_from_unix_seconds(seconds: i64) -> (i64, i64, i64, i64, i64, i64) {
+    let days = div_floor(seconds, 86_400);
+    let seconds_of_day = seconds - days * 86_400;
+    let hour = seconds_of_day / 3_600;
+    let minute = (seconds_of_day % 3_600) / 60;
+    let second = seconds_of_day % 60;
+
+    // Howard Hinnant's civil-from-days conversion, using Unix day zero.
+    let z = days + 719_468;
+    let era = div_floor(z, 146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if month <= 2 { 1 } else { 0 };
+
+    (year, month, day, hour, minute, second)
+}
+
+fn format_iso_utc(time: SystemTime) -> String {
+    let (year, month, day, hour, minute, second) = utc_from_unix_seconds(system_time_unix_seconds(time));
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+#[cfg(unix)]
+fn format_iso_local(time: SystemTime) -> String {
+    let seconds = system_time_unix_seconds(time);
+    let time_t = seconds as libc::time_t;
+    let mut local_tm = std::mem::MaybeUninit::<libc::tm>::uninit();
+    let local_tm = unsafe {
+        if libc::localtime_r(&time_t, local_tm.as_mut_ptr()).is_null() {
+            return format_iso_utc(time);
+        }
+        local_tm.assume_init()
+    };
+    let offset = local_tm.tm_gmtoff;
+    let sign = if offset < 0 { '-' } else { '+' };
+    let offset = offset.abs();
+    let offset_hour = offset / 3_600;
+    let offset_minute = (offset % 3_600) / 60;
+
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}{sign}{offset_hour:02}:{offset_minute:02}",
+        local_tm.tm_year + 1900,
+        local_tm.tm_mon + 1,
+        local_tm.tm_mday,
+        local_tm.tm_hour,
+        local_tm.tm_min,
+        local_tm.tm_sec,
+    )
+}
+
+#[cfg(not(unix))]
+fn format_iso_local(time: SystemTime) -> String {
+    format_iso_utc(time)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    use super::*;
+
+    #[test]
+    fn notification_template_renders_supported_tokens() {
+        let rendered = render_notification_template(
+            "url={broadcast_url} utc={timestamp} local={timestamp_local} unix={unix_seconds}",
+            "https://youtu.be/abc123",
+            UNIX_EPOCH + Duration::from_secs(90),
+        );
+
+        assert!(rendered.contains("url=https://youtu.be/abc123"));
+        assert!(rendered.contains("utc=1970-01-01T00:01:30Z"));
+        assert!(rendered.contains("unix=90"));
+        assert!(!rendered.contains("{timestamp_local}"));
+    }
 }

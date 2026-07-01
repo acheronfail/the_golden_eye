@@ -4,6 +4,10 @@ import { getSettings, putSettings } from './api';
 
 export const DEFAULT_CLIP_FILENAME_TEMPLATE = '{level} - {time} - {difficulty} - {status}';
 export const DEFAULT_POST_RUN_PADDING_SECS = 5;
+export const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE =
+	'\u{1f7e2} Bond is now streaming at: {broadcast_url}';
+export const DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE =
+	'\u{1f534} Bond stopped streaming at <t:{unix_seconds}:F>: {broadcast_url}';
 const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
 
 const SettingsSchema = z.object({
@@ -14,7 +18,11 @@ const SettingsSchema = z.object({
 	failedRunLimit: z.coerce.number().int().min(0).catch(0),
 	clipFilenameTemplate: z.string().catch(DEFAULT_CLIP_FILENAME_TEMPLATE),
 	preRunPaddingSecs: z.coerce.number().min(0).catch(0),
-	postRunPaddingSecs: z.coerce.number().min(0).catch(DEFAULT_POST_RUN_PADDING_SECS)
+	postRunPaddingSecs: z.coerce.number().min(0).catch(DEFAULT_POST_RUN_PADDING_SECS),
+	discordNotificationsEnabled: z.boolean().catch(true),
+	discordWebhookUrl: z.string().catch(''),
+	streamingStartedMessageTemplate: z.string().catch(DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE),
+	streamingStoppedMessageTemplate: z.string().catch(DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE)
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -43,6 +51,11 @@ const normalizeClipFilenameTemplate = (value: string | undefined): string => {
 	return value;
 };
 
+const normalizeMessageTemplate = (value: string | undefined, fallback: string): string => {
+	if (!value || value.trim() === '') return fallback;
+	return value;
+};
+
 const parseSettings = (value: unknown): Settings => {
 	const parsed = SettingsSchema.parse(value);
 	return {
@@ -50,7 +63,15 @@ const parseSettings = (value: unknown): Settings => {
 		failedRunLimit: nonNegativeInt(parsed.failedRunLimit),
 		clipFilenameTemplate: normalizeClipFilenameTemplate(parsed.clipFilenameTemplate),
 		preRunPaddingSecs: nonNegativeNumber(parsed.preRunPaddingSecs),
-		postRunPaddingSecs: nonNegativeNumber(parsed.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS)
+		postRunPaddingSecs: nonNegativeNumber(parsed.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS),
+		streamingStartedMessageTemplate: normalizeMessageTemplate(
+			parsed.streamingStartedMessageTemplate,
+			DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE
+		),
+		streamingStoppedMessageTemplate: normalizeMessageTemplate(
+			parsed.streamingStoppedMessageTemplate,
+			DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE
+		)
 	};
 };
 
@@ -94,6 +115,15 @@ export const settings = new (class {
 	preRunPaddingSecs = $state(initialSettings.preRunPaddingSecs);
 	postRunPaddingSecs = $state(initialSettings.postRunPaddingSecs);
 
+	//
+	// Notifications
+	//
+
+	discordNotificationsEnabled = $state(initialSettings.discordNotificationsEnabled);
+	discordWebhookUrl = $state(initialSettings.discordWebhookUrl);
+	streamingStartedMessageTemplate = $state(initialSettings.streamingStartedMessageTemplate);
+	streamingStoppedMessageTemplate = $state(initialSettings.streamingStoppedMessageTemplate);
+
 	recordingOptions: RecordingOptions = $derived({
 		completedOutputPath: this.completedOutputPath.trim(),
 		saveFailedRuns: this.saveFailedRuns,
@@ -117,7 +147,11 @@ export const settings = new (class {
 			failedRunLimit: nonNegativeInt(this.failedRunLimit),
 			clipFilenameTemplate: this.clipFilenameTemplate,
 			preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs),
-			postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS)
+			postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS),
+			discordNotificationsEnabled: this.discordNotificationsEnabled,
+			discordWebhookUrl: this.discordWebhookUrl,
+			streamingStartedMessageTemplate: this.streamingStartedMessageTemplate,
+			streamingStoppedMessageTemplate: this.streamingStoppedMessageTemplate
 		})
 	);
 
@@ -219,5 +253,15 @@ export const settings = new (class {
 		this.clipFilenameTemplate = normalizeClipFilenameTemplate(next.clipFilenameTemplate);
 		this.preRunPaddingSecs = next.preRunPaddingSecs;
 		this.postRunPaddingSecs = next.postRunPaddingSecs;
+		this.discordNotificationsEnabled = next.discordNotificationsEnabled;
+		this.discordWebhookUrl = next.discordWebhookUrl;
+		this.streamingStartedMessageTemplate = normalizeMessageTemplate(
+			next.streamingStartedMessageTemplate,
+			DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE
+		);
+		this.streamingStoppedMessageTemplate = normalizeMessageTemplate(
+			next.streamingStoppedMessageTemplate,
+			DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE
+		);
 	}
 })();

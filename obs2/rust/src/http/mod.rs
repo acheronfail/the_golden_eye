@@ -17,7 +17,6 @@ use tokio::sync::{Mutex, broadcast, oneshot, watch};
 use tower::ServiceBuilder;
 use tower_http::BoxError;
 
-use crate::config::Config;
 use crate::cv::LevelMatch;
 
 pub struct AppStateInner {
@@ -43,8 +42,6 @@ pub struct AppStateInner {
     /// every current subscriber and keeps nothing for late joiners. Send errors
     /// (no subscribers) are ignored at the call sites.
     pub event_tx: broadcast::Sender<MonitorEvent>,
-    /// Application configuration, resolved from the environment at startup.
-    pub config: Config,
     /// Plugin-owned user settings, loaded from and persisted to JSON.
     pub settings: crate::settings::SettingsStore,
 }
@@ -53,6 +50,7 @@ pub struct AppStateInner {
 pub struct StreamMessage {
     pub id: String,
     pub broadcast_url: String,
+    pub webhook_url: String,
 }
 
 /// Messages pushed to monitor WebSocket clients, serialized internally tagged by
