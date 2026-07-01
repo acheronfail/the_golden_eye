@@ -14,6 +14,43 @@
 # The core library name (used by the shim to find it).
 set(CORE_NAME golden_core)
 
+# Runtime bundle layout:
+# - macOS: OBS loads the .plugin bundle executable from Contents/MacOS, so keep
+#   the core next to it and put templates in the bundle resources directory.
+# - Linux: OBS loads the plugin shared object from the build/install plugin
+#   directory, so keep the core and templates beside it.
+if(APPLE)
+  set(GE_PLUGIN_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PLUGIN_NAME}.plugin/Contents/MacOS")
+  set(GE_BUNDLED_TEMPLATE_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PLUGIN_NAME}.plugin/Contents/Resources/cv_templates")
+  set(GE_BUNDLED_TEMPLATE_DIR_REL "../Resources/cv_templates")
+else()
+  set(GE_PLUGIN_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+  set(GE_BUNDLED_TEMPLATE_DIR "${CMAKE_CURRENT_BINARY_DIR}/cv_templates")
+  set(GE_BUNDLED_TEMPLATE_DIR_REL "cv_templates")
+endif()
+
+file(GLOB GE_CV_TEMPLATE_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/cv_templates/*.png"
+)
+
+set(GE_BUNDLED_TEMPLATE_STAMP "${GE_BUNDLED_TEMPLATE_DIR}/.stamp")
+add_custom_command(
+    OUTPUT "${GE_BUNDLED_TEMPLATE_STAMP}"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "${GE_BUNDLED_TEMPLATE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${GE_BUNDLED_TEMPLATE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/cv_templates"
+            "${GE_BUNDLED_TEMPLATE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E touch "${GE_BUNDLED_TEMPLATE_STAMP}"
+    DEPENDS ${GE_CV_TEMPLATE_FILES}
+    COMMENT "Bundling CV templates"
+    VERBATIM
+)
+
+add_custom_target(bundle_cv_templates ALL
+    DEPENDS "${GE_BUNDLED_TEMPLATE_STAMP}"
+)
+
 add_library(${CORE_NAME} SHARED)
 
 target_sources(${CORE_NAME} PRIVATE
@@ -21,12 +58,11 @@ target_sources(${CORE_NAME} PRIVATE
     core.c
 )
 
-# Emit the core library into a subdirectory so OBS's plugin scan (which loads
-# top-level shared libraries / .plugin bundles from OBS_PLUGINS_PATH) doesn't
-# try to load it as a plugin in its own right.
+# Emit the core library into the same runtime directory the shim will resolve
+# from when OBS loads it.
 set_target_properties(${CORE_NAME} PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/core"
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/core"
+    LIBRARY_OUTPUT_DIRECTORY "${GE_PLUGIN_RUNTIME_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY "${GE_PLUGIN_RUNTIME_DIR}"
 )
 
 if(APPLE)
@@ -132,16 +168,19 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
     Threads::Threads
 )
 
-# Bake in the absolute path of the core library so the shim can find it; can be
-# overridden at runtime with the GE_CORE_LIB env var.
+# Bake in only relative bundle names. The shim resolves them from the loaded
+# plugin path at runtime, so the built plugin can be copied out of this repo.
 target_compile_definitions(${PLUGIN_NAME} PRIVATE
-    GE_CORE_LIB_PATH="$<TARGET_FILE:${CORE_NAME}>"
+    GE_CORE_LIB_NAME="$<TARGET_FILE_NAME:${CORE_NAME}>"
+    GE_BUNDLED_TEMPLATE_DIR_REL="${GE_BUNDLED_TEMPLATE_DIR_REL}"
     # In dev mode the shim copies + hot-reloads the core library on rebuild.
     $<$<BOOL:${BROWSER_DEV}>:GE_DEV>
 )
 
-# Build the core library whenever the plugin is built.
+# Build the core library and bundled templates whenever the plugin is built.
 add_dependencies(${PLUGIN_NAME} ${CORE_NAME})
+add_dependencies(${CORE_NAME} bundle_cv_templates)
+add_dependencies(${PLUGIN_NAME} bundle_cv_templates)
 
 if(APPLE)
   set_target_properties(${PLUGIN_NAME} PROPERTIES

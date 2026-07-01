@@ -17,7 +17,7 @@ This repo is v2-only. Do not add a root Node application, OBS WebSocket control 
 
 The runtime is a layered stack glued together by CMake:
 
-1. **C shim** (`obs2/plugin.c`) - the library OBS actually loads. It contains no core logic; `obs_module_load` `dlopen`s the core library (path baked in at build time as `GE_CORE_LIB_PATH`, overridable via the `GE_CORE_LIB` env var) with `RTLD_NOW`, then calls `ge_core_load()`. In dev builds (`GE_DEV`, set when `BROWSER_DEV=ON`) it dlopens a throwaway copy so rebuilt images load, then uses `dev_reload.c` to hot-reload the core when `GE_RELOAD_FIFO` is pinged.
+1. **C shim** (`obs2/plugin.c`) - the library OBS actually loads. It contains no core logic; `obs_module_load` resolves the bundled core library relative to the loaded shim (overridable via the `GE_CORE_LIB` env var), sets `GE_CV_TEMPLATE_DIR` to the bundled templates when the env var is not already set, `dlopen`s the core with `RTLD_NOW`, then calls `ge_core_load()`. In dev builds (`GE_DEV`, set when `BROWSER_DEV=ON`) it dlopens a throwaway copy so rebuilt images load, then uses `dev_reload.c` to hot-reload the core when `GE_RELOAD_FIFO` is pinged.
 2. **C core** (`obs2/core.c`, `obs_bridge.c`) - the heavy library the shim hosts. `ge_core_load` calls `ge_rust_start()` and registers the frontend callback; on `OBS_FRONTEND_EVENT_STREAMING_STARTED` it calls `ge_stream_notifier_start()`. `ge_core_unload` tears it all down. `obs_bridge.c` exposes helpers to Rust, including `ge_obs_get_source_frame`, which renders an OBS source to a BGRA buffer.
 3. **Rust staticlib** (`obs2/rust/`, crate `ge_rust`) - owns a global `tokio::Runtime` inside a `Mutex<Option<ServerHandle>>`. FFI entry points (`ge_rust_start`, `ge_rust_stop`, `ge_stream_notifier_start/stop`) are `extern "C"` and spawn work onto the runtime without blocking the caller. `cv.rs` contains the level/time matcher; `stream_notifier.rs` posts Discord webhooks; `http/` is the Axum app.
 4. **Axum HTTP server** - listens on `0.0.0.0:31337`. It exposes OBS recording, replay, monitoring, screenshot, matcher, source, OAuth, and SPA routes under `/api/v1`, `/oauth/callback`, and `/`.
@@ -42,7 +42,7 @@ A failed frontend build stops the chain before cargo runs. Do not bypass this de
 
 ### Where Things Live
 
-- `obs2/cv_templates/` - PNG templates for the level matcher. Templates are language-suffixed (`en-`, `jp-`); language is selected via `GE_LANG` (default `en`).
+- `obs2/cv_templates/` - PNG templates for the level matcher. Templates are language-suffixed (`en-`, `jp-`); language is selected via `GE_LANG` (default `en`). CMake copies these into the built plugin layout (`Contents/Resources/cv_templates` on macOS, `cv_templates/` beside the Linux plugin library).
 - `obs2/vendor/obs/` - vendored OBS headers, populated by `just obs-headers`.
 - `obs2/vendor/opencv-static/` and `obs2/vendor/ffmpeg-static/` - static dependency prefixes built by `just opencv-static` and `just ffmpeg-static`.
 - `obs2/rust/src/bin/test_match.rs` - standalone CLI that runs `cv::match_level` on a single PNG and emits JSON. Used by the test harness in `test/`.
@@ -117,7 +117,7 @@ cargo test
 - `GE_LANG` - `en` or `jp`. Picks the template set.
 - `DISCORD_WEBHOOK_URL`, `DISCORD_MESSAGE_NAME` - read by Rust `Config` for the Discord stream notification. Resolved once at startup and logged.
 - `GE_CV_THREADS` - caps OpenCV's internal thread pool in `test_match` for benchmarking.
-- `GE_CV_TEMPLATE_DIR` - template directory for OBS/Flatpak runtime; `justfile` sets it for the Flatpak launch path.
+- `GE_CV_TEMPLATE_DIR` - optional template directory override. OBS runtime defaults to the templates bundled by CMake next to/inside the plugin.
 
 ## Conventions
 

@@ -4,22 +4,24 @@
 //
 // Splitting plugin/core this way means link errors surface here as a catchable,
 // logged dlopen failure, and — in dev builds — the core can be reloaded without
-// restarting OBS (see dev_reload.c). The core library path is baked in at build
-// time (GE_CORE_LIB_PATH) and can be overridden at runtime via GE_CORE_LIB.
+// restarting OBS (see dev_reload.c). The core library and CV templates are
+// resolved relative to this loaded shim, with environment overrides for devs.
+
+#define _GNU_SOURCE
 
 #include <obs/libobs/obs-module.h>
 #include <obs/libobs/util/base.h>
 
 #include <dlfcn.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef GE_DEV
 #include "dev_reload.h"
-#include <errno.h>
-#include <limits.h>
-#include <stdio.h>
-#include <string.h>
 #include <unistd.h>
 #endif
 
@@ -27,8 +29,16 @@ OBS_DECLARE_MODULE()
 
 #define GE_LOG(level, fmt, ...) blog(level, "[the-golden-eye] " fmt, ##__VA_ARGS__)
 
-#ifndef GE_CORE_LIB_PATH
-#error "GE_CORE_LIB_PATH must be defined by the build (absolute path to the core library)"
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
+#ifndef GE_CORE_LIB_NAME
+#error "GE_CORE_LIB_NAME must be defined by the build"
+#endif
+
+#ifndef GE_BUNDLED_TEMPLATE_DIR_REL
+#error "GE_BUNDLED_TEMPLATE_DIR_REL must be defined by the build"
 #endif
 
 typedef bool (*ge_core_load_fn)(void);
@@ -36,6 +46,71 @@ typedef void (*ge_core_unload_fn)(void);
 
 static void *g_handle = NULL;
 static ge_core_unload_fn g_unload = NULL;
+
+static bool copy_dirname(const char *path, char *out, size_t out_size) {
+  const char *slash = strrchr(path, '/');
+  if (!slash) {
+    if (snprintf(out, out_size, ".") >= (int)out_size) {
+      GE_LOG(LOG_ERROR, "module directory path too long");
+      return false;
+    }
+    return true;
+  }
+
+  size_t len = (size_t)(slash - path);
+  if (len == 0) {
+    len = 1;
+  }
+  if (len >= out_size) {
+    GE_LOG(LOG_ERROR, "module directory path too long");
+    return false;
+  }
+
+  memcpy(out, path, len);
+  out[len] = '\0';
+  return true;
+}
+
+static bool module_dir(char *out, size_t out_size) {
+  Dl_info info;
+  if (dladdr((void *)&module_dir, &info) == 0 || !info.dli_fname || !*info.dli_fname) {
+    GE_LOG(LOG_ERROR, "failed to resolve plugin module path");
+    return false;
+  }
+  return copy_dirname(info.dli_fname, out, out_size);
+}
+
+static bool join_path(char *out, size_t out_size, const char *dir, const char *leaf) {
+  size_t dir_len = strlen(dir);
+  const char *sep = dir_len > 0 && dir[dir_len - 1] == '/' ? "" : "/";
+  if (snprintf(out, out_size, "%s%s%s", dir, sep, leaf) >= (int)out_size) {
+    GE_LOG(LOG_ERROR, "bundled path too long");
+    return false;
+  }
+  return true;
+}
+
+static bool bundled_path(const char *relative_path, char *out, size_t out_size) {
+  char dir[PATH_MAX];
+  return module_dir(dir, sizeof(dir)) && join_path(out, out_size, dir, relative_path);
+}
+
+static void configure_template_dir(void) {
+  const char *existing = getenv("GE_CV_TEMPLATE_DIR");
+  if (existing && *existing) {
+    return;
+  }
+
+  char template_dir[PATH_MAX];
+  if (!bundled_path(GE_BUNDLED_TEMPLATE_DIR_REL, template_dir, sizeof(template_dir))) {
+    GE_LOG(LOG_WARNING, "could not resolve bundled CV templates directory");
+    return;
+  }
+
+  if (setenv("GE_CV_TEMPLATE_DIR", template_dir, 0) != 0) {
+    GE_LOG(LOG_WARNING, "failed to set GE_CV_TEMPLATE_DIR: %s", strerror(errno));
+  }
+}
 
 #ifdef GE_DEV
 // In dev we dlopen a throwaway copy of the core: the loader caches images by
@@ -96,9 +171,15 @@ static void remove_core_copy(void) {
 // dlopen the core library and run its ge_core_load(). Returns false (with a
 // logged reason) on any failure.
 static bool core_open(void) {
+  configure_template_dir();
+
+  char bundled_core[PATH_MAX];
   const char *path = getenv("GE_CORE_LIB");
   if (!path || !*path) {
-    path = GE_CORE_LIB_PATH;
+    if (!bundled_path(GE_CORE_LIB_NAME, bundled_core, sizeof(bundled_core))) {
+      return false;
+    }
+    path = bundled_core;
   }
 
 #ifdef GE_DEV

@@ -15,12 +15,6 @@ export DYLD_FALLBACK_LIBRARY_PATH := "/Applications/Xcode.app/Contents/Developer
 export OPENCV_PREFIX := justfile_directory() /  "obs2/vendor/opencv-static"
 export FFMPEG_PREFIX := justfile_directory() /  "obs2/vendor/ffmpeg-static"
 
-#
-# Runtime variables
-#
-
-export GE_CV_TEMPLATE_DIR := justfile_directory() / "obs2/cv_templates"
-
 _default:
     just -l
 
@@ -129,7 +123,6 @@ obs-flatpak: make-release
       --talk-name=org.freedesktop.secrets \
       --talk-name=org.freedesktop.portal.Desktop \
       --env=LD_LIBRARY_PATH="/app/lib" \
-      --env=GE_CV_TEMPLATE_DIR="{{GE_CV_TEMPLATE_DIR}}" \
       --env=OBS_PLUGINS_PATH="$(pwd)" \
       --env=OBS_PLUGINS_DATA_PATH="$(pwd)" \
       com.obsproject.Studio

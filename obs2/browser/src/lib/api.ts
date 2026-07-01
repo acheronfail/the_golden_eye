@@ -184,7 +184,11 @@ export const connectMonitorSocket = (handlers: MonitorSocketHandlers): WebSocket
 		const msg = JSON.parse(event.data) as MonitorEvent;
 		switch (msg.type) {
 			case 'version':
-				reloadIfStale(msg.buildId);
+				if (typeof msg.buildId === 'string') {
+					reloadIfStale(msg.buildId);
+				} else {
+					console.warn('Ignoring malformed monitor version event', msg);
+				}
 				break;
 			case 'match':
 				handlers.onMatch?.(msg);

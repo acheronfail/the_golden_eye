@@ -66,7 +66,10 @@ pub enum MonitorEvent {
     /// (a `<meta>` tag injected into its HTML) and reloads if they differ, so a
     /// stale tab -- an older cached page, or one left open across a plugin
     /// update -- picks up the new frontend. See [`routes::index::BUILD_ID`].
-    Version { build_id: String },
+    Version {
+        #[serde(rename = "buildId")]
+        build_id: String,
+    },
     /// The matched on-screen state changed; carries the current match.
     Match(LevelMatch),
     /// The recorder's run state changed (a run began, was cancelled, saw a
@@ -143,6 +146,21 @@ pub type AppState = Arc<AppStateInner>;
 
 pub const SERVER_PORT: u16 = 31337;
 pub const OAUTH_CALLBACK_PATH: &str = "/oauth/callback";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn monitor_version_event_uses_frontend_field_name() {
+        let event = MonitorEvent::Version { build_id: "abc123".to_owned() };
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "version");
+        assert_eq!(json["buildId"], "abc123");
+        assert!(json.get("build_id").is_none());
+    }
+}
 
 /// Logs each request as it arrives and again once a response is produced.
 async fn log_requests(req: Request, next: Next) -> Response {

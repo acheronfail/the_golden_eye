@@ -16,8 +16,6 @@ pub async fn handler() -> Result<impl IntoResponse> {
         crate::ffi::ge_obs_collect_source_names(buffer.as_mut_ptr(), SOURCE_NAMES_BUFFER_SIZE);
     }
 
-    println!("asdf");
-
     let sources: Vec<Source> = unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }
         .to_str()
         .unwrap_or_default()
