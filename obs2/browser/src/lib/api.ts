@@ -1,3 +1,5 @@
+import type { Settings } from './settings.svelte';
+
 // While developing, the SPA is served by the Vite dev server on its own port
 // (see the `dev` just recipe) while the plugin's HTTP API lives on port 31337.
 // Point API calls at that absolute origin in dev. In a production build the
@@ -56,6 +58,24 @@ export const getReplayBufferStatus = async (): Promise<ReplayBufferStatus> => {
 	return res.json();
 };
 
+/** Fetch the plugin-owned settings JSON. Throws on a non-OK response. */
+export const getSettings = async (): Promise<Settings> => {
+	const res = await fetch(apiUrl('/api/v1/settings'));
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
+/** Persist the complete settings object through the Rust backend. */
+export const putSettings = async (settings: Settings): Promise<Settings> => {
+	const res = await fetch(apiUrl('/api/v1/settings'), {
+		method: 'PUT',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(settings)
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
 /** The level match the backend pushes over the monitor WebSocket. Mirrors
  * the Rust `LevelMatch` struct (`runtime_ms` is included but the backend
  * only pushes a new message when the rest of the state changes). */
@@ -91,8 +111,8 @@ export interface RecordingSaved {
 	stats?: LevelMatch;
 }
 
-/** Recording configuration sent when a monitor session starts. Mirrors the
- * Rust `RecordingOptions`; values come from the local `$lib` settings store. */
+/** Recording configuration stored by the Rust backend and mirrored in the local
+ * `$lib` settings store. Mirrors the Rust `RecordingOptions`. */
 export interface RecordingOptions {
 	completedOutputPath: string;
 	saveFailedRuns: boolean;
@@ -221,16 +241,13 @@ export const getMonitorStatus = async (): Promise<MonitorStatus> => {
 	return res.json();
 };
 
-/** Start monitoring the given source. Throws on a non-OK response. */
-export const startMonitor = async (
-	sourceName: string,
-	lang: string,
-	recordingOptions: RecordingOptions
-): Promise<void> => {
+/** Start monitoring the given source. Recording options are read by the backend
+ * from the persisted settings store. Throws on a non-OK response. */
+export const startMonitor = async (sourceName: string, lang: string): Promise<void> => {
 	const res = await fetch(apiUrl('/api/v1/monitor/start'), {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ sourceName, lang, recordingOptions })
+		body: JSON.stringify({ sourceName, lang })
 	});
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 };

@@ -235,7 +235,8 @@
 		if (monitoring || starting) return;
 		starting = true;
 		try {
-			await apiStartMonitor(params.sourceName, params.lang, settings.recordingOptions);
+			await settings.saveNow();
+			await apiStartMonitor(params.sourceName, params.lang);
 			monitoring = true;
 			connectMatchSocket();
 		} catch (err) {

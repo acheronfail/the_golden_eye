@@ -5,7 +5,7 @@
 	const labelClass = 'text-sm font-semibold text-amber-300';
 	const hintClass = 'mt-1 font-mono text-xs text-neutral-500';
 	const inputClass =
-		'mt-2 w-full rounded-md border-neutral-700 bg-neutral-950 font-mono text-sm text-neutral-100 placeholder:text-neutral-700 focus:border-amber-400 focus:ring-amber-400';
+		'mt-2 w-full rounded-md border-neutral-700 bg-neutral-950 font-mono text-sm text-neutral-100 placeholder:text-neutral-700 focus:border-amber-400 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50';
 	const templateTokenClass =
 		'cursor-help rounded border border-neutral-800 bg-neutral-900 px-1.5 py-1 font-mono text-xs text-neutral-300';
 	const templateTokens = [
@@ -41,9 +41,9 @@
 
 <main class="mx-auto w-full max-w-2xl px-6 py-12">
 	<h1 class="text-2xl font-semibold text-amber-300">Options</h1>
-	<p class="mt-2 mb-8 text-sm text-neutral-400">Recording settings are saved locally.</p>
+	<p class="mt-2 mb-8 text-sm text-neutral-400">Recording settings are saved by the plugin.</p>
 
-	<div class="flex flex-col gap-4">
+	<fieldset disabled={!settings.loaded} class="m-0 flex flex-col gap-4 border-0 p-0">
 		<section class={panelClass}>
 			<label class={labelClass} for="clip-filename-template">Clip filename template</label>
 			<input
@@ -84,7 +84,7 @@
 				<input
 					type="checkbox"
 					bind:checked={settings.saveFailedRuns}
-					class="rounded border-neutral-700 bg-neutral-950 text-amber-500 focus:ring-amber-400"
+					class="rounded border-neutral-700 bg-neutral-950 text-amber-500 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
 				/>
 				<span class={labelClass}>Save failed runs</span>
 			</label>
@@ -152,5 +152,5 @@
 				</div>
 			</div>
 		</section>
-	</div>
+	</fieldset>
 </main>

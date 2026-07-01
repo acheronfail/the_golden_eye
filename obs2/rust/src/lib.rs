@@ -5,6 +5,7 @@ mod ffmpeg;
 pub mod ge;
 mod http;
 mod recording;
+mod settings;
 mod stream_notifier;
 mod timer;
 
@@ -19,6 +20,7 @@ use tokio::sync::oneshot;
 use tracing_subscriber::EnvFilter;
 
 use crate::config::Config;
+use crate::settings::SettingsStore;
 
 /// Holds the tokio runtime that is driving the HTTP server, along with the
 /// signal used to ask the server to shut down gracefully.
@@ -56,6 +58,7 @@ pub extern "C" fn ge_rust_start() {
 
     // Resolve (and log) all configuration once, right after logging is set up.
     let config = Config::from_env();
+    let settings = SettingsStore::load_default();
 
     let mut guard = match SERVER.lock() {
         Ok(guard) => guard,
@@ -89,6 +92,7 @@ pub extern "C" fn ge_rust_start() {
         match_tx,
         event_tx,
         config,
+        settings,
     });
 
     // Spawn the server onto the runtime. `spawn` returns immediately so the

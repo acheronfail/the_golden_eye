@@ -244,10 +244,6 @@ pub struct StartParams {
     source_name: String,
     /// Language of the templates to match against (e.g. `en`, `jp`).
     lang: String,
-    /// Recording behaviour for this monitor session, supplied by the SPA's
-    /// locally persisted options.
-    #[serde(default)]
-    recording_options: crate::recording::RecordingOptions,
 }
 
 /// Source of frames for the monitor loop. OBS captures in production; tests
@@ -391,7 +387,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // converted to a CString below for the C capture bridge.
     let status_source_name = params.source_name.clone();
     let lang = params.lang.clone();
-    let recording_options = params.recording_options.clone();
+    let recording_options = state.settings.get_recording_options();
     let source_name =
         CString::new(params.source_name).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 

@@ -1,16 +1,28 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
-	import { settings, STORAGE_KEY } from '$lib';
+	import { settings } from '$lib';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 
 	let { children } = $props();
 
+	onMount(() => {
+		void settings.load().catch((err) => {
+			console.warn('Failed to load settings', err);
+		});
+	});
+
 	$effect(() => {
-		console.debug('Settings changed, saving to localStorage:', settings.savedState);
-		localStorage.setItem(STORAGE_KEY, settings.savedState);
+		const savedState = settings.savedState;
+		const loaded = settings.loaded;
+		const lastSavedState = settings.lastSavedState;
+
+		if (loaded && savedState !== lastSavedState) {
+			settings.saveImmediately();
+		}
 	});
 
 	// The wizard can't do anything useful without the replay buffer, so re-check

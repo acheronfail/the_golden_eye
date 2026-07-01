@@ -25,8 +25,8 @@ use crate::{ffmpeg, ge};
 
 /// Default filename template for trimmed clips. Mirrors the frontend default and
 /// falls back through the unique-name suffixer when multiple runs render alike.
-const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level} - {time} - {difficulty} - {status}";
-const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
+pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level} - {time} - {difficulty} - {status}";
+pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
 
 /// How long to wait for OBS to finish writing the saved replay file before
 /// giving up. The save is asynchronous; we block on the replay-saved event

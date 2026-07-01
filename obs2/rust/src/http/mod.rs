@@ -45,6 +45,8 @@ pub struct AppStateInner {
     pub event_tx: broadcast::Sender<MonitorEvent>,
     /// Application configuration, resolved from the environment at startup.
     pub config: Config,
+    /// Plugin-owned user settings, loaded from and persisted to JSON.
+    pub settings: crate::settings::SettingsStore,
 }
 
 /// A Discord webhook message we posted and may later edit.
@@ -205,6 +207,7 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         .route("/api/v1/monitor/stop", post(routes::monitor::handle_stop))
         .route("/api/v1/monitor/status", get(routes::monitor::handle_status))
         .route("/api/v1/monitor/ws", get(routes::monitor::handle_ws))
+        .route("/api/v1/settings", get(routes::settings::handle_get).put(routes::settings::handle_put))
         .route("/api/v1/sources", get(routes::sources::handler))
         .route("/api/v1/screenshot", get(routes::screenshot::handler))
         .route("/api/v1/match", post(routes::matcher::handler))
