@@ -4,9 +4,7 @@ import { LlamaProcess } from "../obs/llama.ts";
 import { MatcherProcessPool } from "../obs/matcher.ts";
 import { imageHeight, imageWidth } from "../obs/common.ts";
 
-const matcher = await MatcherProcessPool.init(
-  (process.env.GE_LANG as "en" | "jp") ?? "en",
-);
+const matcher = await MatcherProcessPool.init((process.env.GE_LANG as "en" | "jp") ?? "en");
 
 const llama = new LlamaProcess();
 await llama.initialised;
@@ -116,15 +114,11 @@ try {
       const start = performance.now();
       await handler();
       const end = performance.now();
-      process.stderr.write(
-        `Command "${command}" executed in ${(end - start).toFixed(2)}ms\n`,
-      );
+      process.stderr.write(`Command "${command}" executed in ${(end - start).toFixed(2)}ms\n`);
     } else {
       if (command.startsWith("name ")) {
         screenshotPrefix = command.slice(5).trim();
-        process.stderr.write(
-          `Screenshot prefix updated to "${screenshotPrefix}"\n`,
-        );
+        process.stderr.write(`Screenshot prefix updated to "${screenshotPrefix}"\n`);
         process.stderr.write(prompt);
         continue;
       }

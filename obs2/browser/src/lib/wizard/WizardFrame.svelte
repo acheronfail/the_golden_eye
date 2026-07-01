@@ -25,11 +25,7 @@
 		if (event.key !== 'Backspace') return;
 
 		const target = event.target as HTMLElement | null;
-		if (
-			target &&
-			(target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
-		)
-			return;
+		if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
 
 		const back = hrefs?.[step - 2];
 		if (back) {

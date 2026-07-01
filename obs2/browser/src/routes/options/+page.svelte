@@ -19,9 +19,7 @@
 
 	const normalizePostRunPadding = () => {
 		const value = Number(settings.postRunPaddingSecs);
-		settings.postRunPaddingSecs = Number.isFinite(value)
-			? Math.max(0, value)
-			: DEFAULT_POST_RUN_PADDING_SECS;
+		settings.postRunPaddingSecs = Number.isFinite(value) ? Math.max(0, value) : DEFAULT_POST_RUN_PADDING_SECS;
 	};
 </script>
 

@@ -6,7 +6,18 @@ import { Difficulties, type Difficulty } from "./difficulty.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export const Screens = ["007opts", "abort", "complete", "kia", "failed", "levels", "select", "start", "stats", "unknown"] as const;
+export const Screens = [
+  "007opts",
+  "abort",
+  "complete",
+  "kia",
+  "failed",
+  "levels",
+  "select",
+  "start",
+  "stats",
+  "unknown",
+] as const;
 export type Screen = (typeof Screens)[number];
 
 export interface ScreenshotInfo {
@@ -46,7 +57,7 @@ export const getScreenshots = async () => {
   return allScreenshotPaths.flat().map((filePath): ScreenshotInfo => {
     const entry = path.basename(filePath);
     const name = path.basename(entry, ".png");
-    const tag = path.basename(path.dirname(filePath)).replace('screenshots-', '');
+    const tag = path.basename(path.dirname(filePath)).replace("screenshots-", "");
 
     const [lang, screenStr, levelNumStr, difficultyStr, ...extra] = name.split(" - ");
 

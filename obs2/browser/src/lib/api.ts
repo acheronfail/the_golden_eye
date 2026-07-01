@@ -203,9 +203,7 @@ export const connectMonitorSocket = (handlers: MonitorSocketHandlers): WebSocket
 
 /** Current monitor status reported by the backend. `sourceName`/`lang` are only
  * present when `enabled` is true. Mirrors the Rust `MonitorStatus`. */
-export type MonitorStatus =
-	| { enabled: false }
-	| { enabled: true; sourceName: string; lang: string };
+export type MonitorStatus = { enabled: false } | { enabled: true; sourceName: string; lang: string };
 
 /** Fetch whether a monitor is running, and if so for which source/language.
  * Throws on a non-OK response. */

@@ -638,11 +638,9 @@ fn sanitize_filename(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::io;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::{fs, io, thread};
 
     use super::*;
     use crate::ge::Times;

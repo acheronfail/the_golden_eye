@@ -139,9 +139,8 @@
 								{/if}
 
 								{#if screenshottingSource === source.name}
-									<button
-										class="rounded bg-red-500 px-2 py-1 text-white hover:bg-red-600"
-										onclick={stopScreenshotting}>stop screenshotting</button
+									<button class="rounded bg-red-500 px-2 py-1 text-white hover:bg-red-600" onclick={stopScreenshotting}
+										>stop screenshotting</button
 									>
 								{:else}
 									<button
@@ -178,19 +177,16 @@
 				<button
 					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
 					onclick={() =>
-						(startScreenIndex =
-							(startScreenIndex - 1 + allStartScreenNames.length) % allStartScreenNames.length)}
+						(startScreenIndex = (startScreenIndex - 1 + allStartScreenNames.length) % allStartScreenNames.length)}
 					>-1</button
 				>
 				<button
 					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
-					onclick={() => (startScreenIndex = (startScreenIndex + 1) % allStartScreenNames.length)}
-					>+1</button
+					onclick={() => (startScreenIndex = (startScreenIndex + 1) % allStartScreenNames.length)}>+1</button
 				>
 				<button
 					class="rounded bg-blue-500 px-2 py-1 font-mono text-sm text-white hover:bg-blue-600"
-					onclick={() =>
-						(startScreenIndex = saveScreenshotAndAdvance(allStartScreenNames, startScreenIndex)())}
+					onclick={() => (startScreenIndex = saveScreenshotAndAdvance(allStartScreenNames, startScreenIndex)())}
 					>save "{allStartScreenNames[startScreenIndex]}.bmp"</button
 				>
 			</div>
@@ -199,22 +195,17 @@
 				<button
 					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
 					onclick={() =>
-						(failedScreenIndex =
-							(failedScreenIndex - 1 + allFailedScreenNames.length) % allFailedScreenNames.length)}
+						(failedScreenIndex = (failedScreenIndex - 1 + allFailedScreenNames.length) % allFailedScreenNames.length)}
 					>-1</button
 				>
 				<button
 					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
-					onclick={() =>
-						(failedScreenIndex = (failedScreenIndex + 1) % allFailedScreenNames.length)}>+1</button
+					onclick={() => (failedScreenIndex = (failedScreenIndex + 1) % allFailedScreenNames.length)}>+1</button
 				>
 				<button
 					class="rounded bg-blue-500 px-2 py-1 font-mono text-sm text-white hover:bg-blue-600"
-					onclick={() =>
-						(failedScreenIndex = saveScreenshotAndAdvance(
-							allFailedScreenNames,
-							failedScreenIndex
-						)())}>save "{allFailedScreenNames[failedScreenIndex]}.bmp"</button
+					onclick={() => (failedScreenIndex = saveScreenshotAndAdvance(allFailedScreenNames, failedScreenIndex)())}
+					>save "{allFailedScreenNames[failedScreenIndex]}.bmp"</button
 				>
 			</div>
 
@@ -222,19 +213,15 @@
 				<button
 					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
 					onclick={() =>
-						(statsScreenIndex =
-							(statsScreenIndex - 1 + statsScreenNames.length) % statsScreenNames.length)}
-					>-1</button
+						(statsScreenIndex = (statsScreenIndex - 1 + statsScreenNames.length) % statsScreenNames.length)}>-1</button
 				>
 				<button
 					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
-					onclick={() => (statsScreenIndex = (statsScreenIndex + 1) % statsScreenNames.length)}
-					>+1</button
+					onclick={() => (statsScreenIndex = (statsScreenIndex + 1) % statsScreenNames.length)}>+1</button
 				>
 				<button
 					class="rounded bg-blue-500 px-2 py-1 font-mono text-sm text-white hover:bg-blue-600"
-					onclick={() =>
-						(statsScreenIndex = saveScreenshotAndAdvance(statsScreenNames, statsScreenIndex)())}
+					onclick={() => (statsScreenIndex = saveScreenshotAndAdvance(statsScreenNames, statsScreenIndex)())}
 					>save "{statsScreenNames[statsScreenIndex]}.bmp"</button
 				>
 			</div>

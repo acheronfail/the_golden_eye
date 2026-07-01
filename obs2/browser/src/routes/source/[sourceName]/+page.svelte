@@ -29,11 +29,6 @@
 	<title>Setup | {params.sourceName}</title>
 </svelte:head>
 
-<WizardFrame
-	step={2}
-	title="Which version are you playing?"
-	subtitle="Source: {params.sourceName}"
-	hrefs={['/']}
->
+<WizardFrame step={2} title="Which version are you playing?" subtitle="Source: {params.sourceName}" hrefs={['/']}>
 	<OptionList {options} onSelect={select} />
 </WizardFrame>

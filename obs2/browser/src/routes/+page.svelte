@@ -33,9 +33,7 @@
 		reload();
 	});
 
-	let options = $derived<Option[]>(
-		(sources ?? []).map((s) => ({ title: s.name, detail: s.id, key: s.name }))
-	);
+	let options = $derived<Option[]>((sources ?? []).map((s) => ({ title: s.name, detail: s.id, key: s.name })));
 
 	const select = (option: Option) => {
 		if (replayDisabled) return;
@@ -69,8 +67,8 @@
 		<div class="mb-4 rounded-md border border-amber-500/60 bg-amber-950/40 px-4 py-3">
 			<p class="text-sm font-semibold text-amber-300">Replay buffer is disabled</p>
 			<p class="mt-1 font-mono text-xs text-amber-200/80">
-				Enable it in OBS under Settings → Output → Replay Buffer, then refresh. You can't pick a
-				source until the replay buffer is on.
+				Enable it in OBS under Settings → Output → Replay Buffer, then refresh. You can't pick a source until the replay
+				buffer is on.
 			</p>
 		</div>
 	{/if}

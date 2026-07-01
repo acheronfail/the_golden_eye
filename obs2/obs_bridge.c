@@ -321,9 +321,7 @@ void ge_obs_register_frame_callback(ge_frame_cb cb, void *param) {
   obs_add_main_render_callback(cb, param);
 }
 
-void ge_obs_unregister_frame_callback(ge_frame_cb cb, void *param) {
-  obs_remove_main_render_callback(cb, param);
-}
+void ge_obs_unregister_frame_callback(ge_frame_cb cb, void *param) { obs_remove_main_render_callback(cb, param); }
 
 uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, uint32_t *out_height) {
   /* One-shot callers (the /screenshot and /match routes) capture a single

@@ -44,9 +44,7 @@ try {
             continue;
           }
 
-          const rankCell = Array.from(table.querySelectorAll(".rank")).filter(
-            (el) => el.textContent?.trim() === "1",
-          );
+          const rankCell = Array.from(table.querySelectorAll(".rank")).filter((el) => el.textContent?.trim() === "1");
           for (const cell of rankCell) {
             const row = cell.closest("tr");
             const timeHref = row?.querySelector(".time")?.getAttribute("href");
@@ -61,12 +59,9 @@ try {
       difficulties,
     );
 
-    console.log(
-      `Found ${links.reduce((sum, group) => sum + group.length, 0)} WR links for stage: ${stage.title}...`,
-    );
+    console.log(`Found ${links.reduce((sum, group) => sum + group.length, 0)} WR links for stage: ${stage.title}...`);
 
-    const systemCountsPerDifficulty: Record<string, number>[] =
-      difficulties.map(() => ({}));
+    const systemCountsPerDifficulty: Record<string, number>[] = difficulties.map(() => ({}));
     for (let i = 0; i < difficulties.length; i++) {
       const linkGroup = links[i];
       for (const timeLink of linkGroup) {
@@ -79,8 +74,7 @@ try {
           const text = await li.textContent();
           if (text?.includes("System:")) {
             const system = text.split("System:")[1].trim();
-            systemCountsPerDifficulty[i][system] =
-              (systemCountsPerDifficulty[i][system] || 0) + 1;
+            systemCountsPerDifficulty[i][system] = (systemCountsPerDifficulty[i][system] || 0) + 1;
           }
         }
       }

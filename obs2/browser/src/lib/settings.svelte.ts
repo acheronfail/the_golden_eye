@@ -1,8 +1,7 @@
 import { browser } from '$app/environment';
 import { z } from 'zod';
 
-export const DEFAULT_CLIP_FILENAME_TEMPLATE =
-	'{replay} - clip - {level}{time_suffix}{failed_suffix}';
+export const DEFAULT_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
 export const DEFAULT_POST_RUN_PADDING_SECS = 5;
 
 const SettingsSchema = z.object({
@@ -68,13 +67,9 @@ export const settings = new (class {
 	saveFailedRuns = $state(storedSettings?.saveFailedRuns ?? true);
 	failedOutputPath = $state(storedSettings?.failedOutputPath ?? '');
 	failedRunLimit = $state(nonNegativeInt(storedSettings?.failedRunLimit ?? 0));
-	clipFilenameTemplate = $state(
-		storedSettings?.clipFilenameTemplate ?? DEFAULT_CLIP_FILENAME_TEMPLATE
-	);
+	clipFilenameTemplate = $state(storedSettings?.clipFilenameTemplate ?? DEFAULT_CLIP_FILENAME_TEMPLATE);
 	preRunPaddingSecs = $state(nonNegativeNumber(storedSettings?.preRunPaddingSecs ?? 0));
-	postRunPaddingSecs = $state(
-		nonNegativeNumber(storedSettings?.postRunPaddingSecs ?? DEFAULT_POST_RUN_PADDING_SECS)
-	);
+	postRunPaddingSecs = $state(nonNegativeNumber(storedSettings?.postRunPaddingSecs ?? DEFAULT_POST_RUN_PADDING_SECS));
 
 	recordingOptions: RecordingOptions = $derived({
 		completedOutputPath: this.completedOutputPath.trim(),
