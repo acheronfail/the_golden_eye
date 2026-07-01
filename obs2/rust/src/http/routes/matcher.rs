@@ -53,7 +53,7 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
 
     timer.lap("obs frame");
 
-    let level_match = matcher.match_level_from_raw_bytes(frame, width, height);
+    let level_match = unsafe { matcher.match_level_from_raw_bytes(frame, width, height) };
     timer.lap("cv match");
     tracing::info!(?level_match, "match result");
 

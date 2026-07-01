@@ -15,7 +15,7 @@ impl PhaseTimer {
     }
 
     pub fn start(&self) -> Instant {
-        self.start.clone()
+        self.start
     }
 
     pub fn lap(&mut self, label: &str) {

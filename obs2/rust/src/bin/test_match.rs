@@ -22,11 +22,11 @@ fn run() -> Result<i32> {
     let templates_dir = args.get(2).map(|s| s.as_str()).unwrap_or(default_templates);
 
     // Benchmarking hook: GE_CV_THREADS caps OpenCV's internal thread pool.
-    if let Ok(t) = env::var("GE_CV_THREADS") {
-        if let Ok(n) = t.parse::<i32>() {
-            core::set_num_threads(n)?;
-            eprintln!("[test_match] cv::setNumThreads({n})");
-        }
+    if let Ok(t) = env::var("GE_CV_THREADS")
+        && let Ok(n) = t.parse::<i32>()
+    {
+        core::set_num_threads(n)?;
+        eprintln!("[test_match] cv::setNumThreads({n})");
     }
 
     // Load as BGR, then add an opaque alpha channel so the buffer matches the

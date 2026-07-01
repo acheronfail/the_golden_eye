@@ -214,10 +214,10 @@ impl RecordingState {
         // Fire the scheduled save once its linger window elapses. This runs every
         // frame regardless of the current screen, so a pending save completes
         // even after the user backs out or starts another run.
-        if let Some(pending) = &self.pending {
-            if now >= pending.fire_at {
-                self.flush_pending(now);
-            }
+        if let Some(pending) = &self.pending
+            && now >= pending.fire_at
+        {
+            self.flush_pending(now);
         }
     }
 }

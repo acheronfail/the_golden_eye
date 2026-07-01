@@ -281,11 +281,11 @@ impl FrameSource for ObsSource {
         // Latch the first transform learned and keep it (see the field comment);
         // the producer callback reads this to crop/un-stretch future captures.
         let mut guard = self.region.lock().unwrap_or_else(|p| p.into_inner());
-        if guard.is_none() {
-            if let Some(r) = region {
-                tracing::info!(?r, "calibrated capture region; cropping/un-stretching on the GPU");
-                *guard = Some(r);
-            }
+        if guard.is_none()
+            && let Some(r) = region
+        {
+            tracing::info!(?r, "calibrated capture region; cropping/un-stretching on the GPU");
+            *guard = Some(r);
         }
     }
 }

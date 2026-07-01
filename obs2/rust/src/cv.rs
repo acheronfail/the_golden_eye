@@ -53,7 +53,7 @@ where
         let handles: Vec<_> = (0..n)
             .step_by(chunk)
             .map(|base| {
-                s.spawn(move || (base..(base + chunk).min(n)).map(|i| f(i)).collect::<Vec<T>>())
+                s.spawn(move || (base..(base + chunk).min(n)).map(f).collect::<Vec<T>>())
             })
             .collect();
         handles.into_iter().map(|h| h.join().unwrap()).collect()
@@ -732,11 +732,11 @@ fn find_mission_from_colons(
     }
 
     let mut digit_width_sum = 0;
-    for v in 1..=9 {
-        if digit_tmpls[v].empty() {
+    for tmpl in &digit_tmpls[1..=9] {
+        if tmpl.empty() {
             return Ok(none);
         }
-        digit_width_sum += digit_tmpls[v].cols();
+        digit_width_sum += tmpl.cols();
     }
     let digit_w = (digit_width_sum / 9).max(1);
     let digit_h = digit_tmpls[1].rows();
@@ -796,7 +796,7 @@ fn find_mission_from_colons(
             if adj_left < -(digit_w as f64) * 0.4 || adj_left > digit_w as f64 * 0.6 {
                 continue;
             }
-            if best.map_or(true, |b| d.score >= b.score) {
+            if best.is_none_or(|b| d.score >= b.score) {
                 best = Some(FoundMission {
                     mission: v as i32,
                     score: d.score,
@@ -810,10 +810,10 @@ fn find_mission_from_colons(
 
     let mut best = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1 };
     for p in partials {
-        if let Some(cand) = p? {
-            if cand.score >= best.score {
-                best = cand;
-            }
+        if let Some(cand) = p?
+            && cand.score >= best.score
+        {
+            best = cand;
         }
     }
 
@@ -876,9 +876,9 @@ fn find_times_band(
             continue;
         }
         let roi = frame.roi(Rect::new(x0, y0, x1 - x0, y1 - y0))?;
-        for v in 0..10 {
+        for (v, tmpl) in digit_tmpls.iter().enumerate().take(10) {
             let mut bucket = Vec::new();
-            collect_detections(&roi, &digit_tmpls[v], GLYPH_THRESHOLD, v as i32, &mut bucket)?;
+            collect_detections(&roi, tmpl, GLYPH_THRESHOLD, v as i32, &mut bucket)?;
             for mut d in bucket {
                 d.x += x0;
                 d.y += y0;
@@ -914,8 +914,8 @@ fn find_times_band(
         if right.len() < 2 || left.len() < 2 {
             continue;
         }
-        right.sort_by(|a, b| a.x.cmp(&b.x));
-        left.sort_by(|a, b| b.x.cmp(&a.x));
+        right.sort_by_key(|a| a.x);
+        left.sort_by_key(|b| std::cmp::Reverse(b.x));
 
         let r0 = right[0];
         let r1 = right[1];
@@ -1395,7 +1395,10 @@ impl CvMatcher {
         Ok(if best_score_v >= SCREEN_THRESHOLD { best } else { Screen::Unknown })
     }
 
-    pub fn match_level_from_raw_bytes(&self, data: *mut u8, w: u32, h: u32) -> Result<LevelMatch> {
+    /// # Safety
+    /// `data` must point to at least `w * h * 4` readable bytes of 8-bit BGRA
+    /// pixel data that stays valid for the duration of the call.
+    pub unsafe fn match_level_from_raw_bytes(&self, data: *mut u8, w: u32, h: u32) -> Result<LevelMatch> {
         let total_bytes = (w * h * 4) as usize;
         let data_slice = unsafe { std::slice::from_raw_parts(data, total_bytes) };
         self.match_level_from_bgra_bytes(data_slice, w, h)
@@ -1657,18 +1660,20 @@ impl CvMatcher {
         // subsequent frames at the same resolution fast-path the scale search.
         // Require both labels found, so a partial/ambiguous match never poisons
         // the cache with a wrong scale.
-        if hint.is_none() && result.mission >= 0 && result.part >= 0 {
-            if let Ok(mut cache) = self.scale_cache.lock() {
-                *cache = Some(ScaleCache {
-                    src_w,
-                    src_h,
-                    overlay_scale: global_scale,
-                    mission_scale,
-                    mission_cx,
-                    mission_cy: mission_cy_native,
-                });
-                dbg_cv!("[scale cache] stored overlay={global_scale:.3} mission={mission_scale:.3} colon=({mission_cx},{mission_cy_native}) for {src_w}x{src_h}");
-            }
+        if hint.is_none()
+            && result.mission >= 0
+            && result.part >= 0
+            && let Ok(mut cache) = self.scale_cache.lock()
+        {
+            *cache = Some(ScaleCache {
+                src_w,
+                src_h,
+                overlay_scale: global_scale,
+                mission_scale,
+                mission_cx,
+                mission_cy: mission_cy_native,
+            });
+            dbg_cv!("[scale cache] stored overlay={global_scale:.3} mission={mission_scale:.3} colon=({mission_cx},{mission_cy_native}) for {src_w}x{src_h}");
         }
 
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
