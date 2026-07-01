@@ -110,7 +110,15 @@ make-release:
 
 make-package:
     mkdir -p obs2/build
-    cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBROWSER_DEV=OFF && make package-plugin
+    cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBROWSER_DEV=OFF && cmake --build . --target package-plugin
+
+install:
+    mkdir -p obs2/build
+    cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBROWSER_DEV=OFF && cmake --build . --target install-plugin
+
+uninstall:
+    mkdir -p obs2/build
+    cd obs2/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBROWSER_DEV=OFF && cmake --build . --target uninstall-plugin
 
 # builds the project and runs obs
 obs: make-release
