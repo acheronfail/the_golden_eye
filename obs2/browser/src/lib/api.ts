@@ -87,6 +87,18 @@ export interface RecordingSaved {
 	stats?: LevelMatch;
 }
 
+/** Recording configuration sent when a monitor session starts. Mirrors the
+ * Rust `RecordingOptions`; values come from the local `$lib` settings store. */
+export interface RecordingOptions {
+	completedOutputPath: string;
+	saveFailedRuns: boolean;
+	failedOutputPath: string;
+	failedRunLimit: number;
+	clipFilenameTemplate: string;
+	preRunPaddingSecs: number;
+	postRunPaddingSecs: number;
+}
+
 /** A transition in the backend recorder's per-run state. Mirrors the Rust
  * `RecordingStatus`:
  * - `started` — a run began (the clip's start was anchored);
@@ -101,6 +113,7 @@ export interface RecordingSaved {
  *   backed out of the report screen to the level grid); the clip is still saved
  *   (a {@link RecordingSaved} still follows). A failed run backing out this way
  *   emits `savePending` instead;
+ * - `failedDiscarded` — a failed run ended, but failed-run saving is disabled;
  * - `savePending` — a run ended (at the stats screen, or a failed run backing
  *   out) and a save was scheduled; a {@link RecordingSaved} follows once the clip
  *   is written. */
@@ -112,6 +125,7 @@ export type RecordingStatus =
 	| 'kia'
 	| 'complete'
 	| 'statsSkipped'
+	| 'failedDiscarded'
 	| 'savePending';
 
 /** A message pushed over the monitor WebSocket. Mirrors the Rust `MonitorEvent`,
@@ -202,11 +216,15 @@ export const getMonitorStatus = async (): Promise<MonitorStatus> => {
 };
 
 /** Start monitoring the given source. Throws on a non-OK response. */
-export const startMonitor = async (sourceName: string, lang: string): Promise<void> => {
+export const startMonitor = async (
+	sourceName: string,
+	lang: string,
+	recordingOptions: RecordingOptions
+): Promise<void> => {
 	const res = await fetch(apiUrl('/api/v1/monitor/start'), {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ sourceName, lang })
+		body: JSON.stringify({ sourceName, lang, recordingOptions })
 	});
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 };

@@ -13,8 +13,7 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use serde::Serialize;
 use tokio::net::TcpSocket;
-use tokio::sync::{Mutex, oneshot};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{Mutex, broadcast, oneshot, watch};
 use tower::ServiceBuilder;
 use tower_http::BoxError;
 
@@ -112,6 +111,10 @@ pub enum RecordingStatus {
     /// still follows. A *failed* run backing out this way is its normal ending, so
     /// it emits [`RecordingStatus::SavePending`] instead (not "skipped stats").
     StatsSkipped,
+    /// A failed run reached an ending screen, but the active recording
+    /// configuration has failed-run saving disabled, so no replay-buffer save was
+    /// triggered for it.
+    FailedDiscarded,
     /// A run ended at the stats screen (or, via `StatsSkipped`, the report
     /// screen): a save has been scheduled and will fire a few seconds later. A
     /// [`MonitorEvent::RecordingSaved`] follows once the clip is written.

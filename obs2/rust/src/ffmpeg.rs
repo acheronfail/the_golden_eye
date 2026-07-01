@@ -166,10 +166,7 @@ mod tests {
         trim(&input, &out, start, end).expect("trim");
 
         let got = duration_secs(&out).expect("probe trimmed duration");
-        assert!(
-            (got - want).abs() < 1.5,
-            "trimmed duration {got:.3}s should be near requested {want:.3}s",
-        );
+        assert!((got - want).abs() < 1.5, "trimmed duration {got:.3}s should be near requested {want:.3}s",);
         let _ = std::fs::remove_file(&out);
     }
 }

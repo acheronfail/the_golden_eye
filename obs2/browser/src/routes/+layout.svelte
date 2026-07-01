@@ -1,7 +1,7 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
-	import { settings, STORAGE_KEY } from '../lib/settings.svelte';
+	import { settings, STORAGE_KEY } from '$lib';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -22,12 +22,13 @@
 	});
 
 	// While the replay buffer is confirmed disabled, force the user back to `/`
-	// (which explains how to enable it). `/` and the dev-only `/developer` tools
-	// are exempt so the user has somewhere to land and debugging still works. An
-	// unknown status (null) never redirects — we only act on a definitive "off".
+	// (which explains how to enable it). `/`, `/options`, and the dev-only
+	// `/developer` tools are exempt so the user has somewhere to land and
+	// debugging still works. An unknown status (null) never redirects — we only
+	// act on a definitive "off".
 	$effect(() => {
 		const path = page.url.pathname;
-		const exempt = path === '/' || path === '/developer';
+		const exempt = path === '/' || path === '/options' || path === '/developer';
 		if (replayBuffer.status?.enabled === false && !exempt) {
 			goto('/');
 		}
@@ -47,6 +48,7 @@
 
 	const links = [
 		{ href: '/', label: 'Home' },
+		{ href: '/options', label: 'Options' },
 		...(import.meta.hot ? [{ href: '/developer', label: 'Developer' }] : [])
 	];
 

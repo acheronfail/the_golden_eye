@@ -4,6 +4,7 @@
 	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
 	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
+	import { onMount } from 'svelte';
 
 	let sources = $state<ObsSource[] | null>(null);
 	let reloading = $state(false);
@@ -28,7 +29,9 @@
 			reloading = false;
 		}
 	};
-	reload();
+	onMount(() => {
+		reload();
+	});
 
 	let options = $derived<Option[]>(
 		(sources ?? []).map((s) => ({ title: s.name, detail: s.id, key: s.name }))

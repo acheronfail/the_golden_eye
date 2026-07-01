@@ -72,10 +72,7 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to encode screenshot")
     })?;
 
-    Ok(Json(MatchResponse {
-        level_match,
-        image_data: BASE64.encode(bytes),
-    }))
+    Ok(Json(MatchResponse { level_match, image_data: BASE64.encode(bytes) }))
 }
 
 /// Copies a `width * height` BGRA buffer into a BMP-encoded byte vector.

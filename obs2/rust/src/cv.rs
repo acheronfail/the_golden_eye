@@ -11,14 +11,13 @@
 // This is a Rust port of obs2/test_match.cpp + obs2/cv_wrapper.cpp, using the
 // `opencv` crate instead of binding to OpenCV directly.
 
+use std::sync::{Mutex, OnceLock};
+use std::thread;
+
 use opencv::core::{self, Mat, Rect, Size, ToInputArray};
 use opencv::prelude::*;
 use opencv::{Result, imgcodecs, imgproc};
 use serde::Serialize;
-
-use std::sync::Mutex;
-use std::sync::OnceLock;
-use std::thread;
 
 use crate::ge;
 use crate::timer::PhaseTimer;
@@ -53,9 +52,7 @@ where
     let parts: Vec<Vec<T>> = thread::scope(|s| {
         let handles: Vec<_> = (0..n)
             .step_by(chunk)
-            .map(|base| {
-                s.spawn(move || (base..(base + chunk).min(n)).map(f).collect::<Vec<T>>())
-            })
+            .map(|base| s.spawn(move || (base..(base + chunk).min(n)).map(f).collect::<Vec<T>>()))
             .collect();
         handles.into_iter().map(|h| h.join().unwrap()).collect()
     });
@@ -775,8 +772,7 @@ fn find_mission_from_colons(
     // cores and reduce to the single strongest digit immediately left of a
     // colon afterwards. Each work item returns its own best candidate so the
     // final reduction reproduces the serial "highest-scoring digit wins".
-    let work: Vec<(usize, usize)> =
-        (0..colons.len()).flat_map(|c| (1..=9).map(move |v| (c, v))).collect();
+    let work: Vec<(usize, usize)> = (0..colons.len()).flat_map(|c| (1..=9).map(move |v| (c, v))).collect();
     let partials: Vec<Result<Option<FoundMission>>> = par_map(work.len(), |k| {
         let (ci, v) = work[k];
         let colon = colons[ci];
@@ -963,7 +959,11 @@ fn find_times_band(
         }
     }
 
-    dbg_cv!("[times] colons={} times={:?}", colons.len(), times.iter().map(|t| (t.x, t.y, t.seconds)).collect::<Vec<_>>());
+    dbg_cv!(
+        "[times] colons={} times={:?}",
+        colons.len(),
+        times.iter().map(|t| (t.x, t.y, t.seconds)).collect::<Vec<_>>()
+    );
     let line_bucket = digit_h as f64 * 0.5;
     times.sort_by(|a, b| {
         let ra = (a.y as f64 / line_bucket).round() as i32;
@@ -985,9 +985,7 @@ fn find_times_band(
     let dedup_dy = (digit_h as f64 * 0.3) as i32;
     let mut deduped: Vec<FoundTime> = Vec::with_capacity(times.len());
     for t in times {
-        let dup = deduped
-            .iter()
-            .any(|k| (t.x - k.x).abs() < digit_w * 2 && (t.y - k.y).abs() < dedup_dy);
+        let dup = deduped.iter().any(|k| (t.x - k.x).abs() < digit_w * 2 && (t.y - k.y).abs() < dedup_dy);
         if !dup {
             deduped.push(t);
         }
@@ -1087,7 +1085,14 @@ impl AspectCalibration {
         }
         let window = gray.roi(Rect::new(self.crop_x, 0, self.crop_w, gray.rows()))?;
         let mut out = Mat::default();
-        imgproc::resize(&window, &mut out, Size::new(self.target_w.max(1), gray.rows()), 0.0, 0.0, imgproc::INTER_AREA)?;
+        imgproc::resize(
+            &window,
+            &mut out,
+            Size::new(self.target_w.max(1), gray.rows()),
+            0.0,
+            0.0,
+            imgproc::INTER_AREA,
+        )?;
         Ok(out)
     }
 }
@@ -1217,7 +1222,9 @@ impl CvMatcher {
             let (left, right) = content_h_extent(gray, BAR_BRIGHTNESS)?;
             let crop_w = (right - left + 1).max(1);
             let target_w = (((h as f64) * TARGET_ASPECT).round() as i32).max(1);
-            dbg_cv!("[calibrate] {w}x{h} folder_aspect={folder_aspect:.3} stretched -> crop {left}+{crop_w} squish to {target_w}");
+            dbg_cv!(
+                "[calibrate] {w}x{h} folder_aspect={folder_aspect:.3} stretched -> crop {left}+{crop_w} squish to {target_w}"
+            );
             AspectCalibration { src_w: w, src_h: h, crop_x: left, crop_w, target_w }
         } else {
             // Folder is correctly proportioned (clean 4:3 or pillarboxed): no
@@ -1267,7 +1274,13 @@ impl CvMatcher {
                 digit_tmpls.push(scaled(&self.digits[v], scale)?);
             }
             let f = find_mission_from_colons(&region, &colon_tmpl, &digit_tmpls)?;
-            dbg_cv!("[mission] scale={scale:.3} m={} score={:.3} cx={} cy={}", f.mission, f.score, f.colon_cx, f.colon_cy);
+            dbg_cv!(
+                "[mission] scale={scale:.3} m={} score={:.3} cx={} cy={}",
+                f.mission,
+                f.score,
+                f.colon_cx,
+                f.colon_cy
+            );
             if f.score >= found.score {
                 found = f;
                 scale_used = scale;
@@ -1422,8 +1435,15 @@ impl CvMatcher {
     }
 
     pub fn match_level_from_bgra_frame(&self, bgra_frame: &impl ToInputArray) -> Result<LevelMatch> {
-        let mut result =
-            LevelMatch { screen: Screen::Unknown, mission: -1, part: -1, difficulty: -1, times: None, raw_times: Vec::new(), runtime_ms: 0.0 };
+        let mut result = LevelMatch {
+            screen: Screen::Unknown,
+            mission: -1,
+            part: -1,
+            difficulty: -1,
+            times: None,
+            raw_times: Vec::new(),
+            runtime_ms: 0.0,
+        };
         let mut timer = PhaseTimer::new();
 
         // Convert the BGRA frame to grayscale once; every template is matched
@@ -1467,12 +1487,7 @@ impl CvMatcher {
         // scale instead of sweeping the ladder. The first overlay frame still
         // pays the full search to learn the scale (stored at the end).
         let (src_w, src_h) = (gray.cols(), gray.rows());
-        let hint = self
-            .scale_cache
-            .lock()
-            .ok()
-            .and_then(|c| *c)
-            .filter(|c| c.src_w == src_w && c.src_h == src_h);
+        let hint = self.scale_cache.lock().ok().and_then(|c| *c).filter(|c| c.src_w == src_w && c.src_h == src_h);
         let gate_scales: Vec<f64> = match hint {
             Some(c) => vec![c.overlay_scale],
             None => scales.clone(),
@@ -1608,15 +1623,21 @@ impl CvMatcher {
         let pad = ((colon_h as f64) * 0.4) as i32;
 
         result.part = if mission_cy >= 0 && colon_h > 0 {
-            best_label_in_band(&label_region, &self.parts, global_scale, LABEL_THRESHOLD, mission_cy + pad, mission_cy + colon_h * 3)?
+            best_label_in_band(
+                &label_region,
+                &self.parts,
+                global_scale,
+                LABEL_THRESHOLD,
+                mission_cy + pad,
+                mission_cy + colon_h * 3,
+            )?
         } else {
             -1
         };
         // Fall back to a full-region scale sweep when the anchored band misses,
         // which also recovers the true scale on off-scale captures.
         if result.part < 0 {
-            let (part, part_scale) =
-                best_label_over_scales(&label_region, &self.parts, &scales, LABEL_THRESHOLD)?;
+            let (part, part_scale) = best_label_over_scales(&label_region, &self.parts, &scales, LABEL_THRESHOLD)?;
             if part >= 0 {
                 result.part = part;
                 global_scale = part_scale;
@@ -1627,7 +1648,14 @@ impl CvMatcher {
 
         let colon_h = (self.colon.rows() as f64 * global_scale).round() as i32;
         let mut difficulty_label = if mission_cy >= 0 && colon_h > 0 {
-            best_label_in_band(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD, mission_cy - colon_h * 3, mission_cy - pad)?
+            best_label_in_band(
+                &label_region,
+                &self.diffs,
+                global_scale,
+                LABEL_THRESHOLD,
+                mission_cy - colon_h * 3,
+                mission_cy - pad,
+            )?
         } else {
             -1
         };
@@ -1685,7 +1713,9 @@ impl CvMatcher {
                 mission_cx,
                 mission_cy: mission_cy_native,
             });
-            dbg_cv!("[scale cache] stored overlay={global_scale:.3} mission={mission_scale:.3} colon=({mission_cx},{mission_cy_native}) for {src_w}x{src_h}");
+            dbg_cv!(
+                "[scale cache] stored overlay={global_scale:.3} mission={mission_scale:.3} colon=({mission_cx},{mission_cy_native}) for {src_w}x{src_h}"
+            );
         }
 
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;

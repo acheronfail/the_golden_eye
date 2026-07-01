@@ -3,8 +3,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 
 use axum::Json;
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response, Result};
 use serde::Deserialize;
@@ -110,7 +110,10 @@ impl FrameMailbox {
         let capacity = capacity.max(1);
         FrameMailbox {
             capacity,
-            state: Mutex::new(MailboxState { frames: std::collections::VecDeque::with_capacity(capacity), closed: false }),
+            state: Mutex::new(MailboxState {
+                frames: std::collections::VecDeque::with_capacity(capacity),
+                closed: false,
+            }),
             available: Condvar::new(),
         }
     }
@@ -215,8 +218,16 @@ unsafe extern "C" fn ge_frame_callback(param: *mut c_void, _cx: u32, _cy: u32) {
     // We're already on the graphics thread inside a graphics context, so the
     // obs_enter_graphics nested inside this call is a no-op ref-bump, not a
     // re-lock (OBS tracks the context per thread) -- no deadlock.
-    let frame =
-        unsafe { crate::ffi::ge_capture_get_frame(producer.ctx, producer.name.as_ptr(), max_height, region_ptr, &mut width, &mut height) };
+    let frame = unsafe {
+        crate::ffi::ge_capture_get_frame(
+            producer.ctx,
+            producer.name.as_ptr(),
+            max_height,
+            region_ptr,
+            &mut width,
+            &mut height,
+        )
+    };
     // Null means no frame this tick: the source wasn't renderable, or (with the
     // double-buffered context) this was the priming call that only stages.
     if frame.is_null() {
@@ -233,6 +244,10 @@ pub struct StartParams {
     source_name: String,
     /// Language of the templates to match against (e.g. `en`, `jp`).
     lang: String,
+    /// Recording behaviour for this monitor session, supplied by the SPA's
+    /// locally persisted options.
+    #[serde(default)]
+    recording_options: crate::recording::RecordingOptions,
 }
 
 /// Source of frames for the monitor loop. OBS captures in production; tests
@@ -376,6 +391,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // converted to a CString below for the C capture bridge.
     let status_source_name = params.source_name.clone();
     let lang = params.lang.clone();
+    let recording_options = params.recording_options.clone();
     let source_name =
         CString::new(params.source_name).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
@@ -443,33 +459,31 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // Handed to the recorder so it can broadcast a `RecordingSaved` event once a
     // run's clip is written out of the replay buffer.
     let event_tx = state.event_tx.clone();
-    let thread = std::thread::Builder::new()
-        .name("ge-monitor".to_owned())
-        .spawn(move || {
-            let mut source = ObsSource { mailbox: worker_mailbox, region };
-            let mut last: Option<LevelMatch> = None;
-            // Drives the replay-buffer save/trim as the session progresses. Fed
-            // every matched frame (not just state changes) so its save timer is
-            // polled each tick.
-            let mut recording = crate::recording::RecordingState::new(event_tx);
-            session.run(&mut source, |result| match result {
-                Ok(info) => {
-                    tracing::debug!(?info);
-                    recording.on_frame(std::time::Instant::now(), &info);
-                    let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&info));
-                    if changed {
-                        tracing::info!(?info);
-                        last = Some(info.clone());
-                        // Ignore send errors: with no subscribers there is no
-                        // receiver, but `watch` still retains the value for the
-                        // next client to connect.
-                        let _ = match_tx.send(Some(info));
-                    }
+    let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
+        let mut source = ObsSource { mailbox: worker_mailbox, region };
+        let mut last: Option<LevelMatch> = None;
+        // Drives the replay-buffer save/trim as the session progresses. Fed
+        // every matched frame (not just state changes) so its save timer is
+        // polled each tick.
+        let mut recording = crate::recording::RecordingState::new(event_tx, recording_options);
+        session.run(&mut source, |result| match result {
+            Ok(info) => {
+                tracing::debug!(?info);
+                recording.on_frame(std::time::Instant::now(), &info);
+                let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&info));
+                if changed {
+                    tracing::info!(?info);
+                    last = Some(info.clone());
+                    // Ignore send errors: with no subscribers there is no
+                    // receiver, but `watch` still retains the value for the
+                    // next client to connect.
+                    let _ = match_tx.send(Some(info));
                 }
-                Err(e) => tracing::error!("err: {}", e.message),
-            });
-            tracing::info!("monitor loop exiting");
+            }
+            Err(e) => tracing::error!("err: {}", e.message),
         });
+        tracing::info!("monitor loop exiting");
+    });
     let thread = match thread {
         Ok(thread) => thread,
         Err(err) => {
@@ -481,13 +495,8 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         }
     };
 
-    *guard = Some(MonitorHandle {
-        mailbox,
-        producer: ProducerPtr(producer),
-        thread,
-        source_name: status_source_name,
-        lang,
-    });
+    *guard =
+        Some(MonitorHandle { mailbox, producer: ProducerPtr(producer), thread, source_name: status_source_name, lang });
     tracing::info!("monitor started");
 
     Ok(StatusCode::OK)
@@ -620,7 +629,10 @@ async fn send_event(socket: &mut WebSocket, event: &MonitorEvent) -> Result<(), 
 
 /// Sends the current match (if any) as a `match` event, marking the watch value
 /// as seen. A `None` value (no monitor running) sends nothing.
-async fn send_current_match(socket: &mut WebSocket, rx: &mut watch::Receiver<Option<LevelMatch>>) -> Result<(), axum::Error> {
+async fn send_current_match(
+    socket: &mut WebSocket,
+    rx: &mut watch::Receiver<Option<LevelMatch>>,
+) -> Result<(), axum::Error> {
     let current = rx.borrow_and_update().clone();
     if let Some(m) = current {
         send_event(socket, &MonitorEvent::Match(m)).await?;

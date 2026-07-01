@@ -57,7 +57,10 @@ fn run() -> Result<i32> {
         }
         for i in 0..runs {
             let r = matcher.match_level_from_bgra_frame(&bgra)?;
-            eprintln!("[bench] run {i}: {:.2} ms (mission={} part={} diff={})", r.runtime_ms, r.mission, r.part, r.difficulty);
+            eprintln!(
+                "[bench] run {i}: {:.2} ms (mission={} part={} diff={})",
+                r.runtime_ms, r.mission, r.part, r.difficulty
+            );
         }
     }
 

@@ -11,6 +11,7 @@
 		type RecordingSaved,
 		type RecordingStatus
 	} from '$lib/api';
+	import { settings } from '$lib';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
 	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
 	import type { PageProps } from './$types';
@@ -87,6 +88,13 @@
 					heading: 'text-red-300',
 					tag: 'text-red-500'
 				};
+			case 'failedDiscarded':
+				return {
+					title: 'failed run not saved',
+					border: 'border-neutral-500',
+					heading: 'text-neutral-300',
+					tag: 'text-neutral-500'
+				};
 			case 'savePending':
 				return {
 					title: 'saving recording',
@@ -134,7 +142,7 @@
 		// jump straight to "recording" instead of blinking back to idle first.
 		clearRevertTimer();
 		recordingState = status;
-		if (status === 'cancelled') {
+		if (status === 'cancelled' || status === 'failedDiscarded') {
 			revertTimer = setTimeout(() => {
 				recordingState = null;
 				revertTimer = null;
@@ -230,7 +238,7 @@
 		if (monitoring || starting) return;
 		starting = true;
 		try {
-			await apiStartMonitor(params.sourceName, params.lang);
+			await apiStartMonitor(params.sourceName, params.lang, settings.recordingOptions);
 			monitoring = true;
 			connectMatchSocket();
 		} catch (err) {

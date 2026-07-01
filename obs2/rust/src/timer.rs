@@ -1,4 +1,5 @@
-use std::{env, time::Instant};
+use std::env;
+use std::time::Instant;
 
 // Lightweight phase timer. When the GE_CV_TIMING environment variable is set,
 // each lap() logs the milliseconds elapsed since the previous lap to stderr.

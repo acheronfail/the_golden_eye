@@ -3,8 +3,7 @@ use std::time::SystemTime;
 use anyhow::Context;
 use serde::Deserialize;
 
-use crate::http::AppState;
-use crate::http::StreamMessage;
+use crate::http::{AppState, StreamMessage};
 
 #[derive(Debug, Default, Deserialize)]
 #[allow(dead_code)]
