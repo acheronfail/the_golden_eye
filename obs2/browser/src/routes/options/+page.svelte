@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { pickFolder, validateFolder, type FolderValidation } from '$lib/api';
 	import {
 		DEFAULT_CLIP_FILENAME_TEMPLATE,
 		DEFAULT_POST_RUN_PADDING_SECS,
@@ -10,10 +11,18 @@
 	} from '$lib';
 
 	type OptionsTab = 'recording' | 'notifications';
+	type PathKind = 'completed' | 'failed';
 
 	const tabFromUrl = (value: string | null): OptionsTab => (value === 'notifications' ? 'notifications' : 'recording');
 
 	let activeTab = $derived(tabFromUrl(page.url.searchParams.get('tab')));
+	let pickingPath: PathKind | null = $state(null);
+	let completedPathValidating = $state(false);
+	let failedPathValidating = $state(false);
+	let completedValidation: FolderValidation | null = $state(null);
+	let failedValidation: FolderValidation | null = $state(null);
+	let completedValidationSeq = 0;
+	let failedValidationSeq = 0;
 
 	const selectTab = (tab: OptionsTab) => {
 		const url = new URL(page.url);
@@ -35,6 +44,11 @@
 	const inputClass =
 		'mt-2 w-full rounded-md border-neutral-700 bg-neutral-950 font-mono text-sm text-neutral-100 placeholder:text-neutral-700 focus:border-amber-400 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50';
 	const textareaClass = `${inputClass} min-h-24 resize-y`;
+	const pathButtonClass =
+		'rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs font-semibold whitespace-nowrap text-neutral-200 transition-colors hover:border-amber-500 hover:text-amber-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 disabled:cursor-not-allowed disabled:opacity-50';
+	const pathStatusClass = 'mt-2 break-all font-mono text-xs text-emerald-400';
+	const pathPendingClass = 'mt-2 break-all font-mono text-xs text-neutral-500';
+	const pathErrorClass = 'mt-2 break-words text-xs text-red-300';
 	const templateTokenClass =
 		'cursor-help rounded border border-neutral-800 bg-neutral-900 px-1.5 py-1 font-mono text-xs text-neutral-300';
 	const tabBaseClass =
@@ -73,6 +87,112 @@
 	const normalizePostRunPadding = () => {
 		const value = Number(settings.postRunPaddingSecs);
 		settings.postRunPaddingSecs = Number.isFinite(value) ? Math.max(0, value) : DEFAULT_POST_RUN_PADDING_SECS;
+	};
+
+	const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+	const outputPath = (kind: PathKind): string =>
+		kind === 'completed' ? settings.completedOutputPath : settings.failedOutputPath;
+
+	const setOutputPath = (kind: PathKind, value: string) => {
+		if (kind === 'completed') {
+			settings.completedOutputPath = value;
+		} else {
+			settings.failedOutputPath = value;
+		}
+	};
+
+	const setPathValidation = (kind: PathKind, validation: FolderValidation | null) => {
+		if (kind === 'completed') {
+			completedValidation = validation;
+		} else {
+			failedValidation = validation;
+		}
+	};
+
+	const setPathValidating = (kind: PathKind, value: boolean) => {
+		if (kind === 'completed') {
+			completedPathValidating = value;
+		} else {
+			failedPathValidating = value;
+		}
+	};
+
+	const nextValidationSeq = (kind: PathKind): number =>
+		kind === 'completed' ? ++completedValidationSeq : ++failedValidationSeq;
+
+	const currentValidationSeq = (kind: PathKind): number =>
+		kind === 'completed' ? completedValidationSeq : failedValidationSeq;
+
+	const clearPathValidation = (kind: PathKind) => {
+		nextValidationSeq(kind);
+		setPathValidation(kind, null);
+		setPathValidating(kind, false);
+	};
+
+	const pathValidationError = (message: string): FolderValidation => ({
+		expandedPath: '',
+		empty: false,
+		exists: false,
+		isDirectory: false,
+		writable: false,
+		willCreate: false,
+		error: message
+	});
+
+	const validateOutputPath = async (kind: PathKind) => {
+		const value = outputPath(kind).trim();
+		const seq = nextValidationSeq(kind);
+
+		if (!value) {
+			setPathValidation(kind, null);
+			setPathValidating(kind, false);
+			return;
+		}
+
+		setPathValidating(kind, true);
+		try {
+			const validation = await validateFolder(value);
+			if (seq === currentValidationSeq(kind) && value === outputPath(kind).trim()) {
+				setPathValidation(kind, validation);
+			}
+		} catch (err) {
+			if (seq === currentValidationSeq(kind)) {
+				setPathValidation(kind, pathValidationError(errorMessage(err)));
+			}
+		} finally {
+			if (seq === currentValidationSeq(kind)) {
+				setPathValidating(kind, false);
+			}
+		}
+	};
+
+	const chooseOutputPath = async (kind: PathKind) => {
+		const currentPath =
+			kind === 'failed'
+				? settings.failedOutputPath.trim() || settings.completedOutputPath.trim()
+				: settings.completedOutputPath.trim();
+
+		pickingPath = kind;
+		try {
+			const result = await pickFolder({
+				title: kind === 'completed' ? 'Choose completed clips folder' : 'Choose failed clips folder',
+				currentPath
+			});
+			if (!result.cancelled && result.path) {
+				setOutputPath(kind, result.path);
+				await validateOutputPath(kind);
+			}
+		} catch (err) {
+			setPathValidation(kind, pathValidationError(errorMessage(err)));
+		} finally {
+			pickingPath = null;
+		}
+	};
+
+	const clearOutputPath = (kind: PathKind) => {
+		setOutputPath(kind, '');
+		clearPathValidation(kind);
 	};
 </script>
 
@@ -131,15 +251,44 @@
 			</section>
 
 			<section class={panelClass}>
-				<label class={labelClass} for="completed-output-path">Completed run clips</label>
+				<div class="flex flex-wrap items-center justify-between gap-3">
+					<label class={labelClass} for="completed-output-path">Completed run clips</label>
+					<div class="flex gap-2">
+						<button
+							type="button"
+							class={pathButtonClass}
+							disabled={pickingPath !== null}
+							onclick={() => chooseOutputPath('completed')}
+						>
+							{pickingPath === 'completed' ? 'Choosing...' : 'Choose...'}
+						</button>
+						{#if settings.completedOutputPath.trim()}
+							<button type="button" class={pathButtonClass} onclick={() => clearOutputPath('completed')}>
+								Clear
+							</button>
+						{/if}
+					</div>
+				</div>
 				<input
 					id="completed-output-path"
 					type="text"
 					bind:value={settings.completedOutputPath}
+					oninput={() => clearPathValidation('completed')}
+					onblur={() => validateOutputPath('completed')}
 					placeholder="/home/bond/Videos/GoldenEye/completed"
 					class={inputClass}
 				/>
-				<p class={hintClass}>Leave blank to save beside the OBS replay-buffer file.</p>
+				{#if completedPathValidating}
+					<p class={pathPendingClass}>Checking folder...</p>
+				{:else if completedValidation?.error}
+					<p class={pathErrorClass}>{completedValidation.error}</p>
+				{:else if completedValidation && settings.completedOutputPath.trim()}
+					<p class={pathStatusClass}>
+						{completedValidation.willCreate ? 'Will create' : 'Ready'}: {completedValidation.expandedPath}
+					</p>
+				{:else}
+					<p class={hintClass}>Leave blank to save beside the OBS replay-buffer file.</p>
+				{/if}
 			</section>
 
 			<section class={panelClass}>
@@ -155,15 +304,44 @@
 				{#if settings.saveFailedRuns}
 					<div class="mt-5 grid gap-5">
 						<div>
-							<label class={labelClass} for="failed-output-path">Failed run clips</label>
+							<div class="flex flex-wrap items-center justify-between gap-3">
+								<label class={labelClass} for="failed-output-path">Failed run clips</label>
+								<div class="flex gap-2">
+									<button
+										type="button"
+										class={pathButtonClass}
+										disabled={pickingPath !== null}
+										onclick={() => chooseOutputPath('failed')}
+									>
+										{pickingPath === 'failed' ? 'Choosing...' : 'Choose...'}
+									</button>
+									{#if settings.failedOutputPath.trim()}
+										<button type="button" class={pathButtonClass} onclick={() => clearOutputPath('failed')}>
+											Use completed
+										</button>
+									{/if}
+								</div>
+							</div>
 							<input
 								id="failed-output-path"
 								type="text"
 								bind:value={settings.failedOutputPath}
+								oninput={() => clearPathValidation('failed')}
+								onblur={() => validateOutputPath('failed')}
 								placeholder="/home/bond/Videos/GoldenEye/failed"
 								class={inputClass}
 							/>
-							<p class={hintClass}>Leave blank to use the completed-run clip folder.</p>
+							{#if failedPathValidating}
+								<p class={pathPendingClass}>Checking folder...</p>
+							{:else if failedValidation?.error}
+								<p class={pathErrorClass}>{failedValidation.error}</p>
+							{:else if failedValidation && settings.failedOutputPath.trim()}
+								<p class={pathStatusClass}>
+									{failedValidation.willCreate ? 'Will create' : 'Ready'}: {failedValidation.expandedPath}
+								</p>
+							{:else}
+								<p class={hintClass}>Leave blank to use the completed-run clip folder.</p>
+							{/if}
 						</div>
 
 						<div>

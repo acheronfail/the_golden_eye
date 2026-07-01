@@ -76,6 +76,44 @@ export const putSettings = async (settings: Settings): Promise<Settings> => {
 	return res.json();
 };
 
+export interface FolderPickResult {
+	cancelled: boolean;
+	path?: string | null;
+}
+
+export interface FolderValidation {
+	expandedPath: string;
+	empty: boolean;
+	exists: boolean;
+	isDirectory: boolean;
+	writable: boolean;
+	willCreate: boolean;
+	error?: string | null;
+}
+
+/** Open the plugin backend's native folder picker. The browser never receives a
+ * `FileSystemDirectoryHandle`; it gets the OS path Rust needs for clip output. */
+export const pickFolder = async (options: { title: string; currentPath?: string }): Promise<FolderPickResult> => {
+	const res = await fetch(apiUrl('/api/v1/folders/pick'), {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(options)
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
+/** Validate a folder path from the same process that will later write clips. */
+export const validateFolder = async (path: string): Promise<FolderValidation> => {
+	const res = await fetch(apiUrl('/api/v1/folders/validate'), {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ path })
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
 /** The level match the backend pushes over the monitor WebSocket. Mirrors
  * the Rust `LevelMatch` struct (`runtime_ms` is included but the backend
  * only pushes a new message when the rest of the state changes). */

@@ -19,6 +19,8 @@ use tower_http::BoxError;
 
 use crate::cv::LevelMatch;
 
+const API_REQUEST_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+
 pub struct AppStateInner {
     /// Holds the sender end of a one-shot channel while an OAuth flow is in
     /// progress. The `/oauth/callback` route fires it when the code arrives.
@@ -192,7 +194,9 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
                 Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Unhandled internal error: {error}")))
             }
         }))
-        .timeout(Duration::from_secs(30));
+        // A native folder picker can legitimately stay open while the user
+        // navigates the OS dialog; keep the local API timeout above that path.
+        .timeout(API_REQUEST_TIMEOUT);
 
     // Build application router
 
@@ -206,6 +210,8 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         .route("/api/v1/monitor/status", get(routes::monitor::handle_status))
         .route("/api/v1/monitor/ws", get(routes::monitor::handle_ws))
         .route("/api/v1/settings", get(routes::settings::handle_get).put(routes::settings::handle_put))
+        .route("/api/v1/folders/pick", post(routes::folders::handle_pick))
+        .route("/api/v1/folders/validate", post(routes::folders::handle_validate))
         .route("/api/v1/sources", get(routes::sources::handler))
         .route("/api/v1/screenshot", get(routes::screenshot::handler))
         .route("/api/v1/match", post(routes::matcher::handler))

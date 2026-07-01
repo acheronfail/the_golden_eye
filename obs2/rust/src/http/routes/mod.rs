@@ -1,3 +1,4 @@
+pub mod folders;
 pub mod index;
 pub mod matcher;
 pub mod monitor;

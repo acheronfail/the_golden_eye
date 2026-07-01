@@ -31,7 +31,28 @@ pub struct GeCaptureRegion {
     pub out_height: u32,
 }
 
+#[repr(C)]
+#[allow(dead_code)]
+enum ObsTaskType {
+    Ui,
+    Graphics,
+    Audio,
+    Destroy,
+}
+
+type ObsTask = unsafe extern "C" fn(param: *mut c_void);
+
+pub(crate) fn queue_ui_task(task: ObsTask, param: *mut c_void) {
+    unsafe {
+        obs_queue_task(ObsTaskType::Ui, task, param, false);
+    }
+}
+
 unsafe extern "C" {
+    /// Queues work onto one of OBS's task threads. UI-sensitive native dialogs
+    /// should be routed through `OBS_TASK_UI`.
+    fn obs_queue_task(task_type: ObsTaskType, task: ObsTask, param: *mut c_void, wait: bool);
+
     pub fn obs_frontend_recording_start();
     pub fn obs_frontend_recording_stop();
 

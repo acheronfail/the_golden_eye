@@ -43,6 +43,7 @@ libc = "0.2.186"
 # generator panics with "libclang shared library is not loaded on this thread".
 opencv = { version = "0.98.2", features = ["clang-runtime"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "form", "native-tls", "charset", "http2", "system-proxy"] }
+rfd = "0.17.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 tokio = { version = "1.52.3", features = ["full"] }
