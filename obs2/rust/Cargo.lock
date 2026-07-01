@@ -567,6 +567,7 @@ dependencies = [
  "ffmpeg-next",
  "http-body-util",
  "keyring",
+ "libc",
  "opencv",
  "reqwest",
  "serde",

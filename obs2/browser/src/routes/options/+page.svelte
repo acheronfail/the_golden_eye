@@ -6,6 +6,18 @@
 	const hintClass = 'mt-1 font-mono text-xs text-neutral-500';
 	const inputClass =
 		'mt-2 w-full rounded-md border-neutral-700 bg-neutral-950 font-mono text-sm text-neutral-100 placeholder:text-neutral-700 focus:border-amber-400 focus:ring-amber-400';
+	const templateTokenClass =
+		'cursor-help rounded border border-neutral-800 bg-neutral-900 px-1.5 py-1 font-mono text-xs text-neutral-300';
+	const templateTokens = [
+		{ value: '{obs_replay_name}', description: 'Original OBS replay-buffer filename without the extension.' },
+		{ value: '{level}', description: 'GoldenEye level name, such as Dam, Facility, or Egypt.' },
+		{ value: '{levelNumber}', description: 'GoldenEye level number from 1 through 20.' },
+		{ value: '{time}', description: 'Run time as mm:ss when the stats screen was read.' },
+		{ value: '{difficulty}', description: 'Difficulty name: Agent, Secret Agent, 00 Agent, or 007.' },
+		{ value: '{status}', description: 'Run result: complete, failed, abort, or kia.' },
+		{ value: '{timestamp}', description: 'ISO timestamp in UTC for when the run completed.' },
+		{ value: '{timestamp_local}', description: 'ISO timestamp in local time for when the run completed.' }
+	];
 
 	const normalizeFailedRunLimit = () => {
 		const value = Number(settings.failedRunLimit);
@@ -41,9 +53,18 @@
 				placeholder={DEFAULT_CLIP_FILENAME_TEMPLATE}
 				class={inputClass}
 			/>
-			<p class={hintClass}>
-				{`{replay} {level} {time_suffix} {failed_suffix} {status}`}
-			</p>
+			<p class={hintClass}>Available tokens</p>
+			<div class="mt-2 flex flex-wrap gap-2">
+				{#each templateTokens as token}
+					<code
+						class={templateTokenClass}
+						title={token.description}
+						aria-label={`${token.value}: ${token.description}`}
+					>
+						{token.value}
+					</code>
+				{/each}
+			</div>
 		</section>
 
 		<section class={panelClass}>

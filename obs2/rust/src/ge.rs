@@ -39,6 +39,45 @@ use serde::Serialize;
 pub const AGENT: i32 = 0;
 pub const SECRET_AGENT: i32 = 1;
 pub const AGENT_00: i32 = 2;
+pub const AGENT_007: i32 = 3;
+
+const LEVELS: &[&[&str]] = &[
+    &["Dam", "Facility", "Runway"],
+    &["Surface 1", "Bunker 1"],
+    &["Silo"],
+    &["Frigate"],
+    &["Surface 2", "Bunker 2"],
+    &["Statue", "Archives", "Streets", "Depot", "Train"],
+    &["Jungle", "Control", "Caverns", "Cradle"],
+    &["Aztec"],
+    &["Egypt"],
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LevelInfo {
+    pub name: &'static str,
+    pub number: i32,
+}
+
+/// Human-readable level metadata keyed by the matcher mission/part numbers.
+pub fn level_info(mission: i32, part: i32) -> Option<LevelInfo> {
+    let mission_idx = usize::try_from(mission.checked_sub(1)?).ok()?;
+    let part_idx = usize::try_from(part.checked_sub(1)?).ok()?;
+    let name = *LEVELS.get(mission_idx)?.get(part_idx)?;
+    let previous_level_count = LEVELS.iter().take(mission_idx).map(|levels| levels.len()).sum::<usize>();
+    Some(LevelInfo { name, number: i32::try_from(previous_level_count + part_idx + 1).ok()? })
+}
+
+/// Human-readable difficulty label keyed by the matcher difficulty index.
+pub fn difficulty_name(difficulty: i32) -> Option<&'static str> {
+    match difficulty {
+        AGENT => Some("Agent"),
+        SECRET_AGENT => Some("Secret Agent"),
+        AGENT_00 => Some("00 Agent"),
+        AGENT_007 => Some("007"),
+        _ => None,
+    }
+}
 
 /// A target time expressed as minutes:seconds, in seconds.
 const fn mmss(minutes: i32, seconds: i32) -> i32 {
@@ -119,5 +158,27 @@ impl Times {
             (None, times.get(1).copied())
         };
         Some(Times { time, target_time, best_time })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn level_info_uses_display_names_and_one_based_numbers() {
+        assert_eq!(level_info(1, 1), Some(LevelInfo { name: "Dam", number: 1 }));
+        assert_eq!(level_info(1, 2), Some(LevelInfo { name: "Facility", number: 2 }));
+        assert_eq!(level_info(9, 1), Some(LevelInfo { name: "Egypt", number: 20 }));
+        assert_eq!(level_info(10, 1), None);
+    }
+
+    #[test]
+    fn difficulty_name_uses_menu_labels() {
+        assert_eq!(difficulty_name(AGENT), Some("Agent"));
+        assert_eq!(difficulty_name(SECRET_AGENT), Some("Secret Agent"));
+        assert_eq!(difficulty_name(AGENT_00), Some("00 Agent"));
+        assert_eq!(difficulty_name(AGENT_007), Some("007"));
+        assert_eq!(difficulty_name(4), None);
     }
 }

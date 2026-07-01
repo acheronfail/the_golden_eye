@@ -13,19 +13,19 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::cv::{LevelMatch, Screen};
-use crate::ffmpeg;
 use crate::http::{MonitorEvent, RecordingSaved, RecordingStatus};
+use crate::{ffmpeg, ge};
 
 /// Default filename template for trimmed clips. Mirrors the frontend default and
-/// preserves the original naming scheme unless the user overrides it.
-const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suffix}{failed_suffix}";
+/// falls back through the unique-name suffixer when multiple runs render alike.
+const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level} - {time} - {difficulty} - {status}";
 const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
 
 /// How long to wait for OBS to finish writing the saved replay file before
@@ -170,10 +170,44 @@ struct PendingSave {
     clip_start: Instant,
     /// When the run ending was detected -- the anchor for post-run padding.
     finish_at: Instant,
-    /// Whether a failure screen was seen during the run (for naming/logging).
-    failed: bool,
+    /// The final report status seen for the run (for naming/logging).
+    status: RunStatus,
+    /// Wall-clock time when the run ending was detected.
+    completed_at: SystemTime,
     /// The stats-screen match, kept for naming the output clip.
     stats: Option<LevelMatch>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunStatus {
+    Complete,
+    Failed,
+    Abort,
+    Kia,
+}
+
+impl RunStatus {
+    fn from_failure_screen(screen: Screen) -> Option<Self> {
+        match screen {
+            Screen::Failed => Some(RunStatus::Failed),
+            Screen::Abort => Some(RunStatus::Abort),
+            Screen::Kia => Some(RunStatus::Kia),
+            _ => None,
+        }
+    }
+
+    fn is_failed(self) -> bool {
+        !matches!(self, RunStatus::Complete)
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            RunStatus::Complete => "complete",
+            RunStatus::Failed => "failed",
+            RunStatus::Abort => "abort",
+            RunStatus::Kia => "kia",
+        }
+    }
 }
 
 /// Tracks one recording session as it moves through the on-screen states, and
@@ -184,9 +218,9 @@ pub struct RecordingState {
     /// progress. A scheduled save lives in `pending` instead, so it survives the
     /// active run ending.
     clip_start: Option<Instant>,
-    /// Whether a failure screen (abort / failed / KIA) was seen during the
-    /// active run. Tracked for naming/logging; the clip is saved either way.
-    failed: bool,
+    /// The final report status seen during the active run. Tracked for
+    /// naming/logging; the clip is saved either way.
+    status: Option<RunStatus>,
     /// The post-mission report screen (Complete/Failed/Abort/KIA) match seen
     /// during the active run, or `None` if the run hasn't reached one yet.
     /// Presence means the run finished, so backing out to the level grid from
@@ -208,7 +242,7 @@ pub struct RecordingState {
 
 impl RecordingState {
     pub fn new(event_tx: broadcast::Sender<MonitorEvent>, options: RecordingOptions) -> Self {
-        RecordingState { clip_start: None, failed: false, report: None, pending: None, event_tx, options }
+        RecordingState { clip_start: None, status: None, report: None, pending: None, event_tx, options }
     }
 
     /// Broadcast a recorder state transition to connected WebSocket clients.
@@ -224,16 +258,23 @@ impl RecordingState {
     /// skipped. Any earlier pending save is flushed first so it isn't dropped.
     fn schedule_save(&mut self, now: Instant, clip_start: Instant, stats: Option<LevelMatch>) -> bool {
         self.flush_pending(now);
-        if self.failed && !self.options.save_failed_runs {
+        let status = self.status.unwrap_or(RunStatus::Complete);
+        if status.is_failed() && !self.options.save_failed_runs {
             tracing::info!("failed run reached an ending screen but failed-run saving is disabled");
-            self.failed = false;
+            self.status = None;
             self.report = None;
             return false;
         }
         let save_delay = self.options.save_delay();
-        self.pending =
-            Some(PendingSave { fire_at: now + save_delay, clip_start, finish_at: now, failed: self.failed, stats });
-        self.failed = false;
+        self.pending = Some(PendingSave {
+            fire_at: now + save_delay,
+            clip_start,
+            finish_at: now,
+            status,
+            completed_at: SystemTime::now(),
+            stats,
+        });
+        self.status = None;
         self.report = None;
         tracing::info!(?save_delay, "recording save scheduled");
         true
@@ -251,7 +292,8 @@ impl RecordingState {
             spawn_save_and_trim(
                 start_before_save_secs,
                 trim_tail_secs,
-                pending.failed,
+                pending.status,
+                pending.completed_at,
                 pending.stats,
                 self.options.clone(),
                 self.event_tx.clone(),
@@ -269,7 +311,7 @@ impl RecordingState {
             Screen::Start | Screen::Opts007 => {
                 if self.clip_start.is_none() {
                     self.clip_start = Some(now);
-                    self.failed = false;
+                    self.status = None;
                     self.report = None;
                     ensure_replay_buffer_running();
                     tracing::info!("recording session started");
@@ -287,8 +329,8 @@ impl RecordingState {
                         // return to the grid -- bypassing the stats screen. The run
                         // still finished, so save the clip on the same post-run
                         // padding timer as the stats path, naming it from the report screen.
-                        // `schedule_save` clears `failed`, so capture it first.
-                        let failed = self.failed;
+                        // `schedule_save` clears `status`, so capture it first.
+                        let status = self.status.unwrap_or(RunStatus::Complete);
                         tracing::info!("stats screen skipped (report -> level select)");
                         let scheduled = self.schedule_save(now, start, Some(report));
                         // Backing out to the grid is the *normal* ending for a
@@ -296,14 +338,18 @@ impl RecordingState {
                         // the saving state. Only a completed run whose stats screen
                         // was bypassed counts as skipped.
                         self.emit(if scheduled {
-                            if failed { RecordingStatus::SavePending } else { RecordingStatus::StatsSkipped }
+                            if status.is_failed() {
+                                RecordingStatus::SavePending
+                            } else {
+                                RecordingStatus::StatsSkipped
+                            }
                         } else {
                             RecordingStatus::FailedDiscarded
                         });
                     } else {
                         // No report screen was seen: the run was abandoned mid-play,
                         // so there's nothing worth saving.
-                        self.failed = false;
+                        self.status = None;
                         tracing::info!("recording session abandoned (returned to level select)");
                         self.emit(RecordingStatus::Cancelled);
                     }
@@ -317,8 +363,8 @@ impl RecordingState {
             Screen::Failed | Screen::Abort | Screen::Kia => {
                 if self.clip_start.is_some() {
                     self.report.get_or_insert_with(|| m.clone());
-                    if !self.failed {
-                        self.failed = true;
+                    if !self.status.is_some_and(RunStatus::is_failed) {
+                        self.status = RunStatus::from_failure_screen(m.screen);
                         self.emit(match m.screen {
                             Screen::Abort => RecordingStatus::Aborted,
                             Screen::Kia => RecordingStatus::Kia,
@@ -336,8 +382,8 @@ impl RecordingState {
                 if self.clip_start.is_some() {
                     let first_report = self.report.is_none();
                     self.report.get_or_insert_with(|| m.clone());
-                    if first_report || self.failed {
-                        self.failed = false;
+                    if first_report || self.status.is_some_and(RunStatus::is_failed) {
+                        self.status = Some(RunStatus::Complete);
                         self.emit(RecordingStatus::Complete);
                     }
                 }
@@ -378,7 +424,8 @@ impl RecordingState {
 fn spawn_save_and_trim(
     start_before_save_secs: f64,
     trim_tail_secs: f64,
-    failed: bool,
+    status: RunStatus,
+    completed_at: SystemTime,
     stats: Option<LevelMatch>,
     options: RecordingOptions,
     event_tx: broadcast::Sender<MonitorEvent>,
@@ -399,7 +446,7 @@ fn spawn_save_and_trim(
             }
         };
 
-        match trim_clip(&path, start_before_save_secs, trim_tail_secs, failed, stats, &options) {
+        match trim_clip(&path, start_before_save_secs, trim_tail_secs, status, completed_at, stats, &options) {
             Ok(saved) => {
                 // Ignore send errors: with no WebSocket clients there are no
                 // subscribers, but the save still succeeded.
@@ -420,7 +467,8 @@ fn trim_clip(
     replay_path: &str,
     start_before_save_secs: f64,
     trim_tail_secs: f64,
-    failed: bool,
+    status: RunStatus,
+    completed_at: SystemTime,
     stats: Option<LevelMatch>,
     options: &RecordingOptions,
 ) -> anyhow::Result<RecordingSaved> {
@@ -432,11 +480,12 @@ fn trim_clip(
     let end = (duration - trim_tail_secs).clamp(0.0, duration);
     let start = (duration - start_before_save_secs).max(0.0).min(end);
 
+    let failed = status.is_failed();
     let dir = output_dir(input, failed, options);
     std::fs::create_dir_all(&dir).with_context(|| format!("creating output directory {}", dir.display()))?;
     let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("replay");
     let ext = input.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
-    let name = clip_name(stem, failed, stats.as_ref(), options.clip_filename_template());
+    let name = clip_name(stem, status, completed_at, stats.as_ref(), options.clip_filename_template());
     let output = unique_output_path(&dir.join(format!("{name}.{ext}")));
 
     tracing::info!(
@@ -447,6 +496,7 @@ fn trim_clip(
         trim_end = end,
         duration,
         failed,
+        status = status.as_str(),
         "trimming replay clip",
     );
     ffmpeg::trim(input, &output, start, end)?;
@@ -588,40 +638,142 @@ fn is_failed_clip_path(path: &Path) -> bool {
 }
 
 /// Build an output file name from the configured template and matched level info.
-/// The default template includes the replay stem, which already carries OBS's
-/// timestamp, so clips stay distinct without adding another wall clock.
-fn clip_name(stem: &str, failed: bool, stats: Option<&LevelMatch>, template: &str) -> String {
-    let rendered = render_clip_template(template, stem, failed, stats);
+/// Collisions are handled by [`unique_output_path`], so terse templates remain
+/// safe even when multiple runs render to the same base name.
+fn clip_name(
+    stem: &str,
+    status: RunStatus,
+    completed_at: SystemTime,
+    stats: Option<&LevelMatch>,
+    template: &str,
+) -> String {
+    let rendered = render_clip_template(template, stem, status, completed_at, stats);
     let sanitized = sanitize_filename(&rendered);
     if sanitized.is_empty() {
-        sanitize_filename(&render_clip_template(DEFAULT_CLIP_FILENAME_TEMPLATE, stem, failed, stats))
+        sanitize_filename(&render_clip_template(DEFAULT_CLIP_FILENAME_TEMPLATE, stem, status, completed_at, stats))
     } else {
         sanitized
     }
 }
 
-fn render_clip_template(template: &str, stem: &str, failed: bool, stats: Option<&LevelMatch>) -> String {
+fn render_clip_template(
+    template: &str,
+    stem: &str,
+    status: RunStatus,
+    completed_at: SystemTime,
+    stats: Option<&LevelMatch>,
+) -> String {
     let mission =
         stats.map(|m| if m.mission >= 0 { format!("{:02}", m.mission) } else { "??".to_owned() }).unwrap_or_default();
     let part = stats.map(|m| if m.part >= 0 { m.part.to_string() } else { "?".to_owned() }).unwrap_or_default();
-    let difficulty =
-        stats.map(|m| if m.difficulty >= 0 { m.difficulty.to_string() } else { "?".to_owned() }).unwrap_or_default();
-    let level = stats.map(|_| format!("m{mission}-{part} d{difficulty}")).unwrap_or_else(|| "unknown".to_owned());
-    let time = stats.and_then(|m| m.times.map(|times| times.time.to_string())).unwrap_or_default();
-    let time_suffix = if time.is_empty() { String::new() } else { format!(" - {time}s") };
-    let status = if failed { "failed" } else { "complete" };
-    let failed_suffix = if failed { " - failed" } else { "" };
+    let difficulty = stats.and_then(|m| ge::difficulty_name(m.difficulty)).map(str::to_owned).unwrap_or_default();
+    let level_info = stats.and_then(|m| ge::level_info(m.mission, m.part));
+    let level = level_info.map(|info| info.name).unwrap_or("unknown");
+    let level_number = level_info.map(|info| info.number.to_string()).unwrap_or_default();
+    let time = stats.and_then(|m| m.times.map(|times| format_time(times.time))).unwrap_or_default();
+    let time_suffix = if time.is_empty() { String::new() } else { format!(" - {time}") };
+    let failed_suffix = if status.is_failed() { format!(" - {}", status.as_str()) } else { String::new() };
+    let timestamp = format_iso_utc(completed_at);
+    let timestamp_local = format_iso_local(completed_at);
 
     template
+        .replace("{obs_replay_name}", stem)
+        // Deprecated aliases are kept so stored templates from older builds keep
+        // producing useful names even though the options UI no longer lists them.
         .replace("{replay}", stem)
         .replace("{mission}", &mission)
         .replace("{part}", &part)
         .replace("{difficulty}", &difficulty)
         .replace("{level}", &level)
+        .replace("{levelNumber}", &level_number)
         .replace("{time}", &time)
         .replace("{time_suffix}", &time_suffix)
-        .replace("{status}", status)
-        .replace("{failed_suffix}", failed_suffix)
+        .replace("{status}", status.as_str())
+        .replace("{failed_suffix}", &failed_suffix)
+        .replace("{timestamp}", &timestamp)
+        .replace("{timestamp_local}", &timestamp_local)
+}
+
+fn format_time(seconds: i32) -> String {
+    let seconds = seconds.max(0);
+    format!("{:02}:{:02}", seconds / 60, seconds % 60)
+}
+
+fn system_time_unix_seconds(time: SystemTime) -> i64 {
+    match time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_secs()).unwrap_or(i64::MAX),
+        Err(err) => {
+            let duration = err.duration();
+            let seconds = i64::try_from(duration.as_secs()).unwrap_or(i64::MAX);
+            if duration.subsec_nanos() == 0 { -seconds } else { -seconds - 1 }
+        }
+    }
+}
+
+fn div_floor(a: i64, b: i64) -> i64 {
+    let quotient = a / b;
+    let remainder = a % b;
+    if remainder != 0 && ((remainder > 0) != (b > 0)) { quotient - 1 } else { quotient }
+}
+
+fn utc_from_unix_seconds(seconds: i64) -> (i64, i64, i64, i64, i64, i64) {
+    let days = div_floor(seconds, 86_400);
+    let seconds_of_day = seconds - days * 86_400;
+    let hour = seconds_of_day / 3_600;
+    let minute = (seconds_of_day % 3_600) / 60;
+    let second = seconds_of_day % 60;
+
+    // Howard Hinnant's civil-from-days conversion, using Unix day zero.
+    let z = days + 719_468;
+    let era = div_floor(z, 146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if month <= 2 { 1 } else { 0 };
+
+    (year, month, day, hour, minute, second)
+}
+
+fn format_iso_utc(time: SystemTime) -> String {
+    let (year, month, day, hour, minute, second) = utc_from_unix_seconds(system_time_unix_seconds(time));
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+#[cfg(unix)]
+fn format_iso_local(time: SystemTime) -> String {
+    let seconds = system_time_unix_seconds(time);
+    let time_t = seconds as libc::time_t;
+    let mut local_tm = std::mem::MaybeUninit::<libc::tm>::uninit();
+    let local_tm = unsafe {
+        if libc::localtime_r(&time_t, local_tm.as_mut_ptr()).is_null() {
+            return format_iso_utc(time);
+        }
+        local_tm.assume_init()
+    };
+    let offset = local_tm.tm_gmtoff;
+    let sign = if offset < 0 { '-' } else { '+' };
+    let offset = offset.abs();
+    let offset_hour = offset / 3_600;
+    let offset_minute = (offset % 3_600) / 60;
+
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}{sign}{offset_hour:02}:{offset_minute:02}",
+        local_tm.tm_year + 1900,
+        local_tm.tm_mon + 1,
+        local_tm.tm_mday,
+        local_tm.tm_hour,
+        local_tm.tm_min,
+        local_tm.tm_sec,
+    )
+}
+
+#[cfg(not(unix))]
+fn format_iso_local(time: SystemTime) -> String {
+    format_iso_utc(time)
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -746,22 +898,29 @@ mod tests {
         let m = match_with_time();
 
         let rendered = render_clip_template(
-            "{mission}-{part}-{difficulty}-{level}-{time}-{status}{failed_suffix}",
+            "{obs_replay_name}-{mission}-{part}-{levelNumber}-{level}-{time}-{difficulty}-{status}-{timestamp}",
             "obs replay",
-            true,
+            RunStatus::Abort,
+            UNIX_EPOCH,
             Some(&m),
         );
-        assert_eq!(rendered, "05-1-2-m05-1 d2-123-failed - failed");
+        assert_eq!(rendered, "obs replay-05-1-8-Surface 2-02:03-00 Agent-abort-1970-01-01T00:00:00Z");
 
-        let name = clip_name("OBS/Replay:01", true, Some(&m), "../{replay}/{level}:{time}?{failed_suffix}");
+        let name = clip_name(
+            "OBS/Replay:01",
+            RunStatus::Kia,
+            UNIX_EPOCH,
+            Some(&m),
+            "../{obs_replay_name}/{level}:{time}?{status}",
+        );
         for forbidden in ['/', '\\', ':', '*', '?', '"', '<', '>', '|'] {
             assert!(!name.contains(forbidden), "{name:?} still contains {forbidden:?}");
         }
         assert!(name.contains("OBS-Replay-01"));
-        assert!(name.contains("m05-1 d2"));
-        assert!(name.ends_with("- failed"));
+        assert!(name.contains("Surface 2"));
+        assert!(name.ends_with("-kia"));
 
-        assert_eq!(clip_name("replay", false, None, "..."), "replay - clip - unknown");
+        assert_eq!(clip_name("replay", RunStatus::Complete, UNIX_EPOCH, None, "..."), "unknown -  -  - complete");
     }
 
     #[test]

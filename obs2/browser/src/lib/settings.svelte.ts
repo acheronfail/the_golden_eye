@@ -1,8 +1,9 @@
 import { browser } from '$app/environment';
 import { z } from 'zod';
 
-export const DEFAULT_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
+export const DEFAULT_CLIP_FILENAME_TEMPLATE = '{level} - {time} - {difficulty} - {status}';
 export const DEFAULT_POST_RUN_PADDING_SECS = 5;
+const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
 
 const SettingsSchema = z.object({
 	developerLang: z.union([z.literal('en'), z.literal('jp')]).catch('en'),
@@ -52,6 +53,11 @@ const nonNegativeNumber = (value: unknown, fallback = 0): number => {
 	return Number.isFinite(n) ? Math.max(0, n) : fallback;
 };
 
+const normalizeClipFilenameTemplate = (value: string | undefined): string => {
+	if (!value || value === LEGACY_CLIP_FILENAME_TEMPLATE) return DEFAULT_CLIP_FILENAME_TEMPLATE;
+	return value;
+};
+
 export const settings = new (class {
 	//
 	// Developer
@@ -67,7 +73,7 @@ export const settings = new (class {
 	saveFailedRuns = $state(storedSettings?.saveFailedRuns ?? true);
 	failedOutputPath = $state(storedSettings?.failedOutputPath ?? '');
 	failedRunLimit = $state(nonNegativeInt(storedSettings?.failedRunLimit ?? 0));
-	clipFilenameTemplate = $state(storedSettings?.clipFilenameTemplate ?? DEFAULT_CLIP_FILENAME_TEMPLATE);
+	clipFilenameTemplate = $state(normalizeClipFilenameTemplate(storedSettings?.clipFilenameTemplate));
 	preRunPaddingSecs = $state(nonNegativeNumber(storedSettings?.preRunPaddingSecs ?? 0));
 	postRunPaddingSecs = $state(nonNegativeNumber(storedSettings?.postRunPaddingSecs ?? DEFAULT_POST_RUN_PADDING_SECS));
 
