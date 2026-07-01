@@ -141,21 +141,39 @@ pub fn replay_buffer_enabled() -> bool {
     unsafe { crate::ffi::ge_obs_replay_buffer_enabled() }
 }
 
+/// Whether OBS currently exposes a replay-buffer output. This can be false even
+/// when the checkbox is enabled, for output modes where OBS disables replay
+/// buffer internally.
+pub fn replay_buffer_available() -> bool {
+    unsafe { crate::ffi::ge_obs_replay_buffer_available() }
+}
+
+/// Configured maximum replay-buffer duration in seconds.
+pub fn replay_buffer_max_seconds() -> Option<u64> {
+    let seconds = unsafe { crate::ffi::ge_obs_replay_buffer_max_seconds() };
+    u64::try_from(seconds).ok()
+}
+
 /// Whether the replay buffer output is currently running.
 pub fn replay_buffer_active() -> bool {
     unsafe { crate::ffi::obs_frontend_replay_buffer_active() }
 }
 
-/// Start the replay buffer if it is enabled and not already running.
-pub fn ensure_replay_buffer_running() {
-    if !replay_buffer_enabled() {
-        tracing::warn!("replay buffer is not enabled in OBS; recording will not work");
-        return;
+/// Start the replay buffer if it is available and not already running.
+pub fn ensure_replay_buffer_running() -> bool {
+    if !replay_buffer_available() {
+        if replay_buffer_enabled() {
+            tracing::warn!("replay buffer is enabled in OBS but unavailable with the current output settings");
+        } else {
+            tracing::warn!("replay buffer is not enabled in OBS; recording will not work");
+        }
+        return false;
     }
     if !replay_buffer_active() {
         tracing::info!("starting replay buffer");
         unsafe { crate::ffi::obs_frontend_replay_buffer_start() };
     }
+    true
 }
 
 /// A save that has been scheduled and *will* happen, captured in full the moment

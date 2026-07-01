@@ -401,6 +401,10 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         return Err((StatusCode::CONFLICT, "a monitor is already running").into());
     }
 
+    if !crate::recording::ensure_replay_buffer_running() {
+        return Err((StatusCode::PRECONDITION_FAILED, "replay buffer is unavailable").into());
+    }
+
     // Build the session (and its fresh, empty scale cache) up front so any
     // configuration error surfaces as a failed request rather than a thread that
     // silently exits.
@@ -408,11 +412,6 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         tracing::error!("failed to start monitor: {err}");
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher")
     })?;
-
-    // Keep the replay buffer running for the whole session so a run can be saved
-    // out of it at the end. A no-op if it isn't enabled in OBS (the frontend
-    // warns about that) or is already running.
-    crate::recording::ensure_replay_buffer_running();
 
     // Reusable capture context (and its GPU surfaces), created once for the
     // session. Owned by the ProducerCtx below and destroyed when that is dropped

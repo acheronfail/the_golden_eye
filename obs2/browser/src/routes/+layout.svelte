@@ -21,7 +21,7 @@
 		refreshReplayBuffer();
 	});
 
-	// While the replay buffer is confirmed disabled, force the user back to `/`
+	// While the replay buffer is confirmed unavailable, force the user back to `/`
 	// (which explains how to enable it). `/`, `/options`, and the dev-only
 	// `/developer` tools are exempt so the user has somewhere to land and
 	// debugging still works. An unknown status (null) never redirects — we only
@@ -29,7 +29,7 @@
 	$effect(() => {
 		const path = page.url.pathname;
 		const exempt = path === '/' || path === '/options' || path === '/developer';
-		if (replayBuffer.status?.enabled === false && !exempt) {
+		if (replayBuffer.status?.available === false && !exempt) {
 			goto('/');
 		}
 	});

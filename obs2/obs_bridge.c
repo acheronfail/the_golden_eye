@@ -58,20 +58,41 @@ void ge_obs_collect_source_names(char *buffer, size_t buffer_size) {
   }
 }
 
+static const char *ge_replay_buffer_config_section(config_t *config) {
+  /* The replay-buffer toggle lives in a different section depending on the
+   * output mode: "Advanced" reads AdvOut.RecRB, everything else (Simple) reads
+   * SimpleOutput.RecRB. */
+  const char *mode = config_get_string(config, "Output", "Mode");
+  if (mode && strcmp(mode, "Advanced") == 0) {
+    return "AdvOut";
+  }
+  return "SimpleOutput";
+}
+
 bool ge_obs_replay_buffer_enabled(void) {
   config_t *config = obs_frontend_get_profile_config();
   if (!config) {
     return false;
   }
 
-  /* The replay-buffer toggle lives in a different section depending on the
-   * output mode: "Advanced" reads AdvOut.RecRB, everything else (Simple) reads
-   * SimpleOutput.RecRB. */
-  const char *mode = config_get_string(config, "Output", "Mode");
-  if (mode && strcmp(mode, "Advanced") == 0) {
-    return config_get_bool(config, "AdvOut", "RecRB");
+  return config_get_bool(config, ge_replay_buffer_config_section(config), "RecRB");
+}
+
+bool ge_obs_replay_buffer_available(void) {
+  if (!ge_obs_replay_buffer_enabled()) {
+    return false;
   }
-  return config_get_bool(config, "SimpleOutput", "RecRB");
+
+  return obs_frontend_get_replay_buffer_output() != NULL;
+}
+
+int64_t ge_obs_replay_buffer_max_seconds(void) {
+  config_t *config = obs_frontend_get_profile_config();
+  if (!config) {
+    return -1;
+  }
+
+  return config_get_int(config, ge_replay_buffer_config_section(config), "RecRBTime");
 }
 
 /* Reusable GPU surfaces for repeated captures. Creating and destroying a

@@ -52,6 +52,13 @@ unsafe extern "C" {
     /// Whether the replay buffer is enabled in the active profile's output
     /// settings (the "Enable Replay Buffer" checkbox). See the C bridge.
     pub fn ge_obs_replay_buffer_enabled() -> bool;
+    /// Whether OBS currently has a usable replay-buffer output object. This can
+    /// be false even when the profile checkbox is true, such as simple lossless
+    /// recording where OBS disables replay buffer.
+    pub fn ge_obs_replay_buffer_available() -> bool;
+    /// Configured maximum replay-buffer duration in seconds, or -1 if the
+    /// active profile config cannot be read.
+    pub fn ge_obs_replay_buffer_max_seconds() -> i64;
     pub fn ge_obs_collect_source_names(buffer: *mut c_char, buffer_size: usize);
     /// Renders the named source to a freshly `malloc`'d BGRA pixel buffer
     /// (`width * height * 4` bytes) and writes its dimensions to the out

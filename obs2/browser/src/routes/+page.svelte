@@ -12,9 +12,17 @@
 	// re-fetches the previews (the URL is otherwise identical and would be cached).
 	let previewVersion = $state(0);
 
-	// The replay buffer must be enabled to record; gate source selection on it.
-	// Anything other than a confirmed "enabled" keeps selection disabled.
-	const replayDisabled = $derived(replayBuffer.status?.enabled !== true);
+	const MIN_REPLAY_BUFFER_SECONDS = 1100;
+	const RECOMMENDED_REPLAY_BUFFER_SECONDS = 1200;
+
+	// The replay buffer must be available to record; gate source selection on it.
+	// Anything other than a confirmed "available" keeps selection disabled.
+	const replayUnavailable = $derived(replayBuffer.status?.available !== true);
+	const replayBufferTooShort = $derived(
+		replayBuffer.status?.available === true &&
+			replayBuffer.status.maxSeconds !== null &&
+			replayBuffer.status.maxSeconds < MIN_REPLAY_BUFFER_SECONDS
+	);
 
 	// Re-query OBS for its current sources. Used both for the initial load and the
 	// manual "refresh" button, so the list can be updated without a full page reload.
@@ -36,7 +44,7 @@
 	let options = $derived<Option[]>((sources ?? []).map((s) => ({ title: s.name, detail: s.id, key: s.name })));
 
 	const select = (option: Option) => {
-		if (replayDisabled) return;
+		if (replayUnavailable) return;
 		goto(`/source/${encodeURIComponent(option.title)}`);
 	};
 </script>
@@ -63,12 +71,30 @@
 	title="Choose your capture source"
 	subtitle="Pick the OBS source attached to your N64's video output."
 >
-	{#if replayBuffer.status && !replayBuffer.status.enabled}
+	{#if replayBuffer.status && !replayBuffer.status.available}
 		<div class="mb-4 rounded-md border border-amber-500/60 bg-amber-950/40 px-4 py-3">
-			<p class="text-sm font-semibold text-amber-300">Replay buffer is disabled</p>
+			<p class="text-sm font-semibold text-amber-300">
+				{replayBuffer.status.enabled ? 'Replay buffer is unavailable' : 'Replay buffer is disabled'}
+			</p>
 			<p class="mt-1 font-mono text-xs text-amber-200/80">
-				Enable it in OBS under Settings → Output → Replay Buffer, then refresh. You can't pick a source until the replay
-				buffer is on.
+				{#if replayBuffer.status.enabled}
+					OBS has Replay Buffer enabled, but the current Output settings do not expose a usable replay buffer. Lossless
+					recording quality is one OBS setting that disables it. Change the Output settings, then refresh.
+				{:else}
+					Enable it in OBS under Settings → Output → Replay Buffer, then refresh.
+				{/if}
+				You can't pick a source until the replay buffer is usable.
+			</p>
+		</div>
+	{/if}
+
+	{#if replayBufferTooShort}
+		<div class="mb-4 rounded-md border border-amber-500/60 bg-amber-950/40 px-4 py-3">
+			<p class="text-sm font-semibold text-amber-300">Replay buffer time is short</p>
+			<p class="mt-1 font-mono text-xs text-amber-200/80">
+				OBS is configured for {replayBuffer.status?.maxSeconds} seconds. GoldenEye's in-game timer can reach 1023 seconds,
+				and this tool recommends extra room for starting and ending cutscenes plus the mission report and stats screens. Set
+				Maximum Replay Time to {RECOMMENDED_REPLAY_BUFFER_SECONDS} seconds for near-maximum-length runs.
 			</p>
 		</div>
 	{/if}
@@ -83,7 +109,7 @@
 			</p>
 		</div>
 	{:else}
-		<OptionList {options} onSelect={select} {leading} disabled={replayDisabled} />
+		<OptionList {options} onSelect={select} {leading} disabled={replayUnavailable} />
 	{/if}
 
 	{#if sources !== null}

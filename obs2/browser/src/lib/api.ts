@@ -37,15 +37,19 @@ export const getSources = async (): Promise<ObsSource[]> => {
 };
 
 /** Replay-buffer status reported by the backend. `enabled` reflects the OBS
- * profile setting (the recorder needs it on to save clips); `active` whether it
- * is currently running. Mirrors the Rust `ReplayBufferStatus`. */
+ * profile checkbox; `available` whether OBS has a replay-buffer output for the
+ * current output settings; `active` whether it is currently running; and
+ * `maxSeconds` the configured replay-buffer window. Mirrors the Rust
+ * `ReplayBufferStatus`. */
 export interface ReplayBufferStatus {
 	enabled: boolean;
+	available: boolean;
 	active: boolean;
+	maxSeconds: number | null;
 }
 
-/** Fetch whether OBS's replay buffer is enabled (and running). Throws on a
- * non-OK response. */
+/** Fetch whether OBS's replay buffer is enabled/available (and running). Throws
+ * on a non-OK response. */
 export const getReplayBufferStatus = async (): Promise<ReplayBufferStatus> => {
 	const res = await fetch(apiUrl('/api/v1/replay-buffer/status'));
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);

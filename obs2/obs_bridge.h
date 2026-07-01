@@ -18,6 +18,17 @@ void ge_obs_recording_stop(void);
  * mode); returns false if the config can't be read. */
 bool ge_obs_replay_buffer_enabled(void);
 
+/* Whether OBS currently has a replay-buffer output object for the active
+ * profile. OBS can leave the checkbox enabled while making replay buffer
+ * unavailable for some output modes (for example simple lossless recording, or
+ * advanced custom FFmpeg output); in those cases the frontend output pointer is
+ * NULL and starting/saving replay buffer clips cannot work. */
+bool ge_obs_replay_buffer_available(void);
+
+/* Configured maximum replay-buffer duration in seconds (RecRBTime). Returns -1
+ * if the active profile config cannot be read. */
+int64_t ge_obs_replay_buffer_max_seconds(void);
+
 /* Push-model per-frame notifications. While registered, `cb(param, cx, cy)` is
  * invoked once per rendered frame on the OBS graphics thread, inside an active
  * graphics context -- so the callback may capture frames via ge_capture_get_frame
