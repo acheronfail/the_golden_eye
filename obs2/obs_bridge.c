@@ -83,7 +83,10 @@ bool ge_obs_replay_buffer_available(void) {
     return false;
   }
 
-  return obs_frontend_get_replay_buffer_output() != NULL;
+  obs_output_t *output = obs_frontend_get_replay_buffer_output();
+  bool available = output != NULL;
+  obs_output_release(output);
+  return available;
 }
 
 int64_t ge_obs_replay_buffer_max_seconds(void) {
