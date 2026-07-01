@@ -42,7 +42,7 @@ A failed frontend build stops the chain before cargo runs. Do not bypass this de
 
 ### Where Things Live
 
-- `obs2/cv_templates/` - PNG templates for the level matcher. Templates are language-suffixed (`en-`, `jp-`); language is selected via `GE_LANG` (default `en`). CMake copies these into the built plugin layout (`Contents/Resources/cv_templates` on macOS, `cv_templates/` beside the Linux plugin library).
+- `obs2/cv_templates/` - PNG templates for the level matcher. Templates are language-suffixed (`en-`, `jp-`); `test_match` takes the language as a CLI argument. CMake copies these into the built plugin layout (`Contents/Resources/cv_templates` on macOS, `cv_templates/` beside the Linux plugin library).
 - `obs2/vendor/obs/` - vendored OBS headers, populated by `just obs-headers`.
 - `obs2/vendor/opencv-static/` and `obs2/vendor/ffmpeg-static/` - static dependency prefixes built by `just opencv-static` and `just ffmpeg-static`.
 - `obs2/rust/src/bin/test_match.rs` - standalone CLI that runs `cv::match_level` on a single PNG and emits JSON. Used by the test harness in `test/`.
@@ -50,7 +50,7 @@ A failed frontend build stops the chain before cargo runs. Do not bypass this de
 
 ## Commands
 
-All top-level workflows go through `just` (driven by `justfile`). `set dotenv-load` means `.env` is auto-loaded.
+All top-level workflows go through `just` (driven by `justfile`).
 
 ### Setup
 
@@ -84,7 +84,7 @@ The test harness (`test/frames.test.ts`) iterates over PNGs in `test/screenshots
 To run the matcher on a single screenshot directly:
 
 ```sh
-GE_LANG=en obs2/rust/target/release/test_match path/to/shot.png
+obs2/rust/target/release/test_match en path/to/shot.png
 ```
 
 ### Frontend
@@ -112,9 +112,6 @@ cargo test
 
 ## Environment Variables
 
-`.env` is loaded by `just`.
-
-- `GE_LANG` - `en` or `jp`. Picks the template set.
 - `DISCORD_WEBHOOK_URL`, `DISCORD_MESSAGE_NAME` - read by Rust `Config` for the Discord stream notification. Resolved once at startup and logged.
 - `GE_CV_THREADS` - caps OpenCV's internal thread pool in `test_match` for benchmarking.
 - `GE_CV_TEMPLATE_DIR` - optional template directory override. OBS runtime defaults to the templates bundled by CMake next to/inside the plugin.

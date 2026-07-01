@@ -136,10 +136,7 @@ for (const runner of runners) {
 
     results[runner.name].totalTests++;
 
-    process.env.GE_LANG = screenshot.lang;
-    const { stdout } = await execCommand(runner.command(screenshot.filePath)).finally(() => {
-      delete process.env.GE_LANG;
-    });
+    const { stdout } = await execCommand(runner.command(screenshot.filePath, screenshot.lang));
 
     const result = JSON.parse(stdout);
     const testResult: TestResult = { runTime: result.runtime_ms };

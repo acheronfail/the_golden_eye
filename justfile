@@ -1,5 +1,3 @@
-set dotenv-load
-
 #
 # Build variables
 #
@@ -8,12 +6,12 @@ obs_headers := justfile_directory() / "obs2/vendor/obs"
 obsapi_version := "32.1.2"
 opencv_version := "4.11.0"
 ffmpeg_version := "8.0"
-cmake_version  := "3.31.7"
+cmake_version := "3.31.7"
 
-export BROWSER_BUNDLE := justfile_directory() / "obs2/browser/build/index.html"
 export DYLD_FALLBACK_LIBRARY_PATH := "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib"
-export OPENCV_PREFIX := justfile_directory() /  "obs2/vendor/opencv-static"
-export FFMPEG_PREFIX := justfile_directory() /  "obs2/vendor/ffmpeg-static"
+export BROWSER_BUNDLE := justfile_directory() / "obs2/browser/build/index.html"
+export OPENCV_PREFIX := justfile_directory() / "obs2/vendor/opencv-static"
+export FFMPEG_PREFIX := justfile_directory() / "obs2/vendor/ffmpeg-static"
 
 _default:
     just -l
@@ -71,10 +69,10 @@ dev:
     OBS_PLUGINS_PATH="$build_dir" OBS_PLUGINS_DATA_PATH="$build_dir" obs
 
 test *filter: make-release
-    cd test && npm run test -- {{filter}}
+    cd test && npm run test -- {{ filter }}
 
 test-watch *filter: make-release
-    cd test && npm run test-watch -- {{filter}}
+    cd test && npm run test-watch -- {{ filter }}
 
 fmt:
     cd obs2/browser && npm run format:repo
@@ -94,13 +92,13 @@ test-rust *args:
     # opencv's build script (it needs libclang via this path). A dedicated target
     # dir keeps cargo's system-opencv build from thrashing against the CMake
     # build's static-opencv artifacts in target/release.
-    export DYLD_FALLBACK_LIBRARY_PATH="{{DYLD_FALLBACK_LIBRARY_PATH}}"
-    export CARGO_TARGET_DIR="{{justfile_directory()}}/obs2/rust/target/test"
+    export DYLD_FALLBACK_LIBRARY_PATH="{{ DYLD_FALLBACK_LIBRARY_PATH }}"
+    export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
     # ffmpeg-next is built with the `static` feature, so point pkg-config at the
     # vendored static FFmpeg (built by `just ffmpeg-static`) just like the CMake
     # build does — otherwise ffmpeg-sys-next falls back to a system FFmpeg.
-    export PKG_CONFIG_PATH="{{FFMPEG_PREFIX}}/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-    cd "{{justfile_directory()}}/obs2/rust" && cargo test --release {{args}}
+    export PKG_CONFIG_PATH="{{ FFMPEG_PREFIX }}/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    cd "{{ justfile_directory() }}/obs2/rust" && cargo test --release {{ args }}
 
 make:
     mkdir -p obs2/build
@@ -307,13 +305,13 @@ setup: obs-headers opencv-static ffmpeg-static
     cd test && npm install
 
 clean:
-    rm -rf "{{obs_headers}}"
+    rm -rf "{{ obs_headers }}"
     rm -rf "node_modules"
     rm -rf "obs2/browser/node_modules"
     rm -rf "test/node_modules"
     rm -rf "obs2/ge_rust.h"
     rm -rf "obs2/build"
     rm -rf "esp32-input-monitor/.pio"
-    rm -rf "{{OPENCV_PREFIX}}"
-    rm -rf "{{FFMPEG_PREFIX}}"
+    rm -rf "{{ OPENCV_PREFIX }}"
+    rm -rf "{{ FFMPEG_PREFIX }}"
     cd "obs2/rust" && cargo clean

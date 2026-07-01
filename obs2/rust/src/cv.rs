@@ -1,10 +1,10 @@
 // Standalone CLI for exercising the GoldenEye level matcher outside of OBS.
 //
-//   test_match path/to/screenshot.png [templates_dir]
+//   test_match <lang> path/to/screenshot.png [templates_dir]
 //
 // Loads the given image, converts it to the BGRA layout the plugin feeds the
-// matcher, runs the matcher, and prints the match result to stdout. `lang`
-// is read from the GE_LANG environment variable (default: "en") and
+// matcher, runs the matcher, and prints the match result to stdout. `lang` is
+// a template filename prefix such as "en" or "jp", and
 // `templates_dir` defaults to the cv_templates/ directory that ships
 // alongside obs2/.
 //

@@ -12,11 +12,6 @@ System dependencies:
     * `brew install just cmake wget simde nasm`
     * Have OBS installed in `/Applications`
 
-Setup `.env` file:
-
-* Copy `.env.example` to `.env`
-* Set any optional variables you need
-
 Get started:
 
 ```shell

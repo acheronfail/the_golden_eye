@@ -8,18 +8,17 @@ use serde_json::json;
 
 fn run() -> Result<i32> {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("usage: {} path/to/png [templates_dir]", args[0]);
+    if args.len() < 3 {
+        eprintln!("usage: {} <lang> path/to/png [templates_dir]", args[0]);
         return Ok(2);
     }
 
-    let image_path = &args[1];
-    let ge_lang = env::var("GE_LANG").unwrap_or_else(|_| "en".to_string());
-    let lang = ge_lang.as_str();
+    let lang = args[1].as_str();
+    let image_path = &args[2];
     // Default to the cv_templates/ dir that ships alongside obs2/, resolved
     // relative to this crate at compile time (mirrors GE_TEMPLATES_DIR).
     let default_templates = concat!(env!("CARGO_MANIFEST_DIR"), "/../cv_templates");
-    let templates_dir = args.get(2).map(|s| s.as_str()).unwrap_or(default_templates);
+    let templates_dir = args.get(3).map(|s| s.as_str()).unwrap_or(default_templates);
 
     // Benchmarking hook: GE_CV_THREADS caps OpenCV's internal thread pool.
     if let Ok(t) = env::var("GE_CV_THREADS")
