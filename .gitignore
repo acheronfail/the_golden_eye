@@ -1,9 +1,6 @@
 node_modules/
 screenshots/
-llama/
-models/
 goldeneye.json
-generated-tokens.json
 .env
 .DS_Store
 build/

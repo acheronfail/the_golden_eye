@@ -6,7 +6,7 @@
 
 # macos dependencies
 xcode-select --install
-brew install just cmake llvm opencv simde
+brew install just cmake wget simde nasm
 
 # installs all dependencies
 just setup
@@ -15,10 +15,9 @@ just setup
 Now that's complete, you can:
 
 ```sh
-# run the project and automatically start recording when a level starts
-# and save the recording when the level is successfully cleared:
-just run
-
 # run OBS with the plugin
 just obs
+
+# run OBS with browser and Rust hot reload
+just dev
 ```

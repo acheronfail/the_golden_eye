@@ -1,18 +1,6 @@
 set dotenv-load
 
 #
-# legacy (v1) variables
-#
-
-model := "gemma-4-E4B-it"
-gguf := "https://huggingface.co/unsloth/" + model + "-GGUF/resolve/main/" + model + "-Q4_K_M.gguf?download=true"
-mmproj := "https://huggingface.co/unsloth/" + model + "-GGUF/resolve/main/mmproj-BF16.gguf?download=true"
-llama_cpp_macos := "https://github.com/ggml-org/llama.cpp/releases/download/b9106/llama-b9106-bin-macos-arm64.tar.gz"
-llama_cpp_linux := "https://github.com/ggml-org/llama.cpp/releases/download/b9113/llama-b9113-bin-ubuntu-vulkan-x64.tar.gz"
-export LLAMA_GGUF_PATH := "models/" + model + "-llm.gguf"
-export LLAMA_MMPROJ_PATH := "models/" + model + "-mmproj.gguf"
-
-#
 # Build variables
 #
 
@@ -319,29 +307,6 @@ ffmpeg-static:
     echo "Static FFmpeg installed to ${FFMPEG_PREFIX}"
     echo "Now run 'just make' / 'just obs' — CMake auto-detects the static prefix."
 
-run:
-    npm run obs
-
-repl:
-    npm run repl
-
-upload dir:
-    npm run upload -- {{ dir }}
-
-_setup-legacy:
-    OPENCV4NODEJS_DISABLE_AUTOBUILD=1 npm install
-    mkdir -p models
-    wget --no-clobber -O {{ LLAMA_GGUF_PATH }} {{ gguf }} || true
-    wget --no-clobber -O {{ LLAMA_MMPROJ_PATH }} {{ mmproj }} || true
-
-    mkdir -p llama
-    if [ "$(uname)" = "Darwin" ]; then \
-      wget --no-clobber -O - {{ llama_cpp_macos }} | tar xz -C llama --strip-components=1; \
-      xattr -d com.apple.quarantine llama/* 2>/dev/null || true; \
-    else \
-      wget --no-clobber -O - {{ llama_cpp_linux }} | tar xz -C llama --strip-components=1; \
-    fi
-
 # setup the repository for local development
 setup: obs-headers opencv-static ffmpeg-static
     cd obs2/browser && npm install
@@ -351,6 +316,7 @@ clean:
     rm -rf "{{obs_headers}}"
     rm -rf "node_modules"
     rm -rf "obs2/browser/node_modules"
+    rm -rf "test/node_modules"
     rm -rf "obs2/ge_rust.h"
     rm -rf "obs2/build"
     rm -rf "esp32-input-monitor/.pio"
