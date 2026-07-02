@@ -689,25 +689,18 @@ fn render_clip_template(
     let level = level_info.map(|info| info.name).unwrap_or("unknown");
     let level_number = level_info.map(|info| info.number.to_string()).unwrap_or_default();
     let time = stats.and_then(|m| m.times.map(|times| format_time(times.time))).unwrap_or_default();
-    let time_suffix = if time.is_empty() { String::new() } else { format!(" - {time}") };
-    let failed_suffix = if status.is_failed() { format!(" - {}", status.as_str()) } else { String::new() };
     let timestamp = format_iso_utc(completed_at);
     let timestamp_local = format_iso_local(completed_at);
 
     template
         .replace("{obs_replay_name}", stem)
-        // Deprecated aliases are kept so stored templates from older builds keep
-        // producing useful names even though the options UI no longer lists them.
-        .replace("{replay}", stem)
         .replace("{mission}", &mission)
         .replace("{part}", &part)
         .replace("{difficulty}", &difficulty)
         .replace("{level}", &level)
         .replace("{levelNumber}", &level_number)
         .replace("{time}", &time)
-        .replace("{time_suffix}", &time_suffix)
         .replace("{status}", status.as_str())
-        .replace("{failed_suffix}", &failed_suffix)
         .replace("{timestamp}", &timestamp)
         .replace("{timestamp_local}", &timestamp_local)
 }
@@ -871,6 +864,30 @@ mod tests {
         }
     }
 
+    fn match_without_time() -> LevelMatch {
+        LevelMatch {
+            screen: Screen::Complete,
+            mission: 1,
+            part: 2,
+            difficulty: 1,
+            times: None,
+            raw_times: Vec::new(),
+            runtime_ms: 0.0,
+        }
+    }
+
+    fn match_with_unreadable_header() -> LevelMatch {
+        LevelMatch {
+            screen: Screen::Stats,
+            mission: -1,
+            part: -1,
+            difficulty: 99,
+            times: Some(Times { time: -5, target_time: None, best_time: None }),
+            raw_times: vec![-5],
+            runtime_ms: 0.0,
+        }
+    }
+
     #[test]
     fn output_dir_prefers_failed_then_completed_then_replay_parent() {
         let dir = TestDir::new("output-dir");
@@ -909,6 +926,86 @@ mod tests {
         let no_ext = dir.join("clip");
         write_file(&no_ext);
         assert_eq!(unique_output_path(&no_ext), dir.join("clip (2)"));
+    }
+
+    #[test]
+    fn render_clip_template_replaces_all_supported_tokens() {
+        let m = match_with_time();
+        let completed_at = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+
+        let rendered = render_clip_template(
+            "{obs_replay_name}|{mission}|{part}|{levelNumber}|{level}|{time}|{difficulty}|{status}|{timestamp}|{timestamp_local}",
+            "obs replay",
+            RunStatus::Complete,
+            completed_at,
+            Some(&m),
+        );
+
+        assert_eq!(
+            rendered,
+            format!(
+                "obs replay|05|1|8|Surface 2|02:03|00 Agent|complete|2023-11-14T22:13:20Z|{}",
+                format_iso_local(completed_at),
+            ),
+        );
+    }
+
+    #[test]
+    fn render_clip_template_uses_empty_fields_without_stats() {
+        let rendered = render_clip_template(
+            "{level}|{mission}|{part}|{levelNumber}|{time}|{difficulty}|{status}|{obs_replay_name}",
+            "replay",
+            RunStatus::Failed,
+            UNIX_EPOCH,
+            None,
+        );
+
+        assert_eq!(rendered, "unknown||||||failed|replay");
+    }
+
+    #[test]
+    fn render_clip_template_omits_time_when_report_has_no_stats_row() {
+        let m = match_without_time();
+
+        let rendered = render_clip_template(
+            "{mission}-{part}-{levelNumber}-{level}-{time}-{difficulty}-{status}",
+            "replay",
+            RunStatus::Abort,
+            UNIX_EPOCH,
+            Some(&m),
+        );
+
+        assert_eq!(rendered, "01-2-2-Facility--Secret Agent-abort");
+    }
+
+    #[test]
+    fn render_clip_template_marks_unreadable_header_parts() {
+        let m = match_with_unreadable_header();
+
+        let rendered = render_clip_template(
+            "{mission}|{part}|{levelNumber}|{level}|{time}|{difficulty}|{status}",
+            "replay",
+            RunStatus::Kia,
+            UNIX_EPOCH,
+            Some(&m),
+        );
+
+        assert_eq!(rendered, "??|?||unknown|00:00||kia");
+    }
+
+    #[test]
+    fn render_clip_template_leaves_unknown_tokens_and_unsanitized_text() {
+        let m = match_with_time();
+
+        let rendered = render_clip_template(
+            "{obs_replay_name}/{not_a_token}/{level}:{status}",
+            "OBS/Replay:01",
+            RunStatus::Complete,
+            UNIX_EPOCH,
+            Some(&m),
+        );
+
+        assert_eq!(rendered, "OBS/Replay:01/{not_a_token}/Surface 2:complete");
     }
 
     #[test]
