@@ -6,6 +6,8 @@
 		detail?: string;
 		/** Stable key for the `{#each}` block. Defaults to `title`. */
 		key?: string;
+		/** Optional visual tone for domain-specific list rows. */
+		tone?: 'success';
 	}
 </script>
 
@@ -72,6 +74,7 @@
 				onclick={() => onSelect(option, i)}
 				onkeydown={(e) => onkeydown(e, i)}
 				class="obs-list-button group flex w-full flex-col items-stretch gap-3 rounded px-4 py-3 text-left transition-colors sm:flex-row sm:items-center sm:gap-4"
+				class:obs-list-button-success={option.tone === 'success'}
 			>
 				{#if leading}
 					{@render leading(option, i)}

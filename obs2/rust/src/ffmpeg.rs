@@ -9,7 +9,7 @@
 //! frequent keyframes, so the slack is small).
 
 use std::io::Cursor;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, anyhow};
 use ffmpeg_next::ffi::AV_TIME_BASE;
@@ -128,6 +128,35 @@ pub fn read_clip_metadata(path: &Path) -> anyhow::Result<Option<ClipMetadata>> {
     Ok(ClipMetadata::from_dictionary(&ictx.metadata()))
 }
 
+/// Rewrites only the container metadata for `path`, preserving streams without
+/// re-encoding. The update is staged in the same directory and swapped into
+/// place after a successful remux.
+pub fn rewrite_metadata_in_place(path: &Path, clip_metadata: &ClipMetadata) -> anyhow::Result<()> {
+    let temp = sibling_temp_path(path, "metadata")?;
+    let backup = sibling_temp_path(path, "metadata-backup")?;
+
+    let result = (|| {
+        rewrite_metadata(path, &temp, clip_metadata)?;
+        replace_file_with_backup(path, &temp, &backup)
+    })();
+
+    if result.is_err()
+        && let Err(err) = std::fs::remove_file(&temp)
+        && err.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!(path = %temp.display(), "failed to remove incomplete metadata rewrite: {err}");
+    }
+
+    result
+}
+
+/// Remuxes `input` to `output` with updated plugin metadata, preserving all
+/// copied streams and non-plugin metadata.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn rewrite_metadata(input: &Path, output: &Path, clip_metadata: &ClipMetadata) -> anyhow::Result<()> {
+    remux_with_metadata(input, output, None, Some(clip_metadata))
+}
+
 /// Decode one video frame and return it as a BMP thumbnail.
 pub fn thumbnail_bmp(path: &Path, max_width: u32) -> anyhow::Result<Vec<u8>> {
     init()?;
@@ -197,6 +226,15 @@ pub fn trim_with_metadata(
     end_secs: f64,
     clip_metadata: Option<&ClipMetadata>,
 ) -> anyhow::Result<()> {
+    remux_with_metadata(input, output, Some((start_secs, end_secs)), clip_metadata)
+}
+
+fn remux_with_metadata(
+    input: &Path,
+    output: &Path,
+    trim_window: Option<(f64, f64)>,
+    clip_metadata: Option<&ClipMetadata>,
+) -> anyhow::Result<()> {
     init()?;
 
     let mut ictx = format::input(input).with_context(|| format!("opening {}", input.display()))?;
@@ -232,15 +270,17 @@ pub fn trim_with_metadata(
         return Err(anyhow!("no audio/video/subtitle streams to copy from {}", input.display()));
     }
 
-    let mut metadata = ictx.metadata().to_owned();
-    if let Some(clip_metadata) = clip_metadata {
-        clip_metadata.write_to(&mut metadata);
-    }
+    let metadata = match clip_metadata {
+        Some(clip_metadata) => metadata_with_plugin_tags(&ictx.metadata(), clip_metadata),
+        None => ictx.metadata().to_owned(),
+    };
     octx.set_metadata(metadata);
     write_header(&mut octx, output).context("writing output header")?;
 
     // Seek to (or just before) the start so we don't decode the whole file; the
     // demuxer lands on the nearest keyframe at or before this point.
+    let start_secs = trim_window.map(|(start_secs, _)| start_secs).unwrap_or(0.0);
+    let end_secs = trim_window.map(|(_, end_secs)| end_secs);
     let start_avtb = (start_secs.max(0.0) * AV_TIME_BASE as f64) as i64;
     if start_avtb > 0 {
         // Ignore seek failures: a tiny/keyframe-less file just plays from 0.
@@ -271,7 +311,7 @@ pub fn trim_with_metadata(
         let in_tb = ist_time_bases[ist_index];
         // Packet time in seconds, for the end-bound check.
         let ts = packet.dts().or_else(|| packet.pts());
-        if let Some(ts) = ts {
+        if let (Some(end_secs), Some(ts)) = (end_secs, ts) {
             let secs = ts as f64 * in_tb.numerator() as f64 / in_tb.denominator() as f64;
             if secs > end_secs {
                 if !finished[ist_index] {
@@ -295,6 +335,86 @@ pub fn trim_with_metadata(
 
     octx.write_trailer().context("writing output trailer")?;
     Ok(())
+}
+
+fn metadata_with_plugin_tags(source: &DictionaryRef<'_>, clip_metadata: &ClipMetadata) -> Dictionary<'static> {
+    let mut metadata = Dictionary::new();
+    for (key, value) in source.iter() {
+        if !is_plugin_metadata_key(key) {
+            metadata.set(key, value);
+        }
+    }
+    clip_metadata.write_to(&mut metadata);
+    metadata
+}
+
+fn is_plugin_metadata_key(key: &str) -> bool {
+    [
+        TAG_CREATED_BY,
+        TAG_SCHEMA_VERSION,
+        TAG_PLUGIN_VERSION,
+        TAG_RUN_TIMESTAMP,
+        TAG_RUN_TIME,
+        TAG_RUN_TIME_SECONDS,
+        TAG_LEVEL,
+        TAG_LEVEL_NUMBER,
+        TAG_DIFFICULTY,
+        TAG_STATUS,
+        TAG_ROM_LANGUAGE,
+        TAG_SOURCE_NAME,
+        "comment",
+    ]
+    .iter()
+    .any(|candidate| key.eq_ignore_ascii_case(candidate))
+}
+
+fn sibling_temp_path(path: &Path, role: &str) -> anyhow::Result<PathBuf> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("clip");
+    let ext = path.extension().and_then(|ext| ext.to_str());
+    let pid = std::process::id();
+
+    for i in 0..1000 {
+        let suffix = if i == 0 { format!("{role}-{pid}") } else { format!("{role}-{pid}-{i}") };
+        let file_name = match ext {
+            Some(ext) if !ext.is_empty() => format!(".{stem}.{suffix}.{ext}"),
+            _ => format!(".{stem}.{suffix}"),
+        };
+        let candidate = parent.join(file_name);
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(anyhow!("could not allocate temporary path beside {}", path.display()))
+}
+
+fn replace_file_with_backup(path: &Path, replacement: &Path, backup: &Path) -> anyhow::Result<()> {
+    if let Ok(metadata) = std::fs::metadata(path) {
+        let _ = std::fs::set_permissions(replacement, metadata.permissions());
+    }
+
+    std::fs::rename(path, backup).with_context(|| format!("moving {} to {}", path.display(), backup.display()))?;
+    match std::fs::rename(replacement, path) {
+        Ok(()) => {
+            if let Err(err) = std::fs::remove_file(backup) {
+                tracing::warn!(path = %backup.display(), "failed to remove metadata rewrite backup: {err}");
+            }
+            Ok(())
+        }
+        Err(err) => {
+            let restore = std::fs::rename(backup, path);
+            match restore {
+                Ok(()) => Err(err).with_context(|| format!("moving {} to {}", replacement.display(), path.display())),
+                Err(restore_err) => Err(anyhow!(
+                    "moving {} to {} failed ({err}); restoring {} also failed ({restore_err})",
+                    replacement.display(),
+                    path.display(),
+                    backup.display()
+                )),
+            }
+        }
+    }
 }
 
 fn set_optional_metadata(metadata: &mut Dictionary, key: &str, value: Option<&str>) {
@@ -428,6 +548,49 @@ mod tests {
 
         let got = read_clip_metadata(&out).expect("read metadata").expect("plugin metadata");
         assert_eq!(got, metadata);
+
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn rewrites_metadata_in_place_and_drops_old_optional_tags() {
+        let input = sample_clip();
+        let full = duration_secs(&input).expect("probe duration");
+        let out = std::env::temp_dir().join(format!("ge_ffmpeg_metadata_rewrite_test_{}.mov", std::process::id()));
+        let _ = std::fs::remove_file(&out);
+
+        let original = ClipMetadata {
+            timestamp: "2026-01-02T03:04:05Z".to_owned(),
+            time: Some("02:03".to_owned()),
+            time_seconds: Some(123),
+            level: "Surface 2".to_owned(),
+            level_number: Some(8),
+            difficulty: Some("00 Agent".to_owned()),
+            status: "complete".to_owned(),
+            rom_language: "en".to_owned(),
+            source_name: "N64 Capture".to_owned(),
+            comment: "Created by The Golden Eye OBS plugin v0.0.0".to_owned(),
+            plugin_version: "0.0.0".to_owned(),
+        };
+        trim_with_metadata(&input, &out, 1.0, (full - 1.0).max(2.0), Some(&original)).expect("trim with metadata");
+
+        let updated = ClipMetadata {
+            timestamp: "2026-01-03T03:04:05Z".to_owned(),
+            time: None,
+            time_seconds: None,
+            level: "Dam".to_owned(),
+            level_number: Some(1),
+            difficulty: None,
+            status: "failed".to_owned(),
+            rom_language: "jp".to_owned(),
+            source_name: "N64 Capture".to_owned(),
+            comment: "Created by The Golden Eye OBS plugin v0.0.0".to_owned(),
+            plugin_version: "0.0.0".to_owned(),
+        };
+        rewrite_metadata_in_place(&out, &updated).expect("rewrite metadata");
+
+        let got = read_clip_metadata(&out).expect("read metadata").expect("plugin metadata");
+        assert_eq!(got, updated);
 
         let _ = std::fs::remove_file(&out);
     }

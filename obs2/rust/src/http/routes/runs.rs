@@ -1,8 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::SystemTime;
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Query, State};
@@ -21,6 +22,30 @@ const THUMBNAIL_MAX_WIDTH: u32 = 320;
 #[derive(Debug, Deserialize)]
 pub struct RunPathParams {
     path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunRenameRequest {
+    path: String,
+    file_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunMetadataUpdateRequest {
+    path: String,
+    metadata: EditableRunMetadata,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditableRunMetadata {
+    rom_language: String,
+    status: String,
+    difficulty: String,
+    time: String,
+    level: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -67,24 +92,60 @@ struct ConfiguredRunDirectory {
 #[derive(Debug)]
 enum RunPathError {
     BadRequest(&'static str),
+    Conflict(&'static str),
     Forbidden(&'static str),
     NotFound(&'static str),
     Probe(anyhow::Error),
+    Internal(anyhow::Error),
 }
 
 impl RunPathError {
     fn into_response(self) -> Response {
         match self {
             RunPathError::BadRequest(message) => (StatusCode::BAD_REQUEST, message).into_response(),
+            RunPathError::Conflict(message) => (StatusCode::CONFLICT, message).into_response(),
             RunPathError::Forbidden(message) => (StatusCode::FORBIDDEN, message).into_response(),
             RunPathError::NotFound(message) => (StatusCode::NOT_FOUND, message).into_response(),
             RunPathError::Probe(err) => {
                 tracing::warn!("failed to probe requested run clip: {err:#}");
                 (StatusCode::BAD_REQUEST, "could not read run clip metadata").into_response()
             }
+            RunPathError::Internal(err) => {
+                tracing::warn!("run file operation failed: {err:#}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "run file operation failed").into_response()
+            }
         }
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+struct LevelOption {
+    name: &'static str,
+    number: i32,
+}
+
+const LEVEL_OPTIONS: [LevelOption; 20] = [
+    LevelOption { name: "Dam", number: 1 },
+    LevelOption { name: "Facility", number: 2 },
+    LevelOption { name: "Runway", number: 3 },
+    LevelOption { name: "Surface 1", number: 4 },
+    LevelOption { name: "Bunker 1", number: 5 },
+    LevelOption { name: "Silo", number: 6 },
+    LevelOption { name: "Frigate", number: 7 },
+    LevelOption { name: "Surface 2", number: 8 },
+    LevelOption { name: "Bunker 2", number: 9 },
+    LevelOption { name: "Statue", number: 10 },
+    LevelOption { name: "Archives", number: 11 },
+    LevelOption { name: "Streets", number: 12 },
+    LevelOption { name: "Depot", number: 13 },
+    LevelOption { name: "Train", number: 14 },
+    LevelOption { name: "Jungle", number: 15 },
+    LevelOption { name: "Control", number: 16 },
+    LevelOption { name: "Caverns", number: 17 },
+    LevelOption { name: "Cradle", number: 18 },
+    LevelOption { name: "Aztec", number: 19 },
+    LevelOption { name: "Egypt", number: 20 },
+];
 
 #[axum::debug_handler]
 pub async fn handle_list(State(state): State<AppState>) -> Result<impl IntoResponse> {
@@ -122,6 +183,78 @@ pub async fn handle_video(
     let settings = state.settings.get();
     let path = authorize_tagged_run_path(&settings, &params.path).map_err(RunPathError::into_response)?;
     serve_video_file(path, &headers).await
+}
+
+#[axum::debug_handler]
+pub async fn handle_delete(
+    State(state): State<AppState>,
+    Query(params): Query<RunPathParams>,
+) -> Result<impl IntoResponse> {
+    let settings = state.settings.get();
+    let path = authorize_tagged_run_path(&settings, &params.path).map_err(RunPathError::into_response)?;
+
+    tokio::task::spawn_blocking(move || fs::remove_file(&path))
+        .await
+        .map_err(|err| {
+            tracing::error!("run delete task failed: {err:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "run delete failed").into_response()
+        })?
+        .map_err(|err| RunPathError::Internal(err.into()).into_response())?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[axum::debug_handler]
+pub async fn handle_reveal(
+    State(state): State<AppState>,
+    Query(params): Query<RunPathParams>,
+) -> Result<impl IntoResponse> {
+    let settings = state.settings.get();
+    let path = authorize_tagged_run_path(&settings, &params.path).map_err(RunPathError::into_response)?;
+
+    tokio::task::spawn_blocking(move || reveal_in_file_browser(&path))
+        .await
+        .map_err(|err| {
+            tracing::error!("run reveal task failed: {err:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "run reveal failed").into_response()
+        })?
+        .map_err(RunPathError::into_response)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[axum::debug_handler]
+pub async fn handle_rename(
+    State(state): State<AppState>,
+    Json(req): Json<RunRenameRequest>,
+) -> Result<impl IntoResponse> {
+    let settings = state.settings.get();
+    let clip = tokio::task::spawn_blocking(move || rename_run_clip(&settings, req))
+        .await
+        .map_err(|err| {
+            tracing::error!("run rename task failed: {err:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "run rename failed").into_response()
+        })?
+        .map_err(RunPathError::into_response)?;
+
+    Ok((StatusCode::OK, Json(clip)))
+}
+
+#[axum::debug_handler]
+pub async fn handle_update_metadata(
+    State(state): State<AppState>,
+    Json(req): Json<RunMetadataUpdateRequest>,
+) -> Result<impl IntoResponse> {
+    let settings = state.settings.get();
+    let clip = tokio::task::spawn_blocking(move || update_run_metadata(&settings, req))
+        .await
+        .map_err(|err| {
+            tracing::error!("run metadata update task failed: {err:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "run metadata update failed").into_response()
+        })?
+        .map_err(RunPathError::into_response)?;
+
+    Ok((StatusCode::OK, Json(clip)))
 }
 
 pub fn list_configured_runs(settings: &AppSettings) -> RunsResponse {
@@ -235,6 +368,174 @@ fn authorize_tagged_run_path(settings: &AppSettings, raw_path: &str) -> std::res
         Ok(Some(_)) => Ok(path),
         Ok(None) => Err(RunPathError::Forbidden("run clip was not created by The Golden Eye")),
         Err(err) => Err(RunPathError::Probe(err)),
+    }
+}
+
+fn rename_run_clip(settings: &AppSettings, req: RunRenameRequest) -> std::result::Result<RunClip, RunPathError> {
+    let path = authorize_tagged_run_path(settings, &req.path)?;
+    let file_name = normalized_run_file_name(&path, &req.file_name)?;
+    let parent = path.parent().ok_or(RunPathError::BadRequest("run clip has no parent directory"))?;
+    let target = parent.join(file_name);
+
+    if target == path {
+        return tagged_clip(&path)?
+            .ok_or(RunPathError::Forbidden("run clip was not created by The Golden Eye"))
+            .map_err(Into::into);
+    }
+    if target.exists() {
+        return Err(RunPathError::Conflict("a run clip with that filename already exists"));
+    }
+
+    fs::rename(&path, &target).with_context(|| format!("renaming {} to {}", path.display(), target.display()))?;
+    tagged_clip(&target)?
+        .ok_or(RunPathError::Forbidden("run clip was not created by The Golden Eye"))
+        .map_err(Into::into)
+}
+
+fn update_run_metadata(
+    settings: &AppSettings,
+    req: RunMetadataUpdateRequest,
+) -> std::result::Result<RunClip, RunPathError> {
+    let path = authorize_tagged_run_path(settings, &req.path)?;
+    let mut metadata = ffmpeg::read_clip_metadata(&path)
+        .map_err(RunPathError::Probe)?
+        .ok_or(RunPathError::Forbidden("run clip was not created by The Golden Eye"))?;
+
+    apply_metadata_update(&mut metadata, req.metadata)?;
+    ffmpeg::rewrite_metadata_in_place(&path, &metadata).map_err(RunPathError::Internal)?;
+
+    tagged_clip(&path)?.ok_or(RunPathError::Forbidden("run clip was not created by The Golden Eye")).map_err(Into::into)
+}
+
+impl From<anyhow::Error> for RunPathError {
+    fn from(err: anyhow::Error) -> Self {
+        RunPathError::Internal(err)
+    }
+}
+
+fn apply_metadata_update(
+    metadata: &mut ClipMetadata,
+    update: EditableRunMetadata,
+) -> std::result::Result<(), RunPathError> {
+    let level = normalize_level(&update.level)?;
+    let time = normalize_time(&update.time)?;
+
+    metadata.rom_language = normalize_rom_language(&update.rom_language)?.to_owned();
+    metadata.status = normalize_status(&update.status)?.to_owned();
+    metadata.difficulty = Some(normalize_difficulty(&update.difficulty)?.to_owned());
+    metadata.level = level.name.to_owned();
+    metadata.level_number = Some(level.number);
+    metadata.time = time.as_ref().map(|(_, formatted)| formatted.clone());
+    metadata.time_seconds = time.map(|(seconds, _)| seconds);
+
+    Ok(())
+}
+
+fn normalize_rom_language(value: &str) -> std::result::Result<&'static str, RunPathError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "en" => Ok("en"),
+        "jp" => Ok("jp"),
+        _ => Err(RunPathError::BadRequest("rom language must be en or jp")),
+    }
+}
+
+fn normalize_status(value: &str) -> std::result::Result<&'static str, RunPathError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "complete" | "completed" => Ok("complete"),
+        "failed" => Ok("failed"),
+        "abort" | "aborted" => Ok("abort"),
+        "kia" | "killed in action" => Ok("kia"),
+        _ => Err(RunPathError::BadRequest("status must be failed, aborted, completed, or killed in action")),
+    }
+}
+
+fn normalize_difficulty(value: &str) -> std::result::Result<&'static str, RunPathError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "agent" => Ok("Agent"),
+        "secret agent" => Ok("Secret Agent"),
+        "00 agent" => Ok("00 Agent"),
+        "007" => Ok("007"),
+        _ => Err(RunPathError::BadRequest("difficulty must be agent, secret agent, 00 agent, or 007")),
+    }
+}
+
+fn normalize_level(value: &str) -> std::result::Result<LevelOption, RunPathError> {
+    let trimmed = value.trim();
+    LEVEL_OPTIONS
+        .iter()
+        .copied()
+        .find(|level| level.name.eq_ignore_ascii_case(trimmed))
+        .ok_or(RunPathError::BadRequest("level must be one of the supported GoldenEye levels"))
+}
+
+fn normalize_time(value: &str) -> std::result::Result<Option<(i32, String)>, RunPathError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    let Some((minutes, seconds)) = trimmed.split_once(':') else {
+        return Err(RunPathError::BadRequest("time must be formatted as mm:ss"));
+    };
+    if minutes.is_empty() || seconds.len() != 2 || !minutes.chars().all(|c| c.is_ascii_digit()) {
+        return Err(RunPathError::BadRequest("time must be formatted as mm:ss"));
+    }
+    let minutes = minutes.parse::<i32>().map_err(|_| RunPathError::BadRequest("time minutes are invalid"))?;
+    let seconds = seconds.parse::<i32>().map_err(|_| RunPathError::BadRequest("time seconds are invalid"))?;
+    if !(0..=59).contains(&seconds) {
+        return Err(RunPathError::BadRequest("time seconds must be between 00 and 59"));
+    }
+
+    let total = minutes
+        .checked_mul(60)
+        .and_then(|m| m.checked_add(seconds))
+        .ok_or(RunPathError::BadRequest("time is too large"))?;
+
+    Ok(Some((total, format!("{minutes:02}:{seconds:02}"))))
+}
+
+fn normalized_run_file_name(path: &Path, raw: &str) -> std::result::Result<String, RunPathError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(RunPathError::BadRequest("filename is required"));
+    }
+    if trimmed == "." || trimmed == ".." || trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains('\0') {
+        return Err(RunPathError::BadRequest("filename cannot contain path separators"));
+    }
+
+    let mut file_name = trimmed.to_owned();
+    if Path::new(&file_name).extension().is_none()
+        && let Some(ext) = path.extension().and_then(|ext| ext.to_str())
+        && !ext.is_empty()
+    {
+        file_name.push('.');
+        file_name.push_str(ext);
+    }
+    if !is_video_file(Path::new(&file_name)) {
+        return Err(RunPathError::BadRequest("filename must use a supported video extension"));
+    }
+
+    Ok(file_name)
+}
+
+fn reveal_in_file_browser(path: &Path) -> std::result::Result<(), RunPathError> {
+    #[cfg(target_os = "macos")]
+    let status = Command::new("open").arg("-R").arg(path).status();
+
+    #[cfg(target_os = "windows")]
+    let status = Command::new("explorer").arg(format!("/select,{}", path.display())).status();
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let status = {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        Command::new("xdg-open").arg(parent).status()
+    };
+
+    let status = status.map_err(|err| RunPathError::Internal(err.into()))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(RunPathError::Internal(anyhow!("file browser exited with status {status}")))
     }
 }
 
@@ -417,5 +718,38 @@ fn format_unix_timestamp(time: SystemTime) -> String {
     match time.duration_since(SystemTime::UNIX_EPOCH) {
         Ok(duration) => duration.as_secs().to_string(),
         Err(err) => format!("-{}", err.duration().as_secs()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_time_formats_mm_ss_and_seconds() {
+        assert_eq!(normalize_time("1:02").unwrap(), Some((62, "01:02".to_owned())));
+        assert_eq!(normalize_time("12:34").unwrap(), Some((754, "12:34".to_owned())));
+        assert_eq!(normalize_time(" ").unwrap(), None);
+    }
+
+    #[test]
+    fn normalize_time_rejects_bad_values() {
+        assert!(matches!(normalize_time("1"), Err(RunPathError::BadRequest(_))));
+        assert!(matches!(normalize_time("1:2"), Err(RunPathError::BadRequest(_))));
+        assert!(matches!(normalize_time("1:60"), Err(RunPathError::BadRequest(_))));
+    }
+
+    #[test]
+    fn normalized_run_file_name_preserves_extension_when_missing() {
+        let path = Path::new("/runs/original.mov");
+        assert_eq!(normalized_run_file_name(path, "renamed").unwrap(), "renamed.mov");
+        assert_eq!(normalized_run_file_name(path, "renamed.mp4").unwrap(), "renamed.mp4");
+    }
+
+    #[test]
+    fn normalized_run_file_name_rejects_paths_and_non_video_extensions() {
+        let path = Path::new("/runs/original.mov");
+        assert!(matches!(normalized_run_file_name(path, "../renamed.mov"), Err(RunPathError::BadRequest(_))));
+        assert!(matches!(normalized_run_file_name(path, "renamed.txt"), Err(RunPathError::BadRequest(_))));
     }
 }

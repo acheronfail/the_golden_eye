@@ -85,6 +85,44 @@ export const runThumbnailUrl = (path: string): string =>
 
 export const runVideoUrl = (path: string): string => apiUrl(`/api/v1/runs/video?path=${encodeURIComponent(path)}`);
 
+export interface EditableRunMetadata {
+	romLanguage: string;
+	status: string;
+	difficulty: string;
+	time: string;
+	level: string;
+}
+
+export const deleteRun = async (path: string): Promise<void> => {
+	const res = await fetch(apiUrl(`/api/v1/runs?path=${encodeURIComponent(path)}`), { method: 'DELETE' });
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+};
+
+export const revealRun = async (path: string): Promise<void> => {
+	const res = await fetch(apiUrl(`/api/v1/runs/reveal?path=${encodeURIComponent(path)}`), { method: 'POST' });
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+};
+
+export const renameRun = async (path: string, fileName: string): Promise<RunClip> => {
+	const res = await fetch(apiUrl('/api/v1/runs/rename'), {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ path, fileName })
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
+export const updateRunMetadata = async (path: string, metadata: EditableRunMetadata): Promise<RunClip> => {
+	const res = await fetch(apiUrl('/api/v1/runs'), {
+		method: 'PATCH',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ path, metadata })
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
 /** Replay-buffer status reported by the backend. `enabled` reflects the OBS
  * profile checkbox; `available` whether OBS has a replay-buffer output for the
  * current output settings; `active` whether it is currently running; and

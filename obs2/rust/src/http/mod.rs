@@ -359,7 +359,14 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         .route("/api/v1/settings", get(routes::settings::handle_get).put(routes::settings::handle_put))
         .route("/api/v1/folders/pick", post(routes::folders::handle_pick))
         .route("/api/v1/folders/validate", post(routes::folders::handle_validate))
-        .route("/api/v1/runs", get(routes::runs::handle_list))
+        .route(
+            "/api/v1/runs",
+            get(routes::runs::handle_list)
+                .delete(routes::runs::handle_delete)
+                .patch(routes::runs::handle_update_metadata),
+        )
+        .route("/api/v1/runs/reveal", post(routes::runs::handle_reveal))
+        .route("/api/v1/runs/rename", post(routes::runs::handle_rename))
         .route("/api/v1/runs/thumbnail", get(routes::runs::handle_thumbnail))
         .route("/api/v1/runs/video", get(routes::runs::handle_video))
         .route("/api/v1/sources", get(routes::sources::handler))

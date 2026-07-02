@@ -410,10 +410,18 @@ body {
 	color: var(--obs-text);
 }
 
+.obs-list-button-success {
+	border-color: color-mix(in srgb, var(--obs-success), var(--obs-border) 68%);
+}
+
 .obs-list-button:hover {
 	background: var(--obs-control-hover);
 	border-color: var(--obs-gold-muted);
 	cursor: pointer;
+}
+
+.obs-list-button-success:hover {
+	border-color: color-mix(in srgb, var(--obs-success), var(--obs-border) 42%);
 }
 
 .obs-list-button:active {
@@ -430,6 +438,10 @@ body {
 	color: var(--obs-text);
 }
 
+.obs-list-button-success .obs-list-title {
+	color: color-mix(in srgb, var(--obs-success), var(--obs-text) 22%);
+}
+
 .obs-list-detail {
 	color: var(--obs-text-dim);
 }
@@ -441,6 +453,10 @@ body {
 .obs-list-button:hover .obs-list-title,
 .obs-list-button:hover .obs-list-arrow {
 	color: var(--obs-gold-hover);
+}
+
+.obs-list-button-success:hover .obs-list-title {
+	color: var(--obs-success);
 }
 
 .obs-list-button:hover .obs-list-detail {
