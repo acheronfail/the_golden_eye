@@ -114,7 +114,7 @@
 	};
 
 	const bannerClass =
-		'obs-banner inline-block max-w-full p-2 text-left font-mono text-xs leading-[1.17] whitespace-pre';
+		'obs-banner inline-block max-w-full p-2 text-left font-mono text-[10px] leading-[1.17] whitespace-pre';
 	const bannerText = `\
 ┏┳┓┓     ┏┓  ┓ ┓      ┏┓
  ┃ ┣┓┏┓  ┃┓┏┓┃┏┫┏┓┏┓  ┣ ┓┏┏┓
@@ -122,7 +122,7 @@
                          ┛`;
 
 	const menuButtonClass =
-		'obs-icon-button obs-phase-gold-button inline-flex h-10 w-10 shrink-0 items-center justify-center';
+		'obs-icon-button obs-phase-gold-button inline-flex h-8 w-8 shrink-0 items-center justify-center';
 	const menuPanelClass =
 		'obs-menu-panel absolute top-full right-2 z-40 mt-2 w-[min(20rem,calc(100vw-1rem))] rounded p-2 text-sm';
 	const menuLinkCommon =
@@ -145,7 +145,7 @@
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 <svelte:window onclick={onWindowClick} onkeydown={onWindowKeydown} />
 
-<div class="obs-app-shell flex h-screen min-h-0 min-w-[400px] flex-col overflow-hidden">
+<div class="obs-app-shell flex h-screen min-h-0 min-w-100 flex-col overflow-hidden">
 	<header class="obs-app-header relative flex shrink-0 items-center">
 		<a href="/" aria-label="The Golden Eye home" class="block min-w-0 shrink overflow-hidden">
 			<pre class={bannerClass}>{bannerText}</pre>

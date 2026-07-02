@@ -17,10 +17,31 @@
 	let { params }: PageProps = $props();
 
 	let monitoring = $state(false);
+	let transition = $state<'starting' | 'stopping' | null>(null);
+	const obsTransitionStyle = {
+		title: 'waiting for OBS',
+		border: 'obs-phase-neutral-border',
+		heading: 'obs-phase-neutral-text',
+		tag: 'obs-phase-neutral-text',
+		button: 'obs-phase-neutral-button',
+		dot: 'obs-phase-neutral-dot'
+	};
 
-	const style = $derived(monitorPhaseStyle(monitor.recordingState));
+	const waitingForObs = $derived(transition !== null);
 	const currentMatch = $derived(monitor.match);
 	const currentTimes = $derived(monitor.match?.times ?? null);
+	const style = $derived(waitingForObs ? obsTransitionStyle : monitorPhaseStyle(monitor.recordingState));
+	const statusLabel = $derived(
+		transition === 'starting' ? 'Starting monitor' : transition === 'stopping' ? 'Stopping monitor' : 'Monitoring'
+	);
+	const title = $derived(waitingForObs ? 'waiting for OBS' : style.title);
+	const detail = $derived(
+		transition === 'starting'
+			? 'replay buffer is stopping or starting'
+			: transition === 'stopping'
+				? 'stopping monitor'
+				: (currentMatch?.screen ?? '...')
+	);
 
 	// Format a level time (whole seconds) as m:ss for the stats overlay readout.
 	const formatTime = (secs: number): string => {
@@ -68,10 +89,9 @@
 
 	// Guards against a double start: the window Space handler and the OptionList
 	// button's own keyboard activation can both fire for one keypress.
-	let starting = false;
 	const startMonitor = async () => {
-		if (monitoring || starting) return;
-		starting = true;
+		if (monitoring || transition) return;
+		transition = 'starting';
 		try {
 			await settings.saveNow();
 			await apiStartMonitor(params.sourceName, params.lang);
@@ -81,11 +101,13 @@
 		} catch (err) {
 			alert(err instanceof Error ? err.message : String(err));
 		} finally {
-			starting = false;
+			transition = null;
 		}
 	};
 
 	const stopMonitor = async () => {
+		if (transition) return;
+		transition = 'stopping';
 		try {
 			await apiStopMonitor();
 			setMonitorStopped();
@@ -93,6 +115,8 @@
 			monitoring = false;
 		} catch (err) {
 			alert(err instanceof Error ? err.message : String(err));
+		} finally {
+			transition = null;
 		}
 	};
 
@@ -105,6 +129,7 @@
 	// OptionList button holding focus); Escape also stops it. `startMonitor` is
 	// idempotent, so it's harmless if the button's native activation also fires.
 	const onkeydown = (event: KeyboardEvent) => {
+		if (transition) return;
 		if (monitoring) {
 			if (event.key === ' ' || event.key === 'Escape') {
 				event.preventDefault();
@@ -123,9 +148,11 @@
 
 <svelte:window {onkeydown} />
 
-{#if monitoring}
+{#if monitoring || transition}
 	<main
 		class="relative flex h-full min-h-0 flex-col items-center justify-center overflow-hidden px-6 py-12 text-center"
+		aria-busy={waitingForObs}
+		aria-live="polite"
 	>
 		<!-- A thick border frames the page area (below the header) to signal
 		     monitoring is live; its colour tracks the recorder state so the state
@@ -133,20 +160,20 @@
 		<div class="pointer-events-none absolute inset-0 z-10 border-8 {style.border}"></div>
 
 		<p class="font-mono text-xs tracking-widest {style.tag} uppercase">
-			Monitoring
+			{statusLabel}
 			<span>({params.lang})</span>
 		</p>
 		<!-- The big centered title is the recorder state, in words, colour-matched
 		     to the border. -->
 		<h1 class="mt-4 text-6xl font-semibold wrap-break-word {style.heading}">
-			{style.title}
+			{title}
 		</h1>
 		<!-- The raw matched screen, for detail beneath the plain-language title. -->
 		<p class="obs-dim mt-3 font-mono text-xs tracking-widest uppercase">
-			{currentMatch?.screen ?? '...'}
+			{detail}
 		</p>
 
-		{#if currentTimes}
+		{#if currentTimes && !waitingForObs}
 			<!-- Stats overlay is on screen (e.g. while a save is pending): surface the
 			     matched times so they're visible on the page. The run time is always
 			     present; the target and best times only appear when the game shows
@@ -171,7 +198,9 @@
 			</div>
 		{/if}
 
-		<p class="obs-subtitle mt-6 text-sm">press escape or space to stop monitoring</p>
+		<p class="obs-subtitle mt-6 text-sm">
+			{waitingForObs ? 'OBS is finishing the replay buffer transition' : 'press escape or space to stop monitoring'}
+		</p>
 	</main>
 {:else}
 	<WizardFrame
