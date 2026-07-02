@@ -13,7 +13,9 @@ Follow the instructions for your operating system:
 
 System dependencies:
 
-* Common: `rustup`, `nodejs` (version from `.nvmrc`), `just`, `wget`
+* Common:
+    * `rustup`, `nodejs` (version from `.nvmrc`), `just`, `wget`
+    * The flatpak SDK that OBS uses is needed: `flatpak install $(flatpak info --show-sdk com.obsproject.Studio)`
 * Debian: OBS (system or flatpak) + `libdbus-1-dev libssl-dev nasm pkg-config`
 * Arch Linux: OBS (system or flatpak) + `cmake nasm pkg-config`
 * macOS:

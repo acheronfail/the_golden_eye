@@ -83,7 +83,7 @@ target_include_directories(${CORE_NAME} PRIVATE
     # Also expose `libobs/` directly so OBS's headers can #include <obs.h> etc.
     ${VENDOR_LIBOBS_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
-    $<$<BOOL:${APPLE}>:/opt/homebrew/opt/simde/include>
+    ${GE_SIMDE_INCLUDE_DIR}
 )
 target_link_libraries(${CORE_NAME} PRIVATE
     ${OBS_LIBRARIES}
@@ -161,8 +161,8 @@ target_include_directories(${PLUGIN_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
     ${VENDOR_LIBOBS_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
-    # obs-module.h transitively pulls in obs.h, which needs simde on macOS.
-    $<$<BOOL:${APPLE}>:/opt/homebrew/opt/simde/include>
+    # obs-module.h transitively pulls in obs.h, which needs simde.
+    ${GE_SIMDE_INCLUDE_DIR}
 )
 
 find_package(Threads REQUIRED)

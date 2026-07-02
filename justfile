@@ -2,6 +2,8 @@
 # Build variables
 #
 
+set tempdir := "/tmp"
+
 obs_headers := justfile_directory() / "obs2/vendor/obs"
 source_archive_cache := justfile_directory() / "obs2/vendor/archives"
 plugin_version := "0.1.0"
@@ -120,6 +122,7 @@ make-release:
       -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
     && make
 
+[macos]
 make-package:
     mkdir -p obs2/build
     cd obs2/build && cmake .. \
@@ -128,6 +131,11 @@ make-package:
       -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
     && cmake --build . --target package-plugin
 
+[linux]
+make-package: make-release-flatpak
+    just _flatpak-build package-plugin
+
+[macos]
 install:
     mkdir -p obs2/build
     cd obs2/build && cmake .. \
@@ -136,6 +144,13 @@ install:
       -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
     && cmake --build . --target install-plugin
 
+[linux]
+install: make-release-flatpak
+    just _flatpak-build install-plugin
+
+make-install: install
+
+[macos]
 uninstall:
     mkdir -p obs2/build
     cd obs2/build && cmake .. \
@@ -144,13 +159,18 @@ uninstall:
       -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
     && cmake --build . --target uninstall-plugin
 
+[linux]
+uninstall:
+    just _flatpak-build uninstall-plugin
+
 # builds the project and runs obs
+[macos]
 obs: make-release
     cd obs2/build && OBS_PLUGINS_PATH=$(pwd) OBS_PLUGINS_DATA_PATH=$(pwd) obs
 
-# builds the project and runs Flatpak OBS with this plugin build mounted
-obs-flatpak: make-release
-    cd obs2/build && flatpak run \
+[linux]
+obs: make-release-flatpak
+    cd obs2/build-flatpak && flatpak run \
       --device=dri \
       --filesystem="$(pwd):ro" \
       --socket=session-bus \
@@ -160,6 +180,63 @@ obs-flatpak: make-release
       --env=OBS_PLUGINS_PATH="$(pwd)" \
       --env=OBS_PLUGINS_DATA_PATH="$(pwd)" \
       com.obsproject.Studio
+
+[linux]
+make-release-flatpak:
+    mkdir -p obs2/build
+    cd obs2/build && cmake .. \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBROWSER_DEV=OFF \
+      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
+    && cmake --build . --target rust_build
+    just _flatpak-build all
+
+[linux]
+_flatpak-build target:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="{{ justfile_directory() }}"
+    app="com.obsproject.Studio"
+    sdk_ref="$(flatpak info --show-sdk "${app}")"
+    skip_build_inputs="ON"
+    if [ "{{ target }}" = "uninstall-plugin" ]; then
+      skip_build_inputs="OFF"
+    fi
+
+    if ! flatpak info "${sdk_ref}" >/dev/null 2>&1; then
+      echo "Flatpak SDK ${sdk_ref} is not installed." >&2
+      echo "Install it with: flatpak install flathub ${sdk_ref}" >&2
+      exit 1
+    fi
+
+    flatpak run --devel \
+      --filesystem="${root}" \
+      --filesystem="${HOME}/.var/app/com.obsproject.Studio/config/obs-studio/plugins:create" \
+      --filesystem=/tmp \
+      --env=GE_REPO_ROOT="${root}" \
+      --env=BROWSER_BUNDLE="${root}/obs2/browser/build/index.html" \
+      --env=GE_SKIP_BUILD_INPUTS="${skip_build_inputs}" \
+      --env=PKG_CONFIG_PATH="/app/lib/pkgconfig:/app/lib/x86_64-linux-gnu/pkgconfig:/app/share/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig" \
+      --env=LD_LIBRARY_PATH="/app/lib" \
+      --command=bash \
+      "${app}" \
+      -lc 'set -euo pipefail
+        cd "${GE_REPO_ROOT}"
+        mkdir -p obs2/build-flatpak
+        cd obs2/build-flatpak
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBROWSER_DEV=OFF \
+          -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
+          -DGE_PLUGIN_INSTALL_ROOT:PATH="${XDG_CONFIG_HOME}/obs-studio/plugins" \
+          -DGE_SKIP_BROWSER_BUILD="${GE_SKIP_BUILD_INPUTS}" \
+          -DGE_SKIP_RUST_BUILD="${GE_SKIP_BUILD_INPUTS}"
+        if [ "{{ target }}" = "all" ]; then
+          cmake --build .
+        else
+          cmake --build . --target "{{ target }}"
+        fi
+      '
 
 obs-headers:
     #!/usr/bin/env bash
@@ -369,7 +446,9 @@ ffmpeg-static:
     # FFmpeg's own built-in codecs/muxers only (no x264, no system zlib/lzma, no
     # platform frameworks), so the resulting archives don't drag host libraries
     # into the plugin — mirroring the way `opencv-static` forces its own zlib/png.
-    # The archives are linked into the plugin's .so/.dylib, so everything is PIC.
+    # The Rust code uses format/codec/swscale/swresample, not device capture or
+    # libavfilter. The archives are linked into the plugin's .so/.dylib, so
+    # everything is PIC.
     cd "${src}"
     ./configure \
       --prefix="${FFMPEG_PREFIX}" \
@@ -378,6 +457,8 @@ ffmpeg-static:
       --enable-pic \
       --disable-asm \
       --disable-autodetect \
+      --disable-avdevice \
+      --disable-avfilter \
       --disable-programs \
       --disable-doc \
       --disable-debug

@@ -58,7 +58,7 @@ if(NOT DEFINED GE_PLUGIN_INSTALL_ROOT)
           "Pass -DGE_PLUGIN_INSTALL_ROOT=... to override."
       )
     endif()
-    set(_GE_DEFAULT_PLUGIN_INSTALL_ROOT "$ENV{HOME}/.config/obs-studio/plugins")
+    set(_GE_DEFAULT_PLUGIN_INSTALL_ROOT "$ENV{HOME}/.var/app/com.obsproject.Studio/config/obs-studio/plugins")
   endif()
   set(GE_PLUGIN_INSTALL_ROOT "${_GE_DEFAULT_PLUGIN_INSTALL_ROOT}" CACHE PATH "OBS plugin install root")
 endif()

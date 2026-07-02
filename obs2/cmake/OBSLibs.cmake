@@ -9,6 +9,14 @@ if(NOT EXISTS "${VENDOR_LIBOBS_DIR}/obs-module.h")
   message(FATAL_ERROR "Vendored OBS headers not found. Run 'just obs-headers' first.")
 endif()
 
+find_path(GE_SIMDE_INCLUDE_DIR
+    NAMES simde/x86/sse2.h
+    HINTS /app/include /opt/homebrew/opt/simde/include
+)
+if(GE_SIMDE_INCLUDE_DIR)
+  message(STATUS "Using simde headers from ${GE_SIMDE_INCLUDE_DIR}")
+endif()
+
 # Generate obsconfig.h from the vendored template
 set(OBS_RELEASE_CANDIDATE 0)
 set(OBS_BETA 0)
@@ -32,11 +40,14 @@ if(APPLE)
   set(OBS_FRONTEND_LIBRARIES ${OBS_FRONTEND_LIBRARY})
 else()
   pkg_check_modules(OBS REQUIRED libobs)
+  set(OBS_LIBRARIES ${OBS_LDFLAGS})
 
   # Arch exposes obs-frontend-api via pkg-config, but Debian-based distros
   # often do not. Fall back to finding the shared library directly.
   pkg_check_modules(OBS_FRONTEND QUIET obs-frontend-api)
-  if(NOT OBS_FRONTEND_FOUND)
+  if(OBS_FRONTEND_FOUND)
+    set(OBS_FRONTEND_LIBRARIES ${OBS_FRONTEND_LDFLAGS})
+  else()
     find_library(OBS_FRONTEND_LIBRARY
             NAMES obs-frontend-api libobs-frontend-api
             HINTS ${OBS_LIBRARY_DIRS}

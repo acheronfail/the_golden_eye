@@ -1,7 +1,5 @@
 mod routes;
 
-pub(crate) use routes::monitor::stop_monitor;
-
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
@@ -13,6 +11,7 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::{get, post};
+pub(crate) use routes::monitor::stop_monitor;
 use serde::Serialize;
 use tokio::net::TcpSocket;
 use tokio::sync::{Mutex, broadcast, oneshot, watch};

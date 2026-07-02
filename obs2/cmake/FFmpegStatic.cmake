@@ -44,11 +44,9 @@ list(APPEND RUST_BUILD_ENV "PKG_CONFIG_PATH=$ENV{PKG_CONFIG_PATH}")
 
 # Read the *static* link set (Libs + Libs.private) so we pick up the system
 # libs FFmpeg's static archives need, in the correct order. These libs match
-# the crate's default features (codec, device, filter, format, swresample,
-# swscale) plus avutil, which the vendored build provides.
+# the crate features in Cargo.toml (codec, format, swresample, swscale) plus
+# avutil, which the vendored build provides.
 pkg_check_modules(FFMPEG REQUIRED
-      libavdevice
-      libavfilter
       libavformat
       libavcodec
       libswscale

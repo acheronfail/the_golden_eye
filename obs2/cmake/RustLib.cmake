@@ -6,6 +6,7 @@
 # Frontend (rust_build depends on browser_build).
 
 set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
+option(GE_SKIP_RUST_BUILD "Use an existing Rust staticlib instead of running cargo" OFF)
 
 # Built up as a CMake list so each flag expands to a separate cargo argument.
 set(CARGO_BUILD_FLAGS "")
@@ -60,17 +61,34 @@ if(APPLE)
   endif()
 endif()
 
-add_custom_target(rust_build ALL
-    COMMAND ${CMAKE_COMMAND} -E env
-            "BROWSER_BUNDLE=${BROWSER_BUNDLE}"
-            "GE_PLUGIN_VERSION=${GE_PLUGIN_VERSION}"
-            "GE_BROWSER_DEV_URL=${GE_BROWSER_DEV_URL}"
-            ${RUST_BUILD_ENV}
-            cargo build ${CARGO_BUILD_FLAGS} --all-targets
-    WORKING_DIRECTORY "${RUST_DIR}"
-    COMMENT "Building Rust static library (${RUST_PROFILE})"
-    VERBATIM
-)
+if(GE_SKIP_RUST_BUILD)
+  if(NOT EXISTS "${RUST_LIB}")
+    message(FATAL_ERROR
+            "GE_SKIP_RUST_BUILD=ON but Rust staticlib is missing at ${RUST_LIB}.\n"
+            "Build it first with the normal host build.")
+  endif()
+  if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ge_rust.h")
+    message(FATAL_ERROR
+            "GE_SKIP_RUST_BUILD=ON but generated FFI header is missing at ${CMAKE_CURRENT_SOURCE_DIR}/ge_rust.h.\n"
+            "Build it first with the normal host build.")
+  endif()
+  add_custom_target(rust_build ALL
+      COMMAND ${CMAKE_COMMAND} -E echo "Using existing Rust static library at ${RUST_LIB}"
+      VERBATIM
+  )
+else()
+  add_custom_target(rust_build ALL
+      COMMAND ${CMAKE_COMMAND} -E env
+              "BROWSER_BUNDLE=${BROWSER_BUNDLE}"
+              "GE_PLUGIN_VERSION=${GE_PLUGIN_VERSION}"
+              "GE_BROWSER_DEV_URL=${GE_BROWSER_DEV_URL}"
+              ${RUST_BUILD_ENV}
+              cargo build ${CARGO_BUILD_FLAGS} --all-targets
+      WORKING_DIRECTORY "${RUST_DIR}"
+      COMMENT "Building Rust static library (${RUST_PROFILE})"
+      VERBATIM
+  )
+endif()
 
 # The Rust crate embeds browser/build/index.html via include_str!, so the
 # frontend must be built (successfully) first. This also guarantees that a

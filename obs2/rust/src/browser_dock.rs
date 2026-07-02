@@ -1,6 +1,5 @@
-use std::env;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
-use std::ptr;
+use std::{env, ptr};
 
 use serde_json::{Value, json};
 

@@ -11,6 +11,7 @@ set(BROWSER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/browser")
 # tiny HTML file that redirects to the Vite dev server, so the frontend can be
 # iterated on with hot reloads while only the plugin needs CMake rebuilds.
 option(BROWSER_DEV "Embed a dev-server redirect instead of building the SPA" OFF)
+option(GE_SKIP_BROWSER_BUILD "Use an existing browser bundle instead of running npm" OFF)
 
 # Port the Vite dev server listens on (must match browser/vite.config.ts).
 set(BROWSER_DEV_PORT 5173)
@@ -58,23 +59,35 @@ else()
         "${GE_PLUGIN_VERSION_FILE}"
     )
 
-  add_custom_command(
-        OUTPUT "${BROWSER_BUNDLE}"
-        COMMAND ${CMAKE_COMMAND} -E env
-                "BROWSER_BUNDLE=${BROWSER_BUNDLE}"
-                "VITE_GE_PLUGIN_VERSION=${GE_PLUGIN_VERSION}"
-                ${RUST_BUILD_ENV}
-                npm run build
-        # Fail the build if the bundle the Rust crate embeds wasn't produced,
-        # rather than letting cargo fail later with an opaque include_str! error.
-        COMMAND test -f "${BROWSER_BUNDLE}"
-        WORKING_DIRECTORY "${BROWSER_DIR}"
-        DEPENDS ${BROWSER_BUILD_DEPENDS}
-        COMMENT "Building frontend"
-        VERBATIM
-    )
+  if(GE_SKIP_BROWSER_BUILD)
+    if(NOT EXISTS "${BROWSER_BUNDLE}")
+      message(FATAL_ERROR
+              "GE_SKIP_BROWSER_BUILD=ON but browser bundle is missing at ${BROWSER_BUNDLE}.\n"
+              "Build it first with the normal host build.")
+    endif()
+    add_custom_target(browser_build ALL
+          COMMAND ${CMAKE_COMMAND} -E echo "Using existing browser bundle at ${BROWSER_BUNDLE}"
+          VERBATIM
+      )
+  else()
+    add_custom_command(
+          OUTPUT "${BROWSER_BUNDLE}"
+          COMMAND ${CMAKE_COMMAND} -E env
+                  "BROWSER_BUNDLE=${BROWSER_BUNDLE}"
+                  "VITE_GE_PLUGIN_VERSION=${GE_PLUGIN_VERSION}"
+                  ${RUST_BUILD_ENV}
+                  npm run build
+          # Fail the build if the bundle the Rust crate embeds wasn't produced,
+          # rather than letting cargo fail later with an opaque include_str! error.
+          COMMAND test -f "${BROWSER_BUNDLE}"
+          WORKING_DIRECTORY "${BROWSER_DIR}"
+          DEPENDS ${BROWSER_BUILD_DEPENDS}
+          COMMENT "Building frontend"
+          VERBATIM
+      )
 
-  add_custom_target(browser_build ALL
-        DEPENDS "${BROWSER_BUNDLE}"
-    )
+    add_custom_target(browser_build ALL
+          DEPENDS "${BROWSER_BUNDLE}"
+      )
+  endif()
 endif()

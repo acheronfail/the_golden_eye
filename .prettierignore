@@ -5,6 +5,7 @@ obs2/browser/.svelte-kit/
 obs2/browser/playwright-report/
 obs2/browser/test-results/
 obs2/build/
+obs2/build-flatpak/
 obs2/vendor/
 obs2/rust/target/
 esp32-input-monitor/.pio/

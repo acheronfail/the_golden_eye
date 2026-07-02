@@ -371,8 +371,8 @@
 		<div class="min-w-0">
 			<h1 class="obs-heading text-2xl font-semibold">Runs</h1>
 			<p class="obs-subtitle mt-2 text-sm">
-				These are clips that have been created by this plugin and found in the folders configured in Options.
-				If you're not seeing clips you expect, make sure the plugin is configured to save them in the correct folders.
+				These are clips that have been created by this plugin and found in the folders configured in Options. If you're
+				not seeing clips you expect, make sure the plugin is configured to save them in the correct folders.
 			</p>
 		</div>
 		<button

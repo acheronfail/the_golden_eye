@@ -10,8 +10,8 @@
 #include <obs/frontend/obs-frontend-api.h>
 #include <obs/libobs/callback/signal.h>
 #include <obs/libobs/obs-data.h>
-#include <obs/libobs/obs.h>
 #include <obs/libobs/obs-service.h>
+#include <obs/libobs/obs.h>
 #include <obs/libobs/util/bmem.h>
 #include <string.h>
 
