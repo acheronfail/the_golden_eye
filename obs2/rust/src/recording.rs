@@ -729,7 +729,7 @@ fn trim_clip(
 
     let failed = status.is_failed();
     let dir = output_dir(input, failed, options);
-    std::fs::create_dir_all(&dir).with_context(|| format!("creating output directory {}", dir.display()))?;
+    ensure_output_directory(&dir)?;
     let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("replay");
     let ext = input.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
     let name = clip_name(stem, status, completed_at, stats.as_ref(), options.clip_filename_template());
@@ -790,6 +790,17 @@ fn clip_metadata(
         comment: format!("Created by The Golden Eye OBS plugin v{}", crate::PLUGIN_VERSION),
         plugin_version: crate::PLUGIN_VERSION.to_owned(),
     }
+}
+
+fn ensure_output_directory(dir: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dir).with_context(|| format!("creating output directory {}", dir.display()))?;
+
+    let metadata = std::fs::metadata(dir).with_context(|| format!("checking output directory {}", dir.display()))?;
+    if !metadata.is_dir() {
+        anyhow::bail!("output path {} exists but is not a directory", dir.display());
+    }
+
+    Ok(())
 }
 
 fn output_dir(input: &Path, failed: bool, options: &RecordingOptions) -> PathBuf {
@@ -1183,6 +1194,84 @@ mod tests {
 
         options.completed_output_path.clear();
         assert_eq!(output_dir(&input, true, &options), dir.path());
+    }
+
+    #[test]
+    fn ensure_output_directory_creates_nested_missing_directory() {
+        let dir = TestDir::new("ensure-output");
+        let output = dir.join("completed/deeply/nested");
+
+        assert!(!output.exists());
+        ensure_output_directory(&output).unwrap();
+
+        assert!(output.is_dir());
+    }
+
+    #[test]
+    fn ensure_output_directory_rejects_existing_file() {
+        let dir = TestDir::new("ensure-output-file");
+        let output = dir.join("completed");
+        write_file(&output);
+
+        let err = ensure_output_directory(&output).unwrap_err();
+
+        assert!(
+            err.to_string().contains("creating output directory")
+                || err.to_string().contains("exists but is not a directory"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn trim_clip_creates_missing_completed_and_failed_output_directories() {
+        let dir = TestDir::new("trim-missing-output");
+        let replay_path = sample_clip();
+        let replay = replay_path.to_string_lossy();
+        let completed = dir.join("completed/deeply/nested");
+        let failed = dir.join("failed/deeply/nested");
+        let options = RecordingOptions {
+            completed_output_path: completed.to_string_lossy().into_owned(),
+            failed_output_path: failed.to_string_lossy().into_owned(),
+            clip_filename_template: "{status}-{obs_replay_name}".to_owned(),
+            ..RecordingOptions::default()
+        };
+
+        let complete_saved = trim_clip(
+            &replay,
+            1.0,
+            0.0,
+            RunStatus::Complete,
+            UNIX_EPOCH,
+            Some(match_with_time()),
+            &options,
+            "N64 Capture",
+            "en",
+        )
+        .expect("trim completed clip");
+
+        let failed_saved = trim_clip(
+            &replay,
+            1.0,
+            0.0,
+            RunStatus::Failed,
+            UNIX_EPOCH + Duration::from_secs(1),
+            Some(match_with_time()),
+            &options,
+            "N64 Capture",
+            "en",
+        )
+        .expect("trim failed clip");
+
+        let complete_path = PathBuf::from(&complete_saved.path);
+        let failed_path = PathBuf::from(&failed_saved.path);
+        assert!(completed.is_dir());
+        assert!(failed.is_dir());
+        assert!(complete_path.starts_with(&completed), "{}", complete_path.display());
+        assert!(failed_path.starts_with(&failed), "{}", failed_path.display());
+        assert!(complete_path.is_file());
+        assert!(failed_path.is_file());
+        assert!(!complete_saved.failed);
+        assert!(failed_saved.failed);
     }
 
     #[test]

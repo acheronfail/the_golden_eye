@@ -264,8 +264,8 @@ pub fn list_configured_runs(settings: &AppSettings) -> RunsResponse {
 
     for dir in dirs {
         let display_path = dir.path.to_string_lossy().into_owned();
-        match fs::metadata(&dir.path) {
-            Ok(metadata) if metadata.is_dir() => {
+        match ensure_configured_run_directory(&dir.path) {
+            Ok(()) => {
                 directories.push(RunDirectoryScan { kind: dir.kind, path: display_path, exists: true, error: None });
                 match list_tagged_clips_in_directory(&dir.path) {
                     Ok(mut found) => clips.append(&mut found),
@@ -277,12 +277,6 @@ pub fn list_configured_runs(settings: &AppSettings) -> RunsResponse {
                     }
                 }
             }
-            Ok(_) => directories.push(RunDirectoryScan {
-                kind: dir.kind,
-                path: display_path,
-                exists: false,
-                error: Some("configured path is not a directory".to_owned()),
-            }),
             Err(err) => directories.push(RunDirectoryScan {
                 kind: dir.kind,
                 path: display_path,
@@ -301,6 +295,23 @@ pub fn list_configured_runs(settings: &AppSettings) -> RunsResponse {
     });
 
     RunsResponse { directories, clips }
+}
+
+fn ensure_configured_run_directory(dir: &Path) -> anyhow::Result<()> {
+    match fs::metadata(dir) {
+        Ok(metadata) if metadata.is_dir() => Ok(()),
+        Ok(_) => anyhow::bail!("configured path is not a directory"),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir_all(dir).with_context(|| format!("creating run directory {}", dir.display()))?;
+            let metadata = fs::metadata(dir).with_context(|| format!("checking run directory {}", dir.display()))?;
+            if metadata.is_dir() {
+                Ok(())
+            } else {
+                anyhow::bail!("configured path {} exists but is not a directory", dir.display())
+            }
+        }
+        Err(err) => Err(err).with_context(|| format!("reading run directory {}", dir.display())),
+    }
 }
 
 pub fn list_tagged_clips_in_directory(dir: &Path) -> anyhow::Result<Vec<RunClip>> {
@@ -723,7 +734,42 @@ fn format_unix_timestamp(time: SystemTime) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::UNIX_EPOCH;
+
     use super::*;
+
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDir {
+        path: PathBuf,
+    }
+
+    impl TestDir {
+        fn new(label: &str) -> Self {
+            loop {
+                let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+                let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+                let path = std::env::temp_dir().join(format!("ge-runs-{label}-{}-{nanos}-{id}", std::process::id()));
+                match fs::create_dir(&path) {
+                    Ok(()) => return TestDir { path },
+                    Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+                    Err(err) => panic!("failed to create test dir {}: {err}", path.display()),
+                }
+            }
+        }
+
+        fn join(&self, name: &str) -> PathBuf {
+            self.path.join(name)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
 
     #[test]
     fn normalize_time_formats_mm_ss_and_seconds() {
@@ -751,5 +797,33 @@ mod tests {
         let path = Path::new("/runs/original.mov");
         assert!(matches!(normalized_run_file_name(path, "../renamed.mov"), Err(RunPathError::BadRequest(_))));
         assert!(matches!(normalized_run_file_name(path, "renamed.txt"), Err(RunPathError::BadRequest(_))));
+    }
+
+    #[test]
+    fn list_configured_runs_creates_missing_output_directories_before_scanning() {
+        let dir = TestDir::new("configured-missing");
+        let completed = dir.join("completed/deeply/nested");
+        let failed = dir.join("failed/deeply/nested");
+        let settings = AppSettings {
+            completed_output_path: completed.to_string_lossy().into_owned(),
+            save_failed_runs: true,
+            failed_output_path: failed.to_string_lossy().into_owned(),
+            ..AppSettings::default()
+        };
+
+        let runs = list_configured_runs(&settings);
+
+        assert!(completed.is_dir());
+        assert!(failed.is_dir());
+        assert!(runs.clips.is_empty());
+        assert_eq!(runs.directories.len(), 2);
+        assert_eq!(runs.directories[0].kind, RunDirectoryKind::Completed);
+        assert_eq!(runs.directories[0].path, completed.to_string_lossy());
+        assert!(runs.directories[0].exists);
+        assert_eq!(runs.directories[0].error, None);
+        assert_eq!(runs.directories[1].kind, RunDirectoryKind::Failed);
+        assert_eq!(runs.directories[1].path, failed.to_string_lossy());
+        assert!(runs.directories[1].exists);
+        assert_eq!(runs.directories[1].error, None);
     }
 }
