@@ -2,7 +2,7 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { settings } from '$lib';
-	import { monitor, monitorHref, refreshMonitor } from '$lib/monitor.svelte';
+	import { monitor, monitorHref, monitorPhaseStyle, refreshMonitor } from '$lib/monitor.svelte';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -98,6 +98,7 @@
 
 	const pluginVersion = import.meta.env.VITE_GE_PLUGIN_VERSION ?? '0.0.0';
 	const activeMonitorHref = $derived(monitorHref(monitor.status));
+	const activeMonitorStyle = $derived(monitorPhaseStyle(monitor.recordingState));
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
@@ -119,10 +120,10 @@
 			{#if activeMonitorHref}
 				<a
 					href={activeMonitorHref}
-					class="group inline-flex items-center gap-2 rounded border border-emerald-500 px-2 py-1 text-emerald-300 transition-colors hover:bg-emerald-500 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
+					class="group inline-flex items-center gap-2 rounded border px-2 py-1 transition-colors hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 {activeMonitorStyle.button}"
 					aria-label="Return to monitoring screen"
 				>
-					<span class="h-2 w-2 rounded-full bg-emerald-400 group-hover:bg-black" aria-hidden="true"></span>
+					<span class="h-2 w-2 rounded-full group-hover:bg-black {activeMonitorStyle.dot}" aria-hidden="true"></span>
 					<span>Monitoring</span>
 				</a>
 			{/if}

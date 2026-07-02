@@ -243,7 +243,7 @@ export type RecordingStatus =
 export type MonitorEvent =
 	| { type: 'version'; buildId: string }
 	| ({ type: 'match' } & LevelMatch)
-	| { type: 'recordingState'; status: RecordingStatus }
+	| { type: 'recordingState'; status: RecordingStatus | null }
 	| ({ type: 'recordingSaved' } & RecordingSaved);
 
 /** Handlers for the messages the monitor WebSocket can push. All are optional;
@@ -252,9 +252,8 @@ export interface MonitorSocketHandlers {
 	/** The matched on-screen state changed (also fired once on connect with the
 	 * current match, if a monitor is running). */
 	onMatch?: (match: LevelMatch) => void;
-	/** The recorder's per-run state changed (started, cancelled, failed, or a
-	 * save was scheduled). */
-	onRecordingState?: (status: RecordingStatus) => void;
+	/** The recorder's per-run state changed, or returned to idle (`null`). */
+	onRecordingState?: (status: RecordingStatus | null) => void;
 	/** A run's clip was saved out of the replay buffer and trimmed. */
 	onRecordingSaved?: (saved: RecordingSaved) => void;
 	/** Fires when the socket closes. */
@@ -315,8 +314,12 @@ export const connectMonitorSocket = (handlers: MonitorSocketHandlers): WebSocket
 };
 
 /** Current monitor status reported by the backend. `sourceName`/`lang` are only
- * present when `enabled` is true. Mirrors the Rust `MonitorStatus`. */
-export type MonitorStatus = { enabled: false } | { enabled: true; sourceName: string; lang: string };
+ * present when `enabled` is true. `recordingState` is the backend-retained
+ * recorder phase, or `null` when no run phase is active. Mirrors the Rust
+ * `MonitorStatus`. */
+export type MonitorStatus =
+	| { enabled: false; recordingState?: null }
+	| { enabled: true; sourceName: string; lang: string; recordingState: RecordingStatus | null };
 
 /** Fetch whether a monitor is running, and if so for which source/language.
  * Throws on a non-OK response. */

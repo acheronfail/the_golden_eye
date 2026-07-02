@@ -8,6 +8,111 @@ import {
 	type RecordingStatus
 } from './api';
 
+export interface MonitorPhaseStyle {
+	title: string;
+	border: string;
+	heading: string;
+	tag: string;
+	button: string;
+	dot: string;
+}
+
+export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseStyle => {
+	switch (state) {
+		case 'started':
+			return {
+				title: 'recording',
+				border: 'border-green-500',
+				heading: 'text-green-300',
+				tag: 'text-green-500',
+				button: 'border-green-500 text-green-300 hover:bg-green-500 focus-visible:outline-green-400',
+				dot: 'bg-green-400'
+			};
+		case 'cancelled':
+			return {
+				title: 'cancelled',
+				border: 'border-neutral-500',
+				heading: 'text-neutral-300',
+				tag: 'text-neutral-500',
+				button: 'border-neutral-500 text-neutral-300 hover:bg-neutral-500 focus-visible:outline-neutral-400',
+				dot: 'bg-neutral-400'
+			};
+		case 'failed':
+			return {
+				title: 'failed',
+				border: 'border-red-500',
+				heading: 'text-red-300',
+				tag: 'text-red-500',
+				button: 'border-red-500 text-red-300 hover:bg-red-500 focus-visible:outline-red-400',
+				dot: 'bg-red-400'
+			};
+		case 'aborted':
+			return {
+				title: 'aborted',
+				border: 'border-red-500',
+				heading: 'text-red-300',
+				tag: 'text-red-500',
+				button: 'border-red-500 text-red-300 hover:bg-red-500 focus-visible:outline-red-400',
+				dot: 'bg-red-400'
+			};
+		case 'kia':
+			return {
+				title: 'killed in action',
+				border: 'border-red-500',
+				heading: 'text-red-300',
+				tag: 'text-red-500',
+				button: 'border-red-500 text-red-300 hover:bg-red-500 focus-visible:outline-red-400',
+				dot: 'bg-red-400'
+			};
+		case 'complete':
+			return {
+				title: 'complete',
+				border: 'border-fuchsia-500',
+				heading: 'text-fuchsia-300',
+				tag: 'text-fuchsia-500',
+				button: 'border-fuchsia-500 text-fuchsia-300 hover:bg-fuchsia-500 focus-visible:outline-fuchsia-400',
+				dot: 'bg-fuchsia-400'
+			};
+		case 'statsSkipped':
+			return {
+				title: 'skipped stats',
+				border: 'border-red-500',
+				heading: 'text-red-300',
+				tag: 'text-red-500',
+				button: 'border-red-500 text-red-300 hover:bg-red-500 focus-visible:outline-red-400',
+				dot: 'bg-red-400'
+			};
+		case 'failedDiscarded':
+			return {
+				title: 'failed run not saved',
+				border: 'border-neutral-500',
+				heading: 'text-neutral-300',
+				tag: 'text-neutral-500',
+				button: 'border-neutral-500 text-neutral-300 hover:bg-neutral-500 focus-visible:outline-neutral-400',
+				dot: 'bg-neutral-400'
+			};
+		case 'savePending':
+			return {
+				title: 'saving recording',
+				border: 'border-cyan-500',
+				heading: 'text-cyan-300',
+				tag: 'text-cyan-500',
+				button: 'border-cyan-500 text-cyan-300 hover:bg-cyan-500 focus-visible:outline-cyan-400',
+				dot: 'bg-cyan-400'
+			};
+		case null:
+		default:
+			return {
+				title: 'waiting for level start',
+				border: 'border-amber-500',
+				heading: 'text-amber-300',
+				tag: 'text-amber-500',
+				button: 'border-amber-500 text-amber-300 hover:bg-amber-500 focus-visible:outline-amber-400',
+				dot: 'bg-amber-400'
+			};
+	}
+};
+
 /**
  * Shared, reactive monitor state. The root layout refreshes this on navigation
  * so global UI can show when monitoring is active, while the live monitor socket
@@ -27,54 +132,26 @@ export const monitor = $state<{
 	lastSaved: null
 });
 
-const CANCELLED_LINGER_MS = 2000;
-const SAVE_TIMEOUT_MS = 30000;
-
 let socket: WebSocket | null = null;
-let revertTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const monitorHref = (status: MonitorStatus | null = monitor.status): string | null => {
 	if (!status?.enabled) return null;
 	return `/source/${encodeURIComponent(status.sourceName)}/${encodeURIComponent(status.lang)}`;
 };
 
-const clearRevertTimer = () => {
-	if (revertTimer !== null) {
-		clearTimeout(revertTimer);
-		revertTimer = null;
-	}
-};
-
 const clearRunState = () => {
-	clearRevertTimer();
 	monitor.match = null;
 	monitor.recordingState = null;
 	monitor.lastSaved = null;
 };
 
-const applyRecordingState = (status: RecordingStatus): void => {
-	// A fresh transition always supersedes a pending revert-to-idle timer.
-	clearRevertTimer();
+const applyRecordingState = (status: RecordingStatus | null): void => {
 	monitor.recordingState = status;
-	if (status === 'cancelled' || status === 'failedDiscarded') {
-		revertTimer = setTimeout(() => {
-			monitor.recordingState = null;
-			revertTimer = null;
-		}, CANCELLED_LINGER_MS);
-	} else if (status === 'savePending' || status === 'statsSkipped') {
-		// Normally `recordingSaved` clears us back to idle; this is the fallback
-		// if that event never lands so we don't sit on "saving" forever.
-		revertTimer = setTimeout(() => {
-			monitor.recordingState = null;
-			revertTimer = null;
-		}, SAVE_TIMEOUT_MS);
-	}
 };
 
 const applyRecordingSaved = (saved: RecordingSaved): void => {
 	monitor.lastSaved = saved;
 	if (monitor.recordingState === 'savePending' || monitor.recordingState === 'statsSkipped') {
-		clearRevertTimer();
 		monitor.recordingState = null;
 	}
 };
@@ -109,14 +186,14 @@ const syncSocket = (): void => {
 
 export const setMonitorRunning = (sourceName: string, lang: string): void => {
 	clearRunState();
-	monitor.status = { enabled: true, sourceName, lang };
+	monitor.status = { enabled: true, sourceName, lang, recordingState: null };
 	monitor.loaded = true;
 	syncSocket();
 };
 
 export const setMonitorStopped = (): void => {
 	clearRunState();
-	monitor.status = { enabled: false };
+	monitor.status = { enabled: false, recordingState: null };
 	monitor.loaded = true;
 	syncSocket();
 };
@@ -132,7 +209,10 @@ export const refreshMonitor = async (): Promise<MonitorStatus> => {
 				monitor.status.lang !== status.lang);
 
 		monitor.status = status;
-		if (!status.enabled || monitorChanged) clearRunState();
+		if (!status.enabled || monitorChanged) {
+			clearRunState();
+		}
+		monitor.recordingState = status.enabled ? status.recordingState : null;
 		syncSocket();
 		return monitor.status;
 	} catch (err) {

@@ -20,7 +20,7 @@ use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::cv::{LevelMatch, Screen};
-use crate::http::{MonitorEvent, RecordingSaved, RecordingStatus};
+use crate::http::{MonitorEvent, RecordingSaved, RecordingStateStore, RecordingStatus};
 use crate::{ffmpeg, ge};
 
 /// Default filename template for trimmed clips. Mirrors the frontend default and
@@ -256,6 +256,8 @@ pub struct RecordingState {
     /// Broadcasts a [`MonitorEvent::RecordingSaved`] to WebSocket clients once a
     /// clip is written. Cloned into each save thread.
     event_tx: broadcast::Sender<MonitorEvent>,
+    /// Retained recorder phase reported to status/WebSocket clients.
+    recording_state: RecordingStateStore,
     /// Recording/output options fixed for this monitor session.
     options: RecordingOptions,
     /// OBS source this monitor session records from, stored in clip metadata.
@@ -267,6 +269,7 @@ pub struct RecordingState {
 impl RecordingState {
     pub fn new(
         event_tx: broadcast::Sender<MonitorEvent>,
+        recording_state: RecordingStateStore,
         options: RecordingOptions,
         source_name: String,
         rom_language: String,
@@ -277,17 +280,18 @@ impl RecordingState {
             report: None,
             pending: None,
             event_tx,
+            recording_state,
             options,
             source_name,
             rom_language,
         }
     }
 
-    /// Broadcast a recorder state transition to connected WebSocket clients.
-    /// Send errors (no subscribers) are ignored -- the state change stands
-    /// regardless of whether anyone is listening.
+    /// Publish a recorder state transition to the backend-retained phase store.
+    /// WebSocket clients receive the same retained value through the monitor
+    /// route's watch subscription.
     fn emit(&self, status: RecordingStatus) {
-        let _ = self.event_tx.send(MonitorEvent::RecordingState { status });
+        self.recording_state.set(status);
     }
 
     /// Schedule the replay-buffer save for a finished run, ending the active
@@ -337,6 +341,7 @@ impl RecordingState {
                 self.source_name.clone(),
                 self.rom_language.clone(),
                 self.event_tx.clone(),
+                self.recording_state.clone(),
             );
         }
     }
@@ -471,6 +476,7 @@ fn spawn_save_and_trim(
     source_name: String,
     rom_language: String,
     event_tx: broadcast::Sender<MonitorEvent>,
+    recording_state: RecordingStateStore,
 ) {
     let spawned = std::thread::Builder::new().name("ge-replay-save".to_owned()).spawn(move || {
         // Snapshot the event generation before triggering the save so we only
@@ -503,6 +509,7 @@ fn spawn_save_and_trim(
                 // Ignore send errors: with no WebSocket clients there are no
                 // subscribers, but the save still succeeded.
                 let _ = event_tx.send(MonitorEvent::RecordingSaved(saved));
+                recording_state.clear_if_save_pending();
             }
             Err(err) => tracing::error!("failed to trim replay clip: {err:#}"),
         }

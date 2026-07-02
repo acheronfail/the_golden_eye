@@ -11,7 +11,7 @@ use serde::Deserialize;
 use tokio::sync::{broadcast, watch};
 
 use crate::cv::{CaptureRegion, CvMatcher, LevelMatch};
-use crate::http::{AppState, MonitorEvent};
+use crate::http::{AppState, MonitorEvent, RecordingStatus};
 
 /// A running monitor. OBS pushes captured frames into `mailbox` from its render
 /// callback (keyed by the leaked `producer` pointer); the worker `thread`
@@ -363,6 +363,7 @@ pub struct MonitorStatus {
     source_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     lang: Option<String>,
+    recording_state: Option<RecordingStatus>,
 }
 
 /// Reports whether a monitor is currently running, and if so which source and
@@ -375,8 +376,9 @@ pub async fn handle_status(State(state): State<AppState>) -> Json<MonitorStatus>
             enabled: true,
             source_name: Some(handle.source_name.clone()),
             lang: Some(handle.lang.clone()),
+            recording_state: state.recording_state.current(),
         },
-        None => MonitorStatus { enabled: false, source_name: None, lang: None },
+        None => MonitorStatus { enabled: false, source_name: None, lang: None, recording_state: None },
     };
     Json(status)
 }
@@ -400,6 +402,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     if !crate::recording::ensure_replay_buffer_running() {
         return Err((StatusCode::PRECONDITION_FAILED, "replay buffer is unavailable").into());
     }
+    state.recording_state.clear();
 
     // Build the session (and its fresh, empty scale cache) up front so any
     // configuration error surfaces as a failed request rather than a thread that
@@ -454,6 +457,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // Handed to the recorder so it can broadcast a `RecordingSaved` event once a
     // run's clip is written out of the replay buffer.
     let event_tx = state.event_tx.clone();
+    let recording_state = state.recording_state.clone();
     let recording_source_name = status_source_name.clone();
     let recording_lang = lang.clone();
     let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
@@ -462,8 +466,13 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         // Drives the replay-buffer save/trim as the session progresses. Fed
         // every matched frame (not just state changes) so its save timer is
         // polled each tick.
-        let mut recording =
-            crate::recording::RecordingState::new(event_tx, recording_options, recording_source_name, recording_lang);
+        let mut recording = crate::recording::RecordingState::new(
+            event_tx,
+            recording_state,
+            recording_options,
+            recording_source_name,
+            recording_lang,
+        );
         session.run(&mut source, |result| match result {
             Ok(info) => {
                 tracing::debug!(?info);
@@ -541,6 +550,7 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
     // stopped (and a later `start` doesn't briefly replay the previous run's
     // final match before a fresh one is matched).
     let _ = state.match_tx.send(None);
+    state.recording_state.clear();
 
     tracing::info!("monitor stopped");
 
@@ -549,9 +559,11 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
 
 /// Upgrades the connection to a WebSocket that streams [`MonitorEvent`]s as JSON.
 /// The current match (if any) is sent immediately on connect as a `match` event,
-/// then a new `match` is pushed each time the matched state changes (see
-/// [`AppStateInner::match_tx`](crate::http::AppStateInner)); one-off events such
-/// as `recordingSaved` are forwarded as they occur (see
+/// and the current recorder phase is sent as a `recordingState` event. New
+/// `match` and `recordingState` values are pushed each time their retained
+/// backend state changes (see [`AppStateInner::match_tx`](crate::http::AppStateInner)
+/// and [`AppStateInner::recording_state`](crate::http::AppStateInner)); one-off
+/// events such as `recordingSaved` are forwarded as they occur (see
 /// [`AppStateInner::event_tx`](crate::http::AppStateInner)).
 pub async fn handle_ws(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
@@ -559,6 +571,7 @@ pub async fn handle_ws(State(state): State<AppState>, ws: WebSocketUpgrade) -> R
 
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let mut rx = state.match_tx.subscribe();
+    let mut recording_rx = state.recording_state.subscribe();
     let mut events = state.event_tx.subscribe();
 
     // Announce which build serves this API first, so a stale tab (older cached
@@ -574,6 +587,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     if send_current_match(&mut socket, &mut rx).await.is_err() {
         return;
     }
+    if send_current_recording_state(&mut socket, &mut recording_rx).await.is_err() {
+        return;
+    }
 
     loop {
         tokio::select! {
@@ -584,6 +600,17 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     break;
                 }
                 if send_current_match(&mut socket, &mut rx).await.is_err() {
+                    break;
+                }
+            }
+            // The retained recorder phase changed: forward the latest phase,
+            // including `null` when the recorder returns to idle.
+            changed = recording_rx.changed() => {
+                // Err means the sender was dropped (server shutting down).
+                if changed.is_err() {
+                    break;
+                }
+                if send_current_recording_state(&mut socket, &mut recording_rx).await.is_err() {
                     break;
                 }
             }
@@ -635,6 +662,18 @@ async fn send_current_match(
     if let Some(m) = current {
         send_event(socket, &MonitorEvent::Match(m)).await?;
     }
+    Ok(())
+}
+
+/// Sends the current recorder phase as a `recordingState` event, marking the
+/// watch value as seen. `None` is sent as `status: null` so clients can clear any
+/// stale local phase.
+async fn send_current_recording_state(
+    socket: &mut WebSocket,
+    rx: &mut watch::Receiver<Option<RecordingStatus>>,
+) -> Result<(), axum::Error> {
+    let status = *rx.borrow_and_update();
+    send_event(socket, &MonitorEvent::RecordingState { status }).await?;
     Ok(())
 }
 

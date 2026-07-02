@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { afterNavigate, goto } from '$app/navigation';
-	import {
-		getSources,
-		startMonitor as apiStartMonitor,
-		stopMonitor as apiStopMonitor,
-		type RecordingStatus
-	} from '$lib/api';
+	import { getSources, startMonitor as apiStartMonitor, stopMonitor as apiStopMonitor } from '$lib/api';
 	import { settings } from '$lib';
-	import { monitor, refreshMonitor, setMonitorRunning, setMonitorStopped } from '$lib/monitor.svelte';
+	import {
+		monitor,
+		monitorPhaseStyle,
+		refreshMonitor,
+		setMonitorRunning,
+		setMonitorStopped
+	} from '$lib/monitor.svelte';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
 	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
 	import type { PageProps } from './$types';
@@ -16,91 +17,7 @@
 
 	let monitoring = $state(false);
 
-	// The centered title and thick border are meant to read at a glance (even from
-	// peripheral vision), so each recorder state maps to a distinct word + colour.
-	// Full literal class strings so Tailwind's scanner keeps them.
-	interface PhaseStyle {
-		title: string;
-		border: string; // thick frame colour
-		heading: string; // big title colour
-		tag: string; // small "monitoring" label colour
-	}
-	const phaseStyle = (state: RecordingStatus | null): PhaseStyle => {
-		switch (state) {
-			case 'started':
-				return {
-					title: 'recording',
-					border: 'border-green-500',
-					heading: 'text-green-300',
-					tag: 'text-green-500'
-				};
-			case 'cancelled':
-				return {
-					title: 'cancelled',
-					border: 'border-neutral-500',
-					heading: 'text-neutral-300',
-					tag: 'text-neutral-500'
-				};
-			case 'failed':
-				return {
-					title: 'failed',
-					border: 'border-red-500',
-					heading: 'text-red-300',
-					tag: 'text-red-500'
-				};
-			case 'aborted':
-				return {
-					title: 'aborted',
-					border: 'border-red-500',
-					heading: 'text-red-300',
-					tag: 'text-red-500'
-				};
-			case 'kia':
-				return {
-					title: 'killed in action',
-					border: 'border-red-500',
-					heading: 'text-red-300',
-					tag: 'text-red-500'
-				};
-			case 'complete':
-				return {
-					title: 'complete',
-					border: 'border-fuchsia-500',
-					heading: 'text-fuchsia-300',
-					tag: 'text-fuchsia-500'
-				};
-			case 'statsSkipped':
-				return {
-					title: 'skipped stats',
-					border: 'border-red-500',
-					heading: 'text-red-300',
-					tag: 'text-red-500'
-				};
-			case 'failedDiscarded':
-				return {
-					title: 'failed run not saved',
-					border: 'border-neutral-500',
-					heading: 'text-neutral-300',
-					tag: 'text-neutral-500'
-				};
-			case 'savePending':
-				return {
-					title: 'saving recording',
-					border: 'border-cyan-500',
-					heading: 'text-cyan-300',
-					tag: 'text-cyan-500'
-				};
-			case null:
-			default:
-				return {
-					title: 'waiting for level start',
-					border: 'border-amber-500',
-					heading: 'text-amber-300',
-					tag: 'text-amber-500'
-				};
-		}
-	};
-	const style = $derived(phaseStyle(monitor.recordingState));
+	const style = $derived(monitorPhaseStyle(monitor.recordingState));
 	const currentMatch = $derived(monitor.match);
 	const currentTimes = $derived(monitor.match?.times ?? null);
 	const savedClip = $derived(monitor.lastSaved);

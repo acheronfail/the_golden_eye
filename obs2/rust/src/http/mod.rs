@@ -1,7 +1,7 @@
 mod routes;
 
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use axum::Router;
@@ -39,11 +39,15 @@ pub struct AppStateInner {
     /// current match immediately.
     pub match_tx: watch::Sender<Option<LevelMatch>>,
     /// One-off monitor events broadcast to connected WebSocket clients (e.g. a
-    /// run's clip being saved). Unlike `match_tx`, this carries discrete events
-    /// rather than retained state: a `broadcast` channel fans each event out to
-    /// every current subscriber and keeps nothing for late joiners. Send errors
-    /// (no subscribers) are ignored at the call sites.
+    /// run's clip being saved). Unlike `match_tx`, this carries only discrete
+    /// events rather than retained state: a `broadcast` channel fans each event
+    /// out to every current subscriber and keeps nothing for late joiners. Send
+    /// errors (no subscribers) are ignored at the call sites.
     pub event_tx: broadcast::Sender<MonitorEvent>,
+    /// Latest recorder phase from the running monitor. This is retained so a
+    /// page reload or second browser can see "recording" / "saving" / etc.
+    /// immediately, instead of waiting for the next transition.
+    pub recording_state: RecordingStateStore,
     /// Plugin-owned user settings, loaded from and persisted to JSON.
     pub settings: crate::settings::SettingsStore,
 }
@@ -57,8 +61,8 @@ pub struct StreamMessage {
 
 /// Messages pushed to monitor WebSocket clients, serialized internally tagged by
 /// `type` so the SPA can discriminate them. `Version` is sent once per
-/// connection (a handshake); `Match` rides the `match_tx` watch channel
-/// (latest-wins, replayed on connect); the remaining variants ride `event_tx`
+/// connection (a handshake); `Match` and `RecordingState` ride watch channels
+/// (latest-wins, replayed on connect); `RecordingSaved` rides `event_tx`
 /// (one-off, delivered only to currently-connected clients).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -75,9 +79,9 @@ pub enum MonitorEvent {
     /// The matched on-screen state changed; carries the current match.
     Match(LevelMatch),
     /// The recorder's run state changed (a run began, was cancelled, saw a
-    /// failure screen, or had its save scheduled). Distinct from `RecordingSaved`,
-    /// which reports the final written clip.
-    RecordingState { status: RecordingStatus },
+    /// failure screen, had its save scheduled, or returned to idle). Distinct
+    /// from `RecordingSaved`, which reports the final written clip.
+    RecordingState { status: Option<RecordingStatus> },
     /// A run's clip was saved out of the replay buffer and trimmed.
     RecordingSaved(RecordingSaved),
 }
@@ -85,7 +89,7 @@ pub enum MonitorEvent {
 /// A transition in the recorder's per-run state, broadcast so the SPA can
 /// reflect where a run is in its lifecycle. Serialized as a plain string (e.g.
 /// `"started"`) inside the enclosing [`MonitorEvent::RecordingState`].
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RecordingStatus {
     /// A run began: the replay-buffer clip's start was anchored.
@@ -126,6 +130,97 @@ pub enum RecordingStatus {
     SavePending,
 }
 
+/// Retained recorder phase shared by the monitor worker, status endpoint, and
+/// WebSocket clients. Transient phases are cleared here so the backend owns the
+/// same lifecycle the UI displays.
+#[derive(Clone)]
+pub struct RecordingStateStore {
+    tx: watch::Sender<Option<RecordingStatus>>,
+    state: Arc<StdMutex<RecordingStateInner>>,
+}
+
+struct RecordingStateInner {
+    status: Option<RecordingStatus>,
+    generation: u64,
+}
+
+impl RecordingStateStore {
+    const CANCELLED_LINGER: Duration = Duration::from_secs(2);
+    const SAVE_TIMEOUT: Duration = Duration::from_secs(30);
+
+    pub fn new(tx: watch::Sender<Option<RecordingStatus>>) -> Self {
+        RecordingStateStore { tx, state: Arc::new(StdMutex::new(RecordingStateInner { status: None, generation: 0 })) }
+    }
+
+    pub fn subscribe(&self) -> watch::Receiver<Option<RecordingStatus>> {
+        self.tx.subscribe()
+    }
+
+    pub fn current(&self) -> Option<RecordingStatus> {
+        self.lock_state().status
+    }
+
+    pub fn set(&self, status: RecordingStatus) {
+        let generation = {
+            let mut state = self.lock_state();
+            state.generation += 1;
+            state.status = Some(status);
+            self.tx.send_replace(state.status);
+            state.generation
+        };
+
+        match status {
+            RecordingStatus::Cancelled | RecordingStatus::FailedDiscarded => {
+                self.clear_after(generation, Self::CANCELLED_LINGER);
+            }
+            RecordingStatus::SavePending | RecordingStatus::StatsSkipped => {
+                self.clear_after(generation, Self::SAVE_TIMEOUT);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn clear(&self) {
+        let mut state = self.lock_state();
+        state.generation += 1;
+        state.status = None;
+        self.tx.send_replace(state.status);
+    }
+
+    pub fn clear_if_save_pending(&self) {
+        let mut state = self.lock_state();
+        if matches!(state.status, Some(RecordingStatus::SavePending | RecordingStatus::StatsSkipped)) {
+            state.generation += 1;
+            state.status = None;
+            self.tx.send_replace(state.status);
+        }
+    }
+
+    fn clear_after(&self, generation: u64, duration: Duration) {
+        let store = self.clone();
+        let spawned = std::thread::Builder::new().name("ge-recording-state-timeout".to_owned()).spawn(move || {
+            std::thread::sleep(duration);
+            store.clear_if_generation(generation);
+        });
+        if let Err(err) = spawned {
+            tracing::error!("failed to spawn recording-state timeout thread: {err}");
+        }
+    }
+
+    fn clear_if_generation(&self, generation: u64) {
+        let mut state = self.lock_state();
+        if state.generation == generation {
+            state.generation += 1;
+            state.status = None;
+            self.tx.send_replace(state.status);
+        }
+    }
+
+    fn lock_state(&self) -> std::sync::MutexGuard<'_, RecordingStateInner> {
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
 /// Details of a clip saved out of the replay buffer at the end of a run, pushed
 /// to WebSocket clients as a [`MonitorEvent::RecordingSaved`].
 #[derive(Debug, Clone, Serialize)]
@@ -161,6 +256,33 @@ mod tests {
         assert_eq!(json["type"], "version");
         assert_eq!(json["buildId"], "abc123");
         assert!(json.get("build_id").is_none());
+    }
+
+    #[test]
+    fn monitor_recording_state_event_can_clear_status() {
+        let event = MonitorEvent::RecordingState { status: None };
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "recordingState");
+        assert!(json["status"].is_null());
+    }
+
+    #[test]
+    fn recording_state_store_retains_state_without_receivers() {
+        let (tx, rx) = watch::channel(None);
+        let store = RecordingStateStore::new(tx);
+        drop(rx);
+
+        store.set(RecordingStatus::Started);
+        assert_eq!(store.current(), Some(RecordingStatus::Started));
+
+        store.set(RecordingStatus::SavePending);
+        store.set(RecordingStatus::Started);
+        store.clear_if_save_pending();
+        assert_eq!(store.current(), Some(RecordingStatus::Started));
+
+        store.clear();
+        assert_eq!(store.current(), None);
     }
 }
 

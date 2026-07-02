@@ -14,7 +14,7 @@ use std::os::raw::c_char;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use http::{AppState, AppStateInner};
+use http::{AppState, AppStateInner, RecordingStateStore};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tracing_subscriber::EnvFilter;
@@ -83,16 +83,19 @@ pub extern "C" fn ge_rust_start(open_browser_on_launch: bool) {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
     let (match_tx, _) = tokio::sync::watch::channel(None);
+    let (recording_state_tx, _) = tokio::sync::watch::channel(None);
     // One-off monitor events (recording saved, ...). Capacity bounds how far a
     // slow client can lag before it drops events; the worker ignores send errors,
     // so a full/empty channel never blocks frame processing.
     let (event_tx, _) = tokio::sync::broadcast::channel(64);
+    let recording_state = RecordingStateStore::new(recording_state_tx);
     let state = Arc::new(AppStateInner {
         oauth_pending: tokio::sync::Mutex::new(None),
         stream_message: tokio::sync::Mutex::new(None),
         monitor: std::sync::Mutex::new(None),
         match_tx,
         event_tx,
+        recording_state,
         settings,
     });
 
