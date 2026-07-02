@@ -12,7 +12,7 @@
 	}: { current: number; hrefs?: (string | undefined)[] } = $props();
 </script>
 
-<ol class="mb-10 flex items-center gap-2 font-mono text-xs tracking-wide">
+<ol class="mb-10 flex flex-wrap items-center gap-2 font-mono text-xs tracking-wide">
 	{#each STEPS as label, i}
 		{@const step = i + 1}
 		{@const done = step < current}

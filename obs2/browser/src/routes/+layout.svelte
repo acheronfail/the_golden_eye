@@ -11,6 +11,9 @@
 
 	let { children } = $props();
 	let contentScroller: HTMLDivElement | undefined;
+	let menuButton = $state<HTMLButtonElement>();
+	let menuPanel = $state<HTMLElement>();
+	let menuOpen = $state(false);
 
 	onMount(() => {
 		void settings.load().catch((err) => {
@@ -78,17 +81,54 @@
 		});
 	});
 
+	$effect(() => {
+		page.url.pathname;
+		page.url.search;
+		menuOpen = false;
+	});
+
+	const toggleMenu = () => {
+		menuOpen = !menuOpen;
+	};
+
+	const closeMenu = () => {
+		menuOpen = false;
+	};
+
+	const onWindowClick = (event: MouseEvent) => {
+		if (!menuOpen) return;
+
+		const target = event.target;
+		if (!(target instanceof Node)) return;
+		if (menuButton?.contains(target) || menuPanel?.contains(target)) return;
+
+		closeMenu();
+	};
+
+	const onWindowKeydown = (event: KeyboardEvent) => {
+		if (event.key !== 'Escape' || !menuOpen) return;
+
+		event.preventDefault();
+		closeMenu();
+		menuButton?.focus();
+	};
+
 	const bannerClass =
-		'inline-block border-r p-2 text-left font-mono text-xs leading-[1.17] whitespace-pre text-amber-400';
+		'inline-block max-w-full border-r p-2 text-left font-mono text-xs leading-[1.17] whitespace-pre text-amber-400';
 	const bannerText = `\
 ┏┳┓┓     ┏┓  ┓ ┓      ┏┓
  ┃ ┣┓┏┓  ┃┓┏┓┃┏┫┏┓┏┓  ┣ ┓┏┏┓
  ┻ ┛┗┗   ┗┛┗┛┗┗┻┗ ┛┗  ┗┛┗┫┗
                          ┛`;
 
-	const liCommon = 'inline-block rounded border border-amber-500 px-2 py-1 font-mono text-sm';
-	const liClass = `${liCommon} text-amber-400 hover:text-black hover:bg-amber-600`;
-	const liActiveClass = `${liCommon} bg-amber-600 text-black hover:text-black hover:bg-amber-700`;
+	const menuButtonClass =
+		'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded border border-amber-500 text-amber-400 transition-colors hover:bg-amber-600 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400';
+	const menuPanelClass =
+		'absolute top-full right-2 z-40 mt-2 w-[min(20rem,calc(100vw-1rem))] rounded-md border border-amber-700 bg-neutral-950 p-2 font-mono text-sm shadow-2xl shadow-black/50';
+	const menuLinkCommon =
+		'flex min-h-11 items-center justify-end rounded px-3 py-2 text-right transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400';
+	const menuLinkClass = `${menuLinkCommon} text-amber-300 hover:bg-amber-600 hover:text-black`;
+	const menuLinkActiveClass = `${menuLinkCommon} bg-amber-600 text-black hover:bg-amber-700`;
 
 	const links = [
 		{ href: '/', label: 'Monitor' },
@@ -103,21 +143,43 @@
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
+<svelte:window onclick={onWindowClick} onkeydown={onWindowKeydown} />
 
-<div class="flex h-screen min-h-0 flex-col overflow-hidden">
-	<header class="flex shrink-0 items-center border-b border-b-amber-400">
-		<a href="/">
+<div class="flex h-screen min-h-0 min-w-[400px] flex-col overflow-hidden">
+	<header class="relative flex shrink-0 items-center border-b border-b-amber-400">
+		<a href="/" aria-label="The Golden Eye home" class="block min-w-0 shrink overflow-hidden">
 			<pre class={bannerClass}>{bannerText}</pre>
 		</a>
 
-		<ul class="ml-4 inline-flex gap-4 font-mono text-sm text-amber-400">
-			{#each links as link}
-				{@const isActive = page.url.pathname === link.href}
-				<a class={isActive ? liActiveClass : liClass} href={link.href}> <li>{link.label}</li></a>
-			{/each}
-		</ul>
+		{#if menuOpen}
+			<nav
+				bind:this={menuPanel}
+				id="global-navigation-menu"
+				class={menuPanelClass}
+				aria-label="Primary navigation"
+			>
+				<ul class="flex flex-col gap-1">
+					{#each links as link}
+						{@const isActive = page.url.pathname === link.href}
+						<li>
+							<a
+								class={isActive ? menuLinkActiveClass : menuLinkClass}
+								href={link.href}
+								aria-current={isActive ? 'page' : undefined}
+								onclick={closeMenu}
+							>
+								{link.label}
+							</a>
+						</li>
+					{/each}
+				</ul>
+				<div class="mt-2 border-t border-neutral-800 px-3 pt-2 pb-1 text-right text-xs text-neutral-500">
+					v{pluginVersion}
+				</div>
+			</nav>
+		{/if}
 
-		<div class="ml-auto flex shrink-0 items-center gap-3 px-4 font-mono text-sm">
+		<div class="ml-auto flex shrink-0 items-center gap-2 px-2 font-mono text-sm">
 			{#if activeMonitorHref}
 				<a
 					href={activeMonitorHref}
@@ -128,7 +190,21 @@
 					<span>Monitoring</span>
 				</a>
 			{/if}
-			<span class="text-amber-400">v{pluginVersion}</span>
+			<button
+				bind:this={menuButton}
+				type="button"
+				class={menuButtonClass}
+				aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+				aria-controls="global-navigation-menu"
+				aria-expanded={menuOpen}
+				onclick={toggleMenu}
+			>
+				<span class="flex flex-col gap-1.5" aria-hidden="true">
+					<span class="block h-0.5 w-5 rounded bg-current"></span>
+					<span class="block h-0.5 w-5 rounded bg-current"></span>
+					<span class="block h-0.5 w-5 rounded bg-current"></span>
+				</span>
+			</button>
 		</div>
 	</header>
 

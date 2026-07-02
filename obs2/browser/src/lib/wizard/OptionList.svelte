@@ -71,7 +71,7 @@
 				{disabled}
 				onclick={() => onSelect(option, i)}
 				onkeydown={(e) => onkeydown(e, i)}
-				class="group flex w-full items-center gap-4 rounded-md border border-amber-700 bg-neutral-950/60 px-4 py-3 text-left transition-colors
+				class="group flex w-full flex-col items-stretch gap-3 rounded-md border border-amber-700 bg-neutral-950/60 px-4 py-3 text-left transition-colors sm:flex-row sm:items-center sm:gap-4
 					hover:cursor-pointer hover:border-amber-400 hover:bg-amber-600 hover:text-black
 					focus:outline-none focus-visible:border-amber-400 focus-visible:ring-2 focus-visible:ring-amber-400
 					disabled:pointer-events-none disabled:opacity-40"
@@ -79,21 +79,25 @@
 				{#if leading}
 					{@render leading(option, i)}
 				{/if}
-				<span class="flex min-w-0 flex-col">
-					<span class="truncate font-medium text-amber-300 group-hover:text-black">
-						{option.title}
-					</span>
-					{#if option.detail}
-						<span class="truncate font-mono text-xs text-neutral-400 group-hover:text-black/70">
-							{option.detail}
+				<span class="flex min-w-0 items-center gap-3">
+					<span class="flex min-w-0 flex-1 flex-col">
+						<span class="block min-w-0 break-words font-medium text-amber-300 group-hover:text-black sm:truncate">
+							{option.title}
 						</span>
-					{/if}
-				</span>
-				<span
-					class="ml-auto translate-x-0 font-mono text-amber-500 transition-transform group-hover:translate-x-1 group-hover:text-black"
-					aria-hidden="true"
-				>
-					→
+						{#if option.detail}
+							<span
+								class="block min-w-0 break-words font-mono text-xs text-neutral-400 group-hover:text-black/70 sm:truncate"
+							>
+								{option.detail}
+							</span>
+						{/if}
+					</span>
+					<span
+						class="ml-auto shrink-0 translate-x-0 font-mono text-amber-500 transition-transform group-hover:translate-x-1 group-hover:text-black"
+						aria-hidden="true"
+					>
+						→
+					</span>
 				</span>
 			</button>
 		</li>

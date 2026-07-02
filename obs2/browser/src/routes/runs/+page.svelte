@@ -149,12 +149,12 @@
 			alt="Thumbnail for {clip.fileName}"
 			loading="lazy"
 			onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
-			class="aspect-video h-24 shrink-0 border border-slate-600 bg-black object-contain"
+			class="aspect-video max-h-32 w-full shrink-0 border border-slate-600 bg-black object-contain sm:h-24 sm:w-auto"
 		/>
 	{/if}
 {/snippet}
 
-<main class="mx-auto w-full max-w-3xl px-6 py-12">
+<main class="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
 	<h1 class="text-2xl font-semibold text-amber-300">Runs</h1>
 	<p class="mt-2 mb-8 text-sm text-neutral-400">Tagged clips from configured output folders.</p>
 
@@ -231,7 +231,7 @@
 				<!-- svelte-ignore a11y_media_has_caption -->
 				<video src={runVideoUrl(selected.path)} controls class="aspect-video w-full bg-black"></video>
 
-				<dl class="mt-4 grid grid-cols-[9rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+				<dl class="mt-4 grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-[9rem_minmax(0,1fr)]">
 					{#each metadataRows(selected).filter((row) => row.value) as row}
 						<dt class="font-mono text-xs text-neutral-500">{row.label}</dt>
 						<dd class="min-w-0 break-words text-neutral-300">{row.value}</dd>

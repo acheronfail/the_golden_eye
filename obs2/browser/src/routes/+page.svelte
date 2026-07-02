@@ -62,7 +62,7 @@
 		alt="Preview of {option.title}"
 		loading="lazy"
 		onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
-		class="h-36 shrink-0 border border-slate-600 bg-black object-contain"
+		class="aspect-video max-h-36 w-full shrink-0 border border-slate-600 bg-black object-contain sm:h-36 sm:w-auto"
 	/>
 {/snippet}
 

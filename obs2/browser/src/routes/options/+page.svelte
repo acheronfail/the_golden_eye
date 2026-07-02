@@ -52,13 +52,13 @@
 	const pathPendingClass = 'mt-2 break-all font-mono text-xs text-neutral-500';
 	const pathErrorClass = 'mt-2 break-words text-xs text-red-300';
 	const templateTokenClass =
-		'cursor-help rounded border border-neutral-800 bg-neutral-900 px-1.5 py-1 font-mono text-xs text-neutral-300';
+		'cursor-help break-all rounded border border-neutral-800 bg-neutral-900 px-1.5 py-1 font-mono text-xs text-neutral-300';
 	const tabBaseClass =
-		'border-b-2 px-4 py-2 font-mono text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400';
+		'min-h-10 rounded border px-3 py-2 font-mono text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 sm:rounded-none sm:border-x-0 sm:border-t-0 sm:border-b-2 sm:px-4';
 	const tabClass = (tab: OptionsTab) =>
 		activeTab === tab
 			? `${tabBaseClass} border-amber-400 text-amber-300`
-			: `${tabBaseClass} border-transparent text-neutral-400 hover:text-amber-300`;
+			: `${tabBaseClass} border-neutral-800 text-neutral-400 hover:border-amber-700 hover:text-amber-300 sm:border-transparent`;
 	const clipTemplateTokens = [
 		{
 			value: '{obs_replay_name}',
@@ -223,11 +223,15 @@
 	<title>Options</title>
 </svelte:head>
 
-<main class="mx-auto w-full max-w-2xl px-6 py-12">
+<main class="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
 	<h1 class="text-2xl font-semibold text-amber-300">Options</h1>
 	<p class="mt-2 mb-8 text-sm text-neutral-400">Settings are saved automatically.</p>
 
-	<div class="mb-6 flex border-b border-neutral-800" role="tablist" aria-label="Options sections">
+	<div
+		class="mb-6 grid grid-cols-1 gap-2 sm:flex sm:gap-0 sm:border-b sm:border-neutral-800"
+		role="tablist"
+		aria-label="Options sections"
+	>
 		<button
 			type="button"
 			role="tab"
@@ -297,7 +301,7 @@
 			<section class={panelClass}>
 				<div class="flex flex-wrap items-center justify-between gap-3">
 					<label class={labelClass} for="completed-output-path">Completed run clips</label>
-					<div class="flex gap-2">
+					<div class="flex flex-wrap justify-end gap-2">
 						<button
 							type="button"
 							class={pathButtonClass}
@@ -348,7 +352,7 @@
 						<div>
 							<div class="flex flex-wrap items-center justify-between gap-3">
 								<label class={labelClass} for="failed-output-path">Failed run clips</label>
-								<div class="flex gap-2">
+								<div class="flex flex-wrap justify-end gap-2">
 									<button
 										type="button"
 										class={pathButtonClass}
