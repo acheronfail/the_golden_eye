@@ -90,3 +90,9 @@ list(APPEND RUST_BUILD_ENV
 # Remove both items; the framework is added explicitly via find_library() below.
 set(GE_OPENCV_LINK ${OPENCV_STATIC_LDFLAGS})
 list(REMOVE_ITEM GE_OPENCV_LINK "-framework" "AppKit")
+# OpenCV's static build always compiles opengl.cpp into opencv_core and records
+# -lGL/-lGLU as link-time dependencies (even with -D WITH_OPENGL=OFF). Our code
+# doesn't reference any GL/GLU symbols, so strip them to avoid a hard runtime
+# dependency — libGLU.so.1 is absent in the OBS Flatpak sandbox and causes a
+# dlopen failure at plugin load time.
+list(REMOVE_ITEM GE_OPENCV_LINK "-lGL" "-lGLU")

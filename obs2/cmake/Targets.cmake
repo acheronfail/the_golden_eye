@@ -123,6 +123,11 @@ if(APPLE)
 else()
   # On Linux, the C++ shim from opencv-rust needs libstdc++.
   target_link_libraries(${CORE_NAME} PRIVATE stdc++)
+  # Drop NEEDED entries for shared libraries whose symbols are never actually
+  # referenced.  Static-archive dependency lists from OpenCV/FFmpeg pkg-config
+  # can pull in transitive shared libs (libva, libva-drm, …) that aren't
+  # present in constrained environments like the OBS Flatpak sandbox.
+  target_link_options(${CORE_NAME} PRIVATE "LINKER:--as-needed")
 endif()
 
 if(WIN32)
