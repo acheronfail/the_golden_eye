@@ -552,6 +552,10 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
     let _ = state.match_tx.send(None);
     state.recording_state.clear();
 
+    if state.settings.get().stop_replay_buffer_when_monitor_stopped {
+        crate::recording::stop_replay_buffer_if_active();
+    }
+
     tracing::info!("monitor stopped");
 
     Ok(StatusCode::OK)

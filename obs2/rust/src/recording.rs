@@ -34,6 +34,17 @@ const PRE_RUN_MATCH_BUFFER_SECS: f64 = 0.5;
 /// giving up. The save is asynchronous; we block on the replay-saved event
 /// (delivered via [`on_replay_saved`]) rather than polling.
 const REPLAY_SAVE_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long a monitor start should wait for OBS to finish an in-progress replay
+/// buffer stop before giving up.
+const REPLAY_STOP_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a monitor start should wait for OBS to make the replay buffer active
+/// after `obs_frontend_replay_buffer_start`.
+const REPLAY_START_TIMEOUT: Duration = Duration::from_secs(2);
+const REPLAY_START_RETRIES: usize = 4;
+const REPLAY_START_RETRY_DELAY: Duration = Duration::from_millis(250);
+/// OBS can ignore a replay-buffer start issued immediately after the stopped
+/// event. Give the frontend a brief turn to finish its state transition.
+const REPLAY_STOP_SETTLE_DELAY: Duration = Duration::from_millis(400);
 
 /// Recording behaviour supplied by the frontend when a monitor session starts.
 /// Empty output paths preserve the old behaviour: write the trimmed clip beside
@@ -101,6 +112,17 @@ struct ReplaySaved {
 static REPLAY_SAVED: Mutex<ReplaySaved> = Mutex::new(ReplaySaved { generation: 0, last_path: None });
 static REPLAY_SAVED_CV: Condvar = Condvar::new();
 
+struct ReplayBufferLifecycle {
+    starting: bool,
+    stopping: bool,
+    last_stopped_at: Option<Instant>,
+}
+
+static REPLAY_BUFFER_LIFECYCLE: Mutex<ReplayBufferLifecycle> =
+    Mutex::new(ReplayBufferLifecycle { starting: false, stopping: false, last_stopped_at: None });
+static REPLAY_BUFFER_LIFECYCLE_CV: Condvar = Condvar::new();
+static REPLAY_BUFFER_ENSURE: Mutex<()> = Mutex::new(());
+
 /// Publish a replay-saved event and wake any waiting save thread. Called (via
 /// the `ge_replay_buffer_saved` FFI export) from the OBS frontend event
 /// callback when `OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED` fires.
@@ -110,6 +132,58 @@ pub fn on_replay_saved(path: Option<String>) {
     guard.last_path = path;
     drop(guard);
     REPLAY_SAVED_CV.notify_all();
+}
+
+/// Publish that OBS has begun starting the replay buffer.
+pub fn on_replay_buffer_starting() {
+    let mut guard = REPLAY_BUFFER_LIFECYCLE.lock().unwrap_or_else(|p| p.into_inner());
+    if !guard.starting {
+        tracing::debug!("replay buffer starting");
+    }
+    guard.starting = true;
+    drop(guard);
+    REPLAY_BUFFER_LIFECYCLE_CV.notify_all();
+}
+
+/// Publish that OBS has made the replay buffer active.
+pub fn on_replay_buffer_started() {
+    let mut guard = REPLAY_BUFFER_LIFECYCLE.lock().unwrap_or_else(|p| p.into_inner());
+    if guard.starting {
+        tracing::debug!("replay buffer started");
+    }
+    guard.starting = false;
+    guard.last_stopped_at = None;
+    drop(guard);
+    REPLAY_BUFFER_LIFECYCLE_CV.notify_all();
+}
+
+/// Publish that OBS has begun stopping the replay buffer. This is also called
+/// when we request a stop, because a quick monitor restart can reach
+/// `/monitor/start` before OBS emits the frontend `STOPPING` event.
+pub fn on_replay_buffer_stopping() {
+    let mut guard = REPLAY_BUFFER_LIFECYCLE.lock().unwrap_or_else(|p| p.into_inner());
+    if !guard.stopping {
+        tracing::debug!("replay buffer stopping");
+    }
+    guard.starting = false;
+    guard.stopping = true;
+    guard.last_stopped_at = None;
+    drop(guard);
+    REPLAY_BUFFER_LIFECYCLE_CV.notify_all();
+}
+
+/// Publish that OBS has fully stopped the replay buffer and wake any monitor
+/// start waiting to re-enable it.
+pub fn on_replay_buffer_stopped() {
+    let mut guard = REPLAY_BUFFER_LIFECYCLE.lock().unwrap_or_else(|p| p.into_inner());
+    if guard.stopping {
+        tracing::debug!("replay buffer stopped");
+    }
+    guard.starting = false;
+    guard.stopping = false;
+    guard.last_stopped_at = Some(Instant::now());
+    drop(guard);
+    REPLAY_BUFFER_LIFECYCLE_CV.notify_all();
 }
 
 /// The current event generation. Snapshotted *before* triggering a save so the
@@ -135,6 +209,69 @@ fn wait_for_replay_saved(since: u64, timeout: Duration) -> Option<String> {
         }
     }
     guard.last_path.clone()
+}
+
+fn wait_for_replay_buffer_not_stopping(timeout: Duration) -> bool {
+    let start = Instant::now();
+    loop {
+        let mut guard = REPLAY_BUFFER_LIFECYCLE.lock().unwrap_or_else(|p| p.into_inner());
+        while guard.stopping {
+            let elapsed = start.elapsed();
+            if elapsed >= timeout {
+                return false;
+            }
+
+            tracing::info!("waiting for replay buffer to finish stopping");
+            let (next, res) =
+                REPLAY_BUFFER_LIFECYCLE_CV.wait_timeout(guard, timeout - elapsed).unwrap_or_else(|p| p.into_inner());
+            guard = next;
+            if res.timed_out() && guard.stopping {
+                return false;
+            }
+        }
+
+        let settle_remaining =
+            guard.last_stopped_at.and_then(|stopped_at| REPLAY_STOP_SETTLE_DELAY.checked_sub(stopped_at.elapsed()));
+        drop(guard);
+
+        if let Some(remaining) = settle_remaining {
+            tracing::debug!(?remaining, "letting replay buffer stop settle before restart");
+            std::thread::sleep(remaining);
+            continue;
+        }
+
+        return true;
+    }
+}
+
+fn wait_for_replay_buffer_active(timeout: Duration) -> bool {
+    let start = Instant::now();
+    let mut guard = REPLAY_BUFFER_LIFECYCLE.lock().unwrap_or_else(|p| p.into_inner());
+    while !replay_buffer_active() {
+        if guard.stopping {
+            guard.starting = false;
+            return false;
+        }
+
+        let elapsed = start.elapsed();
+        if elapsed >= timeout {
+            guard.starting = false;
+            return false;
+        }
+
+        tracing::info!("waiting for replay buffer to start");
+        let (next, res) =
+            REPLAY_BUFFER_LIFECYCLE_CV.wait_timeout(guard, timeout - elapsed).unwrap_or_else(|p| p.into_inner());
+        guard = next;
+        if res.timed_out() && !replay_buffer_active() {
+            guard.starting = false;
+            return false;
+        }
+    }
+
+    guard.starting = false;
+    guard.last_stopped_at = None;
+    true
 }
 
 /// Whether the replay buffer is enabled in the active profile (the OBS "Enable
@@ -163,6 +300,13 @@ pub fn replay_buffer_active() -> bool {
 
 /// Start the replay buffer if it is available and not already running.
 pub fn ensure_replay_buffer_running() -> bool {
+    let _ensure_guard = REPLAY_BUFFER_ENSURE.lock().unwrap_or_else(|p| p.into_inner());
+
+    if !wait_for_replay_buffer_not_stopping(REPLAY_STOP_TIMEOUT) {
+        tracing::warn!("timed out waiting for replay buffer to stop");
+        return false;
+    }
+
     if !replay_buffer_available() {
         if replay_buffer_enabled() {
             tracing::warn!("replay buffer is enabled in OBS but unavailable with the current output settings");
@@ -172,10 +316,28 @@ pub fn ensure_replay_buffer_running() -> bool {
         return false;
     }
     if !replay_buffer_active() {
-        tracing::info!("starting replay buffer");
-        unsafe { crate::ffi::obs_frontend_replay_buffer_start() };
+        for attempt in 1..=REPLAY_START_RETRIES {
+            tracing::info!(attempt, "starting replay buffer");
+            on_replay_buffer_starting();
+            unsafe { crate::ffi::obs_frontend_replay_buffer_start() };
+            if wait_for_replay_buffer_active(REPLAY_START_TIMEOUT) {
+                return true;
+            }
+            tracing::warn!(attempt, "replay buffer did not become active after start request");
+            std::thread::sleep(REPLAY_START_RETRY_DELAY);
+        }
+        return false;
     }
     true
+}
+
+/// Stop the replay buffer if it is currently running.
+pub fn stop_replay_buffer_if_active() {
+    if replay_buffer_active() {
+        tracing::info!("stopping replay buffer");
+        on_replay_buffer_stopping();
+        unsafe { crate::ffi::obs_frontend_replay_buffer_stop() };
+    }
 }
 
 /// A save that has been scheduled and *will* happen, captured in full the moment

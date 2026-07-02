@@ -207,6 +207,34 @@ pub unsafe extern "C" fn ge_replay_buffer_saved(path: *const c_char) {
     recording::on_replay_saved(path);
 }
 
+/// Called from the OBS frontend event callback on
+/// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTING`.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_replay_buffer_starting() {
+    recording::on_replay_buffer_starting();
+}
+
+/// Called from the OBS frontend event callback on
+/// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTED`.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_replay_buffer_started() {
+    recording::on_replay_buffer_started();
+}
+
+/// Called from the OBS frontend event callback on
+/// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPING`.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_replay_buffer_stopping() {
+    recording::on_replay_buffer_stopping();
+}
+
+/// Called from the OBS frontend event callback on
+/// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPED`.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_replay_buffer_stopped() {
+    recording::on_replay_buffer_stopped();
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_stream_notifier_stop() {
     let (runtime_handle, state) = {

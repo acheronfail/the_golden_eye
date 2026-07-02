@@ -35,6 +35,14 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
     }
   } else if (event == OBS_FRONTEND_EVENT_STREAMING_STOPPED) {
     ge_stream_notifier_stop();
+  } else if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTING) {
+    ge_replay_buffer_starting();
+  } else if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTED) {
+    ge_replay_buffer_started();
+  } else if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPING) {
+    ge_replay_buffer_stopping();
+  } else if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPED) {
+    ge_replay_buffer_stopped();
   } else if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED) {
     // The replay buffer finished writing a file: hand its path to Rust, which
     // wakes whichever save is waiting on it (no polling). obs_frontend_get_last_replay

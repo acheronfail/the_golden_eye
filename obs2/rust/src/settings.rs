@@ -12,8 +12,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::recording::{
-    DEFAULT_CLIP_FILENAME_TEMPLATE, DEFAULT_POST_RUN_PADDING_SECS, DEFAULT_PRE_RUN_PADDING_SECS,
-    RecordingOptions,
+    DEFAULT_CLIP_FILENAME_TEMPLATE, DEFAULT_POST_RUN_PADDING_SECS, DEFAULT_PRE_RUN_PADDING_SECS, RecordingOptions,
 };
 use crate::stream_notifier::{DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE, DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE};
 
@@ -26,6 +25,7 @@ const LEGACY_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suff
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub open_golden_eye_on_launch: bool,
+    pub stop_replay_buffer_when_monitor_stopped: bool,
     pub developer_lang: String,
     pub completed_output_path: String,
     pub save_failed_runs: bool,
@@ -44,6 +44,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             open_golden_eye_on_launch: true,
+            stop_replay_buffer_when_monitor_stopped: false,
             developer_lang: "en".to_owned(),
             completed_output_path: String::new(),
             save_failed_runs: true,
@@ -71,6 +72,10 @@ impl AppSettings {
             open_golden_eye_on_launch: bool_field(
                 object.get("openGoldenEyeOnLaunch"),
                 default.open_golden_eye_on_launch,
+            ),
+            stop_replay_buffer_when_monitor_stopped: bool_field(
+                object.get("stopReplayBufferWhenMonitorStopped"),
+                default.stop_replay_buffer_when_monitor_stopped,
             ),
             developer_lang: developer_lang(object.get("developerLang"), &default.developer_lang),
             completed_output_path: string_field(object.get("completedOutputPath"), &default.completed_output_path),
@@ -338,10 +343,9 @@ mod tests {
     #[test]
     fn default_settings_use_five_second_pre_run_padding() {
         assert_eq!(AppSettings::default().pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
-        assert_eq!(
-            AppSettings::from_json_value(json!({})).pre_run_padding_secs,
-            DEFAULT_PRE_RUN_PADDING_SECS
-        );
+        assert!(!AppSettings::default().stop_replay_buffer_when_monitor_stopped);
+        assert_eq!(AppSettings::from_json_value(json!({})).pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
+        assert!(!AppSettings::from_json_value(json!({})).stop_replay_buffer_when_monitor_stopped);
     }
 
     #[test]
@@ -349,6 +353,7 @@ mod tests {
         let settings = AppSettings::from_json_value(json!({
             "developerLang": "jp",
             "openGoldenEyeOnLaunch": false,
+            "stopReplayBufferWhenMonitorStopped": true,
             "completedOutputPath": "/tmp/completed",
             "saveFailedRuns": false,
             "failedOutputPath": "/tmp/failed",
@@ -364,6 +369,7 @@ mod tests {
 
         assert_eq!(settings.developer_lang, "jp");
         assert!(!settings.open_golden_eye_on_launch);
+        assert!(settings.stop_replay_buffer_when_monitor_stopped);
         assert_eq!(settings.completed_output_path, "/tmp/completed");
         assert!(!settings.save_failed_runs);
         assert_eq!(settings.failed_output_path, "/tmp/failed");
@@ -391,6 +397,7 @@ mod tests {
             .set_from_json_value(json!({
                 "developerLang": "jp",
                 "openGoldenEyeOnLaunch": false,
+                "stopReplayBufferWhenMonitorStopped": true,
                 "completedOutputPath": "/runs",
                 "saveFailedRuns": true,
                 "failedOutputPath": "/fails",
@@ -407,6 +414,7 @@ mod tests {
 
         assert_eq!(saved.completed_output_path, "/runs");
         assert!(!saved.open_golden_eye_on_launch);
+        assert!(saved.stop_replay_buffer_when_monitor_stopped);
         assert!(path.exists());
 
         let reloaded = SettingsStore::load_from_path(path).get();

@@ -12,6 +12,7 @@ const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{fa
 
 const SettingsSchema = z.object({
 	openGoldenEyeOnLaunch: z.boolean().catch(true),
+	stopReplayBufferWhenMonitorStopped: z.boolean().catch(false),
 	developerLang: z.union([z.literal('en'), z.literal('jp')]).catch('en'),
 	completedOutputPath: z.string().catch(''),
 	saveFailedRuns: z.boolean().catch(true),
@@ -103,6 +104,7 @@ export const settings = new (class {
 	//
 
 	openGoldenEyeOnLaunch = $state(initialSettings.openGoldenEyeOnLaunch);
+	stopReplayBufferWhenMonitorStopped = $state(initialSettings.stopReplayBufferWhenMonitorStopped);
 
 	//
 	// Developer
@@ -148,6 +150,7 @@ export const settings = new (class {
 	savedState = $derived(
 		JSON.stringify({
 			openGoldenEyeOnLaunch: this.openGoldenEyeOnLaunch,
+			stopReplayBufferWhenMonitorStopped: this.stopReplayBufferWhenMonitorStopped,
 			developerLang: this.developerLang,
 			completedOutputPath: this.completedOutputPath,
 			saveFailedRuns: this.saveFailedRuns,
@@ -254,6 +257,7 @@ export const settings = new (class {
 
 	private apply(next: Settings): void {
 		this.openGoldenEyeOnLaunch = next.openGoldenEyeOnLaunch;
+		this.stopReplayBufferWhenMonitorStopped = next.stopReplayBufferWhenMonitorStopped;
 		this.developerLang = next.developerLang;
 		this.completedOutputPath = next.completedOutputPath;
 		this.saveFailedRuns = next.saveFailedRuns;

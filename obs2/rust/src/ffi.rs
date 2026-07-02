@@ -59,9 +59,7 @@ unsafe extern "C" {
     /// Begins the replay buffer output (a no-op if it is not enabled in the
     /// profile, or already running). Starting is asynchronous.
     pub fn obs_frontend_replay_buffer_start();
-    /// Stops the replay buffer output. Declared for completeness; the recorder
-    /// leaves the buffer running for the whole monitoring session.
-    #[allow(dead_code)]
+    /// Stops the replay buffer output.
     pub fn obs_frontend_replay_buffer_stop();
     /// Writes the buffered window to disk. The save is asynchronous; OBS fires
     /// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED` (handled in `core.c`, forwarded

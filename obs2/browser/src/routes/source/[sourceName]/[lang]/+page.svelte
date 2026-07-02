@@ -9,6 +9,7 @@
 		setMonitorRunning,
 		setMonitorStopped
 	} from '$lib/monitor.svelte';
+	import { refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
 	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
 	import type { PageProps } from './$types';
@@ -76,6 +77,7 @@
 			await settings.saveNow();
 			await apiStartMonitor(params.sourceName, params.lang);
 			setMonitorRunning(params.sourceName, params.lang);
+			void refreshReplayBuffer();
 			monitoring = true;
 		} catch (err) {
 			alert(err instanceof Error ? err.message : String(err));
@@ -88,6 +90,7 @@
 		try {
 			await apiStopMonitor();
 			setMonitorStopped();
+			void refreshReplayBuffer();
 			monitoring = false;
 		} catch (err) {
 			alert(err instanceof Error ? err.message : String(err));

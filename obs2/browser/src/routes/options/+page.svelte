@@ -270,6 +270,18 @@
 				</label>
 				<p class={hintClass}>Opens the plugin dashboard in your default browser.</p>
 			</section>
+
+			<section class={panelClass}>
+				<label class="flex items-center gap-3">
+					<input
+						type="checkbox"
+						bind:checked={settings.stopReplayBufferWhenMonitorStopped}
+						class="rounded border-neutral-700 bg-neutral-950 text-amber-500 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+					/>
+					<span class={labelClass}>Stop replay buffer when monitor stopped</span>
+				</label>
+				<p class={hintClass}>Stops OBS's replay buffer after monitoring is turned off.</p>
+			</section>
 		{:else if activeTab === 'recording'}
 			<section class={panelClass}>
 				<label class={labelClass} for="clip-filename-template">Clip filename template</label>
