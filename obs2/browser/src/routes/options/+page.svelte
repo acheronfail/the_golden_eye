@@ -401,7 +401,7 @@
 							onblur={normalizePreRunPadding}
 							class={inputClass}
 						/>
-						<p class={hintClass}>How much footage to keep before the run-start screen is detected.</p>
+						<p class={hintClass}>How much footage to keep before the start screen is detected.</p>
 					</div>
 
 					<div>
@@ -415,7 +415,7 @@
 							onblur={normalizePostRunPadding}
 							class={inputClass}
 						/>
-						<p class={hintClass}>How long to keep recording after the stats screen appears.</p>
+						<p class={hintClass}>How much footage to keep after the stats screen appears.</p>
 					</div>
 				</div>
 			</section>
