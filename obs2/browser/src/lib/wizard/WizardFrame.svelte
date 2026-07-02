@@ -40,9 +40,9 @@
 <main class="mx-auto w-full max-w-xl px-4 py-8 sm:px-6 sm:py-12">
 	<StepBar current={step} {hrefs} />
 
-	<h1 class="text-2xl font-semibold text-amber-300">{title}</h1>
+	<h1 class="obs-heading text-2xl font-semibold">{title}</h1>
 	{#if subtitle}
-		<p class="mt-2 mb-8 text-sm text-neutral-400">{subtitle}</p>
+		<p class="obs-subtitle mt-2 mb-8 text-sm">{subtitle}</p>
 	{:else}
 		<div class="mb-8"></div>
 	{/if}

@@ -23,93 +23,93 @@ export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseSt
 		case 'started':
 			return {
 				title: 'recording',
-				border: 'border-green-500',
-				heading: 'text-green-300',
-				tag: 'text-green-500',
-				button: 'border-green-500 text-green-300 hover:bg-green-500 focus-visible:outline-green-400',
-				dot: 'bg-green-400'
+				border: 'obs-phase-recording-border',
+				heading: 'obs-phase-recording-text',
+				tag: 'obs-phase-recording-text',
+				button: 'obs-phase-recording-button',
+				dot: 'obs-phase-recording-dot'
 			};
 		case 'cancelled':
 			return {
 				title: 'cancelled',
-				border: 'border-neutral-500',
-				heading: 'text-neutral-300',
-				tag: 'text-neutral-500',
-				button: 'border-neutral-500 text-neutral-300 hover:bg-neutral-500 focus-visible:outline-neutral-400',
-				dot: 'bg-neutral-400'
+				border: 'obs-phase-neutral-border',
+				heading: 'obs-phase-neutral-text',
+				tag: 'obs-phase-neutral-text',
+				button: 'obs-phase-neutral-button',
+				dot: 'obs-phase-neutral-dot'
 			};
 		case 'failed':
 			return {
 				title: 'failed',
-				border: 'border-red-500',
-				heading: 'text-red-300',
-				tag: 'text-red-500',
-				button: 'border-red-500 text-red-300 hover:bg-red-500 focus-visible:outline-red-400',
-				dot: 'bg-red-400'
+				border: 'obs-phase-danger-border',
+				heading: 'obs-phase-danger-text',
+				tag: 'obs-phase-danger-text',
+				button: 'obs-phase-danger-button',
+				dot: 'obs-phase-danger-dot'
 			};
 		case 'aborted':
 			return {
 				title: 'aborted',
-				border: 'border-red-500',
-				heading: 'text-red-300',
-				tag: 'text-red-500',
-				button: 'border-red-500 text-red-300 hover:bg-red-500 focus-visible:outline-red-400',
-				dot: 'bg-red-400'
+				border: 'obs-phase-danger-border',
+				heading: 'obs-phase-danger-text',
+				tag: 'obs-phase-danger-text',
+				button: 'obs-phase-danger-button',
+				dot: 'obs-phase-danger-dot'
 			};
 		case 'kia':
 			return {
 				title: 'killed in action',
-				border: 'border-red-500',
-				heading: 'text-red-300',
-				tag: 'text-red-500',
-				button: 'border-red-500 text-red-300 hover:bg-red-500 focus-visible:outline-red-400',
-				dot: 'bg-red-400'
+				border: 'obs-phase-danger-border',
+				heading: 'obs-phase-danger-text',
+				tag: 'obs-phase-danger-text',
+				button: 'obs-phase-danger-button',
+				dot: 'obs-phase-danger-dot'
 			};
 		case 'complete':
 			return {
 				title: 'complete',
-				border: 'border-fuchsia-500',
-				heading: 'text-fuchsia-300',
-				tag: 'text-fuchsia-500',
-				button: 'border-fuchsia-500 text-fuchsia-300 hover:bg-fuchsia-500 focus-visible:outline-fuchsia-400',
-				dot: 'bg-fuchsia-400'
+				border: 'obs-phase-gold-border',
+				heading: 'obs-phase-gold-text',
+				tag: 'obs-phase-gold-text',
+				button: 'obs-phase-gold-button',
+				dot: 'obs-phase-gold-dot'
 			};
 		case 'statsSkipped':
 			return {
 				title: 'skipped stats',
-				border: 'border-red-500',
-				heading: 'text-red-300',
-				tag: 'text-red-500',
-				button: 'border-red-500 text-red-300 hover:bg-red-500 focus-visible:outline-red-400',
-				dot: 'bg-red-400'
+				border: 'obs-phase-danger-border',
+				heading: 'obs-phase-danger-text',
+				tag: 'obs-phase-danger-text',
+				button: 'obs-phase-danger-button',
+				dot: 'obs-phase-danger-dot'
 			};
 		case 'failedDiscarded':
 			return {
 				title: 'failed run not saved',
-				border: 'border-neutral-500',
-				heading: 'text-neutral-300',
-				tag: 'text-neutral-500',
-				button: 'border-neutral-500 text-neutral-300 hover:bg-neutral-500 focus-visible:outline-neutral-400',
-				dot: 'bg-neutral-400'
+				border: 'obs-phase-neutral-border',
+				heading: 'obs-phase-neutral-text',
+				tag: 'obs-phase-neutral-text',
+				button: 'obs-phase-neutral-button',
+				dot: 'obs-phase-neutral-dot'
 			};
 		case 'savePending':
 			return {
 				title: 'saving recording',
-				border: 'border-cyan-500',
-				heading: 'text-cyan-300',
-				tag: 'text-cyan-500',
-				button: 'border-cyan-500 text-cyan-300 hover:bg-cyan-500 focus-visible:outline-cyan-400',
-				dot: 'bg-cyan-400'
+				border: 'obs-phase-gold-border',
+				heading: 'obs-phase-gold-text',
+				tag: 'obs-phase-gold-text',
+				button: 'obs-phase-gold-button',
+				dot: 'obs-phase-gold-dot'
 			};
 		case null:
 		default:
 			return {
 				title: 'waiting for level start',
-				border: 'border-amber-500',
-				heading: 'text-amber-300',
-				tag: 'text-amber-500',
-				button: 'border-amber-500 text-amber-300 hover:bg-amber-500 focus-visible:outline-amber-400',
-				dot: 'bg-amber-400'
+				border: 'obs-phase-gold-border',
+				heading: 'obs-phase-gold-text',
+				tag: 'obs-phase-gold-text',
+				button: 'obs-phase-gold-button',
+				dot: 'obs-phase-gold-dot'
 			};
 	}
 };

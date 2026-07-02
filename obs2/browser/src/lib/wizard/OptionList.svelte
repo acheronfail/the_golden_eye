@@ -71,29 +71,24 @@
 				{disabled}
 				onclick={() => onSelect(option, i)}
 				onkeydown={(e) => onkeydown(e, i)}
-				class="group flex w-full flex-col items-stretch gap-3 rounded-md border border-amber-700 bg-neutral-950/60 px-4 py-3 text-left transition-colors sm:flex-row sm:items-center sm:gap-4
-					hover:cursor-pointer hover:border-amber-400 hover:bg-amber-600 hover:text-black
-					focus:outline-none focus-visible:border-amber-400 focus-visible:ring-2 focus-visible:ring-amber-400
-					disabled:pointer-events-none disabled:opacity-40"
+				class="obs-list-button group flex w-full flex-col items-stretch gap-3 rounded px-4 py-3 text-left transition-colors sm:flex-row sm:items-center sm:gap-4"
 			>
 				{#if leading}
 					{@render leading(option, i)}
 				{/if}
 				<span class="flex min-w-0 items-center gap-3">
 					<span class="flex min-w-0 flex-1 flex-col">
-						<span class="block min-w-0 break-words font-medium text-amber-300 group-hover:text-black sm:truncate">
+						<span class="obs-list-title block min-w-0 font-medium break-words sm:truncate">
 							{option.title}
 						</span>
 						{#if option.detail}
-							<span
-								class="block min-w-0 break-words font-mono text-xs text-neutral-400 group-hover:text-black/70 sm:truncate"
-							>
+							<span class="obs-list-detail block min-w-0 font-mono text-xs break-words sm:truncate">
 								{option.detail}
 							</span>
 						{/if}
 					</span>
 					<span
-						class="ml-auto shrink-0 translate-x-0 font-mono text-amber-500 transition-transform group-hover:translate-x-1 group-hover:text-black"
+						class="obs-list-arrow ml-auto shrink-0 translate-x-0 font-mono transition-transform group-hover:translate-x-1"
 						aria-hidden="true"
 					>
 						→

@@ -94,63 +94,60 @@
 	};
 </script>
 
-<div class="flex flex-col gap-4 p-4">
-	<h1 class="mb-4 text-2xl font-bold">Developer Utilities</h1>
+<div class="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4">
+	<h1 class="obs-heading mb-4 text-2xl font-bold">Developer Utilities</h1>
 
-	<fieldset>
-		<legend class="mb-2 font-semibold">Language:</legend>
-		<div class="flex flex-col pl-4">
-			<label class="mr-4">
-				<input type="radio" name="lang" value="en" bind:group={settings.developerLang} />
+	<fieldset class="obs-panel rounded px-4 py-3" aria-labelledby="developer-language-heading">
+		<h2 id="developer-language-heading" class="mb-2 font-semibold">Language</h2>
+		<div class="flex flex-col gap-1 pl-4">
+			<label class="flex items-center gap-2">
+				<input class="obs-checkbox" type="radio" name="lang" value="en" bind:group={settings.developerLang} />
 				English
 			</label>
-			<label>
-				<input type="radio" name="lang" value="jp" bind:group={settings.developerLang} />
+			<label class="flex items-center gap-2">
+				<input class="obs-checkbox" type="radio" name="lang" value="jp" bind:group={settings.developerLang} />
 				Japanese
 			</label>
 		</div>
 	</fieldset>
 
-	<div class="flex flex-col gap-4">
+	<div class="obs-panel flex flex-col gap-4 rounded px-4 py-3">
 		<div class="flex flex-row gap-2">
 			<h2 class="text-xl font-semibold">Available Sources:</h2>
-			<button
-				class="rounded bg-blue-500 px-2 py-1 font-semibold text-white hover:bg-blue-600 disabled:bg-slate-500 disabled:text-slate-300"
-				disabled={sourcesLoading}
-				onclick={getSources}>load sources</button
+			<button class="obs-button obs-button-gold px-2 py-1 text-sm" disabled={sourcesLoading} onclick={getSources}
+				>load sources</button
 			>
 		</div>
 
 		{#if sources.length == 0}
-			<p class="text-gray-500">No sources, click "load sources" to fetch them from OBS.</p>
+			<p class="obs-dim">No sources, click "load sources" to fetch them from OBS.</p>
 		{:else}
 			<ul class="grid grid-cols-[max-content_1fr] items-center gap-x-4 gap-y-3">
 				{#each sources as source}
 					<li class="contents">
-						<span class="text-right font-mono">{source.name}: </span>
+						<span class="obs-muted text-right font-mono">{source.name}: </span>
 
 						<div class="flex flex-wrap gap-2">
 							{#if knownVideoSourceIds.includes(source.id)}
 								{#if !screenshottingSource}
-									<button
-										class="rounded bg-blue-500 px-2 py-1 text-white hover:bg-blue-600"
-										onclick={getScreenshot(source.name)}>get screenshot</button
+									<button class="obs-button px-2 py-1 text-sm" onclick={getScreenshot(source.name)}
+										>get screenshot</button
 									>
 								{/if}
 
 								{#if screenshottingSource === source.name}
-									<button class="rounded bg-red-500 px-2 py-1 text-white hover:bg-red-600" onclick={stopScreenshotting}
+									<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={stopScreenshotting}
 										>stop screenshotting</button
 									>
 								{:else}
 									<button
-										class="rounded bg-amber-500 px-2 py-1 text-white hover:bg-amber-600 disabled:bg-slate-500 disabled:text-slate-300"
+										class="obs-button obs-button-gold px-2 py-1 text-sm"
 										disabled={!!screenshottingSource}
 										onclick={startScreenshotting(source.name)}>start screenshotting</button
 									>
 								{/if}
 							{:else}
-								<span class="font-mono text-gray-400">(not a video source)</span>
+								<span class="obs-dim font-mono">(not a video source)</span>
 							{/if}
 						</div>
 					</li>
@@ -160,14 +157,11 @@
 	</div>
 
 	{#if imageData}
-		<div class="flex w-1/2 flex-col gap-4 p-2">
+		<div class="obs-panel flex w-full flex-col gap-4 rounded p-4">
 			<div class="flex flex-row items-center gap-2">
 				<h2 class="text-xl font-semibold">Screenshot:</h2>
 				{#if !screenshottingSource}
-					<button
-						class="rounded bg-red-500 px-2 py-1 font-mono text-sm text-white hover:bg-red-600"
-						onclick={() => (imageData = null)}
-					>
+					<button class="obs-button obs-button-danger px-2 py-1 font-mono text-sm" onclick={() => (imageData = null)}>
 						close
 					</button>
 				{/if}
@@ -175,17 +169,17 @@
 
 			<div class="flex flex-row gap-2">
 				<button
-					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
+					class="obs-button px-2 py-1 font-mono text-sm"
 					onclick={() =>
 						(startScreenIndex = (startScreenIndex - 1 + allStartScreenNames.length) % allStartScreenNames.length)}
 					>-1</button
 				>
 				<button
-					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
+					class="obs-button px-2 py-1 font-mono text-sm"
 					onclick={() => (startScreenIndex = (startScreenIndex + 1) % allStartScreenNames.length)}>+1</button
 				>
 				<button
-					class="rounded bg-blue-500 px-2 py-1 font-mono text-sm text-white hover:bg-blue-600"
+					class="obs-button obs-button-gold px-2 py-1 font-mono text-sm"
 					onclick={() => (startScreenIndex = saveScreenshotAndAdvance(allStartScreenNames, startScreenIndex)())}
 					>save "{allStartScreenNames[startScreenIndex]}.bmp"</button
 				>
@@ -193,17 +187,17 @@
 
 			<div class="flex flex-row gap-2">
 				<button
-					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
+					class="obs-button px-2 py-1 font-mono text-sm"
 					onclick={() =>
 						(failedScreenIndex = (failedScreenIndex - 1 + allFailedScreenNames.length) % allFailedScreenNames.length)}
 					>-1</button
 				>
 				<button
-					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
+					class="obs-button px-2 py-1 font-mono text-sm"
 					onclick={() => (failedScreenIndex = (failedScreenIndex + 1) % allFailedScreenNames.length)}>+1</button
 				>
 				<button
-					class="rounded bg-blue-500 px-2 py-1 font-mono text-sm text-white hover:bg-blue-600"
+					class="obs-button obs-button-gold px-2 py-1 font-mono text-sm"
 					onclick={() => (failedScreenIndex = saveScreenshotAndAdvance(allFailedScreenNames, failedScreenIndex)())}
 					>save "{allFailedScreenNames[failedScreenIndex]}.bmp"</button
 				>
@@ -211,22 +205,22 @@
 
 			<div class="flex flex-row gap-2">
 				<button
-					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
+					class="obs-button px-2 py-1 font-mono text-sm"
 					onclick={() =>
 						(statsScreenIndex = (statsScreenIndex - 1 + statsScreenNames.length) % statsScreenNames.length)}>-1</button
 				>
 				<button
-					class="rounded bg-slate-500 px-2 py-1 font-mono text-sm text-white hover:bg-slate-600"
+					class="obs-button px-2 py-1 font-mono text-sm"
 					onclick={() => (statsScreenIndex = (statsScreenIndex + 1) % statsScreenNames.length)}>+1</button
 				>
 				<button
-					class="rounded bg-blue-500 px-2 py-1 font-mono text-sm text-white hover:bg-blue-600"
+					class="obs-button obs-button-gold px-2 py-1 font-mono text-sm"
 					onclick={() => (statsScreenIndex = saveScreenshotAndAdvance(statsScreenNames, statsScreenIndex)())}
 					>save "{statsScreenNames[statsScreenIndex]}.bmp"</button
 				>
 			</div>
 
-			<img src={imageData} alt="OBS Screenshot" class="max-w-full rounded" />
+			<img src={imageData} alt="OBS Screenshot" class="obs-preview max-w-full rounded" />
 		</div>
 	{/if}
 </div>

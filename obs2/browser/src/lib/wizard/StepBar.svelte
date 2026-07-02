@@ -22,24 +22,17 @@
 			<svelte:element
 				this={href ? 'a' : 'span'}
 				{href}
-				class="flex items-center gap-2 rounded border px-2.5 py-1
-					{active
-					? 'border-amber-400 bg-amber-600 text-black'
-					: done
-						? 'border-amber-700 text-amber-500'
-						: 'border-neutral-700 text-neutral-500'}
-					{href ? 'transition-colors hover:border-amber-400 hover:text-amber-300' : ''}"
+				class="obs-step flex items-center gap-2 rounded px-2.5 py-1
+					{active ? 'obs-step-active' : done ? 'obs-step-done' : ''}
+					{href ? 'obs-step-interactive transition-colors' : ''}"
 			>
-				<span
-					class="flex h-4 w-4 items-center justify-center rounded-full border text-[0.625rem]
-						{active ? 'border-black' : done ? 'border-amber-500' : 'border-neutral-600'}"
-				>
+				<span class="obs-step-marker flex h-4 w-4 items-center justify-center rounded-full border text-[0.625rem]">
 					{done ? '✓' : step}
 				</span>
 				{label}
 			</svelte:element>
 			{#if step < STEPS.length}
-				<span class="text-neutral-700" aria-hidden="true">›</span>
+				<span class="obs-step-divider" aria-hidden="true">›</span>
 			{/if}
 		</li>
 	{/each}

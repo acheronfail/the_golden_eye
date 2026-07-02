@@ -14,6 +14,12 @@
 	type OptionsTab = 'general' | 'recording' | 'notifications';
 	type PathKind = 'completed' | 'failed';
 
+	const optionSections: { value: OptionsTab; label: string }[] = [
+		{ value: 'general', label: 'General' },
+		{ value: 'recording', label: 'Recording' },
+		{ value: 'notifications', label: 'Notifications' }
+	];
+
 	const tabFromUrl = (value: string | null): OptionsTab =>
 		value === 'general' || value === 'notifications' ? value : 'recording';
 
@@ -40,25 +46,21 @@
 		});
 	};
 
-	const panelClass = 'rounded-md border border-neutral-800 bg-neutral-950/60 px-4 py-4';
-	const labelClass = 'text-sm font-semibold text-amber-300';
-	const hintClass = 'mt-1 font-mono text-xs text-neutral-500';
-	const inputClass =
-		'mt-2 w-full rounded-md border-neutral-700 bg-neutral-950 font-mono text-sm text-neutral-100 placeholder:text-neutral-700 focus:border-amber-400 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50';
+	const onSectionChange = (event: Event) => {
+		selectTab((event.currentTarget as HTMLSelectElement).value as OptionsTab);
+	};
+
+	const panelClass = 'obs-panel rounded px-4 py-4';
+	const labelClass = 'text-sm font-semibold';
+	const hintClass = 'obs-dim mt-1 font-mono text-xs';
+	const inputClass = 'obs-input mt-2 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-50';
 	const textareaClass = `${inputClass} min-h-24 resize-y`;
 	const pathButtonClass =
-		'rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs font-semibold whitespace-nowrap text-neutral-200 transition-colors hover:border-amber-500 hover:text-amber-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 disabled:cursor-not-allowed disabled:opacity-50';
-	const pathStatusClass = 'mt-2 text-xs text-emerald-400';
-	const pathPendingClass = 'mt-2 break-all font-mono text-xs text-neutral-500';
-	const pathErrorClass = 'mt-2 break-words text-xs text-red-300';
-	const templateTokenClass =
-		'cursor-help break-all rounded border border-neutral-800 bg-neutral-900 px-1.5 py-1 font-mono text-xs text-neutral-300';
-	const tabBaseClass =
-		'min-h-10 rounded border px-3 py-2 font-mono text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 sm:rounded-none sm:border-x-0 sm:border-t-0 sm:border-b-2 sm:px-4';
-	const tabClass = (tab: OptionsTab) =>
-		activeTab === tab
-			? `${tabBaseClass} border-amber-400 text-amber-300`
-			: `${tabBaseClass} border-neutral-800 text-neutral-400 hover:border-amber-700 hover:text-amber-300 sm:border-transparent`;
+		'obs-button px-3 py-1.5 text-xs whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50';
+	const pathStatusClass = 'mt-2 text-xs text-[var(--obs-success)]';
+	const pathPendingClass = 'obs-dim mt-2 break-all font-mono text-xs';
+	const pathErrorClass = 'mt-2 break-words text-xs text-[var(--obs-danger)]';
+	const templateTokenClass = 'obs-token cursor-help break-all rounded px-1.5 py-1 font-mono text-xs';
 	const clipTemplateTokens = [
 		{
 			value: '{obs_replay_name}',
@@ -224,41 +226,21 @@
 </svelte:head>
 
 <main class="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
-	<h1 class="text-2xl font-semibold text-amber-300">Options</h1>
-	<p class="mt-2 mb-8 text-sm text-neutral-400">Settings are saved automatically.</p>
+	<h1 class="obs-heading text-2xl font-semibold">Options</h1>
+	<p class="obs-subtitle mt-2 mb-8 text-sm">Settings are saved automatically.</p>
 
-	<div
-		class="mb-6 grid grid-cols-1 gap-2 sm:flex sm:gap-0 sm:border-b sm:border-neutral-800"
-		role="tablist"
-		aria-label="Options sections"
-	>
-		<button
-			type="button"
-			role="tab"
-			aria-selected={activeTab === 'general'}
-			class={tabClass('general')}
-			onclick={() => selectTab('general')}
+	<div class="mb-5 flex items-center gap-3">
+		<label for="options-section" class="obs-dim shrink-0 font-mono text-xs tracking-wide uppercase">Section</label>
+		<select
+			id="options-section"
+			class="obs-select min-w-0 flex-1 font-mono text-sm sm:max-w-60"
+			value={activeTab}
+			onchange={onSectionChange}
 		>
-			General
-		</button>
-		<button
-			type="button"
-			role="tab"
-			aria-selected={activeTab === 'recording'}
-			class={tabClass('recording')}
-			onclick={() => selectTab('recording')}
-		>
-			Recording
-		</button>
-		<button
-			type="button"
-			role="tab"
-			aria-selected={activeTab === 'notifications'}
-			class={tabClass('notifications')}
-			onclick={() => selectTab('notifications')}
-		>
-			Notifications
-		</button>
+			{#each optionSections as section}
+				<option value={section.value}>{section.label}</option>
+			{/each}
+		</select>
 	</div>
 
 	<fieldset disabled={!settings.loaded} class="m-0 flex flex-col gap-4 border-0 p-0">
@@ -268,7 +250,7 @@
 					<input
 						type="checkbox"
 						bind:checked={settings.stopReplayBufferWhenMonitorStopped}
-						class="rounded border-neutral-700 bg-neutral-950 text-amber-500 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+						class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
 					/>
 					<span class={labelClass}>Stop replay buffer when monitor stopped</span>
 				</label>
@@ -342,7 +324,7 @@
 					<input
 						type="checkbox"
 						bind:checked={settings.saveFailedRuns}
-						class="rounded border-neutral-700 bg-neutral-950 text-amber-500 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+						class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
 					/>
 					<span class={labelClass}>Save failed runs</span>
 				</label>
@@ -443,71 +425,73 @@
 					<input
 						type="checkbox"
 						bind:checked={settings.discordNotificationsEnabled}
-						class="rounded border-neutral-700 bg-neutral-950 text-amber-500 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+						class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
 					/>
 					<span class={labelClass}>Enable Discord notifications</span>
 				</label>
 				<p class={hintClass}>Enable notifications in Discord for streaming, requires a webhook URL.</p>
 			</section>
 
-			<section class={panelClass}>
-				<label class={labelClass} for="discord-webhook-url">Discord webhook URL</label>
-				<input
-					id="discord-webhook-url"
-					type="url"
-					bind:value={settings.discordWebhookUrl}
-					placeholder="https://discord.com/api/webhooks/..."
-					autocomplete="off"
-					spellcheck="false"
-					class={inputClass}
-				/>
-			</section>
+			{#if settings.discordNotificationsEnabled}
+				<section class={panelClass}>
+					<label class={labelClass} for="discord-webhook-url">Discord webhook URL</label>
+					<input
+						id="discord-webhook-url"
+						type="url"
+						bind:value={settings.discordWebhookUrl}
+						placeholder="https://discord.com/api/webhooks/..."
+						autocomplete="off"
+						spellcheck="false"
+						class={inputClass}
+					/>
+				</section>
 
-			<section class={panelClass}>
-				<label class={labelClass} for="streaming-started-message-template">Streaming started message template</label>
-				<textarea
-					id="streaming-started-message-template"
-					rows="3"
-					bind:value={settings.streamingStartedMessageTemplate}
-					placeholder={DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE}
-					class={textareaClass}
-				></textarea>
-				<p class={hintClass}>Available tokens</p>
-				<div class="mt-2 flex flex-wrap gap-2">
-					{#each notificationTemplateTokens as token}
-						<code
-							class={templateTokenClass}
-							title={token.description}
-							aria-label={`${token.value}: ${token.description}`}
-						>
-							{token.value}
-						</code>
-					{/each}
-				</div>
-			</section>
+				<section class={panelClass}>
+					<label class={labelClass} for="streaming-started-message-template">Streaming started message template</label>
+					<textarea
+						id="streaming-started-message-template"
+						rows="3"
+						bind:value={settings.streamingStartedMessageTemplate}
+						placeholder={DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE}
+						class={textareaClass}
+					></textarea>
+					<p class={hintClass}>Available tokens</p>
+					<div class="mt-2 flex flex-wrap gap-2">
+						{#each notificationTemplateTokens as token}
+							<code
+								class={templateTokenClass}
+								title={token.description}
+								aria-label={`${token.value}: ${token.description}`}
+							>
+								{token.value}
+							</code>
+						{/each}
+					</div>
+				</section>
 
-			<section class={panelClass}>
-				<label class={labelClass} for="streaming-stopped-message-template">Streaming stopped message template</label>
-				<textarea
-					id="streaming-stopped-message-template"
-					rows="3"
-					bind:value={settings.streamingStoppedMessageTemplate}
-					placeholder={DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE}
-					class={textareaClass}
-				></textarea>
-				<p class={hintClass}>Available tokens</p>
-				<div class="mt-2 flex flex-wrap gap-2">
-					{#each notificationTemplateTokens as token}
-						<code
-							class={templateTokenClass}
-							title={token.description}
-							aria-label={`${token.value}: ${token.description}`}
-						>
-							{token.value}
-						</code>
-					{/each}
-				</div>
-			</section>
+				<section class={panelClass}>
+					<label class={labelClass} for="streaming-stopped-message-template">Streaming stopped message template</label>
+					<textarea
+						id="streaming-stopped-message-template"
+						rows="3"
+						bind:value={settings.streamingStoppedMessageTemplate}
+						placeholder={DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE}
+						class={textareaClass}
+					></textarea>
+					<p class={hintClass}>Available tokens</p>
+					<div class="mt-2 flex flex-wrap gap-2">
+						{#each notificationTemplateTokens as token}
+							<code
+								class={templateTokenClass}
+								title={token.description}
+								aria-label={`${token.value}: ${token.description}`}
+							>
+								{token.value}
+							</code>
+						{/each}
+					</div>
+				</section>
+			{/if}
 		{/if}
 	</fieldset>
 </main>

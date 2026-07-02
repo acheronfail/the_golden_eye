@@ -114,7 +114,7 @@
 	};
 
 	const bannerClass =
-		'inline-block max-w-full border-r p-2 text-left font-mono text-xs leading-[1.17] whitespace-pre text-amber-400';
+		'obs-banner inline-block max-w-full p-2 text-left font-mono text-xs leading-[1.17] whitespace-pre';
 	const bannerText = `\
 ┏┳┓┓     ┏┓  ┓ ┓      ┏┓
  ┃ ┣┓┏┓  ┃┓┏┓┃┏┫┏┓┏┓  ┣ ┓┏┏┓
@@ -122,13 +122,13 @@
                          ┛`;
 
 	const menuButtonClass =
-		'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded border border-amber-500 text-amber-400 transition-colors hover:bg-amber-600 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400';
+		'obs-icon-button obs-phase-gold-button inline-flex h-10 w-10 shrink-0 items-center justify-center';
 	const menuPanelClass =
-		'absolute top-full right-2 z-40 mt-2 w-[min(20rem,calc(100vw-1rem))] rounded-md border border-amber-700 bg-neutral-950 p-2 font-mono text-sm shadow-2xl shadow-black/50';
+		'obs-menu-panel absolute top-full right-2 z-40 mt-2 w-[min(20rem,calc(100vw-1rem))] rounded p-2 text-sm';
 	const menuLinkCommon =
-		'flex min-h-11 items-center justify-end rounded px-3 py-2 text-right transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400';
-	const menuLinkClass = `${menuLinkCommon} text-amber-300 hover:bg-amber-600 hover:text-black`;
-	const menuLinkActiveClass = `${menuLinkCommon} bg-amber-600 text-black hover:bg-amber-700`;
+		'obs-menu-link flex min-h-11 items-center justify-end rounded px-3 py-2 text-right transition-colors';
+	const menuLinkClass = menuLinkCommon;
+	const menuLinkActiveClass = `${menuLinkCommon} obs-menu-link-active`;
 
 	const links = [
 		{ href: '/', label: 'Monitor' },
@@ -145,19 +145,14 @@
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 <svelte:window onclick={onWindowClick} onkeydown={onWindowKeydown} />
 
-<div class="flex h-screen min-h-0 min-w-[400px] flex-col overflow-hidden">
-	<header class="relative flex shrink-0 items-center border-b border-b-amber-400">
+<div class="obs-app-shell flex h-screen min-h-0 min-w-[400px] flex-col overflow-hidden">
+	<header class="obs-app-header relative flex shrink-0 items-center">
 		<a href="/" aria-label="The Golden Eye home" class="block min-w-0 shrink overflow-hidden">
 			<pre class={bannerClass}>{bannerText}</pre>
 		</a>
 
 		{#if menuOpen}
-			<nav
-				bind:this={menuPanel}
-				id="global-navigation-menu"
-				class={menuPanelClass}
-				aria-label="Primary navigation"
-			>
+			<nav bind:this={menuPanel} id="global-navigation-menu" class={menuPanelClass} aria-label="Primary navigation">
 				<ul class="flex flex-col gap-1">
 					{#each links as link}
 						{@const isActive = page.url.pathname === link.href}
@@ -173,7 +168,7 @@
 						</li>
 					{/each}
 				</ul>
-				<div class="mt-2 border-t border-neutral-800 px-3 pt-2 pb-1 text-right text-xs text-neutral-500">
+				<div class="obs-menu-footer mt-2 px-3 pt-2 pb-1 text-right text-xs">
 					v{pluginVersion}
 				</div>
 			</nav>
@@ -183,10 +178,10 @@
 			{#if activeMonitorHref}
 				<a
 					href={activeMonitorHref}
-					class="group inline-flex items-center gap-2 rounded border px-2 py-1 transition-colors hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 {activeMonitorStyle.button}"
+					class="obs-button obs-phase-button inline-flex items-center gap-2 px-2 py-1 {activeMonitorStyle.button}"
 					aria-label="Return to monitoring screen"
 				>
-					<span class="h-2 w-2 rounded-full group-hover:bg-black {activeMonitorStyle.dot}" aria-hidden="true"></span>
+					<span class="obs-phase-dot h-2 w-2 rounded-full {activeMonitorStyle.dot}" aria-hidden="true"></span>
 					<span>Monitoring</span>
 				</a>
 			{/if}
@@ -208,7 +203,7 @@
 		</div>
 	</header>
 
-	<div bind:this={contentScroller} class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+	<div bind:this={contentScroller} class="obs-content-scroller min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
 		{@render children()}
 	</div>
 

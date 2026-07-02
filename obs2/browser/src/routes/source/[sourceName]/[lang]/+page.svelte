@@ -142,7 +142,7 @@
 			{style.title}
 		</h1>
 		<!-- The raw matched screen, for detail beneath the plain-language title. -->
-		<p class="mt-3 font-mono text-xs tracking-widest text-neutral-500 uppercase">
+		<p class="obs-dim mt-3 font-mono text-xs tracking-widest uppercase">
 			{currentMatch?.screen ?? '...'}
 		</p>
 
@@ -151,27 +151,27 @@
 			     matched times so they're visible on the page. The run time is always
 			     present; the target and best times only appear when the game shows
 			     them (see the `times` docs in api.ts). -->
-			<div class="mt-6 flex flex-wrap justify-center gap-6 font-mono text-neutral-100">
+			<div class="mt-6 flex flex-wrap justify-center gap-6 font-mono">
 				<span class="flex flex-col items-center">
-					<span class="text-xs tracking-widest text-neutral-500 uppercase">time</span>
+					<span class="obs-dim text-xs tracking-widest uppercase">time</span>
 					<span class="text-4xl">{formatTime(currentTimes.time)}</span>
 				</span>
 				{#if currentTimes.target_time != null}
 					<span class="flex flex-col items-center">
-						<span class="text-xs tracking-widest text-neutral-500 uppercase">target</span>
+						<span class="obs-dim text-xs tracking-widest uppercase">target</span>
 						<span class="text-4xl">{formatTime(currentTimes.target_time)}</span>
 					</span>
 				{/if}
 				{#if currentTimes.best_time != null}
 					<span class="flex flex-col items-center">
-						<span class="text-xs tracking-widest text-neutral-500 uppercase">best</span>
+						<span class="obs-dim text-xs tracking-widest uppercase">best</span>
 						<span class="text-4xl">{formatTime(currentTimes.best_time)}</span>
 					</span>
 				{/if}
 			</div>
 		{/if}
 
-		<p class="mt-6 text-sm text-neutral-400">press escape or space to stop monitoring</p>
+		<p class="obs-subtitle mt-6 text-sm">press escape or space to stop monitoring</p>
 	</main>
 {:else}
 	<WizardFrame
@@ -183,7 +183,7 @@
 		{#if verified}
 			<OptionList options={[option]} onSelect={startMonitor} />
 		{:else}
-			<p class="font-mono text-sm text-neutral-500">Verifying source…</p>
+			<p class="obs-dim font-mono text-sm">Verifying source…</p>
 		{/if}
 	</WizardFrame>
 {/if}
