@@ -52,6 +52,7 @@
 	function runDetail(clip: RunClip): string {
 		const parts = [
 			levelLabel(clip),
+			romLanguageLabel(clip.metadata.romLanguage),
 			clip.metadata.time,
 			clip.metadata.difficulty,
 			statusLabel(clip.metadata.status),
@@ -63,6 +64,19 @@
 	function levelLabel(clip: RunClip): string {
 		const level = clip.metadata.level || 'unknown';
 		return clip.metadata.levelNumber ? `${clip.metadata.levelNumber}. ${level}` : level;
+	}
+
+	function romLanguageLabel(lang: string): string | null {
+		switch (lang) {
+			case 'en':
+				return 'English ROM';
+			case 'jp':
+				return 'Japanese ROM';
+			case '':
+				return null;
+			default:
+				return `${lang.toUpperCase()} ROM`;
+		}
 	}
 
 	function statusLabel(status: string): string {
@@ -108,6 +122,7 @@
 	function metadataRows(clip: RunClip): { label: string; value: string | null | undefined }[] {
 		return [
 			{ label: 'Level', value: levelLabel(clip) },
+			{ label: 'ROM language', value: romLanguageLabel(clip.metadata.romLanguage) },
 			{ label: 'Time', value: clip.metadata.time },
 			{ label: 'Difficulty', value: clip.metadata.difficulty },
 			{ label: 'Status', value: statusLabel(clip.metadata.status) },

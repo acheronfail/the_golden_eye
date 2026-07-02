@@ -454,13 +454,16 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // Handed to the recorder so it can broadcast a `RecordingSaved` event once a
     // run's clip is written out of the replay buffer.
     let event_tx = state.event_tx.clone();
+    let recording_source_name = status_source_name.clone();
+    let recording_lang = lang.clone();
     let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
         let mut source = ObsSource { mailbox: worker_mailbox, region };
         let mut last: Option<LevelMatch> = None;
         // Drives the replay-buffer save/trim as the session progresses. Fed
         // every matched frame (not just state changes) so its save timer is
         // polled each tick.
-        let mut recording = crate::recording::RecordingState::new(event_tx, recording_options);
+        let mut recording =
+            crate::recording::RecordingState::new(event_tx, recording_options, recording_source_name, recording_lang);
         session.run(&mut source, |result| match result {
             Ok(info) => {
                 tracing::debug!(?info);

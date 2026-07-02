@@ -46,6 +46,8 @@ export interface ClipMetadata {
 	levelNumber?: number;
 	difficulty?: string;
 	status: string;
+	romLanguage: string;
+	sourceName: string;
 	comment: string;
 	pluginVersion: string;
 }

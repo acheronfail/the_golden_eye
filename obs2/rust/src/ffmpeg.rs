@@ -31,6 +31,8 @@ const TAG_LEVEL: &str = "fail.acheron.thegoldeneye.level";
 const TAG_LEVEL_NUMBER: &str = "fail.acheron.thegoldeneye.level_number";
 const TAG_DIFFICULTY: &str = "fail.acheron.thegoldeneye.difficulty";
 const TAG_STATUS: &str = "fail.acheron.thegoldeneye.status";
+const TAG_ROM_LANGUAGE: &str = "fail.acheron.thegoldeneye.rom_language";
+const TAG_SOURCE_NAME: &str = "fail.acheron.thegoldeneye.source_name";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +48,8 @@ pub struct ClipMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub difficulty: Option<String>,
     pub status: String,
+    pub rom_language: String,
+    pub source_name: String,
     pub comment: String,
     pub plugin_version: String,
 }
@@ -62,6 +66,8 @@ impl ClipMetadata {
         set_optional_metadata(metadata, TAG_LEVEL_NUMBER, self.level_number.map(|n| n.to_string()).as_deref());
         set_optional_metadata(metadata, TAG_DIFFICULTY, self.difficulty.as_deref());
         metadata.set(TAG_STATUS, &clean_metadata_value(&self.status));
+        metadata.set(TAG_ROM_LANGUAGE, &clean_metadata_value(&self.rom_language));
+        metadata.set(TAG_SOURCE_NAME, &clean_metadata_value(&self.source_name));
         metadata.set("comment", &clean_metadata_value(&self.comment));
     }
 
@@ -80,8 +86,22 @@ impl ClipMetadata {
         let time_seconds = get_metadata(metadata, TAG_RUN_TIME_SECONDS).and_then(|value| value.parse::<i32>().ok());
         let level_number = get_metadata(metadata, TAG_LEVEL_NUMBER).and_then(|value| value.parse::<i32>().ok());
         let difficulty = get_metadata(metadata, TAG_DIFFICULTY);
+        let rom_language = get_metadata(metadata, TAG_ROM_LANGUAGE).unwrap_or_default();
+        let source_name = get_metadata(metadata, TAG_SOURCE_NAME).unwrap_or_default();
 
-        Some(Self { timestamp, time, time_seconds, level, level_number, difficulty, status, comment, plugin_version })
+        Some(Self {
+            timestamp,
+            time,
+            time_seconds,
+            level,
+            level_number,
+            difficulty,
+            status,
+            rom_language,
+            source_name,
+            comment,
+            plugin_version,
+        })
     }
 }
 
@@ -398,6 +418,8 @@ mod tests {
             level_number: Some(8),
             difficulty: Some("00 Agent".to_owned()),
             status: "complete".to_owned(),
+            rom_language: "en".to_owned(),
+            source_name: "N64 Capture".to_owned(),
             comment: "Created by The Golden Eye OBS plugin v0.0.0".to_owned(),
             plugin_version: "0.0.0".to_owned(),
         };

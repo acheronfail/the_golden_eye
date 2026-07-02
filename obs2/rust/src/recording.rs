@@ -258,11 +258,29 @@ pub struct RecordingState {
     event_tx: broadcast::Sender<MonitorEvent>,
     /// Recording/output options fixed for this monitor session.
     options: RecordingOptions,
+    /// OBS source this monitor session records from, stored in clip metadata.
+    source_name: String,
+    /// ROM/template language this monitor session matches, stored in clip metadata.
+    rom_language: String,
 }
 
 impl RecordingState {
-    pub fn new(event_tx: broadcast::Sender<MonitorEvent>, options: RecordingOptions) -> Self {
-        RecordingState { clip_start: None, status: None, report: None, pending: None, event_tx, options }
+    pub fn new(
+        event_tx: broadcast::Sender<MonitorEvent>,
+        options: RecordingOptions,
+        source_name: String,
+        rom_language: String,
+    ) -> Self {
+        RecordingState {
+            clip_start: None,
+            status: None,
+            report: None,
+            pending: None,
+            event_tx,
+            options,
+            source_name,
+            rom_language,
+        }
     }
 
     /// Broadcast a recorder state transition to connected WebSocket clients.
@@ -316,6 +334,8 @@ impl RecordingState {
                 pending.completed_at,
                 pending.stats,
                 self.options.clone(),
+                self.source_name.clone(),
+                self.rom_language.clone(),
                 self.event_tx.clone(),
             );
         }
@@ -448,6 +468,8 @@ fn spawn_save_and_trim(
     completed_at: SystemTime,
     stats: Option<LevelMatch>,
     options: RecordingOptions,
+    source_name: String,
+    rom_language: String,
     event_tx: broadcast::Sender<MonitorEvent>,
 ) {
     let spawned = std::thread::Builder::new().name("ge-replay-save".to_owned()).spawn(move || {
@@ -466,7 +488,17 @@ fn spawn_save_and_trim(
             }
         };
 
-        match trim_clip(&path, start_before_save_secs, trim_tail_secs, status, completed_at, stats, &options) {
+        match trim_clip(
+            &path,
+            start_before_save_secs,
+            trim_tail_secs,
+            status,
+            completed_at,
+            stats,
+            &options,
+            &source_name,
+            &rom_language,
+        ) {
             Ok(saved) => {
                 // Ignore send errors: with no WebSocket clients there are no
                 // subscribers, but the save still succeeded.
@@ -491,6 +523,8 @@ fn trim_clip(
     completed_at: SystemTime,
     stats: Option<LevelMatch>,
     options: &RecordingOptions,
+    source_name: &str,
+    rom_language: &str,
 ) -> anyhow::Result<RecordingSaved> {
     let input = Path::new(replay_path);
     let duration = ffmpeg::duration_secs(input)?;
@@ -519,7 +553,7 @@ fn trim_clip(
         status = status.as_str(),
         "trimming replay clip",
     );
-    let clip_metadata = clip_metadata(status, completed_at, stats.as_ref());
+    let clip_metadata = clip_metadata(status, completed_at, stats.as_ref(), source_name, rom_language);
     ffmpeg::trim_with_metadata(input, &output, start, end, Some(&clip_metadata))?;
     tracing::info!(output = %output.display(), "saved trimmed clip");
     if failed
@@ -540,7 +574,13 @@ fn trim_clip(
     })
 }
 
-fn clip_metadata(status: RunStatus, completed_at: SystemTime, stats: Option<&LevelMatch>) -> ffmpeg::ClipMetadata {
+fn clip_metadata(
+    status: RunStatus,
+    completed_at: SystemTime,
+    stats: Option<&LevelMatch>,
+    source_name: &str,
+    rom_language: &str,
+) -> ffmpeg::ClipMetadata {
     let level_info = stats.and_then(|m| ge::level_info(m.mission, m.part));
     let time_seconds = stats.and_then(|m| m.times.map(|times| times.time.max(0)));
 
@@ -552,6 +592,8 @@ fn clip_metadata(status: RunStatus, completed_at: SystemTime, stats: Option<&Lev
         level_number: level_info.map(|info| info.number),
         difficulty: stats.and_then(|m| ge::difficulty_name(m.difficulty)).map(str::to_owned),
         status: status.as_str().to_owned(),
+        rom_language: rom_language.to_owned(),
+        source_name: source_name.to_owned(),
         comment: format!("Created by The Golden Eye OBS plugin v{}", crate::PLUGIN_VERSION),
         plugin_version: crate::PLUGIN_VERSION.to_owned(),
     }
@@ -912,10 +954,7 @@ mod tests {
     fn pre_run_padding_defaults_to_five_and_adds_match_buffer() {
         let default = RecordingOptions::default();
         assert_eq!(default.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
-        assert_eq!(
-            default.pre_run_padding_secs(),
-            DEFAULT_PRE_RUN_PADDING_SECS + PRE_RUN_MATCH_BUFFER_SECS
-        );
+        assert_eq!(default.pre_run_padding_secs(), DEFAULT_PRE_RUN_PADDING_SECS + PRE_RUN_MATCH_BUFFER_SECS);
 
         let zero = RecordingOptions { pre_run_padding_secs: 0.0, ..RecordingOptions::default() };
         assert_eq!(zero.pre_run_padding_secs(), PRE_RUN_MATCH_BUFFER_SECS);
