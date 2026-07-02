@@ -5,6 +5,7 @@ goldeneye.json
 .DS_Store
 build/
 .cache
+obs2/vendor/archives/
 obs2/vendor/opencv-static/
 obs2/vendor/ffmpeg-static/
 test_results.json

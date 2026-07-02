@@ -3,6 +3,7 @@
 #
 
 obs_headers := justfile_directory() / "obs2/vendor/obs"
+source_archive_cache := justfile_directory() / "obs2/vendor/archives"
 obsapi_version := "32.1.2"
 opencv_version := "4.11.0"
 ffmpeg_version := "8.0"
@@ -175,19 +176,45 @@ opencv-static:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    if [ -f "${OPENCV_PREFIX}/lib/pkgconfig/opencv4.pc" ]; then
-      echo "Static OpenCV already built at ${OPENCV_PREFIX}"
-      echo "Delete it to rebuild: rm -rf ${OPENCV_PREFIX}"
-      exit 0
+    version_file="${OPENCV_PREFIX}/.ge-static-version"
+    installed_version=""
+    if [ -f "${version_file}" ]; then
+      installed_version="$(cat "${version_file}")"
+    elif [ -f "${OPENCV_PREFIX}/lib/pkgconfig/opencv4.pc" ]; then
+      installed_version="$(awk -F': ' '/^Version: / { print $2; exit }' "${OPENCV_PREFIX}/lib/pkgconfig/opencv4.pc")"
     fi
+
+    if [ -f "${OPENCV_PREFIX}/lib/pkgconfig/opencv4.pc" ]; then
+      if [ "${installed_version}" != "{{ opencv_version }}" ]; then
+        echo "Static OpenCV at ${OPENCV_PREFIX} is ${installed_version:-unknown}, expected {{ opencv_version }}; rebuilding."
+        rm -rf "${OPENCV_PREFIX}"
+      else
+        echo "Static OpenCV {{ opencv_version }} already built at ${OPENCV_PREFIX}"
+        echo "{{ opencv_version }}" > "${version_file}"
+        echo "Delete it to rebuild: rm -rf ${OPENCV_PREFIX}"
+        exit 0
+      fi
+    fi
+
+    rm -rf "${OPENCV_PREFIX}"
 
     work="$(mktemp -d)"
     trap 'rm -rf "${work}"' EXIT
 
-    echo "Downloading OpenCV {{ opencv_version }} ..."
-    wget -O "${work}/opencv.tar.gz" \
-      "https://github.com/opencv/opencv/archive/refs/tags/{{ opencv_version }}.tar.gz"
-    tar xzf "${work}/opencv.tar.gz" -C "${work}"
+    archive_dir="{{ source_archive_cache }}"
+    archive="${archive_dir}/opencv-{{ opencv_version }}.tar.gz"
+    mkdir -p "${archive_dir}"
+
+    if [ -f "${archive}" ]; then
+      echo "Using cached OpenCV archive ${archive}"
+    else
+      echo "Downloading OpenCV {{ opencv_version }} ..."
+      wget -O "${work}/opencv.tar.gz" \
+        "https://github.com/opencv/opencv/archive/refs/tags/{{ opencv_version }}.tar.gz"
+      mv "${work}/opencv.tar.gz" "${archive}"
+    fi
+
+    tar xzf "${archive}" -C "${work}"
     src="${work}/opencv-{{ opencv_version }}"
 
     # Download a pinned CMake so the build is independent of whatever version
@@ -250,6 +277,7 @@ opencv-static:
 
     "${cmake_bin}" --build "${work}/build" -j"${jobs}"
     "${cmake_bin}" --install "${work}/build"
+    echo "{{ opencv_version }}" > "${version_file}"
 
     echo
     echo "Static OpenCV installed to ${OPENCV_PREFIX}"
@@ -267,19 +295,45 @@ ffmpeg-static:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    if [ -f "${FFMPEG_PREFIX}/lib/pkgconfig/libavcodec.pc" ]; then
-      echo "Static FFmpeg already built at ${FFMPEG_PREFIX}"
-      echo "Delete it to rebuild: rm -rf ${FFMPEG_PREFIX}"
-      exit 0
+    version_file="${FFMPEG_PREFIX}/.ge-static-version"
+    installed_version=""
+    if [ -f "${version_file}" ]; then
+      installed_version="$(cat "${version_file}")"
+    elif [ -f "${FFMPEG_PREFIX}/include/libavutil/ffversion.h" ]; then
+      installed_version="$(awk -F'"' '/^#define FFMPEG_VERSION / { print $2; exit }' "${FFMPEG_PREFIX}/include/libavutil/ffversion.h")"
     fi
+
+    if [ -f "${FFMPEG_PREFIX}/lib/pkgconfig/libavcodec.pc" ]; then
+      if [ "${installed_version}" != "{{ ffmpeg_version }}" ]; then
+        echo "Static FFmpeg at ${FFMPEG_PREFIX} is ${installed_version:-unknown}, expected {{ ffmpeg_version }}; rebuilding."
+        rm -rf "${FFMPEG_PREFIX}"
+      else
+        echo "Static FFmpeg {{ ffmpeg_version }} already built at ${FFMPEG_PREFIX}"
+        echo "{{ ffmpeg_version }}" > "${version_file}"
+        echo "Delete it to rebuild: rm -rf ${FFMPEG_PREFIX}"
+        exit 0
+      fi
+    fi
+
+    rm -rf "${FFMPEG_PREFIX}"
 
     work="$(mktemp -d)"
     trap 'rm -rf "${work}"' EXIT
 
-    echo "Downloading FFmpeg {{ ffmpeg_version }} ..."
-    wget -O "${work}/ffmpeg.tar.xz" \
-      "https://ffmpeg.org/releases/ffmpeg-{{ ffmpeg_version }}.tar.xz"
-    tar xJf "${work}/ffmpeg.tar.xz" -C "${work}"
+    archive_dir="{{ source_archive_cache }}"
+    archive="${archive_dir}/ffmpeg-{{ ffmpeg_version }}.tar.xz"
+    mkdir -p "${archive_dir}"
+
+    if [ -f "${archive}" ]; then
+      echo "Using cached FFmpeg archive ${archive}"
+    else
+      echo "Downloading FFmpeg {{ ffmpeg_version }} ..."
+      wget -O "${work}/ffmpeg.tar.xz" \
+        "https://ffmpeg.org/releases/ffmpeg-{{ ffmpeg_version }}.tar.xz"
+      mv "${work}/ffmpeg.tar.xz" "${archive}"
+    fi
+
+    tar xJf "${archive}" -C "${work}"
     src="${work}/ffmpeg-{{ ffmpeg_version }}"
 
     if [ "$(uname)" = "Darwin" ]; then
@@ -306,6 +360,7 @@ ffmpeg-static:
       --disable-debug
     make -j"${jobs}"
     make install
+    echo "{{ ffmpeg_version }}" > "${version_file}"
 
     echo
     echo "Static FFmpeg installed to ${FFMPEG_PREFIX}"
@@ -324,6 +379,5 @@ clean:
     rm -rf "obs2/ge_rust.h"
     rm -rf "obs2/build"
     rm -rf "esp32-input-monitor/.pio"
-    rm -rf "{{ OPENCV_PREFIX }}"
-    rm -rf "{{ FFMPEG_PREFIX }}"
+    @echo "Keeping static OpenCV/FFmpeg prefixes and cached source archives."
     cd "obs2/rust" && cargo clean
