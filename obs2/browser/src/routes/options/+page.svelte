@@ -46,7 +46,7 @@
 	const textareaClass = `${inputClass} min-h-24 resize-y`;
 	const pathButtonClass =
 		'rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs font-semibold whitespace-nowrap text-neutral-200 transition-colors hover:border-amber-500 hover:text-amber-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 disabled:cursor-not-allowed disabled:opacity-50';
-	const pathStatusClass = 'mt-2 break-all font-mono text-xs text-emerald-400';
+	const pathStatusClass = 'mt-2 text-xs text-emerald-400';
 	const pathPendingClass = 'mt-2 break-all font-mono text-xs text-neutral-500';
 	const pathErrorClass = 'mt-2 break-words text-xs text-red-300';
 	const templateTokenClass =
@@ -190,6 +190,9 @@
 		}
 	};
 
+	const folderStatusMessage = (validation: FolderValidation): string =>
+		validation.willCreate ? 'Ready: folder will be created' : 'Ready: folder exists';
+
 	const clearOutputPath = (kind: PathKind) => {
 		setOutputPath(kind, '');
 		clearPathValidation(kind);
@@ -283,9 +286,7 @@
 				{:else if completedValidation?.error}
 					<p class={pathErrorClass}>{completedValidation.error}</p>
 				{:else if completedValidation && settings.completedOutputPath.trim()}
-					<p class={pathStatusClass}>
-						{completedValidation.willCreate ? 'Will create' : 'Ready'}: {completedValidation.expandedPath}
-					</p>
+					<p class={pathStatusClass}>{folderStatusMessage(completedValidation)}</p>
 				{:else}
 					<p class={hintClass}>Leave blank to save beside the OBS replay-buffer file.</p>
 				{/if}
@@ -336,9 +337,7 @@
 							{:else if failedValidation?.error}
 								<p class={pathErrorClass}>{failedValidation.error}</p>
 							{:else if failedValidation && settings.failedOutputPath.trim()}
-								<p class={pathStatusClass}>
-									{failedValidation.willCreate ? 'Will create' : 'Ready'}: {failedValidation.expandedPath}
-								</p>
+								<p class={pathStatusClass}>{folderStatusMessage(failedValidation)}</p>
 							{:else}
 								<p class={hintClass}>Leave blank to use the completed-run clip folder.</p>
 							{/if}
