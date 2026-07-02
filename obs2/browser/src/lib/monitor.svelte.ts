@@ -124,11 +124,13 @@ export const monitor = $state<{
 	loaded: boolean;
 	match: LevelMatch | null;
 	recordingState: RecordingStatus | null;
+	kiaEffectId: number;
 }>({
 	status: null,
 	loaded: false,
 	match: null,
-	recordingState: null
+	recordingState: null,
+	kiaEffectId: 0
 });
 
 let socket: WebSocket | null = null;
@@ -144,7 +146,15 @@ const clearRunState = () => {
 };
 
 const applyRecordingState = (status: RecordingStatus | null): void => {
+	const previous = monitor.recordingState;
 	monitor.recordingState = status;
+	if (status === 'kia' && previous !== 'kia') {
+		triggerKiaDeathOverlay();
+	}
+};
+
+export const triggerKiaDeathOverlay = (): void => {
+	monitor.kiaEffectId += 1;
 };
 
 const applyRecordingSaved = (saved: RecordingSaved): void => {

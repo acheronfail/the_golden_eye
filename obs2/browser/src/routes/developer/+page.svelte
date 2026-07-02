@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { apiUrl } from '$lib/api';
+	import { triggerKiaDeathOverlay } from '$lib/monitor.svelte';
 	import { settings } from '$lib/settings.svelte';
 
 	const knownVideoSourceIds = [
@@ -96,6 +97,15 @@
 
 <div class="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4">
 	<h1 class="obs-heading mb-4 text-2xl font-bold">Developer Utilities</h1>
+
+	<div class="obs-panel flex flex-col gap-3 rounded px-4 py-3">
+		<h2 class="text-xl font-semibold">Visual Effects</h2>
+		<div>
+			<button class="obs-button obs-button-danger px-3 py-1.5 text-sm" onclick={triggerKiaDeathOverlay}>
+				trigger KIA overlay
+			</button>
+		</div>
+	</div>
 
 	<fieldset class="obs-panel rounded px-4 py-3" aria-labelledby="developer-language-heading">
 		<h2 id="developer-language-heading" class="mb-2 font-semibold">Language</h2>

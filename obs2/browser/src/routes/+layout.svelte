@@ -3,6 +3,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { settings } from '$lib';
 	import { monitor, monitorHref, monitorPhaseStyle, refreshMonitor } from '$lib/monitor.svelte';
+	import KiaDeathOverlay from '$lib/KiaDeathOverlay.svelte';
 	import NotificationFlags from '$lib/NotificationFlags.svelte';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import { page } from '$app/state';
@@ -208,4 +209,5 @@
 	</div>
 
 	<NotificationFlags />
+	<KiaDeathOverlay trigger={monitor.kiaEffectId} />
 </div>
