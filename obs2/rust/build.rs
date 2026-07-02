@@ -31,6 +31,10 @@ fn main() {
         // Raw OBS imports are for Rust's use only. Exposing obs_queue_task here
         // gives C a duplicate declaration that conflicts with OBS's own header.
         .exclude_item("obs_queue_task")
+        .exclude_item("obs_frontend_get_user_config")
+        .exclude_item("config_get_string")
+        .exclude_item("config_set_string")
+        .exclude_item("config_save_safe")
         .exclude_item("ObsTaskType")
         .exclude_item("ObsTask")
         .generate()

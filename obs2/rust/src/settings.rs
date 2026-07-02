@@ -24,7 +24,6 @@ const LEGACY_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suff
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
-    pub open_golden_eye_on_launch: bool,
     pub stop_replay_buffer_when_monitor_stopped: bool,
     pub developer_lang: String,
     pub completed_output_path: String,
@@ -43,7 +42,6 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            open_golden_eye_on_launch: true,
             stop_replay_buffer_when_monitor_stopped: false,
             developer_lang: "en".to_owned(),
             completed_output_path: String::new(),
@@ -69,10 +67,6 @@ impl AppSettings {
         };
 
         Self {
-            open_golden_eye_on_launch: bool_field(
-                object.get("openGoldenEyeOnLaunch"),
-                default.open_golden_eye_on_launch,
-            ),
             stop_replay_buffer_when_monitor_stopped: bool_field(
                 object.get("stopReplayBufferWhenMonitorStopped"),
                 default.stop_replay_buffer_when_monitor_stopped,
@@ -352,7 +346,6 @@ mod tests {
     fn json_value_is_normalized_field_by_field() {
         let settings = AppSettings::from_json_value(json!({
             "developerLang": "jp",
-            "openGoldenEyeOnLaunch": false,
             "stopReplayBufferWhenMonitorStopped": true,
             "completedOutputPath": "/tmp/completed",
             "saveFailedRuns": false,
@@ -368,7 +361,6 @@ mod tests {
         }));
 
         assert_eq!(settings.developer_lang, "jp");
-        assert!(!settings.open_golden_eye_on_launch);
         assert!(settings.stop_replay_buffer_when_monitor_stopped);
         assert_eq!(settings.completed_output_path, "/tmp/completed");
         assert!(!settings.save_failed_runs);
@@ -396,7 +388,6 @@ mod tests {
         let saved = store
             .set_from_json_value(json!({
                 "developerLang": "jp",
-                "openGoldenEyeOnLaunch": false,
                 "stopReplayBufferWhenMonitorStopped": true,
                 "completedOutputPath": "/runs",
                 "saveFailedRuns": true,
@@ -413,7 +404,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(saved.completed_output_path, "/runs");
-        assert!(!saved.open_golden_eye_on_launch);
         assert!(saved.stop_replay_buffer_when_monitor_stopped);
         assert!(path.exists());
 

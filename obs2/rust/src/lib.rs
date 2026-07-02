@@ -1,4 +1,4 @@
-mod browser_launch;
+mod browser_dock;
 pub mod cv;
 mod ffi;
 mod ffmpeg;
@@ -23,6 +23,13 @@ use crate::settings::SettingsStore;
 
 pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
 
+/// Ensures the OBS custom browser dock is registered after OBS has completed
+/// module loading.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_browser_dock_post_load() {
+    browser_dock::post_load();
+}
+
 /// Holds the tokio runtime that is driving the HTTP server, along with the
 /// signal used to ask the server to shut down gracefully.
 struct ServerHandle {
@@ -39,10 +46,9 @@ static SERVER: Mutex<Option<ServerHandle>> = Mutex::new(None);
 
 /// Start the HTTP server on a background tokio runtime. Returns immediately
 /// without blocking the calling (C) thread. Calling this while the server is
-/// already running is a no-op. `open_browser_on_launch` is true only for the
-/// initial OBS plugin load; dev hot reloads pass false.
+/// already running is a no-op.
 #[unsafe(no_mangle)]
-pub extern "C" fn ge_rust_start(open_browser_on_launch: bool) {
+pub extern "C" fn ge_rust_start() {
     // setup logging
     {
         let subscriber =
@@ -59,8 +65,6 @@ pub extern "C" fn ge_rust_start(open_browser_on_launch: bool) {
     }
 
     let settings = SettingsStore::load_default();
-    let open_browser_enabled = settings.get().open_golden_eye_on_launch;
-    let should_open_browser = open_browser_on_launch && open_browser_enabled;
 
     let mut guard = match SERVER.lock() {
         Ok(guard) => guard,
@@ -109,12 +113,6 @@ pub extern "C" fn ge_rust_start(open_browser_on_launch: bool) {
             tracing::error!("http server exited with error: {error}");
         }
     });
-
-    if should_open_browser {
-        runtime.spawn(browser_launch::open_when_ready());
-    } else {
-        tracing::debug!(requested = open_browser_on_launch, enabled = open_browser_enabled, "skipping browser launch");
-    }
 
     tracing::info!("server started");
 

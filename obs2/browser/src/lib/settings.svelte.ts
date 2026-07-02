@@ -11,7 +11,6 @@ export const DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE =
 const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
 
 const SettingsSchema = z.object({
-	openGoldenEyeOnLaunch: z.boolean().catch(true),
 	stopReplayBufferWhenMonitorStopped: z.boolean().catch(false),
 	developerLang: z.union([z.literal('en'), z.literal('jp')]).catch('en'),
 	completedOutputPath: z.string().catch(''),
@@ -103,7 +102,6 @@ export const settings = new (class {
 	// General
 	//
 
-	openGoldenEyeOnLaunch = $state(initialSettings.openGoldenEyeOnLaunch);
 	stopReplayBufferWhenMonitorStopped = $state(initialSettings.stopReplayBufferWhenMonitorStopped);
 
 	//
@@ -149,7 +147,6 @@ export const settings = new (class {
 
 	savedState = $derived(
 		JSON.stringify({
-			openGoldenEyeOnLaunch: this.openGoldenEyeOnLaunch,
 			stopReplayBufferWhenMonitorStopped: this.stopReplayBufferWhenMonitorStopped,
 			developerLang: this.developerLang,
 			completedOutputPath: this.completedOutputPath,
@@ -256,7 +253,6 @@ export const settings = new (class {
 	}
 
 	private apply(next: Settings): void {
-		this.openGoldenEyeOnLaunch = next.openGoldenEyeOnLaunch;
 		this.stopReplayBufferWhenMonitorStopped = next.stopReplayBufferWhenMonitorStopped;
 		this.developerLang = next.developerLang;
 		this.completedOutputPath = next.completedOutputPath;

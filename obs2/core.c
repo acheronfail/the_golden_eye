@@ -58,10 +58,17 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
 // Called by the shim once this library has been dlopen'd. Mirrors what the old
 // monolithic `obs_module_load` did. Returns false on failure so the shim can
 // log a useful error and refuse to come up.
-GE_EXPORT bool ge_core_load(bool open_browser_on_launch) {
-  ge_rust_start(open_browser_on_launch);
+GE_EXPORT bool ge_core_load(void) {
+  ge_rust_start();
   obs_frontend_add_event_callback(ge_on_frontend_event, NULL);
   return true;
+}
+
+// Called by the shim from OBS's post-load hook. Keep this separate from
+// ge_core_load so OBS's user config is queried at the same lifecycle point as
+// the frontend normally expects.
+GE_EXPORT void ge_core_post_load(void) {
+  ge_browser_dock_post_load();
 }
 
 // Called by the shim before it dlcloses this library (on OBS shutdown, or

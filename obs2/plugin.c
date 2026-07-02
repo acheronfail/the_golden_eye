@@ -42,10 +42,12 @@ OBS_DECLARE_MODULE()
 #error "GE_BUNDLED_TEMPLATE_DIR_REL must be defined by the build"
 #endif
 
-typedef bool (*ge_core_load_fn)(bool open_browser_on_launch);
+typedef bool (*ge_core_load_fn)(void);
+typedef void (*ge_core_post_load_fn)(void);
 typedef void (*ge_core_unload_fn)(void);
 
 static void *g_handle = NULL;
+static ge_core_post_load_fn g_post_load = NULL;
 static ge_core_unload_fn g_unload = NULL;
 
 static bool copy_dirname(const char *path, char *out, size_t out_size) {
@@ -190,7 +192,7 @@ static void remove_core_copy(void) {
 
 // dlopen the core library and run its ge_core_load(). Returns false (with a
 // logged reason) on any failure.
-static bool core_open(bool open_browser_on_launch) {
+static bool core_open(void) {
   configure_template_dir();
 
   char bundled_core[PATH_MAX];
@@ -222,10 +224,12 @@ static bool core_open(bool open_browser_on_launch) {
   }
 
   ge_core_load_fn load = (ge_core_load_fn)dlsym(handle, "ge_core_load");
+  g_post_load = (ge_core_post_load_fn)dlsym(handle, "ge_core_post_load");
   g_unload = (ge_core_unload_fn)dlsym(handle, "ge_core_unload");
-  if (!load || !g_unload || !load(open_browser_on_launch)) {
+  if (!load || !g_post_load || !g_unload || !load()) {
     GE_LOG(LOG_ERROR, "core entry points missing or ge_core_load() failed");
     dlclose(handle);
+    g_post_load = NULL;
     g_unload = NULL;
 #ifdef GE_DEV
     remove_core_copy();
@@ -246,6 +250,7 @@ static void core_close(void) {
     dlclose(g_handle);
   }
   g_handle = NULL;
+  g_post_load = NULL;
   g_unload = NULL;
 #ifdef GE_DEV
   remove_core_copy();
@@ -255,15 +260,14 @@ static void core_close(void) {
 #ifdef GE_DEV
 static void core_reload(void) {
   core_close();
-  // A dev core reload is not an OBS launch; keep the existing browser tab.
-  if (!core_open(false)) {
+  if (!core_open()) {
     GE_LOG(LOG_ERROR, "core reload failed; will retry on next rebuild");
   }
 }
 #endif
 
 bool obs_module_load(void) {
-  if (!core_open(true)) {
+  if (!core_open()) {
     GE_LOG(LOG_ERROR, "core failed to load; plugin disabled");
     return false;
   }
@@ -271,6 +275,12 @@ bool obs_module_load(void) {
   ge_dev_reload_start(core_reload);
 #endif
   return true;
+}
+
+void obs_module_post_load(void) {
+  if (g_post_load) {
+    g_post_load();
+  }
 }
 
 void obs_module_unload(void) {
