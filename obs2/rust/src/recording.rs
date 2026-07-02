@@ -11,6 +11,7 @@
 //! ~"now", so the configured pre/post padding is translated into offsets from
 //! the end of that saved file.
 
+use std::ffi::{CStr, c_char};
 use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -45,10 +46,11 @@ const REPLAY_START_RETRY_DELAY: Duration = Duration::from_millis(250);
 /// OBS can ignore a replay-buffer start issued immediately after the stopped
 /// event. Give the frontend a brief turn to finish its state transition.
 const REPLAY_STOP_SETTLE_DELAY: Duration = Duration::from_millis(400);
+const OBS_OUTPUT_PATH_BUFFER_SIZE: usize = 4096;
 
 /// Recording behaviour supplied by the frontend when a monitor session starts.
-/// Empty output paths preserve the old behaviour: write the trimmed clip beside
-/// OBS's replay-buffer file.
+/// The settings store materializes empty output paths into runtime defaults
+/// before these options are read.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RecordingOptions {
@@ -291,6 +293,18 @@ pub fn replay_buffer_available() -> bool {
 pub fn replay_buffer_max_seconds() -> Option<u64> {
     let seconds = unsafe { crate::ffi::ge_obs_replay_buffer_max_seconds() };
     u64::try_from(seconds).ok()
+}
+
+/// Directory OBS is configured to write replay-buffer files into.
+pub fn replay_buffer_output_directory() -> Option<PathBuf> {
+    let mut buffer = vec![0 as c_char; OBS_OUTPUT_PATH_BUFFER_SIZE];
+    let ok = unsafe { crate::ffi::ge_obs_replay_buffer_output_directory(buffer.as_mut_ptr(), buffer.len()) };
+    if !ok {
+        return None;
+    }
+
+    let path = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().trim().to_owned();
+    if path.is_empty() { None } else { Some(PathBuf::from(path)) }
 }
 
 /// Whether the replay buffer output is currently running.

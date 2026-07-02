@@ -2,7 +2,9 @@
 
 #include <obs/libobs/graphics/graphics.h>
 #include <obs/libobs/obs-module.h>
+#include <obs/libobs/util/bmem.h>
 #include <obs/libobs/util/config-file.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -96,6 +98,49 @@ int64_t ge_obs_replay_buffer_max_seconds(void) {
   }
 
   return config_get_int(config, ge_replay_buffer_config_section(config), "RecRBTime");
+}
+
+static const char *ge_recording_output_path_from_config(config_t *config) {
+  if (!config) {
+    return NULL;
+  }
+
+  const char *mode = config_get_string(config, "Output", "Mode");
+  if (mode && strcmp(mode, "Advanced") == 0) {
+    const char *rec_type = config_get_string(config, "AdvOut", "RecType");
+    return config_get_string(config, "AdvOut",
+                             rec_type && strcmp(rec_type, "FFmpeg") == 0 ? "FFFilePath" : "RecFilePath");
+  }
+
+  return config_get_string(config, "SimpleOutput", "FilePath");
+}
+
+static bool ge_copy_string_to_buffer(const char *value, char *buffer, size_t buffer_size) {
+  if (!value || !*value || !buffer || buffer_size == 0) {
+    return false;
+  }
+
+  int written = snprintf(buffer, buffer_size, "%s", value);
+  return written >= 0 && (size_t)written < buffer_size;
+}
+
+bool ge_obs_replay_buffer_output_directory(char *buffer, size_t buffer_size) {
+  if (!buffer || buffer_size == 0) {
+    return false;
+  }
+  buffer[0] = '\0';
+
+  char *frontend_path = obs_frontend_get_current_record_output_path();
+  const char *path = frontend_path;
+  if (!path || !*path) {
+    path = ge_recording_output_path_from_config(obs_frontend_get_profile_config());
+  }
+
+  bool ok = ge_copy_string_to_buffer(path, buffer, buffer_size);
+  if (frontend_path) {
+    bfree(frontend_path);
+  }
+  return ok;
 }
 
 /* Reusable GPU surfaces for repeated captures. Creating and destroying a

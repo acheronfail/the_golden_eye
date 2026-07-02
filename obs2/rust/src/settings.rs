@@ -18,6 +18,8 @@ use crate::stream_notifier::{DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE, DEFAULT
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const LEGACY_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suffix}{failed_suffix}";
+pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "Goldeneye";
+pub const DEFAULT_FAILED_OUTPUT_DIR_NAME: &str = "failed";
 
 /// User settings stored in the plugin-owned JSON file and mirrored by the SPA's
 /// bindable settings object.
@@ -107,6 +109,23 @@ impl AppSettings {
         }
     }
 
+    pub fn with_default_output_paths(mut self, replay_output_dir: Option<&Path>) -> Self {
+        if self.completed_output_path.trim().is_empty()
+            && let Some(replay_output_dir) = replay_output_dir
+        {
+            self.completed_output_path =
+                default_completed_output_path(replay_output_dir).to_string_lossy().into_owned();
+        }
+
+        if self.failed_output_path.trim().is_empty()
+            && let Some(path) = default_failed_output_path(&self.completed_output_path)
+        {
+            self.failed_output_path = path;
+        }
+
+        self
+    }
+
     pub fn notification_options(&self) -> NotificationOptions {
         NotificationOptions {
             enabled: self.discord_notifications_enabled,
@@ -168,16 +187,24 @@ impl SettingsStore {
         self.settings.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
+    pub fn get_effective(&self) -> AppSettings {
+        apply_runtime_output_path_defaults(self.get())
+    }
+
     pub fn get_recording_options(&self) -> RecordingOptions {
-        self.get().recording_options()
+        self.get_effective().recording_options()
     }
 
     pub fn get_notification_options(&self) -> NotificationOptions {
         self.get().notification_options()
     }
 
-    pub fn set_from_json_value(&self, value: Value) -> anyhow::Result<AppSettings> {
-        let settings = AppSettings::from_json_value(value);
+    pub fn set_from_json_value_with_runtime_defaults(&self, value: Value) -> anyhow::Result<AppSettings> {
+        let settings = apply_runtime_output_path_defaults(AppSettings::from_json_value(value));
+        self.replace(settings)
+    }
+
+    fn replace(&self, settings: AppSettings) -> anyhow::Result<AppSettings> {
         write_settings(&self.path, &settings)?;
 
         let mut guard = self.settings.lock().unwrap_or_else(|p| p.into_inner());
@@ -185,6 +212,24 @@ impl SettingsStore {
         tracing::info!(path = %self.path.display(), "saved settings");
 
         Ok(settings)
+    }
+}
+
+fn apply_runtime_output_path_defaults(settings: AppSettings) -> AppSettings {
+    let replay_output_dir = crate::recording::replay_buffer_output_directory();
+    settings.with_default_output_paths(replay_output_dir.as_deref())
+}
+
+pub fn default_completed_output_path(replay_output_dir: &Path) -> PathBuf {
+    replay_output_dir.join(DEFAULT_RUN_OUTPUT_DIR_NAME)
+}
+
+pub fn default_failed_output_path(completed_output_path: &str) -> Option<String> {
+    let completed_output_path = completed_output_path.trim();
+    if completed_output_path.is_empty() {
+        None
+    } else {
+        Some(Path::new(completed_output_path).join(DEFAULT_FAILED_OUTPUT_DIR_NAME).to_string_lossy().into_owned())
     }
 }
 
@@ -380,13 +425,27 @@ mod tests {
     }
 
     #[test]
+    fn output_path_defaults_follow_obs_replay_directory_and_completed_path() {
+        let replay_dir = PathBuf::from("/tmp/obs-replays");
+        let settings = AppSettings::from_json_value(json!({})).with_default_output_paths(Some(&replay_dir));
+
+        assert_eq!(settings.completed_output_path, "/tmp/obs-replays/Goldeneye");
+        assert_eq!(settings.failed_output_path, "/tmp/obs-replays/Goldeneye/failed");
+
+        let custom_completed =
+            AppSettings::from_json_value(json!({ "completedOutputPath": "/runs" })).with_default_output_paths(None);
+        assert_eq!(custom_completed.completed_output_path, "/runs");
+        assert_eq!(custom_completed.failed_output_path, "/runs/failed");
+    }
+
+    #[test]
     fn store_persists_and_loads_settings_json() {
         let dir = TestDir::new("persist");
         let path = dir.join("nested/settings.json");
         let store = SettingsStore::load_from_path(path.clone());
 
         let saved = store
-            .set_from_json_value(json!({
+            .replace(AppSettings::from_json_value(json!({
                 "developerLang": "jp",
                 "stopReplayBufferWhenMonitorStopped": true,
                 "completedOutputPath": "/runs",
@@ -400,7 +459,7 @@ mod tests {
                 "discordWebhookUrl": "https://discord.example/webhook",
                 "streamingStartedMessageTemplate": "Started {broadcast_url}",
                 "streamingStoppedMessageTemplate": "Stopped {broadcast_url}"
-            }))
+            })))
             .unwrap();
 
         assert_eq!(saved.completed_output_path, "/runs");

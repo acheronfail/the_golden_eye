@@ -126,13 +126,18 @@ export const updateRunMetadata = async (path: string, metadata: EditableRunMetad
 /** Replay-buffer status reported by the backend. `enabled` reflects the OBS
  * profile checkbox; `available` whether OBS has a replay-buffer output for the
  * current output settings; `active` whether it is currently running; and
- * `maxSeconds` the configured replay-buffer window. Mirrors the Rust
+ * `maxSeconds` the configured replay-buffer window. `outputDirectory` is the
+ * OBS directory replay files are written into; default clip paths are derived
+ * from it. Mirrors the Rust
  * `ReplayBufferStatus`. */
 export interface ReplayBufferStatus {
 	enabled: boolean;
 	available: boolean;
 	active: boolean;
 	maxSeconds: number | null;
+	outputDirectory: string | null;
+	defaultCompletedOutputPath: string | null;
+	defaultFailedOutputPath: string | null;
 }
 
 /** Fetch whether OBS's replay buffer is enabled/available (and running). Throws

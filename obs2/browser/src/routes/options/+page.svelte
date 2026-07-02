@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { pickFolder, validateFolder, type FolderValidation } from '$lib/api';
+	import { replayBuffer } from '$lib/replayBuffer.svelte';
 	import {
 		DEFAULT_CLIP_FILENAME_TEMPLATE,
 		DEFAULT_POST_RUN_PADDING_SECS,
@@ -116,6 +117,25 @@
 	const outputPath = (kind: PathKind): string =>
 		kind === 'completed' ? settings.completedOutputPath : settings.failedOutputPath;
 
+	const joinPath = (base: string, child: string): string => {
+		const trimmed = base.trim();
+		if (!trimmed) return '';
+
+		const separator = trimmed.includes('\\') && !trimmed.includes('/') ? '\\' : '/';
+		return `${trimmed.replace(/[\\/]+$/, '')}${separator}${child}`;
+	};
+
+	const completedDefaultOutputPath = (): string =>
+		replayBuffer.status?.defaultCompletedOutputPath ??
+		(replayBuffer.status?.outputDirectory ? joinPath(replayBuffer.status.outputDirectory, 'Goldeneye') : '');
+
+	let completedOutputPathPlaceholder = $derived(completedDefaultOutputPath() || 'OBS replay folder/Goldeneye');
+	let failedOutputPathPlaceholder = $derived(
+		joinPath(settings.completedOutputPath.trim() || completedOutputPathPlaceholder, 'failed') ||
+			replayBuffer.status?.defaultFailedOutputPath ||
+			'completed clip folder/failed'
+	);
+
 	const setOutputPath = (kind: PathKind, value: string) => {
 		if (kind === 'completed') {
 			settings.completedOutputPath = value;
@@ -192,8 +212,8 @@
 	const chooseOutputPath = async (kind: PathKind) => {
 		const currentPath =
 			kind === 'failed'
-				? settings.failedOutputPath.trim() || settings.completedOutputPath.trim()
-				: settings.completedOutputPath.trim();
+				? settings.failedOutputPath.trim() || failedOutputPathPlaceholder
+				: settings.completedOutputPath.trim() || completedOutputPathPlaceholder;
 
 		pickingPath = kind;
 		try {
@@ -294,7 +314,7 @@
 						</button>
 						{#if settings.completedOutputPath.trim()}
 							<button type="button" class={pathButtonClass} onclick={() => clearOutputPath('completed')}>
-								Clear
+								Use default
 							</button>
 						{/if}
 					</div>
@@ -305,7 +325,7 @@
 					bind:value={settings.completedOutputPath}
 					oninput={() => clearPathValidation('completed')}
 					onblur={() => validateOutputPath('completed')}
-					placeholder="/home/bond/Videos/GoldenEye/completed"
+					placeholder={completedOutputPathPlaceholder}
 					class={inputClass}
 				/>
 				{#if completedPathValidating}
@@ -315,7 +335,7 @@
 				{:else if completedValidation && settings.completedOutputPath.trim()}
 					<p class={pathStatusClass}>{folderStatusMessage(completedValidation)}</p>
 				{:else}
-					<p class={hintClass}>Leave blank to save beside the OBS replay-buffer file.</p>
+					<p class={hintClass}>Defaults to a Goldeneye folder inside OBS's replay-buffer output folder.</p>
 				{/if}
 			</section>
 
@@ -345,7 +365,7 @@
 									</button>
 									{#if settings.failedOutputPath.trim()}
 										<button type="button" class={pathButtonClass} onclick={() => clearOutputPath('failed')}>
-											Use completed
+											Use default
 										</button>
 									{/if}
 								</div>
@@ -356,7 +376,7 @@
 								bind:value={settings.failedOutputPath}
 								oninput={() => clearPathValidation('failed')}
 								onblur={() => validateOutputPath('failed')}
-								placeholder="/home/bond/Videos/GoldenEye/failed"
+								placeholder={failedOutputPathPlaceholder}
 								class={inputClass}
 							/>
 							{#if failedPathValidating}
@@ -366,7 +386,7 @@
 							{:else if failedValidation && settings.failedOutputPath.trim()}
 								<p class={pathStatusClass}>{folderStatusMessage(failedValidation)}</p>
 							{:else}
-								<p class={hintClass}>Leave blank to use the completed-run clip folder.</p>
+								<p class={hintClass}>Defaults to a failed folder inside the completed-run clip folder.</p>
 							{/if}
 						</div>
 

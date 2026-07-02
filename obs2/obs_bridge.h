@@ -29,6 +29,12 @@ bool ge_obs_replay_buffer_available(void);
  * if the active profile config cannot be read. */
 int64_t ge_obs_replay_buffer_max_seconds(void);
 
+/* Configured directory OBS writes replay-buffer files into. OBS derives replay
+ * saves from the active recording output path, so this asks the frontend for the
+ * current record output path and falls back to the profile config. Returns false
+ * if no path is available or the caller's buffer is too small. */
+bool ge_obs_replay_buffer_output_directory(char *buffer, size_t buffer_size);
+
 /* Push-model per-frame notifications. While registered, `cb(param, cx, cy)` is
  * invoked once per rendered frame on the OBS graphics thread, inside an active
  * graphics context -- so the callback may capture frames via ge_capture_get_frame

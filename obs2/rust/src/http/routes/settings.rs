@@ -11,7 +11,7 @@ use crate::settings::AppSettings;
 /// settings object from this on load.
 #[axum::debug_handler]
 pub async fn handle_get(State(state): State<AppState>) -> Json<AppSettings> {
-    Json(state.settings.get())
+    Json(state.settings.get_effective())
 }
 
 /// Replaces the current settings and writes them to the platform config file.
@@ -19,7 +19,7 @@ pub async fn handle_get(State(state): State<AppState>) -> Json<AppSettings> {
 /// to safe defaults instead of poisoning the settings file.
 #[axum::debug_handler]
 pub async fn handle_put(State(state): State<AppState>, Json(value): Json<Value>) -> Result<impl IntoResponse> {
-    match state.settings.set_from_json_value(value) {
+    match state.settings.set_from_json_value_with_runtime_defaults(value) {
         Ok(settings) => Ok((StatusCode::OK, Json(settings))),
         Err(err) => {
             tracing::error!("failed to save settings: {err:#}");

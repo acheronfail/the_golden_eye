@@ -149,7 +149,7 @@ const LEVEL_OPTIONS: [LevelOption; 20] = [
 
 #[axum::debug_handler]
 pub async fn handle_list(State(state): State<AppState>) -> Result<impl IntoResponse> {
-    let settings = state.settings.get();
+    let settings = state.settings.get_effective();
     let response = tokio::task::spawn_blocking(move || list_configured_runs(&settings)).await.map_err(|err| {
         tracing::error!("run listing task failed: {err:#}");
         (StatusCode::INTERNAL_SERVER_ERROR, "run listing failed").into_response()
@@ -159,7 +159,7 @@ pub async fn handle_list(State(state): State<AppState>) -> Result<impl IntoRespo
 }
 
 pub async fn handle_thumbnail(State(state): State<AppState>, Query(params): Query<RunPathParams>) -> Result<Response> {
-    let settings = state.settings.get();
+    let settings = state.settings.get_effective();
     let path = authorize_tagged_run_path(&settings, &params.path).map_err(RunPathError::into_response)?;
     let bytes = tokio::task::spawn_blocking(move || ffmpeg::thumbnail_bmp(&path, THUMBNAIL_MAX_WIDTH))
         .await
@@ -180,7 +180,7 @@ pub async fn handle_video(
     Query(params): Query<RunPathParams>,
     headers: HeaderMap,
 ) -> Result<Response> {
-    let settings = state.settings.get();
+    let settings = state.settings.get_effective();
     let path = authorize_tagged_run_path(&settings, &params.path).map_err(RunPathError::into_response)?;
     serve_video_file(path, &headers).await
 }
@@ -190,7 +190,7 @@ pub async fn handle_delete(
     State(state): State<AppState>,
     Query(params): Query<RunPathParams>,
 ) -> Result<impl IntoResponse> {
-    let settings = state.settings.get();
+    let settings = state.settings.get_effective();
     let path = authorize_tagged_run_path(&settings, &params.path).map_err(RunPathError::into_response)?;
 
     tokio::task::spawn_blocking(move || fs::remove_file(&path))
@@ -209,7 +209,7 @@ pub async fn handle_reveal(
     State(state): State<AppState>,
     Query(params): Query<RunPathParams>,
 ) -> Result<impl IntoResponse> {
-    let settings = state.settings.get();
+    let settings = state.settings.get_effective();
     let path = authorize_tagged_run_path(&settings, &params.path).map_err(RunPathError::into_response)?;
 
     tokio::task::spawn_blocking(move || reveal_in_file_browser(&path))
@@ -228,7 +228,7 @@ pub async fn handle_rename(
     State(state): State<AppState>,
     Json(req): Json<RunRenameRequest>,
 ) -> Result<impl IntoResponse> {
-    let settings = state.settings.get();
+    let settings = state.settings.get_effective();
     let clip = tokio::task::spawn_blocking(move || rename_run_clip(&settings, req))
         .await
         .map_err(|err| {
@@ -245,7 +245,7 @@ pub async fn handle_update_metadata(
     State(state): State<AppState>,
     Json(req): Json<RunMetadataUpdateRequest>,
 ) -> Result<impl IntoResponse> {
-    let settings = state.settings.get();
+    let settings = state.settings.get_effective();
     let clip = tokio::task::spawn_blocking(move || update_run_metadata(&settings, req))
         .await
         .map_err(|err| {
