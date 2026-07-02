@@ -1,5 +1,7 @@
 mod routes;
 
+pub(crate) use routes::monitor::stop_monitor;
+
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
@@ -66,8 +68,9 @@ pub struct StreamMessage {
 /// Messages pushed to app WebSocket clients, serialized internally tagged by
 /// `type` so the SPA can discriminate them. `Version` is sent once per
 /// connection (a handshake); `Sources`, `Match`, and `RecordingState` ride watch
-/// channels (latest-wins, replayed on connect); `RecordingSaved` rides
-/// `event_tx` (one-off, delivered only to currently-connected clients).
+/// channels (latest-wins, replayed on connect); `RecordingSaved` and
+/// `MonitorStopped` ride `event_tx` (one-off, delivered only to
+/// currently-connected clients).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum MonitorEvent {
@@ -90,6 +93,18 @@ pub enum MonitorEvent {
     RecordingState { status: Option<RecordingStatus> },
     /// A run's clip was saved out of the replay buffer and trimmed.
     RecordingSaved(RecordingSaved),
+    /// Monitoring was stopped by the backend in response to an external event.
+    MonitorStopped { reason: MonitorStoppedReason },
+}
+
+/// Why the backend stopped an active monitor without the user pressing the
+/// plugin's stop control. Serialized as a plain string inside
+/// [`MonitorEvent::MonitorStopped`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MonitorStoppedReason {
+    /// OBS reported that its replay buffer stopped while monitoring was active.
+    ReplayBufferStopped,
 }
 
 /// A transition in the recorder's per-run state, broadcast so the SPA can
@@ -308,6 +323,15 @@ mod tests {
 
         store.clear();
         assert_eq!(store.current(), None);
+    }
+
+    #[test]
+    fn monitor_stopped_event_uses_frontend_field_names() {
+        let event = MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped };
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "monitorStopped");
+        assert_eq!(json["reason"], "replayBufferStopped");
     }
 }
 

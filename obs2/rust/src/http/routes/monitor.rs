@@ -511,13 +511,27 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
 
 #[axum::debug_handler]
 pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoResponse> {
+    if !stop_monitor(&state).await {
+        return Err((StatusCode::CONFLICT, "no monitor is running").into());
+    }
+
+    if state.settings.get().stop_replay_buffer_when_monitor_stopped {
+        crate::recording::stop_replay_buffer_if_active();
+    }
+
+    Ok(StatusCode::OK)
+}
+
+/// Stop the active monitor, if any, and clear all retained monitor/recording
+/// state. Returns `false` when no monitor was running.
+pub(crate) async fn stop_monitor(state: &AppState) -> bool {
     let handle = {
         let mut guard = state.monitor.lock().unwrap_or_else(|p| p.into_inner());
         guard.take()
     };
 
     let Some(handle) = handle else {
-        return Err((StatusCode::CONFLICT, "no monitor is running").into());
+        return false;
     };
 
     // Tear down on a blocking thread so we don't stall the async runtime while
@@ -558,7 +572,7 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
 
     tracing::info!("monitor stopped");
 
-    Ok(StatusCode::OK)
+    true
 }
 
 /// Upgrades the connection to a WebSocket that streams [`MonitorEvent`]s as JSON.

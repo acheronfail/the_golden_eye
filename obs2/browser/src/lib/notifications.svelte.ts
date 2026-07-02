@@ -34,6 +34,7 @@ export const addNotificationFlag = (options: {
 	meta?: string;
 	tone?: NotificationTone;
 	timeoutMs?: number;
+	sticky?: boolean;
 }): NotificationFlag => {
 	const flag: NotificationFlag = {
 		id: nextId++,
@@ -45,10 +46,12 @@ export const addNotificationFlag = (options: {
 
 	notifications.flags = [...notifications.flags, flag];
 
-	const timeout = setTimeout(() => {
-		dismissNotificationFlag(flag.id);
-	}, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-	timeouts.set(flag.id, timeout);
+	if (!options.sticky) {
+		const timeout = setTimeout(() => {
+			dismissNotificationFlag(flag.id);
+		}, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+		timeouts.set(flag.id, timeout);
+	}
 
 	return flag;
 };

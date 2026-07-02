@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 import { connectAppSocket } from './api';
-import { applyMonitorMatch, applyRecordingSaved, applyRecordingState } from './monitor.svelte';
+import { applyMonitorMatch, applyMonitorStopped, applyRecordingSaved, applyRecordingState } from './monitor.svelte';
+import { refreshReplayBuffer } from './replayBuffer.svelte';
 import { setObsSources } from './sources.svelte';
 
 let socket: WebSocket | null = null;
@@ -30,6 +31,10 @@ const connect = (): void => {
 		onMatch: applyMonitorMatch,
 		onRecordingState: applyRecordingState,
 		onRecordingSaved: applyRecordingSaved,
+		onMonitorStopped: (reason) => {
+			applyMonitorStopped(reason);
+			void refreshReplayBuffer();
+		},
 		onClose: () => {
 			if (socket === nextSocket) socket = null;
 			scheduleReconnect();

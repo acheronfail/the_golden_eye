@@ -102,6 +102,12 @@
 		}
 	});
 
+	$effect(() => {
+		if (!transition && monitor.status?.enabled === false) {
+			monitoring = false;
+		}
+	});
+
 	// Guards against a double start: the window Space handler and the OptionList
 	// button's own keyboard activation can both fire for one keypress.
 	const startMonitor = async () => {

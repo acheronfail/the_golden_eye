@@ -14,7 +14,7 @@ use std::os::raw::c_char;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use http::{AppState, AppStateInner, RecordingStateStore};
+use http::{AppState, AppStateInner, MonitorEvent, MonitorStoppedReason, RecordingStateStore};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tracing_subscriber::EnvFilter;
@@ -255,6 +255,28 @@ pub extern "C" fn ge_replay_buffer_stopping() {
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_stopped() {
     recording::on_replay_buffer_stopped();
+
+    let (runtime_handle, state) = {
+        let guard = match SERVER.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        match guard.as_ref() {
+            Some(h) => (h.runtime_handle.clone(), h.state.clone()),
+            None => {
+                tracing::warn!("ge_replay_buffer_stopped called but server is not running");
+                return;
+            }
+        }
+    };
+
+    runtime_handle.spawn(async move {
+        if http::stop_monitor(&state).await {
+            tracing::warn!("replay buffer stopped while monitoring was active; monitoring disabled");
+            let _ =
+                state.event_tx.send(MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped });
+        }
+    });
 }
 
 #[unsafe(no_mangle)]

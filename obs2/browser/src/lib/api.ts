@@ -280,6 +280,10 @@ export type RecordingStatus =
 	| 'failedDiscarded'
 	| 'savePending';
 
+/** Why the backend stopped monitoring without the user pressing the plugin's
+ * stop control. Mirrors the Rust `MonitorStoppedReason`. */
+export type MonitorStoppedReason = 'replayBufferStopped';
+
 /** A message pushed over the app WebSocket. Mirrors the Rust `MonitorEvent`,
  * which is serialized internally tagged by `type`, so each variant is its
  * payload plus a discriminating `type` field. */
@@ -288,7 +292,8 @@ export type AppSocketEvent =
 	| { type: 'sources'; sources: ObsSource[] }
 	| ({ type: 'match' } & LevelMatch)
 	| { type: 'recordingState'; status: RecordingStatus | null }
-	| ({ type: 'recordingSaved' } & RecordingSaved);
+	| ({ type: 'recordingSaved' } & RecordingSaved)
+	| { type: 'monitorStopped'; reason: MonitorStoppedReason };
 
 /** Handlers for the messages the app WebSocket can push. All are optional;
  * provide only the ones you care about. */
@@ -302,6 +307,8 @@ export interface AppSocketHandlers {
 	onRecordingState?: (status: RecordingStatus | null) => void;
 	/** A run's clip was saved out of the replay buffer and trimmed. */
 	onRecordingSaved?: (saved: RecordingSaved) => void;
+	/** Monitoring was stopped by the backend in response to an external event. */
+	onMonitorStopped?: (reason: MonitorStoppedReason) => void;
 	/** Fires when the socket closes. */
 	onClose?: () => void;
 }
@@ -360,6 +367,9 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 				break;
 			case 'recordingSaved':
 				handlers.onRecordingSaved?.(msg);
+				break;
+			case 'monitorStopped':
+				handlers.onMonitorStopped?.(msg.reason);
 				break;
 		}
 	};

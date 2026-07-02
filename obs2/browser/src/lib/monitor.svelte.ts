@@ -2,6 +2,7 @@ import {
 	getMonitorStatus,
 	type LevelMatch,
 	type MonitorStatus,
+	type MonitorStoppedReason,
 	type RecordingSaved,
 	type RecordingStatus
 } from './api';
@@ -179,6 +180,19 @@ export const setMonitorStopped = (): void => {
 	clearRunState();
 	monitor.status = { enabled: false, recordingState: null };
 	monitor.loaded = true;
+};
+
+export const applyMonitorStopped = (reason: MonitorStoppedReason): void => {
+	setMonitorStopped();
+	if (reason === 'replayBufferStopped') {
+		addNotificationFlag({
+			title: 'Monitoring disabled',
+			detail: "OBS's replay buffer was unexpectedly stopped.",
+			meta: 'Monitoring was disabled because clips can no longer be saved.',
+			tone: 'error',
+			sticky: true
+		});
+	}
 };
 
 /** Re-query the backend for the current monitor status. */
