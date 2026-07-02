@@ -1,17 +1,13 @@
 <script lang="ts">
 	import { afterNavigate, goto } from '$app/navigation';
-	import { onDestroy } from 'svelte';
 	import {
-		connectMonitorSocket,
 		getSources,
 		startMonitor as apiStartMonitor,
 		stopMonitor as apiStopMonitor,
-		type LevelMatch,
-		type RecordingSaved,
 		type RecordingStatus
 	} from '$lib/api';
 	import { settings } from '$lib';
-	import { refreshMonitor, setMonitorRunning, setMonitorStopped } from '$lib/monitor.svelte';
+	import { monitor, refreshMonitor, setMonitorRunning, setMonitorStopped } from '$lib/monitor.svelte';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
 	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
 	import type { PageProps } from './$types';
@@ -19,14 +15,6 @@
 	let { params }: PageProps = $props();
 
 	let monitoring = $state(false);
-	let matchSocket: WebSocket | null = null;
-	let match = $state<LevelMatch | null>(null);
-	// The most recent clip the backend saved this session, shown while monitoring.
-	let lastSaved = $state<RecordingSaved | null>(null);
-	// The recorder's latest per-run state transition (started / cancelled /
-	// failed / savePending), tracked to drive the big centered title + border.
-	// `null` is the resting "waiting for level start" state between runs.
-	let recordingState = $state<RecordingStatus | null>(null);
 
 	// The centered title and thick border are meant to read at a glance (even from
 	// peripheral vision), so each recorder state maps to a distinct word + colour.
@@ -112,49 +100,16 @@
 				};
 		}
 	};
-	const style = $derived(phaseStyle(recordingState));
-
-	// Two recorder states are transient and fall back to the resting title on a
-	// timer: `cancelled` lingers briefly, and `savePending`/`statsSkipped` wait for
-	// the `recordingSaved` event but time out if it never arrives (e.g. save
-	// failed). Any newer transition supersedes a pending revert (see below).
-	const CANCELLED_LINGER_MS = 2000;
-	const SAVE_TIMEOUT_MS = 30000;
-	let revertTimer: ReturnType<typeof setTimeout> | null = null;
-
-	const clearRevertTimer = () => {
-		if (revertTimer !== null) {
-			clearTimeout(revertTimer);
-			revertTimer = null;
-		}
-	};
+	const style = $derived(phaseStyle(monitor.recordingState));
+	const currentMatch = $derived(monitor.match);
+	const currentTimes = $derived(monitor.match?.times ?? null);
+	const savedClip = $derived(monitor.lastSaved);
 
 	// Format a level time (whole seconds) as m:ss for the stats overlay readout.
 	const formatTime = (secs: number): string => {
 		const m = Math.floor(secs / 60);
 		const s = secs % 60;
 		return `${m}:${s.toString().padStart(2, '0')}`;
-	};
-
-	const applyRecordingState = (status: RecordingStatus) => {
-		// A fresh transition always supersedes a pending revert-to-idle timer --
-		// this is what lets a new run that starts within the 2s `cancelled` window
-		// jump straight to "recording" instead of blinking back to idle first.
-		clearRevertTimer();
-		recordingState = status;
-		if (status === 'cancelled' || status === 'failedDiscarded') {
-			revertTimer = setTimeout(() => {
-				recordingState = null;
-				revertTimer = null;
-			}, CANCELLED_LINGER_MS);
-		} else if (status === 'savePending' || status === 'statsSkipped') {
-			// Normally `recordingSaved` clears us back to idle; this is the fallback
-			// if that event never lands so we don't sit on "saving" forever.
-			revertTimer = setTimeout(() => {
-				recordingState = null;
-				revertTimer = null;
-			}, SAVE_TIMEOUT_MS);
-		}
 	};
 
 	// The source name comes from the URL, so it may be stale if the user navigated
@@ -179,13 +134,8 @@
 					return;
 				}
 				monitoring = true;
-				connectMatchSocket();
 			} else {
 				monitoring = false;
-				match = null;
-				recordingState = null;
-				clearRevertTimer();
-				disconnectMatchSocket();
 			}
 
 			const sources = await getSources();
@@ -199,35 +149,6 @@
 		}
 	});
 
-	const connectMatchSocket = () => {
-		matchSocket?.close();
-		const socket = connectMonitorSocket({
-			onMatch: (m) => {
-				match = m;
-			},
-			onRecordingState: (status) => {
-				applyRecordingState(status);
-			},
-			onRecordingSaved: (saved) => {
-				lastSaved = saved;
-				// The clip is written: leave the transient "saving"/"skipped stats"
-				// title and settle back to the resting state, ready for the next run.
-				if (recordingState === 'savePending' || recordingState === 'statsSkipped') {
-					clearRevertTimer();
-					recordingState = null;
-				}
-			},
-			onClose: () => {
-				if (matchSocket === socket) matchSocket = null;
-			}
-		});
-		matchSocket = socket;
-	};
-	const disconnectMatchSocket = () => {
-		matchSocket?.close();
-		matchSocket = null;
-	};
-
 	// Guards against a double start: the window Space handler and the OptionList
 	// button's own keyboard activation can both fire for one keypress.
 	let starting = false;
@@ -239,7 +160,6 @@
 			await apiStartMonitor(params.sourceName, params.lang);
 			setMonitorRunning(params.sourceName, params.lang);
 			monitoring = true;
-			connectMatchSocket();
 		} catch (err) {
 			alert(err instanceof Error ? err.message : String(err));
 		} finally {
@@ -252,21 +172,10 @@
 			await apiStopMonitor();
 			setMonitorStopped();
 			monitoring = false;
-			match = null;
-			lastSaved = null;
-			recordingState = null;
-			clearRevertTimer();
-			disconnectMatchSocket();
 		} catch (err) {
 			alert(err instanceof Error ? err.message : String(err));
 		}
 	};
-
-	// Don't leak the revert timer (or the socket) if the page is torn down mid-run.
-	onDestroy(() => {
-		clearRevertTimer();
-		disconnectMatchSocket();
-	});
 
 	const option: Option = {
 		title: 'start monitor',
@@ -315,10 +224,10 @@
 		</h1>
 		<!-- The raw matched screen, for detail beneath the plain-language title. -->
 		<p class="mt-3 font-mono text-xs tracking-widest text-neutral-500 uppercase">
-			{match?.screen ?? '…'}
+			{currentMatch?.screen ?? '...'}
 		</p>
 
-		{#if match?.times}
+		{#if currentTimes}
 			<!-- Stats overlay is on screen (e.g. while a save is pending): surface the
 			     matched times so they're visible on the page. The run time is always
 			     present; the target and best times only appear when the game shows
@@ -326,18 +235,18 @@
 			<div class="mt-6 flex flex-wrap justify-center gap-6 font-mono text-neutral-100">
 				<span class="flex flex-col items-center">
 					<span class="text-xs tracking-widest text-neutral-500 uppercase">time</span>
-					<span class="text-4xl">{formatTime(match.times.time)}</span>
+					<span class="text-4xl">{formatTime(currentTimes.time)}</span>
 				</span>
-				{#if match.times.target_time != null}
+				{#if currentTimes.target_time != null}
 					<span class="flex flex-col items-center">
 						<span class="text-xs tracking-widest text-neutral-500 uppercase">target</span>
-						<span class="text-4xl">{formatTime(match.times.target_time)}</span>
+						<span class="text-4xl">{formatTime(currentTimes.target_time)}</span>
 					</span>
 				{/if}
-				{#if match.times.best_time != null}
+				{#if currentTimes.best_time != null}
 					<span class="flex flex-col items-center">
 						<span class="text-xs tracking-widest text-neutral-500 uppercase">best</span>
-						<span class="text-4xl">{formatTime(match.times.best_time)}</span>
+						<span class="text-4xl">{formatTime(currentTimes.best_time)}</span>
 					</span>
 				{/if}
 			</div>
@@ -345,13 +254,13 @@
 
 		<p class="mt-6 text-sm text-neutral-400">press escape or space to stop monitoring</p>
 
-		{#if lastSaved}
+		{#if savedClip}
 			<!-- The most recent clip saved out of the replay buffer this session. -->
 			<div class="mt-8 max-w-full font-mono text-xs text-neutral-400">
 				<p class="tracking-widest text-emerald-400 uppercase">Saved clip</p>
-				<p class="mt-1 break-all text-neutral-300">{lastSaved.path}</p>
+				<p class="mt-1 break-all text-neutral-300">{savedClip.path}</p>
 				<p class="mt-1 text-neutral-500">
-					{lastSaved.durationSecs.toFixed(1)}s{lastSaved.failed ? ' · failed' : ''}
+					{savedClip.durationSecs.toFixed(1)}s{savedClip.failed ? ' - failed' : ''}
 				</p>
 			</div>
 		{/if}
