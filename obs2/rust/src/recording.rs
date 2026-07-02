@@ -378,6 +378,16 @@ impl RunStatus {
         }
     }
 
+    fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "complete" => Some(RunStatus::Complete),
+            "failed" => Some(RunStatus::Failed),
+            "abort" => Some(RunStatus::Abort),
+            "kia" => Some(RunStatus::Kia),
+            _ => None,
+        }
+    }
+
     fn is_failed(self) -> bool {
         !matches!(self, RunStatus::Complete)
     }
@@ -727,7 +737,7 @@ fn trim_clip(
     tracing::info!(output = %output.display(), "saved trimmed clip");
     if failed
         && let Err(err) =
-            prune_failed_clips(output.parent().unwrap_or_else(|| Path::new(".")), options.failed_run_limit, &output)
+            prune_failed_clips(output.parent().unwrap_or_else(|| Path::new(".")), options.failed_run_limit)
     {
         tracing::warn!("failed to prune old failed clips: {err:#}");
     }
@@ -820,70 +830,52 @@ fn unique_output_path(path: &Path) -> PathBuf {
     unreachable!("unbounded filename suffix search should always return")
 }
 
-fn failed_manifest_path(dir: &Path) -> PathBuf {
-    dir.join(".the-golden-eye-failed-clips.json")
-}
-
-fn read_failed_manifest(dir: &Path) -> Vec<PathBuf> {
-    let path = failed_manifest_path(dir);
-    let Ok(bytes) = std::fs::read(&path) else {
-        return Vec::new();
-    };
-    serde_json::from_slice::<Vec<String>>(&bytes).unwrap_or_default().into_iter().map(PathBuf::from).collect()
-}
-
-fn write_failed_manifest(dir: &Path, paths: &[PathBuf]) -> anyhow::Result<()> {
-    let values: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-    let bytes = serde_json::to_vec_pretty(&values)?;
-    std::fs::write(failed_manifest_path(dir), bytes)
-        .with_context(|| format!("writing failed clip manifest in {}", dir.display()))
-}
-
-fn prune_failed_clips(dir: &Path, keep: usize, saved_path: &Path) -> anyhow::Result<()> {
+fn prune_failed_clips(dir: &Path, keep: usize) -> anyhow::Result<()> {
     if keep == 0 {
         return Ok(());
     }
 
-    let mut paths = read_failed_manifest(dir);
-    paths.push(saved_path.to_path_buf());
-
-    for entry in std::fs::read_dir(dir).with_context(|| format!("reading failed clip directory {}", dir.display()))? {
-        let entry = entry?;
-        let path = entry.path();
-        if !is_failed_clip_path(&path) {
-            continue;
-        }
-        paths.push(path);
-    }
-
-    paths.sort();
-    paths.dedup();
-
     let mut clips = Vec::new();
-    for path in paths {
-        let Ok(metadata) = std::fs::metadata(&path) else {
+    for entry in std::fs::read_dir(dir).with_context(|| format!("reading failed clip directory {}", dir.display()))? {
+        let Ok(entry) = entry else {
             continue;
         };
-        if metadata.is_file() {
-            clips.push((metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH), path));
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+
+        let path = entry.path();
+        if let Some(metadata) = failed_clip_metadata(&path) {
+            clips.push((metadata.timestamp, path));
         }
     }
+
     clips.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
 
-    let kept: Vec<PathBuf> = clips.iter().take(keep).map(|(_, path)| path.clone()).collect();
     for (_, path) in clips.into_iter().skip(keep) {
         tracing::info!(path = %path.display(), "pruning old failed clip");
         std::fs::remove_file(&path).with_context(|| format!("removing old failed clip {}", path.display()))?;
     }
-    write_failed_manifest(dir, &kept)?;
 
     Ok(())
 }
 
-fn is_failed_clip_path(path: &Path) -> bool {
-    path.file_stem()
-        .and_then(|s| s.to_str())
-        .is_some_and(|stem| stem.contains(" - clip") && stem.ends_with(" - failed"))
+fn failed_clip_metadata(path: &Path) -> Option<ffmpeg::ClipMetadata> {
+    match ffmpeg::read_clip_metadata(path) {
+        Ok(Some(metadata)) if is_failed_clip_status(&metadata.status) => Some(metadata),
+        Ok(_) => None,
+        Err(err) => {
+            tracing::debug!(path = %path.display(), "ignoring clip while pruning failed clips: {err:#}");
+            None
+        }
+    }
+}
+
+fn is_failed_clip_status(status: &str) -> bool {
+    RunStatus::from_str(status.trim()).is_some_and(RunStatus::is_failed)
 }
 
 /// Build an output file name from the configured template and matched level info.
@@ -1034,7 +1026,7 @@ fn sanitize_filename(name: &str) -> String {
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
-    use std::{fs, io, thread};
+    use std::{fs, io};
 
     use super::*;
     use crate::ge::Times;
@@ -1079,8 +1071,32 @@ mod tests {
         fs::write(path, b"clip").unwrap();
     }
 
-    fn wait_for_distinct_mtime() {
-        thread::sleep(Duration::from_millis(25));
+    fn sample_clip() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sample_clip.mov")
+    }
+
+    fn test_clip_metadata(status: &str, timestamp: &str) -> ffmpeg::ClipMetadata {
+        ffmpeg::ClipMetadata {
+            timestamp: timestamp.to_owned(),
+            time: Some("02:03".to_owned()),
+            time_seconds: Some(123),
+            level: "Surface 2".to_owned(),
+            level_number: Some(8),
+            difficulty: Some("00 Agent".to_owned()),
+            status: status.to_owned(),
+            rom_language: "en".to_owned(),
+            source_name: "N64 Capture".to_owned(),
+            comment: "Created by The Golden Eye OBS plugin test".to_owned(),
+            plugin_version: "test".to_owned(),
+        }
+    }
+
+    fn write_tagged_clip(path: &Path, status: &str, timestamp: &str) {
+        let input = sample_clip();
+        let full = ffmpeg::duration_secs(&input).expect("probe sample clip");
+        let metadata = test_clip_metadata(status, timestamp);
+        ffmpeg::trim_with_metadata(&input, path, 1.0, (full - 1.0).max(2.0), Some(&metadata))
+            .expect("write tagged test clip");
     }
 
     fn match_with_time() -> LevelMatch {
@@ -1283,15 +1299,6 @@ mod tests {
     }
 
     #[test]
-    fn read_failed_manifest_treats_missing_or_invalid_manifest_as_empty() {
-        let dir = TestDir::new("manifest-empty");
-        assert!(read_failed_manifest(dir.path()).is_empty());
-
-        fs::write(failed_manifest_path(dir.path()), b"not json").unwrap();
-        assert!(read_failed_manifest(dir.path()).is_empty());
-    }
-
-    #[test]
     fn prune_failed_clips_keep_zero_is_unlimited_and_deletes_nothing() {
         let dir = TestDir::new("prune-unlimited");
         let old = dir.join("obs - clip - old - failed.mp4");
@@ -1299,62 +1306,35 @@ mod tests {
         write_file(&old);
         write_file(&saved);
 
-        prune_failed_clips(dir.path(), 0, &saved).unwrap();
+        prune_failed_clips(dir.path(), 0).unwrap();
 
         assert!(old.exists());
         assert!(saved.exists());
-        assert!(!failed_manifest_path(dir.path()).exists());
+        assert!(!dir.join(".the-golden-eye-failed-clips.json").exists());
     }
 
     #[test]
-    fn prune_failed_clips_keeps_newest_manifest_entries_and_leaves_untracked_files() {
-        let dir = TestDir::new("prune-manifest");
-        let old = dir.join("custom-old.mp4");
-        let newer = dir.join("custom-newer.mp4");
-        let unrelated = dir.join("family-video.mp4");
-        let saved = dir.join("custom-saved.mp4");
+    fn prune_failed_clips_uses_metadata_status_and_timestamp_only() {
+        let dir = TestDir::new("prune-metadata");
+        let old_failed = dir.join("custom old.mov");
+        let newer_abort = dir.join("not named failed.mov");
+        let saved_kia = dir.join("saved with custom name.mov");
+        let complete_named_failed = dir.join("complete but filename says failed.mov");
+        let unreadable_named_failed = dir.join("unreadable filename says failed.mov");
 
-        write_file(&old);
-        wait_for_distinct_mtime();
-        write_file(&newer);
-        wait_for_distinct_mtime();
-        write_file(&unrelated);
-        write_failed_manifest(dir.path(), &[old.clone(), newer.clone()]).unwrap();
-        wait_for_distinct_mtime();
-        write_file(&saved);
+        write_tagged_clip(&old_failed, "failed", "2026-01-01T00:00:00Z");
+        write_tagged_clip(&newer_abort, "abort", "2026-01-03T00:00:00Z");
+        write_tagged_clip(&saved_kia, "kia", "2026-01-02T00:00:00Z");
+        write_tagged_clip(&complete_named_failed, "complete", "2026-01-04T00:00:00Z");
+        write_file(&unreadable_named_failed);
 
-        prune_failed_clips(dir.path(), 2, &saved).unwrap();
+        prune_failed_clips(dir.path(), 2).unwrap();
 
-        assert!(!old.exists(), "old manifest-tracked clip should be pruned");
-        assert!(newer.exists());
-        assert!(saved.exists());
-        assert!(unrelated.exists(), "untracked files must never be pruned");
-
-        let manifest = read_failed_manifest(dir.path());
-        assert_eq!(manifest.len(), 2);
-        assert!(manifest.contains(&newer));
-        assert!(manifest.contains(&saved));
-    }
-
-    #[test]
-    fn prune_failed_clips_discovers_default_failed_names_without_manifest() {
-        let dir = TestDir::new("prune-discovered");
-        let old = dir.join("obs - clip - m01 - failed.mp4");
-        let not_failed = dir.join("obs - clip - m02.mp4");
-        let saved = dir.join("obs - clip - m03 - failed.mp4");
-
-        write_file(&old);
-        wait_for_distinct_mtime();
-        write_file(&not_failed);
-        wait_for_distinct_mtime();
-        write_file(&saved);
-
-        prune_failed_clips(dir.path(), 1, &saved).unwrap();
-
-        assert!(!old.exists(), "older default failed clip should be pruned");
-        assert!(saved.exists());
-        assert!(not_failed.exists(), "non-failed clip should not be pruned");
-
-        assert_eq!(read_failed_manifest(dir.path()), vec![saved]);
+        assert!(!old_failed.exists(), "oldest metadata-tagged failed clip should be pruned");
+        assert!(newer_abort.exists(), "newest metadata-tagged failed clip should be kept");
+        assert!(saved_kia.exists(), "second-newest metadata-tagged failed clip should be kept");
+        assert!(complete_named_failed.exists(), "complete clips must not be pruned based on filename");
+        assert!(unreadable_named_failed.exists(), "unreadable files must be ignored");
+        assert!(!dir.join(".the-golden-eye-failed-clips.json").exists());
     }
 }
