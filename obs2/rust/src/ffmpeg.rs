@@ -8,11 +8,82 @@
 //! is an accepted trade-off for not transcoding (GoldenEye recordings have
 //! frequent keyframes, so the slack is small).
 
+use std::io::Cursor;
 use std::path::Path;
 
 use anyhow::{Context, anyhow};
 use ffmpeg_next::ffi::AV_TIME_BASE;
-use ffmpeg_next::{Rescale, codec, encoder, format, media, rescale};
+use ffmpeg_next::format::Pixel;
+use ffmpeg_next::software::scaling::{context::Context as ScalingContext, flag::Flags as ScalingFlags};
+use ffmpeg_next::util::frame::video::Video;
+use ffmpeg_next::{Dictionary, DictionaryRef, Rescale, codec, encoder, format, media, rescale};
+use serde::Serialize;
+
+const TAG_CREATED_BY: &str = "fail.acheron.thegoldeneye.created_by";
+const TAG_CREATED_BY_VALUE: &str = "the-golden-eye";
+const TAG_SCHEMA_VERSION: &str = "fail.acheron.thegoldeneye.schema_version";
+const TAG_SCHEMA_VERSION_VALUE: &str = "1";
+const TAG_PLUGIN_VERSION: &str = "fail.acheron.thegoldeneye.plugin_version";
+const TAG_RUN_TIMESTAMP: &str = "fail.acheron.thegoldeneye.run_timestamp";
+const TAG_RUN_TIME: &str = "fail.acheron.thegoldeneye.time";
+const TAG_RUN_TIME_SECONDS: &str = "fail.acheron.thegoldeneye.time_seconds";
+const TAG_LEVEL: &str = "fail.acheron.thegoldeneye.level";
+const TAG_LEVEL_NUMBER: &str = "fail.acheron.thegoldeneye.level_number";
+const TAG_DIFFICULTY: &str = "fail.acheron.thegoldeneye.difficulty";
+const TAG_STATUS: &str = "fail.acheron.thegoldeneye.status";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipMetadata {
+    pub timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_seconds: Option<i32>,
+    pub level: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level_number: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub difficulty: Option<String>,
+    pub status: String,
+    pub comment: String,
+    pub plugin_version: String,
+}
+
+impl ClipMetadata {
+    fn write_to(&self, metadata: &mut Dictionary) {
+        metadata.set(TAG_CREATED_BY, TAG_CREATED_BY_VALUE);
+        metadata.set(TAG_SCHEMA_VERSION, TAG_SCHEMA_VERSION_VALUE);
+        metadata.set(TAG_PLUGIN_VERSION, &clean_metadata_value(&self.plugin_version));
+        metadata.set(TAG_RUN_TIMESTAMP, &clean_metadata_value(&self.timestamp));
+        set_optional_metadata(metadata, TAG_RUN_TIME, self.time.as_deref());
+        set_optional_metadata(metadata, TAG_RUN_TIME_SECONDS, self.time_seconds.map(|s| s.to_string()).as_deref());
+        metadata.set(TAG_LEVEL, &clean_metadata_value(&self.level));
+        set_optional_metadata(metadata, TAG_LEVEL_NUMBER, self.level_number.map(|n| n.to_string()).as_deref());
+        set_optional_metadata(metadata, TAG_DIFFICULTY, self.difficulty.as_deref());
+        metadata.set(TAG_STATUS, &clean_metadata_value(&self.status));
+        metadata.set("comment", &clean_metadata_value(&self.comment));
+    }
+
+    fn from_dictionary(metadata: &DictionaryRef<'_>) -> Option<Self> {
+        let created_by = get_metadata(metadata, TAG_CREATED_BY)?;
+        if created_by != TAG_CREATED_BY_VALUE {
+            return None;
+        }
+
+        let timestamp = get_metadata(metadata, TAG_RUN_TIMESTAMP)?;
+        let status = get_metadata(metadata, TAG_STATUS)?;
+        let level = get_metadata(metadata, TAG_LEVEL).unwrap_or_else(|| "unknown".to_owned());
+        let comment = get_metadata(metadata, "comment").unwrap_or_default();
+        let plugin_version = get_metadata(metadata, TAG_PLUGIN_VERSION).unwrap_or_default();
+        let time = get_metadata(metadata, TAG_RUN_TIME);
+        let time_seconds = get_metadata(metadata, TAG_RUN_TIME_SECONDS).and_then(|value| value.parse::<i32>().ok());
+        let level_number = get_metadata(metadata, TAG_LEVEL_NUMBER).and_then(|value| value.parse::<i32>().ok());
+        let difficulty = get_metadata(metadata, TAG_DIFFICULTY);
+
+        Some(Self { timestamp, time, time_seconds, level, level_number, difficulty, status, comment, plugin_version })
+    }
+}
 
 /// Initialise FFmpeg. Cheap and safe to call repeatedly (libav guards its own
 /// one-time setup), so each entry point calls it rather than relying on a
@@ -29,6 +100,63 @@ pub fn duration_secs(path: &Path) -> anyhow::Result<f64> {
     Ok(ictx.duration() as f64 / AV_TIME_BASE as f64)
 }
 
+/// Reads the plugin metadata from `path`. Returns `Ok(None)` for a readable
+/// video/container that was not created by The Golden Eye.
+pub fn read_clip_metadata(path: &Path) -> anyhow::Result<Option<ClipMetadata>> {
+    init()?;
+    let ictx = format::input(path).with_context(|| format!("opening {}", path.display()))?;
+    Ok(ClipMetadata::from_dictionary(&ictx.metadata()))
+}
+
+/// Decode one video frame and return it as a BMP thumbnail.
+pub fn thumbnail_bmp(path: &Path, max_width: u32) -> anyhow::Result<Vec<u8>> {
+    init()?;
+
+    let mut ictx = format::input(path).with_context(|| format!("opening {}", path.display()))?;
+    let input =
+        ictx.streams().best(media::Type::Video).ok_or_else(|| anyhow!("no video stream in {}", path.display()))?;
+    let video_stream_index = input.index();
+
+    let context_decoder = codec::context::Context::from_parameters(input.parameters())?;
+    let mut decoder = context_decoder.decoder().video()?;
+    let (width, height) = thumbnail_dimensions(decoder.width(), decoder.height(), max_width);
+    let mut scaler = ScalingContext::get(
+        decoder.format(),
+        decoder.width(),
+        decoder.height(),
+        Pixel::RGB24,
+        width,
+        height,
+        ScalingFlags::BILINEAR,
+    )?;
+
+    let mut receive_thumbnail = |decoder: &mut ffmpeg_next::decoder::Video| -> anyhow::Result<Option<Vec<u8>>> {
+        let mut decoded = Video::empty();
+        while decoder.receive_frame(&mut decoded).is_ok() {
+            let mut rgb_frame = Video::empty();
+            scaler.run(&decoded, &mut rgb_frame)?;
+            return Ok(Some(encode_rgb24_bmp(&rgb_frame)?));
+        }
+        Ok(None)
+    };
+
+    for (stream, packet) in ictx.packets() {
+        if stream.index() == video_stream_index {
+            decoder.send_packet(&packet)?;
+            if let Some(bytes) = receive_thumbnail(&mut decoder)? {
+                return Ok(bytes);
+            }
+        }
+    }
+
+    decoder.send_eof()?;
+    if let Some(bytes) = receive_thumbnail(&mut decoder)? {
+        return Ok(bytes);
+    }
+
+    Err(anyhow!("no decodable video frame in {}", path.display()))
+}
+
 /// Remux `input` into `output`, keeping only the packets between `start_secs`
 /// and `end_secs` (both measured from the start of `input`). Packets are
 /// stream-copied, so this neither re-encodes nor decodes; the output container
@@ -37,7 +165,18 @@ pub fn duration_secs(path: &Path) -> anyhow::Result<f64> {
 /// Timestamps are shifted so the kept clip begins at ~0 in the output (using a
 /// single global offset, so audio and video stay in sync). Because the cut is
 /// on keyframe boundaries, the real start may be slightly before `start_secs`.
-pub fn trim(input: &Path, output: &Path, start_secs: f64, end_secs: f64) -> anyhow::Result<()> {
+#[cfg(test)]
+fn trim(input: &Path, output: &Path, start_secs: f64, end_secs: f64) -> anyhow::Result<()> {
+    trim_with_metadata(input, output, start_secs, end_secs, None)
+}
+
+pub fn trim_with_metadata(
+    input: &Path,
+    output: &Path,
+    start_secs: f64,
+    end_secs: f64,
+    clip_metadata: Option<&ClipMetadata>,
+) -> anyhow::Result<()> {
     init()?;
 
     let mut ictx = format::input(input).with_context(|| format!("opening {}", input.display()))?;
@@ -73,8 +212,12 @@ pub fn trim(input: &Path, output: &Path, start_secs: f64, end_secs: f64) -> anyh
         return Err(anyhow!("no audio/video/subtitle streams to copy from {}", input.display()));
     }
 
-    octx.set_metadata(ictx.metadata().to_owned());
-    octx.write_header().context("writing output header")?;
+    let mut metadata = ictx.metadata().to_owned();
+    if let Some(clip_metadata) = clip_metadata {
+        clip_metadata.write_to(&mut metadata);
+    }
+    octx.set_metadata(metadata);
+    write_header(&mut octx, output).context("writing output header")?;
 
     // Seek to (or just before) the start so we don't decode the whole file; the
     // demuxer lands on the nearest keyframe at or before this point.
@@ -134,6 +277,76 @@ pub fn trim(input: &Path, output: &Path, start_secs: f64, end_secs: f64) -> anyh
     Ok(())
 }
 
+fn set_optional_metadata(metadata: &mut Dictionary, key: &str, value: Option<&str>) {
+    if let Some(value) = value
+        && !value.is_empty()
+    {
+        metadata.set(key, &clean_metadata_value(value));
+    }
+}
+
+fn get_metadata(metadata: &DictionaryRef<'_>, key: &str) -> Option<String> {
+    metadata
+        .get(key)
+        .or_else(|| metadata.iter().find(|(candidate, _)| candidate.eq_ignore_ascii_case(key)).map(|(_, value)| value))
+        .map(str::to_owned)
+        .filter(|value| !value.is_empty())
+}
+
+fn clean_metadata_value(value: &str) -> String {
+    value.chars().filter(|&c| c != '\0').collect()
+}
+
+fn write_header(octx: &mut format::context::Output, output: &Path) -> anyhow::Result<()> {
+    if !needs_mov_metadata_tags(output) {
+        octx.write_header()?;
+        return Ok(());
+    }
+
+    let mut options = Dictionary::new();
+    options.set("movflags", "use_metadata_tags");
+    let unused = octx.write_header_with(options)?;
+    for (key, value) in unused.iter() {
+        tracing::debug!(key, value, "FFmpeg muxer returned unused header option");
+    }
+    Ok(())
+}
+
+fn needs_mov_metadata_tags(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "mp4" | "m4v" | "mov" | "3gp" | "3g2"))
+}
+
+fn thumbnail_dimensions(width: u32, height: u32, max_width: u32) -> (u32, u32) {
+    if width == 0 || height == 0 {
+        return (1, 1);
+    }
+    let out_width = width.min(max_width.max(1));
+    let out_height = ((height as u64 * out_width as u64) / width as u64).clamp(1, u32::MAX as u64) as u32;
+    (out_width, out_height)
+}
+
+fn encode_rgb24_bmp(frame: &Video) -> std::io::Result<Vec<u8>> {
+    let width = frame.width();
+    let height = frame.height();
+    let stride = frame.stride(0);
+    let data = frame.data(0);
+
+    let mut image = bmp::Image::new(width, height);
+    for y in 0..height {
+        let row = &data[(y as usize * stride)..];
+        for x in 0..width {
+            let i = x as usize * 3;
+            image.set_pixel(x, y, bmp::Pixel::new(row[i], row[i + 1], row[i + 2]));
+        }
+    }
+
+    let mut out = Cursor::new(Vec::new());
+    image.to_writer(&mut out)?;
+    Ok(out.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,6 +380,33 @@ mod tests {
 
         let got = duration_secs(&out).expect("probe trimmed duration");
         assert!((got - want).abs() < 1.5, "trimmed duration {got:.3}s should be near requested {want:.3}s",);
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn trims_with_metadata_and_reads_it_back() {
+        let input = sample_clip();
+        let full = duration_secs(&input).expect("probe duration");
+        let out = std::env::temp_dir().join(format!("ge_ffmpeg_metadata_test_{}.mov", std::process::id()));
+        let _ = std::fs::remove_file(&out);
+
+        let metadata = ClipMetadata {
+            timestamp: "2026-01-02T03:04:05Z".to_owned(),
+            time: Some("02:03".to_owned()),
+            time_seconds: Some(123),
+            level: "Surface 2".to_owned(),
+            level_number: Some(8),
+            difficulty: Some("00 Agent".to_owned()),
+            status: "complete".to_owned(),
+            comment: "Created by The Golden Eye OBS plugin v0.0.0".to_owned(),
+            plugin_version: "0.0.0".to_owned(),
+        };
+
+        trim_with_metadata(&input, &out, 1.0, (full - 1.0).max(2.0), Some(&metadata)).expect("trim with metadata");
+
+        let got = read_clip_metadata(&out).expect("read metadata").expect("plugin metadata");
+        assert_eq!(got, metadata);
+
         let _ = std::fs::remove_file(&out);
     }
 }

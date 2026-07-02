@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getSettings, putSettings } from './api';
 
 export const DEFAULT_CLIP_FILENAME_TEMPLATE = '{level} - {time} - {difficulty} - {status}';
+export const DEFAULT_PRE_RUN_PADDING_SECS = 5;
 export const DEFAULT_POST_RUN_PADDING_SECS = 5;
 export const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE = '\u{1f7e2} Bond is now streaming at: {broadcast_url}';
 export const DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE =
@@ -17,7 +18,7 @@ const SettingsSchema = z.object({
 	failedOutputPath: z.string().catch(''),
 	failedRunLimit: z.coerce.number().int().min(0).catch(0),
 	clipFilenameTemplate: z.string().catch(DEFAULT_CLIP_FILENAME_TEMPLATE),
-	preRunPaddingSecs: z.coerce.number().min(0).catch(0),
+	preRunPaddingSecs: z.coerce.number().min(0).catch(DEFAULT_PRE_RUN_PADDING_SECS),
 	postRunPaddingSecs: z.coerce.number().min(0).catch(DEFAULT_POST_RUN_PADDING_SECS),
 	discordNotificationsEnabled: z.boolean().catch(true),
 	discordWebhookUrl: z.string().catch(''),
@@ -62,7 +63,7 @@ const parseSettings = (value: unknown): Settings => {
 		...parsed,
 		failedRunLimit: nonNegativeInt(parsed.failedRunLimit),
 		clipFilenameTemplate: normalizeClipFilenameTemplate(parsed.clipFilenameTemplate),
-		preRunPaddingSecs: nonNegativeNumber(parsed.preRunPaddingSecs),
+		preRunPaddingSecs: nonNegativeNumber(parsed.preRunPaddingSecs, DEFAULT_PRE_RUN_PADDING_SECS),
 		postRunPaddingSecs: nonNegativeNumber(parsed.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS),
 		streamingStartedMessageTemplate: normalizeMessageTemplate(
 			parsed.streamingStartedMessageTemplate,
@@ -136,7 +137,7 @@ export const settings = new (class {
 		failedOutputPath: this.failedOutputPath.trim(),
 		failedRunLimit: nonNegativeInt(this.failedRunLimit),
 		clipFilenameTemplate: this.clipFilenameTemplate.trim() || DEFAULT_CLIP_FILENAME_TEMPLATE,
-		preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs),
+		preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs, DEFAULT_PRE_RUN_PADDING_SECS),
 		postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS)
 	});
 
@@ -153,7 +154,7 @@ export const settings = new (class {
 			failedOutputPath: this.failedOutputPath,
 			failedRunLimit: nonNegativeInt(this.failedRunLimit),
 			clipFilenameTemplate: this.clipFilenameTemplate,
-			preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs),
+			preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs, DEFAULT_PRE_RUN_PADDING_SECS),
 			postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS),
 			discordNotificationsEnabled: this.discordNotificationsEnabled,
 			discordWebhookUrl: this.discordWebhookUrl,

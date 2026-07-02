@@ -3,7 +3,6 @@
 	import { onDestroy } from 'svelte';
 	import {
 		connectMonitorSocket,
-		getMonitorStatus,
 		getSources,
 		startMonitor as apiStartMonitor,
 		stopMonitor as apiStopMonitor,
@@ -12,6 +11,7 @@
 		type RecordingStatus
 	} from '$lib/api';
 	import { settings } from '$lib';
+	import { refreshMonitor, setMonitorRunning, setMonitorStopped } from '$lib/monitor.svelte';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
 	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
 	import type { PageProps } from './$types';
@@ -172,7 +172,7 @@
 			// If a monitor is already running, restore that state rather than
 			// defaulting to idle. When it's running for a different source/lang than
 			// this URL describes, redirect to the page that matches reality.
-			const status = await getMonitorStatus();
+			const status = await refreshMonitor();
 			if (status.enabled) {
 				if (status.sourceName !== params.sourceName || status.lang !== params.lang) {
 					goto(`/source/${encodeURIComponent(status.sourceName)}/${status.lang}`);
@@ -237,6 +237,7 @@
 		try {
 			await settings.saveNow();
 			await apiStartMonitor(params.sourceName, params.lang);
+			setMonitorRunning(params.sourceName, params.lang);
 			monitoring = true;
 			connectMatchSocket();
 		} catch (err) {
@@ -249,6 +250,7 @@
 	const stopMonitor = async () => {
 		try {
 			await apiStopMonitor();
+			setMonitorStopped();
 			monitoring = false;
 			match = null;
 			lastSaved = null;

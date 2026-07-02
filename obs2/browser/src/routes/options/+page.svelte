@@ -5,6 +5,7 @@
 	import {
 		DEFAULT_CLIP_FILENAME_TEMPLATE,
 		DEFAULT_POST_RUN_PADDING_SECS,
+		DEFAULT_PRE_RUN_PADDING_SECS,
 		DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE,
 		DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE,
 		settings
@@ -100,7 +101,7 @@
 
 	const normalizePreRunPadding = () => {
 		const value = Number(settings.preRunPaddingSecs);
-		settings.preRunPaddingSecs = Number.isFinite(value) ? Math.max(0, value) : 0;
+		settings.preRunPaddingSecs = Number.isFinite(value) ? Math.max(0, value) : DEFAULT_PRE_RUN_PADDING_SECS;
 	};
 
 	const normalizePostRunPadding = () => {

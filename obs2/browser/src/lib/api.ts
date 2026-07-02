@@ -38,6 +38,51 @@ export const getSources = async (): Promise<ObsSource[]> => {
 	return data;
 };
 
+export interface ClipMetadata {
+	timestamp: string;
+	time?: string;
+	timeSeconds?: number;
+	level: string;
+	levelNumber?: number;
+	difficulty?: string;
+	status: string;
+	comment: string;
+	pluginVersion: string;
+}
+
+export interface RunDirectoryScan {
+	kind: 'completed' | 'failed';
+	path: string;
+	exists: boolean;
+	error?: string | null;
+}
+
+export interface RunClip {
+	path: string;
+	fileName: string;
+	directory: string;
+	sizeBytes: number;
+	modified?: string | null;
+	durationSecs?: number | null;
+	metadata: ClipMetadata;
+}
+
+export interface RunsResponse {
+	directories: RunDirectoryScan[];
+	clips: RunClip[];
+}
+
+export const getRuns = async (): Promise<RunsResponse> => {
+	const res = await fetch(apiUrl('/api/v1/runs'));
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
+export const runThumbnailUrl = (path: string): string =>
+	apiUrl(`/api/v1/runs/thumbnail?path=${encodeURIComponent(path)}`);
+
+export const runVideoUrl = (path: string): string => apiUrl(`/api/v1/runs/video?path=${encodeURIComponent(path)}`);
+
 /** Replay-buffer status reported by the backend. `enabled` reflects the OBS
  * profile checkbox; `available` whether OBS has a replay-buffer output for the
  * current output settings; `active` whether it is currently running; and

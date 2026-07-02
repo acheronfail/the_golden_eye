@@ -26,7 +26,9 @@ use crate::{ffmpeg, ge};
 /// Default filename template for trimmed clips. Mirrors the frontend default and
 /// falls back through the unique-name suffixer when multiple runs render alike.
 pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level} - {time} - {difficulty} - {status}";
+pub const DEFAULT_PRE_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
+const PRE_RUN_MATCH_BUFFER_SECS: f64 = 0.5;
 
 /// How long to wait for OBS to finish writing the saved replay file before
 /// giving up. The save is asynchronous; we block on the replay-saved event
@@ -58,7 +60,7 @@ impl Default for RecordingOptions {
             failed_output_path: String::new(),
             failed_run_limit: 0,
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
-            pre_run_padding_secs: 0.0,
+            pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
             post_run_padding_secs: DEFAULT_POST_RUN_PADDING_SECS,
         }
     }
@@ -75,7 +77,7 @@ impl RecordingOptions {
     }
 
     fn pre_run_padding_secs(&self) -> f64 {
-        Self::non_negative_secs(self.pre_run_padding_secs, 0.0)
+        Self::non_negative_secs(self.pre_run_padding_secs, 0.0) + PRE_RUN_MATCH_BUFFER_SECS
     }
 
     fn post_run_padding_secs(&self) -> f64 {
@@ -517,7 +519,8 @@ fn trim_clip(
         status = status.as_str(),
         "trimming replay clip",
     );
-    ffmpeg::trim(input, &output, start, end)?;
+    let clip_metadata = clip_metadata(status, completed_at, stats.as_ref());
+    ffmpeg::trim_with_metadata(input, &output, start, end, Some(&clip_metadata))?;
     tracing::info!(output = %output.display(), "saved trimmed clip");
     if failed
         && let Err(err) =
@@ -535,6 +538,23 @@ fn trim_clip(
         failed,
         stats,
     })
+}
+
+fn clip_metadata(status: RunStatus, completed_at: SystemTime, stats: Option<&LevelMatch>) -> ffmpeg::ClipMetadata {
+    let level_info = stats.and_then(|m| ge::level_info(m.mission, m.part));
+    let time_seconds = stats.and_then(|m| m.times.map(|times| times.time.max(0)));
+
+    ffmpeg::ClipMetadata {
+        timestamp: format_iso_utc(completed_at),
+        time: time_seconds.map(format_time),
+        time_seconds,
+        level: level_info.map(|info| info.name.to_owned()).unwrap_or_else(|| "unknown".to_owned()),
+        level_number: level_info.map(|info| info.number),
+        difficulty: stats.and_then(|m| ge::difficulty_name(m.difficulty)).map(str::to_owned),
+        status: status.as_str().to_owned(),
+        comment: format!("Created by The Golden Eye OBS plugin v{}", crate::PLUGIN_VERSION),
+        plugin_version: crate::PLUGIN_VERSION.to_owned(),
+    }
 }
 
 fn output_dir(input: &Path, failed: bool, options: &RecordingOptions) -> PathBuf {
@@ -886,6 +906,22 @@ mod tests {
             raw_times: vec![-5],
             runtime_ms: 0.0,
         }
+    }
+
+    #[test]
+    fn pre_run_padding_defaults_to_five_and_adds_match_buffer() {
+        let default = RecordingOptions::default();
+        assert_eq!(default.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
+        assert_eq!(
+            default.pre_run_padding_secs(),
+            DEFAULT_PRE_RUN_PADDING_SECS + PRE_RUN_MATCH_BUFFER_SECS
+        );
+
+        let zero = RecordingOptions { pre_run_padding_secs: 0.0, ..RecordingOptions::default() };
+        assert_eq!(zero.pre_run_padding_secs(), PRE_RUN_MATCH_BUFFER_SECS);
+
+        let negative = RecordingOptions { pre_run_padding_secs: -2.0, ..RecordingOptions::default() };
+        assert_eq!(negative.pre_run_padding_secs(), PRE_RUN_MATCH_BUFFER_SECS);
     }
 
     #[test]

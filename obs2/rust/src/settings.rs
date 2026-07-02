@@ -11,7 +11,10 @@ use anyhow::Context;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::recording::{DEFAULT_CLIP_FILENAME_TEMPLATE, DEFAULT_POST_RUN_PADDING_SECS, RecordingOptions};
+use crate::recording::{
+    DEFAULT_CLIP_FILENAME_TEMPLATE, DEFAULT_POST_RUN_PADDING_SECS, DEFAULT_PRE_RUN_PADDING_SECS,
+    RecordingOptions,
+};
 use crate::stream_notifier::{DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE, DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -47,7 +50,7 @@ impl Default for AppSettings {
             failed_output_path: String::new(),
             failed_run_limit: 0,
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
-            pre_run_padding_secs: 0.0,
+            pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
             post_run_padding_secs: DEFAULT_POST_RUN_PADDING_SECS,
             discord_notifications_enabled: true,
             discord_webhook_url: String::new(),
@@ -330,6 +333,15 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    #[test]
+    fn default_settings_use_five_second_pre_run_padding() {
+        assert_eq!(AppSettings::default().pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
+        assert_eq!(
+            AppSettings::from_json_value(json!({})).pre_run_padding_secs,
+            DEFAULT_PRE_RUN_PADDING_SECS
+        );
     }
 
     #[test]

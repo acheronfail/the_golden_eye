@@ -2,6 +2,7 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { settings } from '$lib';
+	import { monitor, monitorHref, refreshMonitor } from '$lib/monitor.svelte';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -32,18 +33,38 @@
 	$effect(() => {
 		page.url.pathname;
 		refreshReplayBuffer();
+		void refreshMonitor().catch(() => {
+			// Keep the global indicator hidden if the backend is unavailable.
+		});
 	});
 
 	// While the replay buffer is confirmed unavailable, force the user back to `/`
-	// (which explains how to enable it). `/`, `/options`, and the dev-only
+	// (which explains how to enable it). `/`, `/runs`, `/options`, and the dev-only
 	// `/developer` tools are exempt so the user has somewhere to land and
 	// debugging still works. An unknown status (null) never redirects — we only
 	// act on a definitive "off".
 	$effect(() => {
 		const path = page.url.pathname;
-		const exempt = path === '/' || path === '/options' || path === '/developer';
+		const exempt = path === '/' || path === '/runs' || path === '/options' || path === '/developer';
 		if (replayBuffer.status?.available === false && !exempt) {
 			goto('/');
+		}
+	});
+
+	const isMonitorSetupPath = (path: string): boolean =>
+		path === '/' ||
+		path === '/source' ||
+		path.startsWith('/source/') ||
+		path === '/sources' ||
+		path.startsWith('/sources/');
+
+	// If monitoring is already active, the setup flow should collapse back to the
+	// live monitor page. Keep non-monitoring pages such as runs/options reachable.
+	$effect(() => {
+		const path = page.url.pathname;
+		const href = monitorHref(monitor.status);
+		if (href && path !== href && isMonitorSetupPath(path)) {
+			goto(href, { replaceState: true });
 		}
 	});
 
@@ -69,12 +90,14 @@
 	const liActiveClass = `${liCommon} bg-amber-600 text-black hover:text-black hover:bg-amber-700`;
 
 	const links = [
-		{ href: '/', label: 'Home' },
+		{ href: '/', label: 'Monitor' },
+		{ href: '/runs', label: 'Runs' },
 		{ href: '/options', label: 'Options' },
 		...(import.meta.hot ? [{ href: '/developer', label: 'Developer' }] : [])
 	];
 
 	const pluginVersion = import.meta.env.VITE_GE_PLUGIN_VERSION ?? '0.0.0';
+	const activeMonitorHref = $derived(monitorHref(monitor.status));
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
@@ -92,7 +115,19 @@
 			{/each}
 		</ul>
 
-		<span class="ml-auto shrink-0 px-4 font-mono text-sm text-amber-400">v{pluginVersion}</span>
+		<div class="ml-auto flex shrink-0 items-center gap-3 px-4 font-mono text-sm">
+			{#if activeMonitorHref}
+				<a
+					href={activeMonitorHref}
+					class="group inline-flex items-center gap-2 rounded border border-emerald-500 px-2 py-1 text-emerald-300 transition-colors hover:bg-emerald-500 hover:text-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
+					aria-label="Return to monitoring screen"
+				>
+					<span class="h-2 w-2 rounded-full bg-emerald-400 group-hover:bg-black" aria-hidden="true"></span>
+					<span>Monitoring</span>
+				</a>
+			{/if}
+			<span class="text-amber-400">v{pluginVersion}</span>
+		</div>
 	</header>
 
 	<div bind:this={contentScroller} class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">

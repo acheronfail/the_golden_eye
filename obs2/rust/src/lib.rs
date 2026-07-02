@@ -21,7 +21,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::settings::SettingsStore;
 
-const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
+pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
 
 /// Holds the tokio runtime that is driving the HTTP server, along with the
 /// signal used to ask the server to shut down gracefully.
