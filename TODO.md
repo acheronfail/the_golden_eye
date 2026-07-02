@@ -9,3 +9,4 @@
 - BG: linux has linking errors for libglu:
     - `error: [the-golden-eye] failed to dlopen core: libGLU.so.1: cannot open shared object file: No such file or directory\nerror: [the-golden-eye] core failed to load; plugin disabled\nwarning: Failed to initialize module 'the_golden_eye.so'`
     - should we dump the log somewhere from the thin plugin? or show some kind of alert?
+- BG: when folders don't exist for clip saving, we need to create them
