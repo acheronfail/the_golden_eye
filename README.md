@@ -1,5 +1,14 @@
 # The Golden Eye
 
+This is a plugin for OBS Studio that assists with Goldeneye N64 speed-running.
+
+## How to install
+
+Follow the instructions for your operating system:
+
+- [docs/install-linux.md](Install on Linux)
+- [docs/install-macos.md](Install on macOS)
+
 ## Development
 
 System dependencies:
@@ -15,14 +24,15 @@ System dependencies:
 Get started:
 
 ```shell
+# run once after cloning this repository to install dependencies and set up the environment:
 just setup
 
 # build and run OBS with the native plugin:
 just obs
 
-# for linux, it's recommended to use the flatpak version of OBS (this is because
-# the non-flatpak version doesn't currently have the YouTube OAuth plugin which
-# is required for the YouTube integration):
+# for linux, it's recommended to use the flatpak version of OBS (this is the recommended
+# install method from the OBS developers, but it also includes the embedded browser which
+# this plugin needs for its UI to work inside of OBS):
 just obs-flatpak
 
 # development mode with browser hot reload and plugin core hot reload:
