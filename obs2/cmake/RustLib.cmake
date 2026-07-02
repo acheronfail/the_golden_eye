@@ -22,6 +22,8 @@ if(BROWSER_DEV)
   list(APPEND CARGO_BUILD_FLAGS --features dev)
 endif()
 
+set(GE_BROWSER_DEV_URL "http://localhost:${BROWSER_DEV_PORT}")
+
 set(RUST_LIB "${RUST_DIR}/target/${RUST_PROFILE}/libge_rust.a")
 
 # https://github.com/twistedfall/opencv-rust/blob/master/INSTALL.md#macos-package
@@ -62,6 +64,7 @@ add_custom_target(rust_build ALL
     COMMAND ${CMAKE_COMMAND} -E env
             "BROWSER_BUNDLE=${BROWSER_BUNDLE}"
             "GE_PLUGIN_VERSION=${GE_PLUGIN_VERSION}"
+            "GE_BROWSER_DEV_URL=${GE_BROWSER_DEV_URL}"
             ${RUST_BUILD_ENV}
             cargo build ${CARGO_BUILD_FLAGS} --all-targets
     WORKING_DIRECTORY "${RUST_DIR}"

@@ -10,10 +10,11 @@
 		settings
 	} from '$lib';
 
-	type OptionsTab = 'recording' | 'notifications';
+	type OptionsTab = 'general' | 'recording' | 'notifications';
 	type PathKind = 'completed' | 'failed';
 
-	const tabFromUrl = (value: string | null): OptionsTab => (value === 'notifications' ? 'notifications' : 'recording');
+	const tabFromUrl = (value: string | null): OptionsTab =>
+		value === 'general' || value === 'notifications' ? value : 'recording';
 
 	let activeTab = $derived(tabFromUrl(page.url.searchParams.get('tab')));
 	let pickingPath: PathKind | null = $state(null);
@@ -229,6 +230,15 @@
 		<button
 			type="button"
 			role="tab"
+			aria-selected={activeTab === 'general'}
+			class={tabClass('general')}
+			onclick={() => selectTab('general')}
+		>
+			General
+		</button>
+		<button
+			type="button"
+			role="tab"
 			aria-selected={activeTab === 'recording'}
 			class={tabClass('recording')}
 			onclick={() => selectTab('recording')}
@@ -247,7 +257,19 @@
 	</div>
 
 	<fieldset disabled={!settings.loaded} class="m-0 flex flex-col gap-4 border-0 p-0">
-		{#if activeTab === 'recording'}
+		{#if activeTab === 'general'}
+			<section class={panelClass}>
+				<label class="flex items-center gap-3">
+					<input
+						type="checkbox"
+						bind:checked={settings.openGoldenEyeOnLaunch}
+						class="rounded border-neutral-700 bg-neutral-950 text-amber-500 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+					/>
+					<span class={labelClass}>Open The Golden Eye when OBS launches</span>
+				</label>
+				<p class={hintClass}>Opens the plugin dashboard in your default browser.</p>
+			</section>
+		{:else if activeTab === 'recording'}
 			<section class={panelClass}>
 				<label class={labelClass} for="clip-filename-template">Clip filename template</label>
 				<input

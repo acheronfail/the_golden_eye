@@ -51,6 +51,7 @@ tower = { version = "0.5.3", features = ["util", "timeout"] }
 tower-http = { version = "0.6.11", features = ["trace", "util", "cors"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+webbrowser = "1.2.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["libc", "NSRunningApplication", "NSWorkspace"] }

@@ -42,7 +42,7 @@ OBS_DECLARE_MODULE()
 #error "GE_BUNDLED_TEMPLATE_DIR_REL must be defined by the build"
 #endif
 
-typedef bool (*ge_core_load_fn)(void);
+typedef bool (*ge_core_load_fn)(bool open_browser_on_launch);
 typedef void (*ge_core_unload_fn)(void);
 
 static void *g_handle = NULL;
@@ -190,7 +190,7 @@ static void remove_core_copy(void) {
 
 // dlopen the core library and run its ge_core_load(). Returns false (with a
 // logged reason) on any failure.
-static bool core_open(void) {
+static bool core_open(bool open_browser_on_launch) {
   configure_template_dir();
 
   char bundled_core[PATH_MAX];
@@ -223,7 +223,7 @@ static bool core_open(void) {
 
   ge_core_load_fn load = (ge_core_load_fn)dlsym(handle, "ge_core_load");
   g_unload = (ge_core_unload_fn)dlsym(handle, "ge_core_unload");
-  if (!load || !g_unload || !load()) {
+  if (!load || !g_unload || !load(open_browser_on_launch)) {
     GE_LOG(LOG_ERROR, "core entry points missing or ge_core_load() failed");
     dlclose(handle);
     g_unload = NULL;
@@ -255,14 +255,15 @@ static void core_close(void) {
 #ifdef GE_DEV
 static void core_reload(void) {
   core_close();
-  if (!core_open()) {
+  // A dev core reload is not an OBS launch; keep the existing browser tab.
+  if (!core_open(false)) {
     GE_LOG(LOG_ERROR, "core reload failed; will retry on next rebuild");
   }
 }
 #endif
 
 bool obs_module_load(void) {
-  if (!core_open()) {
+  if (!core_open(true)) {
     GE_LOG(LOG_ERROR, "core failed to load; plugin disabled");
     return false;
   }

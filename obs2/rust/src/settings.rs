@@ -22,6 +22,7 @@ const LEGACY_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suff
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    pub open_golden_eye_on_launch: bool,
     pub developer_lang: String,
     pub completed_output_path: String,
     pub save_failed_runs: bool,
@@ -39,6 +40,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            open_golden_eye_on_launch: true,
             developer_lang: "en".to_owned(),
             completed_output_path: String::new(),
             save_failed_runs: true,
@@ -63,6 +65,10 @@ impl AppSettings {
         };
 
         Self {
+            open_golden_eye_on_launch: bool_field(
+                object.get("openGoldenEyeOnLaunch"),
+                default.open_golden_eye_on_launch,
+            ),
             developer_lang: developer_lang(object.get("developerLang"), &default.developer_lang),
             completed_output_path: string_field(object.get("completedOutputPath"), &default.completed_output_path),
             save_failed_runs: bool_field(object.get("saveFailedRuns"), default.save_failed_runs),
@@ -330,6 +336,7 @@ mod tests {
     fn json_value_is_normalized_field_by_field() {
         let settings = AppSettings::from_json_value(json!({
             "developerLang": "jp",
+            "openGoldenEyeOnLaunch": false,
             "completedOutputPath": "/tmp/completed",
             "saveFailedRuns": false,
             "failedOutputPath": "/tmp/failed",
@@ -344,6 +351,7 @@ mod tests {
         }));
 
         assert_eq!(settings.developer_lang, "jp");
+        assert!(!settings.open_golden_eye_on_launch);
         assert_eq!(settings.completed_output_path, "/tmp/completed");
         assert!(!settings.save_failed_runs);
         assert_eq!(settings.failed_output_path, "/tmp/failed");
@@ -370,6 +378,7 @@ mod tests {
         let saved = store
             .set_from_json_value(json!({
                 "developerLang": "jp",
+                "openGoldenEyeOnLaunch": false,
                 "completedOutputPath": "/runs",
                 "saveFailedRuns": true,
                 "failedOutputPath": "/fails",
@@ -385,6 +394,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(saved.completed_output_path, "/runs");
+        assert!(!saved.open_golden_eye_on_launch);
         assert!(path.exists());
 
         let reloaded = SettingsStore::load_from_path(path).get();
