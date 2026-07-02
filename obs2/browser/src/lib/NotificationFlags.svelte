@@ -24,7 +24,9 @@
 	>
 		{#each notifications.flags as flag (flag.id)}
 			<div
-				class="obs-notification pointer-events-auto w-full px-4 py-3 text-left font-mono {toneClass(flag.tone)}"
+				class="obs-notification pointer-events-auto relative w-full overflow-hidden px-4 py-3 text-left font-mono {toneClass(
+					flag.tone
+				)}"
 				role="status"
 			>
 				<div class="flex min-w-0 items-start gap-3">
@@ -46,6 +48,13 @@
 						x
 					</button>
 				</div>
+				{#if flag.timeoutMs !== undefined}
+					<div
+						class="obs-notification-timeout-bar"
+						style={`animation-duration: ${flag.timeoutMs}ms;`}
+						aria-hidden="true"
+					></div>
+				{/if}
 			</div>
 		{/each}
 	</div>

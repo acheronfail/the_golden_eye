@@ -6,6 +6,7 @@ export interface NotificationFlag {
 	detail?: string;
 	meta?: string;
 	tone: NotificationTone;
+	timeoutMs?: number;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -36,20 +37,22 @@ export const addNotificationFlag = (options: {
 	timeoutMs?: number;
 	sticky?: boolean;
 }): NotificationFlag => {
+	const timeoutMs = options.sticky ? undefined : (options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 	const flag: NotificationFlag = {
 		id: nextId++,
 		title: options.title,
 		detail: options.detail,
 		meta: options.meta,
-		tone: options.tone ?? 'info'
+		tone: options.tone ?? 'info',
+		timeoutMs
 	};
 
 	notifications.flags = [...notifications.flags, flag];
 
-	if (!options.sticky) {
+	if (timeoutMs !== undefined) {
 		const timeout = setTimeout(() => {
 			dismissNotificationFlag(flag.id);
-		}, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+		}, timeoutMs);
 		timeouts.set(flag.id, timeout);
 	}
 

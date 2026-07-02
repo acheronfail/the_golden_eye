@@ -527,6 +527,8 @@ body {
 }
 
 .obs-notification {
+	--obs-notification-accent: var(--obs-gold);
+
 	background: var(--obs-panel);
 	border: 1px solid var(--obs-border);
 	box-shadow:
@@ -535,23 +537,54 @@ body {
 }
 
 .obs-notification-success {
+	--obs-notification-accent: var(--obs-success);
+
 	border-left: 4px solid var(--obs-success);
 	color: #bff0cb;
 }
 
 .obs-notification-warning {
+	--obs-notification-accent: var(--obs-gold);
+
 	border-left: 4px solid var(--obs-gold);
 	color: var(--obs-gold-hover);
 }
 
 .obs-notification-error {
+	--obs-notification-accent: var(--obs-danger);
+
 	border-left: 4px solid var(--obs-danger);
 	color: #ffb3b3;
 }
 
 .obs-notification-info {
+	--obs-notification-accent: var(--obs-gold);
+
 	border-left: 4px solid var(--obs-gold);
 	color: var(--obs-gold-hover);
+}
+
+.obs-notification-timeout-bar {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	height: 3px;
+	background: var(--obs-notification-accent);
+	transform-origin: right center;
+	animation-name: obs-notification-timeout;
+	animation-timing-function: linear;
+	animation-fill-mode: forwards;
+}
+
+@keyframes obs-notification-timeout {
+	from {
+		transform: scaleX(1);
+	}
+
+	to {
+		transform: scaleX(0);
+	}
 }
 
 .obs-phase-recording-border {
