@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { afterNavigate, goto } from '$app/navigation';
-	import { getSources, startMonitor as apiStartMonitor, stopMonitor as apiStopMonitor } from '$lib/api';
+	import { startMonitor as apiStartMonitor, stopMonitor as apiStopMonitor } from '$lib/api';
 	import { settings } from '$lib';
 	import {
 		monitor,
@@ -10,6 +10,7 @@
 		setMonitorStopped
 	} from '$lib/monitor.svelte';
 	import { refreshReplayBuffer } from '$lib/replayBuffer.svelte';
+	import { obsSources } from '$lib/sources.svelte';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
 	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
 	import type { PageProps } from './$types';
@@ -55,12 +56,15 @@
 	// it still exists before letting them monitor; the start button stays disabled
 	// until this completes, and a failed check routes back home to restart the flow.
 	let verified = $state(false);
+	let statusChecked = $state(false);
+	const sourceExists = $derived((obsSources.items ?? []).some((source) => source.name === params.sourceName));
 
 	// Runs on initial load and after every navigation. A redirect below targets
 	// this same route, so the component instance is reused and `onMount` wouldn't
 	// fire again -- `afterNavigate` re-runs the restore each time the params change.
 	afterNavigate(async () => {
 		verified = false;
+		statusChecked = false;
 		try {
 			// If a monitor is already running, restore that state rather than
 			// defaulting to idle. When it's running for a different source/lang than
@@ -75,14 +79,25 @@
 			} else {
 				monitoring = false;
 			}
-
-			const sources = await getSources();
-			if (sources.some((source) => source.name === params.sourceName)) {
-				verified = true;
-			} else {
-				goto('/');
-			}
+			statusChecked = true;
 		} catch {
+			goto('/');
+		}
+	});
+
+	$effect(() => {
+		if (!statusChecked) return;
+		if (monitoring) {
+			verified = true;
+			return;
+		}
+		if (!obsSources.loaded) {
+			verified = false;
+			return;
+		}
+		if (sourceExists) {
+			verified = true;
+		} else {
 			goto('/');
 		}
 	});

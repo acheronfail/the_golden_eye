@@ -562,13 +562,10 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
 }
 
 /// Upgrades the connection to a WebSocket that streams [`MonitorEvent`]s as JSON.
-/// The current match (if any) is sent immediately on connect as a `match` event,
-/// and the current recorder phase is sent as a `recordingState` event. New
-/// `match` and `recordingState` values are pushed each time their retained
-/// backend state changes (see [`AppStateInner::match_tx`](crate::http::AppStateInner)
-/// and [`AppStateInner::recording_state`](crate::http::AppStateInner)); one-off
-/// events such as `recordingSaved` are forwarded as they occur (see
-/// [`AppStateInner::event_tx`](crate::http::AppStateInner)).
+/// The current source list, match (if any), and recorder phase are sent
+/// immediately on connect. New `sources`, `match`, and `recordingState` values
+/// are pushed each time their retained backend state changes; one-off events
+/// such as `recordingSaved` are forwarded as they occur.
 pub async fn handle_ws(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
@@ -576,6 +573,7 @@ pub async fn handle_ws(State(state): State<AppState>, ws: WebSocketUpgrade) -> R
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let mut rx = state.match_tx.subscribe();
     let mut recording_rx = state.recording_state.subscribe();
+    let mut source_rx = state.source_tx.subscribe();
     let mut events = state.event_tx.subscribe();
 
     // Announce which build serves this API first, so a stale tab (older cached
@@ -586,6 +584,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         return;
     }
 
+    if send_current_sources(&mut socket, &mut source_rx).await.is_err() {
+        return;
+    }
     // Send the current match up front so a client connecting mid-run isn't
     // blank until the next change.
     if send_current_match(&mut socket, &mut rx).await.is_err() {
@@ -615,6 +616,17 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     break;
                 }
                 if send_current_recording_state(&mut socket, &mut recording_rx).await.is_err() {
+                    break;
+                }
+            }
+            // OBS source graph changed: forward the latest renderable source
+            // list so setup pages update without polling.
+            changed = source_rx.changed() => {
+                // Err means the sender was dropped (server shutting down).
+                if changed.is_err() {
+                    break;
+                }
+                if send_current_sources(&mut socket, &mut source_rx).await.is_err() {
                     break;
                 }
             }
@@ -653,6 +665,17 @@ async fn send_event(socket: &mut WebSocket, event: &MonitorEvent) -> Result<(), 
     if let Ok(text) = serde_json::to_string(event) {
         socket.send(Message::Text(text.into())).await?;
     }
+    Ok(())
+}
+
+/// Sends the current source list as a `sources` event, marking the watch value
+/// as seen.
+async fn send_current_sources(
+    socket: &mut WebSocket,
+    rx: &mut watch::Receiver<Vec<super::sources::Source>>,
+) -> Result<(), axum::Error> {
+    let sources = rx.borrow_and_update().clone();
+    send_event(socket, &MonitorEvent::Sources { sources }).await?;
     Ok(())
 }
 

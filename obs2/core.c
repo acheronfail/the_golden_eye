@@ -8,7 +8,9 @@
 #include "ge_rust.h"
 
 #include <obs/frontend/obs-frontend-api.h>
+#include <obs/libobs/callback/signal.h>
 #include <obs/libobs/obs-data.h>
+#include <obs/libobs/obs.h>
 #include <obs/libobs/obs-service.h>
 #include <obs/libobs/util/bmem.h>
 #include <string.h>
@@ -16,6 +18,40 @@
 // Make the entry points visible to dlsym even if the library is built with
 // -fvisibility=hidden.
 #define GE_EXPORT __attribute__((visibility("default")))
+
+static void ge_on_source_changed(void *private_data, calldata_t *calldata) {
+  (void)private_data;
+  (void)calldata;
+  ge_sources_changed();
+}
+
+static void ge_connect_source_signals(void) {
+  signal_handler_t *signals = obs_get_signal_handler();
+  if (!signals) {
+    return;
+  }
+
+  signal_handler_connect(signals, "source_create", ge_on_source_changed, NULL);
+  signal_handler_connect(signals, "source_create_canvas", ge_on_source_changed, NULL);
+  signal_handler_connect(signals, "source_destroy", ge_on_source_changed, NULL);
+  signal_handler_connect(signals, "source_remove", ge_on_source_changed, NULL);
+  signal_handler_connect(signals, "source_update", ge_on_source_changed, NULL);
+  signal_handler_connect(signals, "source_rename", ge_on_source_changed, NULL);
+}
+
+static void ge_disconnect_source_signals(void) {
+  signal_handler_t *signals = obs_get_signal_handler();
+  if (!signals) {
+    return;
+  }
+
+  signal_handler_disconnect(signals, "source_create", ge_on_source_changed, NULL);
+  signal_handler_disconnect(signals, "source_create_canvas", ge_on_source_changed, NULL);
+  signal_handler_disconnect(signals, "source_destroy", ge_on_source_changed, NULL);
+  signal_handler_disconnect(signals, "source_remove", ge_on_source_changed, NULL);
+  signal_handler_disconnect(signals, "source_update", ge_on_source_changed, NULL);
+  signal_handler_disconnect(signals, "source_rename", ge_on_source_changed, NULL);
+}
 
 static void ge_on_frontend_event(enum obs_frontend_event event, void *private_data) {
   (void)private_data;
@@ -52,6 +88,8 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
     if (path) {
       bfree(path);
     }
+  } else if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING || event == OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED) {
+    ge_sources_changed();
   }
 }
 
@@ -60,6 +98,8 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
 // log a useful error and refuse to come up.
 GE_EXPORT bool ge_core_load(void) {
   ge_rust_start();
+  ge_connect_source_signals();
+  ge_sources_changed();
   obs_frontend_add_event_callback(ge_on_frontend_event, NULL);
   return true;
 }
@@ -68,6 +108,7 @@ GE_EXPORT bool ge_core_load(void) {
 // ge_core_load so OBS's user config is queried at the same lifecycle point as
 // the frontend normally expects.
 GE_EXPORT void ge_core_post_load(void) {
+  ge_sources_changed();
   ge_browser_dock_post_load();
 }
 
@@ -75,6 +116,7 @@ GE_EXPORT void ge_core_post_load(void) {
 // before a dev-mode hot reload). `ge_rust_stop` blocks until the tokio runtime
 // is fully torn down, so no Rust threads survive the dlclose that follows.
 GE_EXPORT void ge_core_unload(void) {
+  ge_disconnect_source_signals();
   obs_frontend_remove_event_callback(ge_on_frontend_event, NULL);
   ge_rust_stop();
 }

@@ -48,6 +48,10 @@ pub struct AppStateInner {
     /// page reload or second browser can see "recording" / "saving" / etc.
     /// immediately, instead of waiting for the next transition.
     pub recording_state: RecordingStateStore,
+    /// Latest OBS video-source list, broadcast to browser clients whenever OBS
+    /// reports source creation/removal/update/rename. Retained so a page load
+    /// receives the current source picker state immediately.
+    pub source_tx: watch::Sender<Vec<routes::sources::Source>>,
     /// Plugin-owned user settings, loaded from and persisted to JSON.
     pub settings: crate::settings::SettingsStore,
 }
@@ -59,11 +63,11 @@ pub struct StreamMessage {
     pub webhook_url: String,
 }
 
-/// Messages pushed to monitor WebSocket clients, serialized internally tagged by
+/// Messages pushed to app WebSocket clients, serialized internally tagged by
 /// `type` so the SPA can discriminate them. `Version` is sent once per
-/// connection (a handshake); `Match` and `RecordingState` ride watch channels
-/// (latest-wins, replayed on connect); `RecordingSaved` rides `event_tx`
-/// (one-off, delivered only to currently-connected clients).
+/// connection (a handshake); `Sources`, `Match`, and `RecordingState` ride watch
+/// channels (latest-wins, replayed on connect); `RecordingSaved` rides
+/// `event_tx` (one-off, delivered only to currently-connected clients).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum MonitorEvent {
@@ -76,6 +80,8 @@ pub enum MonitorEvent {
         #[serde(rename = "buildId")]
         build_id: String,
     },
+    /// The current OBS video-source list changed.
+    Sources { sources: Vec<routes::sources::Source> },
     /// The matched on-screen state changed; carries the current match.
     Match(LevelMatch),
     /// The recorder's run state changed (a run began, was cancelled, saw a
@@ -244,6 +250,10 @@ pub type AppState = Arc<AppStateInner>;
 pub const SERVER_PORT: u16 = 31337;
 pub const OAUTH_CALLBACK_PATH: &str = "/oauth/callback";
 
+pub fn collect_sources() -> Vec<routes::sources::Source> {
+    routes::sources::collect_sources()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,6 +275,21 @@ mod tests {
 
         assert_eq!(json["type"], "recordingState");
         assert!(json["status"].is_null());
+    }
+
+    #[test]
+    fn sources_event_uses_frontend_field_name() {
+        let event = MonitorEvent::Sources {
+            sources: vec![routes::sources::Source {
+                name: "N64 Capture".to_owned(),
+                id: "av_capture_input".to_owned(),
+            }],
+        };
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "sources");
+        assert_eq!(json["sources"][0]["name"], "N64 Capture");
+        assert_eq!(json["sources"][0]["id"], "av_capture_input");
     }
 
     #[test]

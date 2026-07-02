@@ -3,6 +3,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { settings } from '$lib';
 	import { monitor, monitorHref, monitorPhaseStyle, refreshMonitor } from '$lib/monitor.svelte';
+	import { startAppSocket, stopAppSocket } from '$lib/appSocket.svelte';
 	import KiaDeathOverlay from '$lib/KiaDeathOverlay.svelte';
 	import NotificationFlags from '$lib/NotificationFlags.svelte';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
@@ -17,9 +18,14 @@
 	let menuOpen = $state(false);
 
 	onMount(() => {
+		startAppSocket();
 		void settings.load().catch((err) => {
 			console.warn('Failed to load settings', err);
 		});
+
+		return () => {
+			stopAppSocket();
+		};
 	});
 
 	$effect(() => {

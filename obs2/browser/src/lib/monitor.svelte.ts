@@ -1,6 +1,4 @@
-import { browser } from '$app/environment';
 import {
-	connectMonitorSocket,
 	getMonitorStatus,
 	type LevelMatch,
 	type MonitorStatus,
@@ -133,8 +131,6 @@ export const monitor = $state<{
 	kiaEffectId: 0
 });
 
-let socket: WebSocket | null = null;
-
 export const monitorHref = (status: MonitorStatus | null = monitor.status): string | null => {
 	if (!status?.enabled) return null;
 	return `/source/${encodeURIComponent(status.sourceName)}/${encodeURIComponent(status.lang)}`;
@@ -145,7 +141,11 @@ const clearRunState = () => {
 	monitor.recordingState = null;
 };
 
-const applyRecordingState = (status: RecordingStatus | null): void => {
+export const applyMonitorMatch = (match: LevelMatch): void => {
+	monitor.match = match;
+};
+
+export const applyRecordingState = (status: RecordingStatus | null): void => {
 	const previous = monitor.recordingState;
 	monitor.recordingState = status;
 	if (status === 'kia' && previous !== 'kia') {
@@ -157,7 +157,7 @@ export const triggerKiaDeathOverlay = (): void => {
 	monitor.kiaEffectId += 1;
 };
 
-const applyRecordingSaved = (saved: RecordingSaved): void => {
+export const applyRecordingSaved = (saved: RecordingSaved): void => {
 	if (monitor.recordingState === 'savePending' || monitor.recordingState === 'statsSkipped') {
 		monitor.recordingState = null;
 	}
@@ -169,46 +169,16 @@ const applyRecordingSaved = (saved: RecordingSaved): void => {
 	});
 };
 
-const connectSocket = (): void => {
-	if (!browser || socket !== null) return;
-	const nextSocket = connectMonitorSocket({
-		onMatch: (match) => {
-			monitor.match = match;
-		},
-		onRecordingState: applyRecordingState,
-		onRecordingSaved: applyRecordingSaved,
-		onClose: () => {
-			if (socket === nextSocket) socket = null;
-		}
-	});
-	socket = nextSocket;
-};
-
-const disconnectSocket = (): void => {
-	socket?.close();
-	socket = null;
-};
-
-const syncSocket = (): void => {
-	if (monitor.status?.enabled) {
-		connectSocket();
-	} else {
-		disconnectSocket();
-	}
-};
-
 export const setMonitorRunning = (sourceName: string, lang: string): void => {
 	clearRunState();
 	monitor.status = { enabled: true, sourceName, lang, recordingState: null };
 	monitor.loaded = true;
-	syncSocket();
 };
 
 export const setMonitorStopped = (): void => {
 	clearRunState();
 	monitor.status = { enabled: false, recordingState: null };
 	monitor.loaded = true;
-	syncSocket();
 };
 
 /** Re-query the backend for the current monitor status. */
@@ -226,11 +196,9 @@ export const refreshMonitor = async (): Promise<MonitorStatus> => {
 			clearRunState();
 		}
 		monitor.recordingState = status.enabled ? status.recordingState : null;
-		syncSocket();
 		return monitor.status;
 	} catch (err) {
 		monitor.status = null;
-		syncSocket();
 		throw err;
 	} finally {
 		monitor.loaded = true;

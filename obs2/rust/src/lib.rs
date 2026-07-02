@@ -88,6 +88,7 @@ pub extern "C" fn ge_rust_start() {
 
     let (match_tx, _) = tokio::sync::watch::channel(None);
     let (recording_state_tx, _) = tokio::sync::watch::channel(None);
+    let (source_tx, _) = tokio::sync::watch::channel(http::collect_sources());
     // One-off monitor events (recording saved, ...). Capacity bounds how far a
     // slow client can lag before it drops events; the worker ignores send errors,
     // so a full/empty channel never blocks frame processing.
@@ -100,6 +101,7 @@ pub extern "C" fn ge_rust_start() {
         match_tx,
         event_tx,
         recording_state,
+        source_tx,
         settings,
     });
 
@@ -182,6 +184,28 @@ pub unsafe extern "C" fn ge_stream_notifier_start(service_settings_json: *const 
     };
 
     runtime_handle.spawn(stream_notifier::run(state, settings_json));
+}
+
+/// Called from the C core when OBS reports that the source graph changed.
+/// Recollects the current renderable video sources and pushes the snapshot to
+/// connected browser clients.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_sources_changed() {
+    let state = {
+        let guard = match SERVER.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        match guard.as_ref() {
+            Some(h) => h.state.clone(),
+            None => {
+                tracing::warn!("ge_sources_changed called but server is not running");
+                return;
+            }
+        }
+    };
+
+    state.source_tx.send_replace(http::collect_sources());
 }
 
 /// Called from the OBS frontend event callback on

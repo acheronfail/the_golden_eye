@@ -237,18 +237,21 @@ export type RecordingStatus =
 	| 'failedDiscarded'
 	| 'savePending';
 
-/** A message pushed over the monitor WebSocket. Mirrors the Rust `MonitorEvent`,
+/** A message pushed over the app WebSocket. Mirrors the Rust `MonitorEvent`,
  * which is serialized internally tagged by `type`, so each variant is its
  * payload plus a discriminating `type` field. */
-export type MonitorEvent =
+export type AppSocketEvent =
 	| { type: 'version'; buildId: string }
+	| { type: 'sources'; sources: ObsSource[] }
 	| ({ type: 'match' } & LevelMatch)
 	| { type: 'recordingState'; status: RecordingStatus | null }
 	| ({ type: 'recordingSaved' } & RecordingSaved);
 
-/** Handlers for the messages the monitor WebSocket can push. All are optional;
+/** Handlers for the messages the app WebSocket can push. All are optional;
  * provide only the ones you care about. */
-export interface MonitorSocketHandlers {
+export interface AppSocketHandlers {
+	/** The OBS renderable video-source list changed, or was replayed on connect. */
+	onSources?: (sources: ObsSource[]) => void;
 	/** The matched on-screen state changed (also fired once on connect with the
 	 * current match, if a monitor is running). */
 	onMatch?: (match: LevelMatch) => void;
@@ -280,22 +283,30 @@ const reloadIfStale = (backendBuildId: string): void => {
 };
 
 /**
- * Open a WebSocket to the backend that pushes {@link MonitorEvent} messages: a
- * one-off `version` handshake, the latest {@link LevelMatch} whenever the matched
- * state changes (and once on connect), recorder state transitions, and one-off
- * events such as a recording being saved. Dispatches each message to the matching
+ * Open a WebSocket to the backend that pushes {@link AppSocketEvent} messages:
+ * a one-off `version` handshake, the current OBS source list and subsequent
+ * source changes, the latest {@link LevelMatch} whenever the matched state
+ * changes (and once on connect), recorder state transitions, and one-off events
+ * such as a recording being saved. Dispatches each message to the matching
  * handler. Returns the socket so callers can close it.
  */
-export const connectMonitorSocket = (handlers: MonitorSocketHandlers): WebSocket => {
+export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 	const socket = new WebSocket(wsUrl('/api/v1/monitor/ws'));
 	socket.onmessage = (event) => {
-		const msg = JSON.parse(event.data) as MonitorEvent;
+		const msg = JSON.parse(event.data) as AppSocketEvent;
 		switch (msg.type) {
 			case 'version':
 				if (typeof msg.buildId === 'string') {
 					reloadIfStale(msg.buildId);
 				} else {
 					console.warn('Ignoring malformed monitor version event', msg);
+				}
+				break;
+			case 'sources':
+				if (Array.isArray(msg.sources)) {
+					handlers.onSources?.(msg.sources);
+				} else {
+					console.warn('Ignoring malformed sources event', msg);
 				}
 				break;
 			case 'match':
