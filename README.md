@@ -6,8 +6,8 @@ This is a plugin for OBS Studio that assists with Goldeneye N64 speed-running.
 
 Follow the instructions for your operating system:
 
-- [./docs/install-linux.md](Install on Linux)
-- [./docs/install-macos.md](Install on macOS)
+- [Install on Linux](docs/install-linux.md)
+- [Install on macOS](docs/install-macos.md)
 
 ## Development
 
