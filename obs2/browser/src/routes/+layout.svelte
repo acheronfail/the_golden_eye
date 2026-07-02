@@ -3,6 +3,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { settings } from '$lib';
 	import { monitor, monitorHref, monitorPhaseStyle, refreshMonitor } from '$lib/monitor.svelte';
+	import NotificationFlags from '$lib/NotificationFlags.svelte';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -134,4 +135,6 @@
 	<div bind:this={contentScroller} class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
 		{@render children()}
 	</div>
+
+	<NotificationFlags />
 </div>

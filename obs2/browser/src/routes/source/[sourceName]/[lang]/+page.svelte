@@ -21,7 +21,6 @@
 	const style = $derived(monitorPhaseStyle(monitor.recordingState));
 	const currentMatch = $derived(monitor.match);
 	const currentTimes = $derived(monitor.match?.times ?? null);
-	const savedClip = $derived(monitor.lastSaved);
 
 	// Format a level time (whole seconds) as m:ss for the stats overlay readout.
 	const formatTime = (secs: number): string => {
@@ -173,17 +172,6 @@
 		{/if}
 
 		<p class="mt-6 text-sm text-neutral-400">press escape or space to stop monitoring</p>
-
-		{#if savedClip}
-			<!-- The most recent clip saved out of the replay buffer this session. -->
-			<div class="mt-8 max-w-full font-mono text-xs text-neutral-400">
-				<p class="tracking-widest text-emerald-400 uppercase">Saved clip</p>
-				<p class="mt-1 break-all text-neutral-300">{savedClip.path}</p>
-				<p class="mt-1 text-neutral-500">
-					{savedClip.durationSecs.toFixed(1)}s{savedClip.failed ? ' - failed' : ''}
-				</p>
-			</div>
-		{/if}
 	</main>
 {:else}
 	<WizardFrame

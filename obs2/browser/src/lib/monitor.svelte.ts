@@ -7,6 +7,7 @@ import {
 	type RecordingSaved,
 	type RecordingStatus
 } from './api';
+import { addNotificationFlag } from './notifications.svelte';
 
 export interface MonitorPhaseStyle {
 	title: string;
@@ -123,13 +124,11 @@ export const monitor = $state<{
 	loaded: boolean;
 	match: LevelMatch | null;
 	recordingState: RecordingStatus | null;
-	lastSaved: RecordingSaved | null;
 }>({
 	status: null,
 	loaded: false,
 	match: null,
-	recordingState: null,
-	lastSaved: null
+	recordingState: null
 });
 
 let socket: WebSocket | null = null;
@@ -142,7 +141,6 @@ export const monitorHref = (status: MonitorStatus | null = monitor.status): stri
 const clearRunState = () => {
 	monitor.match = null;
 	monitor.recordingState = null;
-	monitor.lastSaved = null;
 };
 
 const applyRecordingState = (status: RecordingStatus | null): void => {
@@ -150,10 +148,15 @@ const applyRecordingState = (status: RecordingStatus | null): void => {
 };
 
 const applyRecordingSaved = (saved: RecordingSaved): void => {
-	monitor.lastSaved = saved;
 	if (monitor.recordingState === 'savePending' || monitor.recordingState === 'statsSkipped') {
 		monitor.recordingState = null;
 	}
+	addNotificationFlag({
+		title: 'Clip saved',
+		detail: saved.path,
+		meta: `${saved.durationSecs.toFixed(1)}s${saved.failed ? ' - failed' : ''}`,
+		tone: saved.failed ? 'warning' : 'success'
+	});
 };
 
 const connectSocket = (): void => {
