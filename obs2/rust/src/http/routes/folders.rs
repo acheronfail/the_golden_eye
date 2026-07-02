@@ -96,55 +96,11 @@ unsafe extern "C" fn pick_folder_task(param: *mut std::ffi::c_void) {
     let task = unsafe { Box::from_raw(param.cast::<FolderPickTask>()) };
     let FolderPickTask { title, start_dir, sender } = *task;
 
-    let previous_focus = platform::capture_previous_focus();
     let mut dialog = rfd::FileDialog::new().set_title(title).set_can_create_directories(true);
     if let Some(start_dir) = start_dir {
         dialog = dialog.set_directory(start_dir);
     }
-    let selected = dialog.pick_folder();
-    platform::restore_previous_focus(previous_focus);
-    let _ = sender.send(selected);
-}
-
-#[cfg(target_os = "macos")]
-mod platform {
-    use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
-
-    pub(super) type PreviousFocus = Option<libc::pid_t>;
-
-    pub(super) fn capture_previous_focus() -> PreviousFocus {
-        let current_pid = NSRunningApplication::currentApplication().processIdentifier();
-        let frontmost = NSWorkspace::sharedWorkspace().frontmostApplication()?;
-        let frontmost_pid = frontmost.processIdentifier();
-
-        if frontmost_pid > 0 && frontmost_pid != current_pid { Some(frontmost_pid) } else { None }
-    }
-
-    pub(super) fn restore_previous_focus(previous_focus: PreviousFocus) {
-        let Some(pid) = previous_focus else {
-            return;
-        };
-        let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid) else {
-            return;
-        };
-        if app.isTerminated() {
-            return;
-        }
-
-        let activated = app.activateWithOptions(NSApplicationActivationOptions(0));
-        if !activated {
-            tracing::debug!(pid, "macOS refused to restore focus after folder picker");
-        }
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-mod platform {
-    pub(super) type PreviousFocus = ();
-
-    pub(super) fn capture_previous_focus() -> PreviousFocus {}
-
-    pub(super) fn restore_previous_focus(_: PreviousFocus) {}
+    let _ = sender.send(dialog.pick_folder());
 }
 
 fn validate_folder_path(raw: &str) -> FolderValidation {
