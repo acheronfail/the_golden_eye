@@ -1,7 +1,7 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
-	import { settings } from '$lib';
+	import { IS_DEV, settings, VERSION } from '$lib';
 	import { monitor, monitorHref, monitorPhaseStyle, refreshMonitor } from '$lib/monitor.svelte';
 	import { startAppSocket, stopAppSocket } from '$lib/appSocket.svelte';
 	import KiaDeathOverlay from '$lib/KiaDeathOverlay.svelte';
@@ -141,10 +141,10 @@
 		{ href: '/', label: 'Monitor' },
 		{ href: '/runs', label: 'Runs' },
 		{ href: '/options', label: 'Options' },
-		...(import.meta.hot ? [{ href: '/developer', label: 'Developer' }] : [])
+		...(IS_DEV ? [{ href: '/developer', label: 'Developer' }] : [])
 	];
 
-	const pluginVersion = import.meta.env.VITE_GE_PLUGIN_VERSION ?? '0.0.0';
+	const pluginVersion = VERSION;
 	const activeMonitorHref = $derived(monitorHref(monitor.status));
 	const activeMonitorStyle = $derived(monitorPhaseStyle(monitor.recordingState));
 </script>
