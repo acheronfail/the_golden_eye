@@ -58,6 +58,18 @@ target_sources(${CORE_NAME} PRIVATE
     core.c
 )
 
+if(NOT GE_OBS_NATIVE_DEPS_FOUND)
+  add_custom_target(require_obs_libraries
+      COMMAND ${CMAKE_COMMAND} -E echo
+              "Native OBS build dependencies are required to build plugin targets."
+      COMMAND ${CMAKE_COMMAND} -E echo
+              "On Linux, use 'just obs', 'just make-package', or build inside the OBS Flatpak SDK."
+      COMMAND ${CMAKE_COMMAND} -E false
+      VERBATIM
+  )
+  add_dependencies(${CORE_NAME} require_obs_libraries)
+endif()
+
 # Emit the core library into the same runtime directory the shim will resolve
 # from when OBS loads it.
 set_target_properties(${CORE_NAME} PROPERTIES
@@ -151,6 +163,10 @@ endif()
 target_sources(${PLUGIN_NAME} PRIVATE
     plugin.c
 )
+
+if(NOT GE_OBS_NATIVE_DEPS_FOUND)
+  add_dependencies(${PLUGIN_NAME} require_obs_libraries)
+endif()
 
 # The hot-reload watcher is dev-only; it isn't compiled into release builds.
 if(BROWSER_DEV)

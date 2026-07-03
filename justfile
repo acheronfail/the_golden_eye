@@ -23,8 +23,18 @@ _default:
     just -l
 
 configure build_type browser_dev build_dir="obs2/build" *cmake_args:
-    mkdir -p "{{ build_dir }}"
-    cd "{{ build_dir }}" && cmake .. \
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build_dir="{{ build_dir }}"
+    source_dir="{{ justfile_directory() }}/obs2"
+    cache="${build_dir}/CMakeCache.txt"
+    if [ -f "${cache}" ] && ! grep -qx "CMAKE_HOME_DIRECTORY:INTERNAL=${source_dir}" "${cache}"; then
+      echo "Removing stale CMake build directory ${build_dir}"
+      rm -rf "${build_dir}"
+    fi
+    mkdir -p "${build_dir}"
+    cd "${build_dir}"
+    cmake "${source_dir}" \
       -DCMAKE_BUILD_TYPE="{{ build_type }}" \
       -DBROWSER_DEV="{{ browser_dev }}" \
       -DGE_PLUGIN_VERSION="{{ plugin_version }}" {{ cmake_args }}
@@ -123,8 +133,12 @@ test-rust *args:
 make: configure-debug
     cmake --build obs2/build
 
+[macos]
 make-release: configure-release
     cmake --build obs2/build
+
+[linux]
+make-release: make-release-flatpak
 
 [macos]
 make-package: configure-release
@@ -207,12 +221,20 @@ _flatpak-build target:
       "${app}" \
       -lc 'set -euo pipefail
         cd "${GE_REPO_ROOT}"
-        mkdir -p obs2/build-flatpak
-        cd obs2/build-flatpak
-        cmake .. \
+        build_dir="obs2/build-flatpak"
+        source_dir="${GE_REPO_ROOT}/obs2"
+        cache="${build_dir}/CMakeCache.txt"
+        if [ -f "${cache}" ] && ! grep -qx "CMAKE_HOME_DIRECTORY:INTERNAL=${source_dir}" "${cache}"; then
+          echo "Removing stale CMake build directory ${build_dir}"
+          rm -rf "${build_dir}"
+        fi
+        mkdir -p "${build_dir}"
+        cd "${build_dir}"
+        cmake "${source_dir}" \
           -DCMAKE_BUILD_TYPE=Release \
           -DBROWSER_DEV=OFF \
           -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
+          -DGE_REQUIRE_OBS_LIBS=ON \
           -DGE_PLUGIN_INSTALL_ROOT:PATH="${XDG_CONFIG_HOME}/obs-studio/plugins" \
           -DGE_SKIP_BROWSER_BUILD="${GE_SKIP_BUILD_INPUTS}" \
           -DGE_SKIP_RUST_BUILD="${GE_SKIP_BUILD_INPUTS}"

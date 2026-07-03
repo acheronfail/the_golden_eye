@@ -13,8 +13,6 @@
 # Exports: GE_OPENCV_LINK (the link line for the core's own link step), and
 # appends the OPENCV_* probe vars to RUST_BUILD_ENV (consumed by the Rust build).
 
-find_package(PkgConfig REQUIRED)
-
 set(GE_OPENCV_STATIC_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/vendor/opencv-static")
 if(NOT EXISTS "${GE_OPENCV_STATIC_PREFIX}/lib/pkgconfig/opencv4.pc")
   message(FATAL_ERROR
@@ -23,9 +21,9 @@ if(NOT EXISTS "${GE_OPENCV_STATIC_PREFIX}/lib/pkgconfig/opencv4.pc")
 endif()
 message(STATUS "Linking static OpenCV from ${GE_OPENCV_STATIC_PREFIX}")
 
-# Put the vendored static install at the front of pkg-config's search path so
-# both CMake (below) and cargo (the opencv-rust build) resolve this opencv4.pc
-# instead of the system one. PKG_CONFIG_PATH is colon-separated.
+# Put the vendored static install at the front of pkg-config's search path.
+# Cargo gets explicit OpenCV paths below, but FFmpeg's Rust bindings still use
+# pkg-config and should see vendored dependencies first.
 set(_ge_static_pc
     "${GE_OPENCV_STATIC_PREFIX}/lib/pkgconfig:${GE_OPENCV_STATIC_PREFIX}/lib64/pkgconfig")
 if(DEFINED ENV{PKG_CONFIG_PATH})
@@ -33,11 +31,6 @@ if(DEFINED ENV{PKG_CONFIG_PATH})
 else()
   set(ENV{PKG_CONFIG_PATH} "${_ge_static_pc}")
 endif()
-
-# Read the *static* link set (Libs + Libs.private) so we pick up OpenCV's
-# bundled third-party archives (libpng, zlib, ...) and the required system
-# libs, in the correct link order. The plugin links these raw flags directly.
-pkg_check_modules(OPENCV REQUIRED opencv4)
 
 # opencv-rust's own pkg-config probe doesn't pass `--static`, so it would miss
 # the bundled third-party archives and fail to link test_match. Hand it the
@@ -73,7 +66,13 @@ else()
   list(APPEND _ge_cv_libs_list dl m pthread rt)
 endif()
 
-string(REPLACE ";" "," _ge_cv_include "${OPENCV_INCLUDE_DIRS}")
+set(_ge_cv_include "${GE_OPENCV_STATIC_PREFIX}/include/opencv4")
+if(NOT EXISTS "${_ge_cv_include}/opencv2/core/version.hpp")
+  message(FATAL_ERROR
+          "Vendored OpenCV headers not found at ${_ge_cv_include}.\n"
+          "Rebuild them with:  just opencv-static")
+endif()
+
 set(_ge_cv_libpaths
       "${GE_OPENCV_STATIC_PREFIX}/lib,${GE_OPENCV_STATIC_PREFIX}/lib/opencv4/3rdparty")
 string(REPLACE ";" "," _ge_cv_libs "${_ge_cv_libs_list}")
@@ -83,18 +82,25 @@ list(APPEND RUST_BUILD_ENV
       "OPENCV_LINK_LIBS=${_ge_cv_libs}"
       "OPENCV_DISABLE_PROBES=pkg_config,cmake,vcpkg_cmake,vcpkg")
 
-# The full static link line (-L.../-l...) for the plugin's own link step.
-# OPENCV_STATIC_LDFLAGS is a CMake list (semicolon-separated). pkg_check_modules
-# splits "-framework AppKit" into two items: "-framework" and "AppKit". When
-# passed to the linker the bare "AppKit" token becomes "-lAppKit", which fails.
-# Remove both items; the framework is added explicitly via find_library() below.
-set(GE_OPENCV_LINK ${OPENCV_STATIC_LDFLAGS})
-list(REMOVE_ITEM GE_OPENCV_LINK "-framework" "AppKit")
+# The full static link line (-L.../-l...) for the plugin's own link step. Build
+# it from the current prefix instead of pkg-config metadata because opencv4.pc
+# records an absolute install prefix and breaks when vendor/opencv-static is
+# copied from another checkout.
+set(GE_OPENCV_LINK
+    "${GE_OPENCV_STATIC_PREFIX}/lib/libopencv_imgcodecs.a"
+    "${GE_OPENCV_STATIC_PREFIX}/lib/libopencv_imgproc.a"
+    "${GE_OPENCV_STATIC_PREFIX}/lib/libopencv_core.a"
+    ${_ge_cv_3rdparty}
+)
+if(APPLE)
+  list(APPEND GE_OPENCV_LINK -lm -lpthread)
+else()
+  list(APPEND GE_OPENCV_LINK -lva -lva-drm -ldl -lm -lpthread -lrt)
+endif()
+
 # OpenCV's static build always compiles opengl.cpp into opencv_core and records
 # -lGL/-lGLU as link-time dependencies (even with -D WITH_OPENGL=OFF). Our code
 # doesn't reference any GL/GLU symbols, so strip them to avoid a hard runtime
 # dependency — libGLU.so.1 is absent in the OBS Flatpak sandbox and causes a
 # dlopen failure at plugin load time.
 list(REMOVE_ITEM GE_OPENCV_LINK "-lGL" "-lGLU")
-
-list(FILTER GE_OPENCV_LINK EXCLUDE REGEX "^-l.+\.framework$")
