@@ -1,0 +1,158 @@
+name: Build packages
+
+on:
+  workflow_call:
+    inputs:
+      fetch-depth:
+        description: Git checkout depth. Release builds need tags, so they pass 0.
+        required: false
+        type: number
+        default: 1
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux checks and package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.fetch-depth }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            obs2/browser/package-lock.json
+            test/package-lock.json
+
+      - name: Cache static dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            obs2/vendor/archives
+            obs2/vendor/obs
+            obs2/vendor/opencv-static
+            obs2/vendor/ffmpeg-static
+          key: ${{ runner.os }}-static-deps-${{ hashFiles('justfile') }}
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/rust-toolchain.toml') }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang-format \
+            cmake \
+            flatpak \
+            just \
+            libobs-dev \
+            nasm \
+            pkg-config \
+            wget
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub com.obsproject.Studio
+          sudo flatpak install -y flathub "$(flatpak info --show-sdk com.obsproject.Studio)"
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install 1.96.0 --profile minimal
+          rustup toolchain install nightly --profile minimal --component rustfmt
+
+      - name: Set up repository
+        run: just setup
+
+      - name: Check formatting
+        run: |
+          just fmt
+          git diff --exit-code
+
+      - name: Run frame regression tests
+        run: just test
+
+      - name: Run Rust tests
+        run: just test-rust
+
+      - name: Build Linux package
+        run: just make-package
+
+      - name: Upload Linux package
+        uses: actions/upload-artifact@v4
+        with:
+          name: the-golden-eye-linux
+          path: obs2/build-flatpak/dist/*.zip
+          if-no-files-found: error
+
+  macos:
+    name: macOS package
+    runs-on: macos-latest
+    needs: linux
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.fetch-depth }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            obs2/browser/package-lock.json
+            test/package-lock.json
+
+      - name: Cache static dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            obs2/vendor/archives
+            obs2/vendor/obs
+            obs2/vendor/opencv-static
+            obs2/vendor/ffmpeg-static
+          key: ${{ runner.os }}-static-deps-${{ hashFiles('justfile') }}
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/rust-toolchain.toml') }}
+
+      - name: Install system dependencies
+        run: |
+          brew install cmake just nasm simde clang-format
+          brew list --cask obs >/dev/null 2>&1 || brew install --cask obs
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install 1.96.0 --profile minimal
+          rustup toolchain install nightly --profile minimal --component rustfmt
+
+      - name: Set up repository
+        run: just setup
+
+      - name: Build macOS package
+        run: just make-package
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v4
+        with:
+          name: the-golden-eye-macos
+          path: obs2/build/dist/*.zip
+          if-no-files-found: error

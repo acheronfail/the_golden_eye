@@ -6,7 +6,17 @@ set tempdir := "/tmp"
 
 obs_headers := justfile_directory() / "obs2/vendor/obs"
 source_archive_cache := justfile_directory() / "obs2/vendor/archives"
-plugin_version := "0.1.0"
+git_plugin_version := `
+  tag="$(git describe --tags --exact-match --match 'v*' 2>/dev/null || true)"
+
+  if printf '%s\n' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+    printf '%s' "${tag#v}"
+  else
+    sha="$(git rev-parse --short HEAD 2>/dev/null || printf unknown)"
+    printf '0.0.0-dev+%s' "$sha"
+  fi
+`
+plugin_version := env_var_or_default("GE_PLUGIN_VERSION", git_plugin_version)
 obsapi_version := "32.1.2"
 opencv_version := "4.11.0"
 ffmpeg_version := "8.0"
