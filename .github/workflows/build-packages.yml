@@ -24,7 +24,7 @@ jobs:
           fetch-depth: ${{ inputs.fetch-depth }}
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -33,7 +33,7 @@ jobs:
             test/package-lock.json
 
       - name: Cache static dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             obs2/vendor/archives
@@ -43,7 +43,7 @@ jobs:
           key: ${{ runner.os }}-static-deps-${{ hashFiles('justfile') }}
 
       - name: Cache cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/git
@@ -108,7 +108,7 @@ jobs:
           fetch-depth: ${{ inputs.fetch-depth }}
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -117,7 +117,7 @@ jobs:
             test/package-lock.json
 
       - name: Cache static dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             obs2/vendor/archives
@@ -127,7 +127,7 @@ jobs:
           key: ${{ runner.os }}-static-deps-${{ hashFiles('justfile') }}
 
       - name: Cache cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/git

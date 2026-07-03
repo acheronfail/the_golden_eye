@@ -32,7 +32,7 @@ export FFMPEG_PREFIX := justfile_directory() / "obs2/vendor/ffmpeg-static"
 _default:
     just -l
 
-configure build_type browser_dev build_dir="obs2/build" *cmake_args:
+configure build_type browser_dev build_dir *cmake_args:
     #!/usr/bin/env bash
     set -euo pipefail
     build_dir="{{ build_dir }}"
