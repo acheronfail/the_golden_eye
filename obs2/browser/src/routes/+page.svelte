@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { screenshotUrl } from '../lib/api';
-	import { replayBuffer } from '$lib/replayBuffer.svelte';
+	import { refreshReplayBuffer, replayBuffer } from '$lib/replayBuffer.svelte';
 	import { obsSources } from '$lib/sources.svelte';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
 	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
@@ -33,8 +33,15 @@
 	});
 
 	onMount(() => {
+		let replayRefreshInFlight = false;
 		const timer = window.setInterval(() => {
 			previewTick += 1;
+			if (!replayRefreshInFlight) {
+				replayRefreshInFlight = true;
+				refreshReplayBuffer().finally(() => {
+					replayRefreshInFlight = false;
+				});
+			}
 		}, 2000);
 
 		return () => {
