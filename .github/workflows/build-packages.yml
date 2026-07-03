@@ -59,7 +59,9 @@ jobs:
             cmake \
             flatpak \
             just \
+            libdbus-1-dev \
             libobs-dev \
+            libssl-dev \
             libwayland-dev \
             nasm \
             pkg-config \
