@@ -8,3 +8,4 @@
     - Upload: look at `git show fae188a:scripts/upload.ts` for inspiration
 - Core: should we dump errors or the log somewhere from the thin plugin? or show some kind of alert?
 - BG: when folders don't exist for clip saving, we need to create them
+- BG: when OBS config has errors, there's no way to "reload" - can we catch a config update from OBS?
