@@ -357,6 +357,7 @@ opencv-static:
       -D CMAKE_POSITION_INDEPENDENT_CODE=ON \
       -D OPENCV_GENERATE_PKGCONFIG=ON \
       -D OPENCV_FORCE_3RDPARTY_BUILD=ON \
+      -D PNG_PNG_INCLUDE_DIR="${src}/3rdparty/libpng" \
       -D BUILD_ZLIB=ON \
       -D BUILD_PNG=ON \
       -D BUILD_JPEG=ON \

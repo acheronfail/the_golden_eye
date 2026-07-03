@@ -96,3 +96,5 @@ list(REMOVE_ITEM GE_OPENCV_LINK "-framework" "AppKit")
 # dependency — libGLU.so.1 is absent in the OBS Flatpak sandbox and causes a
 # dlopen failure at plugin load time.
 list(REMOVE_ITEM GE_OPENCV_LINK "-lGL" "-lGLU")
+
+list(FILTER GE_OPENCV_LINK EXCLUDE REGEX "^-l.+\.framework$")
