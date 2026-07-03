@@ -16,6 +16,7 @@ if(NOT EXISTS "${VENDOR_LIBOBS_DIR}/obs-module.h")
 endif()
 
 option(GE_LINUX_NATIVE_OBS_BUILD "Configure native Linux OBS plugin targets against the local OBS SDK" OFF)
+set(GE_WINDOWS_OBS_ROOT "" CACHE PATH "Windows OBS Studio install root (defaults to Program Files/obs-studio)")
 
 set(GE_OBS_NATIVE_DEPS_FOUND TRUE)
 set(GE_OBS_NATIVE_DEPS_ERRORS "")
@@ -32,6 +33,37 @@ configure_file(
     "${VENDOR_LIBOBS_DIR}/obsconfig.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/obsconfig.h"
 )
+
+function(ge_make_windows_import_lib target_name dll_path out_lib)
+  find_program(GE_DUMPBIN_EXECUTABLE dumpbin.exe)
+  find_program(GE_LIB_EXECUTABLE lib.exe)
+  if(NOT GE_DUMPBIN_EXECUTABLE OR NOT GE_LIB_EXECUTABLE)
+    message(FATAL_ERROR
+            "dumpbin.exe and lib.exe are required to generate OBS import libraries. "
+            "Run CMake from a Visual Studio Developer shell or initialize MSVC first.")
+  endif()
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(_machine "x64")
+  else()
+    set(_machine "x86")
+  endif()
+
+  set(_def_file "${CMAKE_CURRENT_BINARY_DIR}/${target_name}.def")
+  execute_process(
+      COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+              -File "${CMAKE_CURRENT_SOURCE_DIR}/cmake/make-import-lib.ps1"
+              -DllPath "${dll_path}"
+              -DefPath "${_def_file}"
+              -LibPath "${out_lib}"
+              -Machine "${_machine}"
+              -Dumpbin "${GE_DUMPBIN_EXECUTABLE}"
+              -Lib "${GE_LIB_EXECUTABLE}"
+      RESULT_VARIABLE _import_result
+  )
+  if(NOT _import_result EQUAL 0)
+    message(FATAL_ERROR "Failed to generate import library for ${dll_path}")
+  endif()
+endfunction()
 
 if(UNIX AND NOT APPLE AND NOT GE_LINUX_NATIVE_OBS_BUILD)
   # Linux artifacts target the OBS Flatpak SDK. The host build tree is used for
@@ -54,9 +86,11 @@ else()
     set(GE_OBS_NATIVE_DEPS_FOUND FALSE)
     list(APPEND GE_OBS_NATIVE_DEPS_ERRORS "simde headers")
     set(GE_SIMDE_INCLUDE_DIR "")
-    if(GE_LINUX_NATIVE_OBS_BUILD)
+    if(GE_LINUX_NATIVE_OBS_BUILD OR WIN32)
       if(UNIX AND NOT APPLE)
         set(_GE_SIMDE_HINT "Install simde or configure/build inside the OBS Flatpak SDK.")
+      elseif(WIN32)
+        set(_GE_SIMDE_HINT "Install simde with vcpkg or pass -DGE_SIMDE_INCLUDE_DIR=...")
       else()
         set(_GE_SIMDE_HINT "Install simde.")
       endif()
@@ -72,6 +106,47 @@ else()
     # the build host.
     set(GE_OBS_DYNAMIC_LOOKUP TRUE)
     message(STATUS "Using macOS dynamic lookup for OBS symbols")
+  elseif(WIN32)
+    if(NOT GE_WINDOWS_OBS_ROOT)
+      if(DEFINED ENV{ProgramFiles})
+        file(TO_CMAKE_PATH "$ENV{ProgramFiles}" _GE_PROGRAM_FILES)
+      else()
+        set(_GE_PROGRAM_FILES "C:/Program Files")
+      endif()
+      set(GE_WINDOWS_OBS_ROOT "${_GE_PROGRAM_FILES}/obs-studio" CACHE PATH "Windows OBS Studio install root" FORCE)
+    endif()
+
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+      set(_GE_WINDOWS_OBS_ARCH_DIR "64bit")
+    else()
+      set(_GE_WINDOWS_OBS_ARCH_DIR "32bit")
+    endif()
+
+    find_file(GE_WINDOWS_OBS_DLL
+        NAMES obs.dll
+        HINTS "${GE_WINDOWS_OBS_ROOT}/bin/${_GE_WINDOWS_OBS_ARCH_DIR}"
+        NO_DEFAULT_PATH
+    )
+    find_file(GE_WINDOWS_OBS_FRONTEND_DLL
+        NAMES obs-frontend-api.dll
+        HINTS "${GE_WINDOWS_OBS_ROOT}/bin/${_GE_WINDOWS_OBS_ARCH_DIR}"
+        NO_DEFAULT_PATH
+    )
+
+    if(NOT GE_WINDOWS_OBS_DLL OR NOT GE_WINDOWS_OBS_FRONTEND_DLL)
+      set(GE_OBS_NATIVE_DEPS_FOUND FALSE)
+      list(APPEND GE_OBS_NATIVE_DEPS_ERRORS "OBS runtime DLLs under ${GE_WINDOWS_OBS_ROOT}/bin/${_GE_WINDOWS_OBS_ARCH_DIR}")
+      message(FATAL_ERROR
+              "Could not find obs.dll and obs-frontend-api.dll. Install OBS Studio or pass "
+              "-DGE_WINDOWS_OBS_ROOT=... pointing at the OBS install root.")
+    endif()
+
+    set(_GE_OBS_IMPORT_LIB "${CMAKE_CURRENT_BINARY_DIR}/obs.lib")
+    set(_GE_OBS_FRONTEND_IMPORT_LIB "${CMAKE_CURRENT_BINARY_DIR}/obs-frontend-api.lib")
+    ge_make_windows_import_lib(obs "${GE_WINDOWS_OBS_DLL}" "${_GE_OBS_IMPORT_LIB}")
+    ge_make_windows_import_lib(obs-frontend-api "${GE_WINDOWS_OBS_FRONTEND_DLL}" "${_GE_OBS_FRONTEND_IMPORT_LIB}")
+    set(OBS_LIBRARIES "${_GE_OBS_IMPORT_LIB}")
+    set(OBS_FRONTEND_LIBRARIES "${_GE_OBS_FRONTEND_IMPORT_LIB}")
   else()
     find_package(PkgConfig REQUIRED)
 

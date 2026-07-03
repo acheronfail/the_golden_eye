@@ -24,7 +24,11 @@ endif()
 
 set(GE_BROWSER_DEV_URL "http://localhost:${BROWSER_DEV_PORT}")
 
-set(RUST_LIB "${RUST_DIR}/target/${RUST_PROFILE}/libge_rust.a")
+if(WIN32)
+  set(RUST_LIB "${RUST_DIR}/target/${RUST_PROFILE}/ge_rust.lib")
+else()
+  set(RUST_LIB "${RUST_DIR}/target/${RUST_PROFILE}/libge_rust.a")
+endif()
 
 # https://github.com/twistedfall/opencv-rust/blob/master/INSTALL.md#macos-package
 if(APPLE)

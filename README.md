@@ -8,6 +8,7 @@ Follow the instructions for your operating system:
 
 - [Install on Linux](docs/install-linux.md)
 - [Install on macOS](docs/install-macos.md)
+- [Install on Windows](docs/install-windows.md)
 
 ## Development
 
@@ -21,6 +22,11 @@ System dependencies:
 * macOS:
     * `xcode-select --install`
     * `brew install just cmake wget simde nasm`
+* Windows:
+    * OBS Studio
+    * Visual Studio Build Tools with MSVC
+    * `vcpkg`, with `VCPKG_ROOT` or `VCPKG_INSTALLATION_ROOT` set
+    * `just`, `cmake`, and Git Bash
 
 Get started:
 

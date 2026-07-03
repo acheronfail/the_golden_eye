@@ -81,6 +81,9 @@ unsafe extern "C" {
     /// Configured directory OBS writes replay-buffer files into. Returns false
     /// when OBS cannot provide one or `buffer` is too small.
     pub fn ge_obs_replay_buffer_output_directory(buffer: *mut c_char, buffer_size: usize) -> bool;
+    /// Resolves a file/directory from this plugin's OBS data path. Returns
+    /// false when OBS cannot provide one or `buffer` is too small.
+    pub fn ge_obs_module_file(file: *const c_char, buffer: *mut c_char, buffer_size: usize) -> bool;
     pub fn ge_obs_collect_source_names(buffer: *mut c_char, buffer_size: usize);
     /// Renders the named source to a freshly `malloc`'d BGRA pixel buffer
     /// (`width * height * 4` bytes) and writes its dimensions to the out

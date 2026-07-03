@@ -69,6 +69,16 @@ macro_rules! dbg_cv {
     };
 }
 
+static TEMPLATE_DIR: OnceLock<String> = OnceLock::new();
+
+pub(crate) fn set_template_dir(path: String) {
+    let _ = TEMPLATE_DIR.set(path);
+}
+
+pub fn template_dir() -> Option<String> {
+    std::env::var("GE_CV_TEMPLATE_DIR").ok().or_else(|| TEMPLATE_DIR.get().cloned())
+}
+
 // Correlation needed to accept a mission/part/difficulty label match.
 const LABEL_THRESHOLD: f64 = 0.70;
 

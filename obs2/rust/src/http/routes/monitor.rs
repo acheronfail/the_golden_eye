@@ -312,11 +312,11 @@ pub struct MonitorSession {
 }
 
 impl MonitorSession {
-    /// Builds a session with the given language, reading `GE_CV_TEMPLATE_DIR`
-    /// from the environment (as the rest of the plugin does).
+    /// Builds a session with the given language, using the bundled CV templates
+    /// directory resolved at plugin startup.
     pub fn from_env(lang: &str) -> anyhow::Result<Self> {
         let template_dir =
-            std::env::var("GE_CV_TEMPLATE_DIR").map_err(|_| anyhow::anyhow!("GE_CV_TEMPLATE_DIR is not set"))?;
+            crate::cv::template_dir().ok_or_else(|| anyhow::anyhow!("CV template directory is not set"))?;
         Self::new(lang, &template_dir)
     }
 

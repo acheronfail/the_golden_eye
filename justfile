@@ -143,6 +143,23 @@ make-release: configure-release
 [linux]
 make-release: make-release-flatpak
 
+[windows]
+configure-release-windows:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    vcpkg_root="${VCPKG_ROOT:-${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}}"
+    if command -v cygpath >/dev/null 2>&1; then
+      vcpkg_root="$(cygpath -m "${vcpkg_root}")"
+    fi
+    export VCPKGRS_TRIPLET="${VCPKGRS_TRIPLET:-x64-windows-static-md}"
+    just configure Release OFF obs2/build \
+      -DCMAKE_TOOLCHAIN_FILE="${vcpkg_root}/scripts/buildsystems/vcpkg.cmake" \
+      -DVCPKG_TARGET_TRIPLET="${VCPKGRS_TRIPLET}"
+
+[windows]
+make-release: configure-release-windows
+    cmake --build obs2/build --config Release
+
 [macos]
 make-package: configure-release
     cmake --build obs2/build --target package-plugin
@@ -151,6 +168,10 @@ make-package: configure-release
 make-package: make-release-flatpak
     just _flatpak-build package-plugin
 
+[windows]
+make-package: configure-release-windows
+    cmake --build obs2/build --config Release --target package-plugin
+
 [macos]
 install: configure-release
     cmake --build obs2/build --target install-plugin
@@ -158,6 +179,10 @@ install: configure-release
 [linux]
 install: make-release-flatpak
     just _flatpak-build install-plugin
+
+[windows]
+install: configure-release-windows
+    cmake --build obs2/build --config Release --target install-plugin
 
 make-install: install
 
@@ -168,6 +193,10 @@ uninstall: configure-release
 [linux]
 uninstall:
     just _flatpak-build uninstall-plugin
+
+[windows]
+uninstall: configure-release-windows
+    cmake --build obs2/build --config Release --target uninstall-plugin
 
 # builds the project and runs obs
 [macos]
@@ -186,6 +215,16 @@ obs: make-release-flatpak
       --env=OBS_PLUGINS_PATH="$(pwd)" \
       --env=OBS_PLUGINS_DATA_PATH="$(pwd)" \
       com.obsproject.Studio
+
+[windows]
+obs: make-release
+    #!/usr/bin/env bash
+    set -euo pipefail
+    obs="${OBS_EXE:-C:/Program Files/obs-studio/bin/64bit/obs64.exe}"
+    if command -v cygpath >/dev/null 2>&1; then
+      obs="$(cygpath -u "${obs}")"
+    fi
+    OBS_PLUGINS_PATH="$(pwd)/obs2/build/Release" OBS_PLUGINS_DATA_PATH="$(pwd)/obs2/build" "${obs}"
 
 [linux]
 make-release-flatpak:
@@ -263,7 +302,24 @@ opencv-static:
 ffmpeg-static:
     "{{ justfile_directory() }}/obs2/scripts/ffmpeg-static.sh"
 
+[windows]
+windows-vcpkg-deps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    vcpkg_root="${VCPKG_ROOT:-${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}}"
+    if command -v cygpath >/dev/null 2>&1; then
+      vcpkg_root="$(cygpath -u "${vcpkg_root}")"
+    fi
+    vcpkg="${vcpkg_root}/vcpkg"
+    [ -x "${vcpkg}.exe" ] && vcpkg="${vcpkg}.exe"
+    "${vcpkg}" install --triplet x64-windows-static-md opencv4 ffmpeg llvm simde
+
 # setup the repository for local development
+[windows]
+setup: obs-headers windows-vcpkg-deps
+    cd obs2/browser && npm install
+    cd test && npm install
+
 setup: obs-headers opencv-static ffmpeg-static vscode-settings
     cd obs2/browser && npm install
     cd test && npm install

@@ -30,3 +30,5 @@ If it doesn't appear, open the `Docks` menu item and make sure that `The Golden 
 ## Uninstalling the plugin
 
 To uninstall the plugin, simply delete the `the_golden_eye` folder from your OBS Studio plugins directory. This is usually at `$HOME/.var/app/com.obsproject.Studio/config/obs-studio/plugins/`, and then restart OBS Studio.
+
+Open `Docks` -> `Custom Browser Docks` and remove the entry for `The Golden Eye` if it is still present.

@@ -16,6 +16,31 @@
 # ffmpeg-sys-next build resolves these .pc files (and links statically — the
 # crate's `static` feature is enabled in Cargo.toml).
 
+if(WIN32)
+  find_package(unofficial-ffmpeg CONFIG REQUIRED)
+  message(STATUS "Linking FFmpeg from vcpkg/CMake package")
+
+  if(DEFINED VCPKG_TARGET_TRIPLET)
+    set(_ge_vcpkg_triplet "${VCPKG_TARGET_TRIPLET}")
+  elseif(DEFINED ENV{VCPKGRS_TRIPLET})
+    set(_ge_vcpkg_triplet "$ENV{VCPKGRS_TRIPLET}")
+  else()
+    set(_ge_vcpkg_triplet "x64-windows-static-md")
+  endif()
+
+  # vcpkg's FFmpeg port exports CMake targets under this namespace. The
+  # "unofficial" prefix is vcpkg's naming, not a fork of FFmpeg.
+  set(GE_FFMPEG_LINK
+      unofficial::ffmpeg::avformat
+      unofficial::ffmpeg::avcodec
+      unofficial::ffmpeg::swscale
+      unofficial::ffmpeg::swresample
+      unofficial::ffmpeg::avutil
+  )
+  list(APPEND RUST_BUILD_ENV "VCPKGRS_TRIPLET=${_ge_vcpkg_triplet}")
+  return()
+endif()
+
 find_package(PkgConfig REQUIRED)
 
 set(GE_FFMPEG_STATIC_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/vendor/ffmpeg-static")

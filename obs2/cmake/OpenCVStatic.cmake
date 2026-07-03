@@ -13,6 +13,26 @@
 # Exports: GE_OPENCV_LINK (the link line for the core's own link step), and
 # appends the OPENCV_* probe vars to RUST_BUILD_ENV (consumed by the Rust build).
 
+if(WIN32)
+  find_package(OpenCV CONFIG REQUIRED)
+  message(STATUS "Linking OpenCV from vcpkg/CMake package: ${OpenCV_VERSION}")
+
+  if(DEFINED VCPKG_TARGET_TRIPLET)
+    set(_ge_vcpkg_triplet "${VCPKG_TARGET_TRIPLET}")
+  elseif(DEFINED ENV{VCPKGRS_TRIPLET})
+    set(_ge_vcpkg_triplet "$ENV{VCPKGRS_TRIPLET}")
+  else()
+    set(_ge_vcpkg_triplet "x64-windows-static-md")
+  endif()
+
+  set(GE_OPENCV_LINK ${OpenCV_LIBS})
+  list(APPEND RUST_BUILD_ENV
+        "OPENCV_MSVC_CRT=dynamic"
+        "OPENCV_DISABLE_PROBES=environment,pkg_config,cmake"
+        "VCPKGRS_TRIPLET=${_ge_vcpkg_triplet}")
+  return()
+endif()
+
 set(GE_OPENCV_STATIC_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/vendor/opencv-static")
 if(NOT EXISTS "${GE_OPENCV_STATIC_PREFIX}/lib/pkgconfig/opencv4.pc")
   message(FATAL_ERROR

@@ -7,6 +7,7 @@
 
 #include "ge_rust.h"
 
+#include <ctype.h>
 #include <obs/frontend/obs-frontend-api.h>
 #include <obs/libobs/callback/signal.h>
 #include <obs/libobs/obs-data.h>
@@ -15,9 +16,33 @@
 #include <obs/libobs/util/bmem.h>
 #include <string.h>
 
+void ge_obs_set_module(obs_module_t *module);
+
 // Make the entry points visible to dlsym even if the library is built with
 // -fvisibility=hidden.
+#ifdef _WIN32
+#define GE_EXPORT __declspec(dllexport)
+#else
 #define GE_EXPORT __attribute__((visibility("default")))
+#endif
+
+static bool ge_ascii_contains_case(const char *haystack, const char *needle) {
+  if (!haystack || !needle || !*needle) {
+    return false;
+  }
+
+  size_t needle_len = strlen(needle);
+  for (const char *p = haystack; *p; p++) {
+    size_t i = 0;
+    while (i < needle_len && p[i] && tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i])) {
+      i++;
+    }
+    if (i == needle_len) {
+      return true;
+    }
+  }
+  return false;
+}
 
 static void ge_on_source_changed(void *private_data, calldata_t *calldata) {
   (void)private_data;
@@ -62,7 +87,7 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
       obs_data_t *settings = obs_service_get_settings(service);
       if (settings) {
         const char *service_name = obs_data_get_string(settings, "service");
-        if (service_name && strcasestr(service_name, "youtube") != NULL) {
+        if (ge_ascii_contains_case(service_name, "youtube")) {
           const char *settings_json = obs_data_get_json_pretty(settings);
           ge_stream_notifier_start(settings_json ? settings_json : "{}");
         }
@@ -96,7 +121,8 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
 // Called by the shim once this library has been dlopen'd. Mirrors what the old
 // monolithic `obs_module_load` did. Returns false on failure so the shim can
 // log a useful error and refuse to come up.
-GE_EXPORT bool ge_core_load(void) {
+GE_EXPORT bool ge_core_load(obs_module_t *module) {
+  ge_obs_set_module(module);
   ge_rust_start();
   ge_connect_source_signals();
   ge_sources_changed();

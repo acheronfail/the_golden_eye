@@ -9,7 +9,7 @@ mod settings;
 mod stream_notifier;
 mod timer;
 
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -22,6 +22,25 @@ use tracing_subscriber::EnvFilter;
 use crate::settings::SettingsStore;
 
 pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
+
+fn configure_cv_template_dir() {
+    if std::env::var_os("GE_CV_TEMPLATE_DIR").is_some() {
+        tracing::debug!("using GE_CV_TEMPLATE_DIR override for CV templates");
+        return;
+    }
+
+    let file = CString::new("cv_templates").expect("static string contains no nul");
+    let mut buffer = vec![0 as c_char; 4096];
+    let ok = unsafe { ffi::ge_obs_module_file(file.as_ptr(), buffer.as_mut_ptr(), buffer.len()) };
+    if !ok {
+        tracing::warn!("OBS did not resolve the bundled CV templates directory");
+        return;
+    }
+
+    let template_dir = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().into_owned();
+    tracing::debug!(template_dir, "resolved bundled CV templates directory");
+    cv::set_template_dir(template_dir);
+}
 
 /// Ensures the OBS custom browser dock is registered after OBS has completed
 /// module loading.
@@ -63,6 +82,8 @@ pub extern "C" fn ge_rust_start() {
 
         subscriber.init();
     }
+
+    configure_cv_template_dir();
 
     let settings = SettingsStore::load_default();
 

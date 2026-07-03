@@ -16,6 +16,10 @@ struct ge_source_names_ctx {
   size_t current_pos;
 };
 
+static obs_module_t *g_module = NULL;
+
+void ge_obs_set_module(obs_module_t *module) { g_module = module; }
+
 static bool ge_collect_source_names_callback(void *data, obs_source_t *source) {
   struct ge_source_names_ctx *ctx = (struct ge_source_names_ctx *)data;
 
@@ -122,6 +126,20 @@ static bool ge_copy_string_to_buffer(const char *value, char *buffer, size_t buf
 
   int written = snprintf(buffer, buffer_size, "%s", value);
   return written >= 0 && (size_t)written < buffer_size;
+}
+
+bool ge_obs_module_file(const char *file, char *buffer, size_t buffer_size) {
+  if (!file || !buffer || buffer_size == 0) {
+    return false;
+  }
+  buffer[0] = '\0';
+
+  char *path = obs_find_module_file(g_module, file);
+  bool ok = ge_copy_string_to_buffer(path, buffer, buffer_size);
+  if (path) {
+    bfree(path);
+  }
+  return ok;
 }
 
 bool ge_obs_replay_buffer_output_directory(char *buffer, size_t buffer_size) {

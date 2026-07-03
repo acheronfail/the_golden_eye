@@ -34,13 +34,11 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
         CString::new(params.source).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
     let mut timer = PhaseTimer::new();
-    let matcher = match std::env::var("GE_CV_TEMPLATE_DIR") {
-        Ok(template_dir) => crate::cv::CvMatcher::new(&params.lang, &template_dir).unwrap(),
-        Err(_) => {
-            tracing::error!("Please set GE_CV_TEMPLATE_DIR in the environment");
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, "GE_CV_TEMPLATE_DIR is not set").into());
-        }
+    let Some(template_dir) = crate::cv::template_dir() else {
+        tracing::error!("CV template directory is not set");
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, "CV template directory is not set").into());
     };
+    let matcher = crate::cv::CvMatcher::new(&params.lang, &template_dir).unwrap();
     timer.lap("matcher init");
 
     // Render the source into a BGRA buffer owned by the C side.

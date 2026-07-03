@@ -22,11 +22,13 @@ set(CORE_NAME golden_core)
 if(APPLE)
   set(GE_PLUGIN_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PLUGIN_NAME}.plugin/Contents/MacOS")
   set(GE_BUNDLED_TEMPLATE_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PLUGIN_NAME}.plugin/Contents/Resources/cv_templates")
-  set(GE_BUNDLED_TEMPLATE_DIR_REL "../Resources/cv_templates")
 else()
   set(GE_PLUGIN_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}")
   set(GE_BUNDLED_TEMPLATE_DIR "${CMAKE_CURRENT_BINARY_DIR}/cv_templates")
-  set(GE_BUNDLED_TEMPLATE_DIR_REL "cv_templates")
+endif()
+
+if(WIN32 AND BROWSER_DEV)
+  message(FATAL_ERROR "BROWSER_DEV hot reload is not supported on Windows yet; configure with -DBROWSER_DEV=OFF.")
 endif()
 
 file(GLOB GE_CV_TEMPLATE_FILES CONFIGURE_DEPENDS
@@ -124,6 +126,14 @@ if(APPLE)
         # The opencv-rust shim also links iconv on macOS.
         iconv
     )
+elseif(WIN32)
+  target_link_libraries(${CORE_NAME} PRIVATE
+      bcrypt
+      ole32
+      secur32
+      user32
+      ws2_32
+  )
 else()
   # On Linux, the C++ shim from opencv-rust needs libstdc++.
   target_link_libraries(${CORE_NAME} PRIVATE stdc++)
@@ -132,10 +142,6 @@ else()
   # can pull in transitive shared libs (libva, libva-drm, …) that aren't
   # present in constrained environments like the OBS Flatpak sandbox.
   target_link_options(${CORE_NAME} PRIVATE "LINKER:--as-needed")
-endif()
-
-if(WIN32)
-  target_link_libraries(${CORE_NAME} PRIVATE ws2_32)
 endif()
 
 #
@@ -153,6 +159,7 @@ else()
 endif()
 
 target_sources(${PLUGIN_NAME} PRIVATE
+    dynlib.c
     plugin.c
 )
 
@@ -189,9 +196,8 @@ endif()
 # plugin path at runtime, so the built plugin can be copied out of this repo.
 target_compile_definitions(${PLUGIN_NAME} PRIVATE
     GE_CORE_LIB_NAME="$<TARGET_FILE_NAME:${CORE_NAME}>"
-    GE_BUNDLED_TEMPLATE_DIR_REL="${GE_BUNDLED_TEMPLATE_DIR_REL}"
     # In dev mode the shim copies + hot-reloads the core library on rebuild.
-    $<$<BOOL:${BROWSER_DEV}>:GE_DEV>
+    $<$<AND:$<BOOL:${BROWSER_DEV}>,$<NOT:$<BOOL:${WIN32}>>>:GE_DEV>
 )
 
 # Build the core library and bundled templates whenever the plugin is built.

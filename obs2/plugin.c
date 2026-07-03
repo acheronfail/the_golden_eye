@@ -4,16 +4,18 @@
 //
 // Splitting plugin/core this way means link errors surface here as a catchable,
 // logged dlopen failure, and — in dev builds — the core can be reloaded without
-// restarting OBS (see dev_reload.c). The core library and CV templates are
-// resolved relative to this loaded shim, with environment overrides for devs.
+// restarting OBS (see dev_reload.c). The core library is resolved relative to
+// this loaded shim, with an environment override for devs.
 
+#ifndef _WIN32
 #define _GNU_SOURCE
+#endif
+
+#include "dynlib.h"
 
 #include <obs/libobs/obs-module.h>
 #include <obs/libobs/util/base.h>
-#include <obs/libobs/util/bmem.h>
 
-#include <dlfcn.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdbool.h>
@@ -21,7 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef GE_DEV
+#if defined(GE_DEV) && !defined(_WIN32)
 #include "dev_reload.h"
 #include <unistd.h>
 #endif
@@ -38,15 +40,11 @@ OBS_DECLARE_MODULE()
 #error "GE_CORE_LIB_NAME must be defined by the build"
 #endif
 
-#ifndef GE_BUNDLED_TEMPLATE_DIR_REL
-#error "GE_BUNDLED_TEMPLATE_DIR_REL must be defined by the build"
-#endif
-
-typedef bool (*ge_core_load_fn)(void);
+typedef bool (*ge_core_load_fn)(obs_module_t *module);
 typedef void (*ge_core_post_load_fn)(void);
 typedef void (*ge_core_unload_fn)(void);
 
-static void *g_handle = NULL;
+static ge_dynlib_handle g_handle = NULL;
 static ge_core_post_load_fn g_post_load = NULL;
 static ge_core_unload_fn g_unload = NULL;
 
@@ -60,6 +58,12 @@ static bool copy_path(char *out, size_t out_size, const char *path) {
 
 static bool copy_dirname(const char *path, char *out, size_t out_size) {
   const char *slash = strrchr(path, '/');
+#ifdef _WIN32
+  const char *backslash = strrchr(path, '\\');
+  if (!slash || (backslash && backslash > slash)) {
+    slash = backslash;
+  }
+#endif
   if (!slash) {
     if (snprintf(out, out_size, ".") >= (int)out_size) {
       GE_LOG(LOG_ERROR, "module directory path too long");
@@ -83,12 +87,11 @@ static bool copy_dirname(const char *path, char *out, size_t out_size) {
 }
 
 static bool module_path(char *out, size_t out_size) {
-  Dl_info info;
-  if (dladdr((void *)&module_path, &info) == 0 || !info.dli_fname || !*info.dli_fname) {
+  if (!ge_module_path(out, out_size)) {
     GE_LOG(LOG_ERROR, "failed to resolve plugin module path");
     return false;
   }
-  return copy_path(out, out_size, info.dli_fname);
+  return true;
 }
 
 static bool module_dir(char *out, size_t out_size) {
@@ -101,7 +104,9 @@ static bool module_dir(char *out, size_t out_size) {
 
 static bool join_path(char *out, size_t out_size, const char *dir, const char *leaf) {
   size_t dir_len = strlen(dir);
-  const char *sep = dir_len > 0 && dir[dir_len - 1] == '/' ? "" : "/";
+  bool has_sep = dir_len > 0 && (dir[dir_len - 1] == '/' || dir[dir_len - 1] == '\\');
+  char sep_buf[2] = {GE_PATH_SEP, '\0'};
+  const char *sep = has_sep ? "" : sep_buf;
   if (snprintf(out, out_size, "%s%s%s", dir, sep, leaf) >= (int)out_size) {
     GE_LOG(LOG_ERROR, "path too long");
     return false;
@@ -163,43 +168,7 @@ static bool ge_check_duplicate_obs_module(void) {
   return false;
 }
 
-static bool configure_template_dir_from_obs(void) {
-  char *template_dir = obs_module_file("cv_templates");
-  if (!template_dir) {
-    return false;
-  }
-
-  int rc = setenv("GE_CV_TEMPLATE_DIR", template_dir, 1);
-  if (rc != 0) {
-    GE_LOG(LOG_WARNING, "failed to set GE_CV_TEMPLATE_DIR: %s", strerror(errno));
-  }
-
-  bfree(template_dir);
-  return rc == 0;
-}
-
-static void configure_template_dir(void) {
-  const char *existing = getenv("GE_CV_TEMPLATE_DIR");
-  if (existing && *existing) {
-    return;
-  }
-
-  if (configure_template_dir_from_obs()) {
-    return;
-  }
-
-  char template_dir[PATH_MAX];
-  if (!bundled_path(GE_BUNDLED_TEMPLATE_DIR_REL, template_dir, sizeof(template_dir))) {
-    GE_LOG(LOG_WARNING, "could not resolve bundled CV templates directory");
-    return;
-  }
-
-  if (setenv("GE_CV_TEMPLATE_DIR", template_dir, 1) != 0) {
-    GE_LOG(LOG_WARNING, "failed to set GE_CV_TEMPLATE_DIR: %s", strerror(errno));
-  }
-}
-
-#ifdef GE_DEV
+#if defined(GE_DEV) && !defined(_WIN32)
 // In dev we dlopen a throwaway copy of the core: the loader caches images by
 // path, so reopening the same path after dlclose can hand back the stale image
 // instead of the freshly rebuilt one. This is the copy currently open.
@@ -253,13 +222,11 @@ static void remove_core_copy(void) {
     g_copy_path[0] = '\0';
   }
 }
-#endif /* GE_DEV */
+#endif /* defined(GE_DEV) && !defined(_WIN32) */
 
 // dlopen the core library and run its ge_core_load(). Returns false (with a
 // logged reason) on any failure.
 static bool core_open(void) {
-  configure_template_dir();
-
   char bundled_core[PATH_MAX];
   const char *path = getenv("GE_CORE_LIB");
   if (!path || !*path) {
@@ -269,34 +236,33 @@ static bool core_open(void) {
     path = bundled_core;
   }
 
-#ifdef GE_DEV
+#if defined(GE_DEV) && !defined(_WIN32)
   path = stage_core_copy(path);
   if (!path) {
     return false;
   }
 #endif
 
-  // RTLD_NOW resolves all symbols up front, so missing/mismatched symbols fail
+  // Resolve all symbols up front on POSIX, so missing/mismatched symbols fail
   // here (where we can log them) rather than at first call.
-  dlerror();
-  void *handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+  ge_dynlib_handle handle = ge_dynlib_open(path);
   if (!handle) {
-    GE_LOG(LOG_ERROR, "failed to dlopen core: %s", dlerror());
-#ifdef GE_DEV
+    GE_LOG(LOG_ERROR, "failed to load core '%s': %s", path, ge_dynlib_error());
+#if defined(GE_DEV) && !defined(_WIN32)
     remove_core_copy();
 #endif
     return false;
   }
 
-  ge_core_load_fn load = (ge_core_load_fn)dlsym(handle, "ge_core_load");
-  g_post_load = (ge_core_post_load_fn)dlsym(handle, "ge_core_post_load");
-  g_unload = (ge_core_unload_fn)dlsym(handle, "ge_core_unload");
-  if (!load || !g_post_load || !g_unload || !load()) {
+  ge_core_load_fn load = (ge_core_load_fn)ge_dynlib_symbol(handle, "ge_core_load");
+  g_post_load = (ge_core_post_load_fn)ge_dynlib_symbol(handle, "ge_core_post_load");
+  g_unload = (ge_core_unload_fn)ge_dynlib_symbol(handle, "ge_core_unload");
+  if (!load || !g_post_load || !g_unload || !load(obs_current_module())) {
     GE_LOG(LOG_ERROR, "core entry points missing or ge_core_load() failed");
-    dlclose(handle);
+    ge_dynlib_close(handle);
     g_post_load = NULL;
     g_unload = NULL;
-#ifdef GE_DEV
+#if defined(GE_DEV) && !defined(_WIN32)
     remove_core_copy();
 #endif
     return false;
@@ -312,17 +278,17 @@ static void core_close(void) {
     g_unload();
   }
   if (g_handle) {
-    dlclose(g_handle);
+    ge_dynlib_close(g_handle);
   }
   g_handle = NULL;
   g_post_load = NULL;
   g_unload = NULL;
-#ifdef GE_DEV
+#if defined(GE_DEV) && !defined(_WIN32)
   remove_core_copy();
 #endif
 }
 
-#ifdef GE_DEV
+#if defined(GE_DEV) && !defined(_WIN32)
 static void core_reload(void) {
   core_close();
   if (!core_open()) {
@@ -340,7 +306,7 @@ bool obs_module_load(void) {
     GE_LOG(LOG_ERROR, "core failed to load; plugin disabled");
     return false;
   }
-#ifdef GE_DEV
+#if defined(GE_DEV) && !defined(_WIN32)
   ge_dev_reload_start(core_reload);
 #endif
   return true;
@@ -353,7 +319,7 @@ void obs_module_post_load(void) {
 }
 
 void obs_module_unload(void) {
-#ifdef GE_DEV
+#if defined(GE_DEV) && !defined(_WIN32)
   ge_dev_reload_stop();
 #endif
   core_close();
