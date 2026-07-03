@@ -6,7 +6,7 @@ Have OBS installed in `/Applications`.
 
 ## Installing the plugin
 
-Download the latest release from the [releases page](https://github.com/acheronfail/ge-obs/releases) and extract it and copy the `The Golden Eye.plugin` file into your OBS plugins directory.
+Download the latest release from the [releases page](https://github.com/acheronfail/the_golden_eye/releases) and extract it and copy the `The Golden Eye.plugin` file into your OBS plugins directory.
 
 On macOS, this is found at `$HOME/Library/Application Support/obs-studio/plugins/`:
 

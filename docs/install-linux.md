@@ -18,7 +18,7 @@ flatpak run --socket=x11 --nosocket=wayland --nosocket=fallback-x11 com.obsproje
 
 ## Installing the plugin
 
-Download the latest release from the [releases page](https://github.com/acheronfail/ge-obs/releases) and extract it and copy the `the_golden_eye` folder to your OBS Studio plugins directory.
+Download the latest release from the [releases page](https://github.com/acheronfail/the_golden_eye/releases) and extract it and copy the `the_golden_eye` folder to your OBS Studio plugins directory.
 
 For the flatpak installation, this is usually: `$HOME/.var/app/com.obsproject.Studio/config/obs-studio/plugins/`
 
