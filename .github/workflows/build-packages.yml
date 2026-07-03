@@ -83,6 +83,9 @@ jobs:
           just fmt
           git diff --exit-code
 
+      - name: Build Release
+        run: just make-release
+
       - name: Run frame regression tests
         run: just test
 
