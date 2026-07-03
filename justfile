@@ -22,6 +22,26 @@ export FFMPEG_PREFIX := justfile_directory() / "obs2/vendor/ffmpeg-static"
 _default:
     just -l
 
+configure build_type browser_dev build_dir="obs2/build" *cmake_args:
+    mkdir -p "{{ build_dir }}"
+    cd "{{ build_dir }}" && cmake .. \
+      -DCMAKE_BUILD_TYPE="{{ build_type }}" \
+      -DBROWSER_DEV="{{ browser_dev }}" \
+      -DGE_PLUGIN_VERSION="{{ plugin_version }}" {{ cmake_args }}
+
+configure-debug:
+    just configure Debug OFF obs2/build
+
+configure-dev:
+    just configure Debug ON obs2/build
+
+configure-release:
+    just configure Release OFF obs2/build
+
+vscode-settings: configure-release
+    mkdir -p .vscode
+    cp obs2/build/vscode-settings.json .vscode/settings.json
+
 # runs the project in dev mode (hot reloads for the UI and the plugin)
 #
 # The plugin is split into a thin shim (loaded by OBS) and a "core" library
@@ -36,18 +56,16 @@ dev:
     # FIFO the rebuild loop pings to tell the plugin shim to hot-reload the core.
     # Shared with the shim (dev_reload.c) via this env var.
     export GE_RELOAD_FIFO="${TMPDIR:-/tmp}/ge_the_golden_eye.reload"
-    mkdir -p obs2/build
-    cd obs2/build
-    cmake .. -DCMAKE_BUILD_TYPE=Debug -DBROWSER_DEV=ON -DGE_PLUGIN_VERSION="{{ plugin_version }}"
-    make
-    build_dir="$(pwd)"
+    just configure-dev
+    cmake --build obs2/build
+    build_dir="${root}/obs2/build"
 
     dev_pids=""
     cleanup() { [ -n "$dev_pids" ] && kill $dev_pids 2>/dev/null || true; }
     trap cleanup EXIT
 
     # Vite dev server: hot reload for the SvelteKit SPA.
-    ( cd ../browser && npm run dev ) &
+    ( cd "$root/obs2/browser" && npm run dev ) &
     dev_pids="$dev_pids $!"
 
     # Rebuild the core library when the Rust sources change, then ping the shim
@@ -61,7 +79,7 @@ dev:
         if [ -n "$(find "$root/obs2/rust/src" "$root/obs2/rust/Cargo.toml" -newer "$stamp" 2>/dev/null)" ]; then
           touch "$stamp"
           echo "[dev] rust change detected — rebuilding core…"
-          if make golden_core; then
+          if cmake --build . --target golden_core; then
             [ -p "$GE_RELOAD_FIFO" ] && ( printf '\n' > "$GE_RELOAD_FIFO" ) &
           else
             echo "[dev] core build failed; fix and save again"
@@ -94,55 +112,31 @@ test-rust *args:
       exit 1
     fi
 
-    # The /usr/bin/env shebang strips DYLD_* (macOS SIP), so re-export it here for
-    # opencv's build script (it needs libclang via this path). A dedicated target
-    # dir keeps cargo's system-opencv build from thrashing against the CMake
-    # build's static-opencv artifacts in target/release.
-    export DYLD_FALLBACK_LIBRARY_PATH="{{ DYLD_FALLBACK_LIBRARY_PATH }}"
+    build_dir="{{ justfile_directory() }}/obs2/build"
+    just configure-release
+    source "$build_dir/rust-cargo-env.sh"
+
+    # Keep cargo test artifacts separate from the plugin build artifacts.
     export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
-    # ffmpeg-next is built with the `static` feature, so point pkg-config at the
-    # vendored static FFmpeg (built by `just ffmpeg-static`) just like the CMake
-    # build does — otherwise ffmpeg-sys-next falls back to a system FFmpeg.
-    export PKG_CONFIG_PATH="{{ FFMPEG_PREFIX }}/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     cd "{{ justfile_directory() }}/obs2/rust" && cargo test --release {{ args }}
 
-make:
-    mkdir -p obs2/build
-    cd obs2/build && cmake .. \
-      -DCMAKE_BUILD_TYPE=Debug \
-      -DBROWSER_DEV=OFF \
-      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
-    && make
+make: configure-debug
+    cmake --build obs2/build
 
-make-release:
-    mkdir -p obs2/build
-    cd obs2/build && cmake .. \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBROWSER_DEV=OFF \
-      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
-    && make
+make-release: configure-release
+    cmake --build obs2/build
 
 [macos]
-make-package:
-    mkdir -p obs2/build
-    cd obs2/build && cmake .. \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBROWSER_DEV=OFF \
-      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
-    && cmake --build . --target package-plugin
+make-package: configure-release
+    cmake --build obs2/build --target package-plugin
 
 [linux]
 make-package: make-release-flatpak
     just _flatpak-build package-plugin
 
 [macos]
-install:
-    mkdir -p obs2/build
-    cd obs2/build && cmake .. \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBROWSER_DEV=OFF \
-      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
-    && cmake --build . --target install-plugin
+install: configure-release
+    cmake --build obs2/build --target install-plugin
 
 [linux]
 install: make-release-flatpak
@@ -151,13 +145,8 @@ install: make-release-flatpak
 make-install: install
 
 [macos]
-uninstall:
-    mkdir -p obs2/build
-    cd obs2/build && cmake .. \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBROWSER_DEV=OFF \
-      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
-    && cmake --build . --target uninstall-plugin
+uninstall: configure-release
+    cmake --build obs2/build --target uninstall-plugin
 
 [linux]
 uninstall:
@@ -183,12 +172,8 @@ obs: make-release-flatpak
 
 [linux]
 make-release-flatpak:
-    mkdir -p obs2/build
-    cd obs2/build && cmake .. \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBROWSER_DEV=OFF \
-      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
-    && cmake --build . --target rust_build
+    just configure-release
+    cmake --build obs2/build --target rust_build
     just _flatpak-build all
 
 [linux]
@@ -472,7 +457,7 @@ ffmpeg-static:
     echo "Now run 'just make' / 'just obs' — CMake auto-detects the static prefix."
 
 # setup the repository for local development
-setup: obs-headers opencv-static ffmpeg-static
+setup: obs-headers opencv-static ffmpeg-static vscode-settings
     cd obs2/browser && npm install
     cd test && npm install
 

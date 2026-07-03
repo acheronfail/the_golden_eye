@@ -1,8 +1,0 @@
-{
-  "rust-analyzer.linkedProjects": ["${workspaceFolder}/obs2/rust/Cargo.toml"],
-  // We set these in the justfile, but also set them here for rust-analyzer.
-  "rust-analyzer.cargo.extraEnv": {
-    "BROWSER_BUNDLE": "../../../../browser/build/index.html",
-    "DYLD_FALLBACK_LIBRARY_PATH": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib"
-  }
-}

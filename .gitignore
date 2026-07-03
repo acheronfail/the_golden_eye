@@ -3,6 +3,7 @@ screenshots/
 goldeneye.json
 .env
 .DS_Store
+.vscode/settings.json
 build/
 .cache
 obs2/vendor/archives/
