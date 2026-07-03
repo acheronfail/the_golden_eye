@@ -77,18 +77,6 @@ set_target_properties(${CORE_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${GE_PLUGIN_RUNTIME_DIR}"
 )
 
-if(APPLE)
-  # The core links libobs / obs-frontend-api by their @rpath install names. When
-  # OBS loaded the old monolithic plugin directly, dyld resolved those via OBS's
-  # own executable rpaths. The core is now dlopen'd one level removed (by the
-  # shim), so give it an explicit rpath to OBS's Frameworks dir to guarantee
-  # resolution regardless of dyld's load-chain rpath behaviour.
-  set_target_properties(${CORE_NAME} PROPERTIES
-        BUILD_RPATH "${OBS_FW_DIR}"
-        INSTALL_RPATH "${OBS_FW_DIR}"
-    )
-endif()
-
 target_include_directories(${CORE_NAME} PRIVATE
     # Root `vendor/` dir
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
@@ -109,6 +97,10 @@ target_link_libraries(${CORE_NAME} PRIVATE
     # ffmpeg-next crate (libav*, libsw*). Also listed after rust_libs.
     ${GE_FFMPEG_LINK}
 )
+
+if(APPLE AND GE_OBS_DYNAMIC_LOOKUP)
+  target_link_options(${CORE_NAME} PRIVATE "LINKER:-undefined,dynamic_lookup")
+endif()
 
 if(APPLE)
   # Rust's stdlib (embedded in the staticlib) references these system
@@ -188,6 +180,10 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
     ${CMAKE_DL_LIBS}
     Threads::Threads
 )
+
+if(APPLE AND GE_OBS_DYNAMIC_LOOKUP)
+  target_link_options(${PLUGIN_NAME} PRIVATE "LINKER:-undefined,dynamic_lookup")
+endif()
 
 # Bake in only relative bundle names. The shim resolves them from the loaded
 # plugin path at runtime, so the built plugin can be copied out of this repo.

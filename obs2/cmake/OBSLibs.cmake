@@ -15,14 +15,11 @@ if(NOT EXISTS "${VENDOR_LIBOBS_DIR}/obs-module.h")
   message(FATAL_ERROR "Vendored OBS headers not found. Run 'just obs-headers' first.")
 endif()
 
-if(UNIX AND NOT APPLE)
-  option(GE_REQUIRE_OBS_LIBS "Require native OBS build dependencies during configure" OFF)
-else()
-  option(GE_REQUIRE_OBS_LIBS "Require native OBS build dependencies during configure" ON)
-endif()
+option(GE_LINUX_NATIVE_OBS_BUILD "Configure native Linux OBS plugin targets against the local OBS SDK" OFF)
 
 set(GE_OBS_NATIVE_DEPS_FOUND TRUE)
 set(GE_OBS_NATIVE_DEPS_ERRORS "")
+set(GE_OBS_DYNAMIC_LOOKUP FALSE)
 set(OBS_LIBRARIES "")
 set(OBS_FRONTEND_LIBRARIES "")
 
@@ -36,7 +33,7 @@ configure_file(
     "${CMAKE_CURRENT_BINARY_DIR}/obsconfig.h"
 )
 
-if(UNIX AND NOT APPLE AND NOT GE_REQUIRE_OBS_LIBS)
+if(UNIX AND NOT APPLE AND NOT GE_LINUX_NATIVE_OBS_BUILD)
   # Linux artifacts target the OBS Flatpak SDK. The host build tree is used for
   # frontend/Rust inputs only, so do not probe or link against an arbitrary host
   # OBS installation even if one happens to be present.
@@ -57,7 +54,7 @@ else()
     set(GE_OBS_NATIVE_DEPS_FOUND FALSE)
     list(APPEND GE_OBS_NATIVE_DEPS_ERRORS "simde headers")
     set(GE_SIMDE_INCLUDE_DIR "")
-    if(GE_REQUIRE_OBS_LIBS)
+    if(GE_LINUX_NATIVE_OBS_BUILD)
       if(UNIX AND NOT APPLE)
         set(_GE_SIMDE_HINT "Install simde or configure/build inside the OBS Flatpak SDK.")
       else()
@@ -69,16 +66,12 @@ else()
   endif()
 
   if(APPLE)
-    set(OBS_FW_DIR "/Applications/OBS.app/Contents/Frameworks")
-    set(OBS_LIBRARY "${OBS_FW_DIR}/libobs.framework/libobs")
-    set(OBS_FRONTEND_LIBRARY "${OBS_FW_DIR}/obs-frontend-api.dylib")
-    foreach(_lib OBS_LIBRARY OBS_FRONTEND_LIBRARY)
-      if(NOT EXISTS "${${_lib}}")
-        message(FATAL_ERROR "Could not find OBS library: ${${_lib}}")
-      endif()
-    endforeach()
-    set(OBS_LIBRARIES ${OBS_LIBRARY})
-    set(OBS_FRONTEND_LIBRARIES ${OBS_FRONTEND_LIBRARY})
+    # macOS OBS plugins are loaded into the OBS process, so unresolved OBS
+    # symbols can be resolved by dyld at load time. This lets CI build
+    # distributable bundles from vendored OBS headers without installing OBS on
+    # the build host.
+    set(GE_OBS_DYNAMIC_LOOKUP TRUE)
+    message(STATUS "Using macOS dynamic lookup for OBS symbols")
   else()
     find_package(PkgConfig REQUIRED)
 
@@ -103,7 +96,7 @@ else()
           set(GE_OBS_NATIVE_DEPS_FOUND FALSE)
           list(APPEND GE_OBS_NATIVE_DEPS_ERRORS "OBS frontend API library")
           set(OBS_FRONTEND_LIBRARIES "")
-          if(GE_REQUIRE_OBS_LIBS)
+          if(GE_LINUX_NATIVE_OBS_BUILD)
             message(FATAL_ERROR
                     "Could not find OBS frontend API library. Install OBS development files "
                     "or configure/build inside the OBS Flatpak SDK.")
@@ -115,7 +108,7 @@ else()
       list(APPEND GE_OBS_NATIVE_DEPS_ERRORS "libobs pkg-config module")
       set(OBS_LIBRARIES "")
       set(OBS_FRONTEND_LIBRARIES "")
-      if(GE_REQUIRE_OBS_LIBS)
+      if(GE_LINUX_NATIVE_OBS_BUILD)
         message(FATAL_ERROR
                 "Could not find libobs via pkg-config. Install OBS development files "
                 "or configure/build inside the OBS Flatpak SDK.")
@@ -123,7 +116,7 @@ else()
     endif()
   endif()
 
-  if(GE_REQUIRE_OBS_LIBS AND NOT GE_OBS_NATIVE_DEPS_FOUND)
+  if(GE_LINUX_NATIVE_OBS_BUILD AND NOT GE_OBS_NATIVE_DEPS_FOUND)
     string(REPLACE ";" ", " GE_OBS_NATIVE_DEPS_ERROR_TEXT "${GE_OBS_NATIVE_DEPS_ERRORS}")
     message(WARNING
             "Some native OBS build dependencies were not found "

@@ -207,10 +207,6 @@ _flatpak-build target:
     root="{{ justfile_directory() }}"
     app="com.obsproject.Studio"
     sdk_ref="$(flatpak info --show-sdk "${app}")"
-    skip_build_inputs="ON"
-    if [ "{{ target }}" = "uninstall-plugin" ]; then
-      skip_build_inputs="OFF"
-    fi
 
     if ! flatpak info "${sdk_ref}" >/dev/null 2>&1; then
       echo "Flatpak SDK ${sdk_ref} is not installed." >&2
@@ -224,7 +220,7 @@ _flatpak-build target:
       --filesystem=/tmp \
       --env=GE_REPO_ROOT="${root}" \
       --env=BROWSER_BUNDLE="${root}/obs2/browser/build/index.html" \
-      --env=GE_SKIP_BUILD_INPUTS="${skip_build_inputs}" \
+      --env=GE_REUSE_HOST_BUILD_INPUTS="ON" \
       --env=PKG_CONFIG_PATH="/app/lib/pkgconfig:/app/lib/x86_64-linux-gnu/pkgconfig:/app/share/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig" \
       --env=LD_LIBRARY_PATH="/app/lib" \
       --command=bash \
@@ -244,10 +240,9 @@ _flatpak-build target:
           -DCMAKE_BUILD_TYPE=Release \
           -DBROWSER_DEV=OFF \
           -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
-          -DGE_REQUIRE_OBS_LIBS=ON \
+          -DGE_LINUX_NATIVE_OBS_BUILD=ON \
           -DGE_PLUGIN_INSTALL_ROOT:PATH="${XDG_CONFIG_HOME}/obs-studio/plugins" \
-          -DGE_SKIP_BROWSER_BUILD="${GE_SKIP_BUILD_INPUTS}" \
-          -DGE_SKIP_RUST_BUILD="${GE_SKIP_BUILD_INPUTS}"
+          -DGE_REUSE_HOST_BUILD_INPUTS="${GE_REUSE_HOST_BUILD_INPUTS}"
         if [ "{{ target }}" = "all" ]; then
           cmake --build .
         else
@@ -494,12 +489,16 @@ setup: obs-headers opencv-static ffmpeg-static vscode-settings
     cd test && npm install
 
 clean:
-    rm -rf "{{ obs_headers }}"
     rm -rf "node_modules"
     rm -rf "obs2/browser/node_modules"
     rm -rf "test/node_modules"
     rm -rf "obs2/ge_rust.h"
     rm -rf "obs2/build"
     rm -rf "esp32-input-monitor/.pio"
-    @echo "Keeping static OpenCV/FFmpeg prefixes and cached source archives."
+    @echo "Keeping static OBS/OpenCV/FFmpeg prefixes and cached source archives."
     cd "obs2/rust" && cargo clean
+
+clean_all: clean
+    rm -rf "obs2/vendor/obs"
+    rm -rf "obs2/vendor/opencv-static"
+    rm -rf "obs2/vendor/ffmpeg-static"

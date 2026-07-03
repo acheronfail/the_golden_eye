@@ -143,7 +143,6 @@ jobs:
       - name: Install system dependencies
         run: |
           brew install cmake just nasm simde clang-format
-          brew list --cask obs >/dev/null 2>&1 || brew install --cask obs
 
       - name: Set up Rust
         run: |

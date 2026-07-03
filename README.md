@@ -21,7 +21,6 @@ System dependencies:
 * macOS:
     * `xcode-select --install`
     * `brew install just cmake wget simde nasm`
-    * Have OBS installed in `/Applications`
 
 Get started:
 
@@ -29,13 +28,9 @@ Get started:
 # run once after cloning this repository to install dependencies and set up the environment:
 just setup
 
-# build and run OBS with the native plugin:
+# build and run OBS with the native plugin
+# (on linux this builds inside the OBS Flatpak SDK and runs the Flatpak OBS):
 just obs
-
-# for linux, it's recommended to use the flatpak version of OBS (this is the recommended
-# install method from the OBS developers, but it also includes the embedded browser which
-# this plugin needs for its UI to work inside of OBS):
-just obs-flatpak
 
 # development mode with browser hot reload and plugin core hot reload:
 just dev

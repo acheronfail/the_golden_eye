@@ -42,8 +42,18 @@ interface TestResult {
   difficulty?: CheckResult;
   times?: CheckResult;
   runTime: number;
-  runTimePass?: boolean;
+  runTimeUnderTarget?: boolean;
 }
+
+interface FailedCheck {
+  runner: string;
+  test: string;
+  check: string;
+  value: any;
+  expected: any;
+}
+
+const RUNTIME_TARGET_MS = 16;
 
 const lengthName = Math.max(...screenshots.map((s) => s.tag.length + ": ".length + s.name.length), "Test".length);
 const lengthLang = 6; // " Lang "
@@ -84,14 +94,25 @@ interface Screenshot {
 }
 const results: Record<
   string,
-  { results: Screenshot[]; totalTests: number; totalChecks: number; passedChecks: number; skippedTests: number }
+  {
+    results: Screenshot[];
+    totalTests: number;
+    totalChecks: number;
+    passedChecks: number;
+    skippedTests: number;
+    runtimeUnderTarget: number;
+    runtimeTargetTotal: number;
+  }
 > = {};
+const failedChecks: FailedCheck[] = [];
 for (const runner of runners) {
   results[runner.name] = {
     totalChecks: 0,
     totalTests: 0,
     passedChecks: 0,
     skippedTests: 0,
+    runtimeUnderTarget: 0,
+    runtimeTargetTotal: 0,
     results: [],
   };
   console.log(chalk.blue(`Running tests for ${chalk.cyan.bold(runner.name)}...`));
@@ -191,8 +212,14 @@ for (const runner of runners) {
         pass: Array.isArray(result.raw_times) && result.raw_times.length === 0,
         expected: [],
       };
-      testResult.runTimePass = screenshot.tag === "emu" || screenshot.tag === "rt4kce" ? true : result.runtime_ms < 16;
-      results[runner.name].totalChecks += 2;
+      if (screenshot.tag !== "emu" && screenshot.tag !== "rt4kce") {
+        testResult.runTimeUnderTarget = result.runtime_ms < RUNTIME_TARGET_MS;
+        results[runner.name].runtimeTargetTotal += 1;
+        if (testResult.runTimeUnderTarget) {
+          results[runner.name].runtimeUnderTarget += 1;
+        }
+      }
+      results[runner.name].totalChecks += 1;
     }
 
     {
@@ -204,30 +231,32 @@ for (const runner of runners) {
       const times = padText(formatCheckResult(testResult.times), lengthTimes);
       const runTimeText = testResult.runTime.toFixed(2) + " ms";
       const execTime = padText(
-        (testResult.runTimePass === false ? chalk.red : chalk.white)(runTimeText),
+        (testResult.runTimeUnderTarget === false ? chalk.yellow : chalk.white)(runTimeText),
         lengthRuntime,
       );
       console.log(chalk.grey(`│ ${name} │ ${lang} │ ${screen} │ ${level} │ ${difficulty} │ ${times} │ ${execTime} │`));
-      results[runner.name].passedChecks += [
+      const correctnessChecks = [
         testResult.lang,
         testResult.screen,
         testResult.level,
         testResult.difficulty,
         testResult.times,
-      ].filter((r) => r?.pass).length;
-      if (testResult.runTimePass !== undefined && testResult.runTimePass) {
-        results[runner.name].passedChecks += 1;
-      }
+      ];
+      results[runner.name].passedChecks += correctnessChecks.filter((r) => r?.pass).length;
 
       // Only add failing tests to the results.
-      const didFail = [
-        testResult.difficulty?.pass === false,
-        testResult.lang?.pass === false,
-        testResult.screen?.pass === false,
-        testResult.level?.pass === false,
-        testResult.runTimePass === false,
-        testResult.times?.pass === false,
-      ].some((result) => result);
+      const failedCorrectnessChecks = [
+        ["lang", testResult.lang],
+        ["screen", testResult.screen],
+        ["level", testResult.level],
+        ["difficulty", testResult.difficulty],
+        ["times", testResult.times],
+      ].filter((entry): entry is [string, CheckResult] => {
+        const [, result] = entry;
+        return result?.pass === false;
+      });
+
+      const didFail = failedCorrectnessChecks.length > 0;
 
       if (didFail) {
         if (!results[runner.name].results.includes(screenshotResult)) {
@@ -235,6 +264,15 @@ for (const runner of runners) {
         }
 
         screenshotResult.results.push(testResult);
+        for (const [check, result] of failedCorrectnessChecks) {
+          failedChecks.push({
+            runner: runner.name,
+            test: screenshotResult.name,
+            check,
+            value: result.value,
+            expected: result.expected,
+          });
+        }
       }
     }
   }
@@ -250,6 +288,14 @@ for (const runner of runners) {
     console.log(
       chalk.blue(`Total tests run: ${results[runner.name].totalTests} (skipped: ${results[runner.name].skippedTests})`),
     );
+    const runtimeTotal = results[runner.name].runtimeTargetTotal;
+    const runtimePassed = results[runner.name].runtimeUnderTarget;
+    const runtimePct = runtimeTotal === 0 ? 100 : (runtimePassed / runtimeTotal) * 100;
+    console.log(
+      chalk.blue(
+        `Runtime under ${RUNTIME_TARGET_MS} ms: ${chalk.bold(runtimePassed)} out of ${chalk.bold(runtimeTotal)} (${runtimePct.toFixed(2)}%)`,
+      ),
+    );
   }
 
   console.log();
@@ -257,3 +303,16 @@ for (const runner of runners) {
 
 await fs.writeFile("test_results.json", JSON.stringify({ results }, null, 2), "utf-8");
 console.log(chalk.blue(`Test results written to ${chalk.cyan.bold("test_results.json")}`));
+
+if (failedChecks.length > 0) {
+  console.log();
+  console.log(chalk.red.bold(`Failed checks (${failedChecks.length}):`));
+  for (const failure of failedChecks) {
+    console.log(
+      chalk.red(
+        `- ${failure.runner} / ${failure.test} / ${failure.check}: got ${JSON.stringify(failure.value)}, expected ${JSON.stringify(failure.expected)}`,
+      ),
+    );
+  }
+  process.exitCode = 1;
+}

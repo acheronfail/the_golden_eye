@@ -29,8 +29,8 @@ The runtime is a layered stack glued together by CMake:
 
 The CMake build (`obs2/CMakeLists.txt`) wires these dependencies as a strict chain:
 
-- `browser_build` runs `npm run build` in `obs2/browser/`, producing the HTML bundle at `$BROWSER_BUNDLE` (normally `obs2/browser/build/index.html`). `GE_SKIP_BROWSER_BUILD=ON` reuses an existing bundle and fails if it is missing.
-- `rust_build` depends on `browser_build`. `cargo build --all-targets` runs with `BROWSER_BUNDLE`, `GE_PLUGIN_VERSION`, and `GE_BROWSER_DEV_URL` set; the Rust crate embeds the bundle via `include_str!`. `build.rs` also runs `cbindgen` and writes `obs2/ge_rust.h` (used by `core.c`). `GE_SKIP_RUST_BUILD=ON` reuses an existing staticlib/header and fails if either is missing.
+- `browser_build` runs `npm run build` in `obs2/browser/`, producing the HTML bundle at `$BROWSER_BUNDLE` (normally `obs2/browser/build/index.html`). `GE_REUSE_HOST_BUILD_INPUTS=ON` reuses an existing bundle and validates it when `browser_build` runs.
+- `rust_build` depends on `browser_build`. `cargo build --all-targets` runs with `BROWSER_BUNDLE`, `GE_PLUGIN_VERSION`, and `GE_BROWSER_DEV_URL` set; the Rust crate embeds the bundle via `include_str!`. `build.rs` also runs `cbindgen` and writes `obs2/ge_rust.h` (used by `core.c`). `GE_REUSE_HOST_BUILD_INPUTS=ON` reuses the existing staticlib/header and validates them when `rust_build` runs.
 - The plugin target depends on `rust_libs` (an `IMPORTED STATIC` library pointing at `target/{debug,release}/libge_rust.a`).
 
 A failed frontend build stops the chain before cargo runs. Do not bypass this dependency chain.
