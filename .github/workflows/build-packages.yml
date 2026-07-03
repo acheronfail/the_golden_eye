@@ -40,7 +40,7 @@ jobs:
             obs2/vendor/obs
             obs2/vendor/opencv-static
             obs2/vendor/ffmpeg-static
-          key: ${{ runner.os }}-static-deps-${{ hashFiles('justfile') }}
+          key: ${{ runner.os }}-static-deps-${{ hashFiles('obs2/scripts/obs-headers.sh', 'obs2/scripts/opencv-static.sh', 'obs2/scripts/ffmpeg-static.sh') }}
 
       - name: Cache cargo dependencies
         uses: actions/cache@v6
@@ -48,7 +48,11 @@ jobs:
           path: |
             ~/.cargo/git
             ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/rust-toolchain.toml') }}
+            obs2/rust/target/**/release/.fingerprint
+            obs2/rust/target/**/release/build
+            obs2/rust/target/**/release/deps
+            obs2/rust/target/**/release/incremental
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/Cargo.toml', 'obs2/rust/build.rs', 'obs2/rust/rust-toolchain.toml') }}
 
       - name: Install system dependencies
         run: |
@@ -130,7 +134,7 @@ jobs:
             obs2/vendor/obs
             obs2/vendor/opencv-static
             obs2/vendor/ffmpeg-static
-          key: ${{ runner.os }}-static-deps-${{ hashFiles('justfile') }}
+          key: ${{ runner.os }}-static-deps-${{ hashFiles('obs2/scripts/obs-headers.sh', 'obs2/scripts/opencv-static.sh', 'obs2/scripts/ffmpeg-static.sh') }}
 
       - name: Cache cargo dependencies
         uses: actions/cache@v6
@@ -138,7 +142,11 @@ jobs:
           path: |
             ~/.cargo/git
             ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/rust-toolchain.toml') }}
+            obs2/rust/target/**/release/.fingerprint
+            obs2/rust/target/**/release/build
+            obs2/rust/target/**/release/deps
+            obs2/rust/target/**/release/incremental
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/Cargo.toml', 'obs2/rust/build.rs', 'obs2/rust/rust-toolchain.toml') }}
 
       - name: Install system dependencies
         run: |

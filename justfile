@@ -4,10 +4,8 @@
 
 set tempdir := "/tmp"
 
-obs_headers := justfile_directory() / "obs2/vendor/obs"
-source_archive_cache := justfile_directory() / "obs2/vendor/archives"
 git_plugin_version := `
-  tag="$(git describe --tags --exact-match --match 'v*' 2>/dev/null || true)"
+tag="$(git describe --tags --exact-match --match 'v*' 2>/dev/null || true)"
 
   if printf '%s\n' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
     printf '%s' "${tag#v}"
@@ -17,11 +15,6 @@ git_plugin_version := `
   fi
 `
 plugin_version := env_var_or_default("GE_PLUGIN_VERSION", git_plugin_version)
-obsapi_version := "32.1.2"
-opencv_version := "4.11.0"
-ffmpeg_version := "8.0"
-cmake_version := "3.31.7"
-
 export DYLD_FALLBACK_LIBRARY_PATH := "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib"
 export BROWSER_BUNDLE := justfile_directory() / "obs2/browser/build/index.html"
 export GE_PLUGIN_VERSION := plugin_version
@@ -251,150 +244,13 @@ _flatpak-build target:
       '
 
 obs-headers:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    dest_dir="{{ obs_headers }}"
-    if [ -d "${dest_dir}" ]; then
-      echo "OBS Headers already found."
-      echo "If you want to re-download, delete \"${dest_dir}\""
-      exit 0
-    fi
-
-    clone_dir=$(mktemp -d)
-    git clone \
-      --depth 1 \
-      --branch "{{ obsapi_version }}" \
-      --filter=blob:none \
-      --sparse \
-      https://github.com/obsproject/obs-studio.git \
-      "${clone_dir}/obs-studio"
-
-    pushd "${clone_dir}/obs-studio" > /dev/null
-    git sparse-checkout set libobs frontend/api
-    popd > /dev/null
-
-    rm -rf "${dest_dir}"
-    mkdir -p "${dest_dir}"
-    cp -r "${clone_dir}/obs-studio/libobs" "${dest_dir}/"
-    cp -r "${clone_dir}/obs-studio/frontend/api" "${dest_dir}/frontend"
-
-    echo "{{ obsapi_version }}" > "${dest_dir}/OBS_VERSION"
+    "{{ justfile_directory() }}/obs2/scripts/obs-headers.sh"
 
 # Compile OpenCV statically, so we don't have to depend on users having it
 # installed on their system in order to use the plugin.
 # Delete the prefix to force a rebuild.
 opencv-static:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    version_file="${OPENCV_PREFIX}/.ge-static-version"
-    installed_version=""
-    if [ -f "${version_file}" ]; then
-      installed_version="$(cat "${version_file}")"
-    elif [ -f "${OPENCV_PREFIX}/lib/pkgconfig/opencv4.pc" ]; then
-      installed_version="$(awk -F': ' '/^Version: / { print $2; exit }' "${OPENCV_PREFIX}/lib/pkgconfig/opencv4.pc")"
-    fi
-
-    if [ -f "${OPENCV_PREFIX}/lib/pkgconfig/opencv4.pc" ]; then
-      if [ "${installed_version}" != "{{ opencv_version }}" ]; then
-        echo "Static OpenCV at ${OPENCV_PREFIX} is ${installed_version:-unknown}, expected {{ opencv_version }}; rebuilding."
-        rm -rf "${OPENCV_PREFIX}"
-      else
-        echo "Static OpenCV {{ opencv_version }} already built at ${OPENCV_PREFIX}"
-        echo "{{ opencv_version }}" > "${version_file}"
-        echo "Delete it to rebuild: rm -rf ${OPENCV_PREFIX}"
-        exit 0
-      fi
-    fi
-
-    rm -rf "${OPENCV_PREFIX}"
-
-    work="$(mktemp -d)"
-    trap 'rm -rf "${work}"' EXIT
-
-    archive_dir="{{ source_archive_cache }}"
-    archive="${archive_dir}/opencv-{{ opencv_version }}.tar.gz"
-    mkdir -p "${archive_dir}"
-
-    if [ -f "${archive}" ]; then
-      echo "Using cached OpenCV archive ${archive}"
-    else
-      echo "Downloading OpenCV {{ opencv_version }} ..."
-      wget -O "${work}/opencv.tar.gz" \
-        "https://github.com/opencv/opencv/archive/refs/tags/{{ opencv_version }}.tar.gz"
-      mv "${work}/opencv.tar.gz" "${archive}"
-    fi
-
-    tar xzf "${archive}" -C "${work}"
-    src="${work}/opencv-{{ opencv_version }}"
-
-    # Download a pinned CMake so the build is independent of whatever version
-    # the system has installed.
-    if [ "$(uname)" = "Darwin" ]; then
-      cmake_platform="macos-universal"
-      jobs="$(sysctl -n hw.logicalcpu)"
-    else
-      cmake_platform="linux-x86_64"
-      jobs="$(nproc)"
-    fi
-    cmake_name="cmake-{{ cmake_version }}-${cmake_platform}"
-    wget -O "${work}/cmake.tar.gz" \
-      "https://github.com/Kitware/CMake/releases/download/v{{ cmake_version }}/${cmake_name}.tar.gz"
-    tar xzf "${work}/cmake.tar.gz" -C "${work}"
-    if [ "$(uname)" = "Darwin" ]; then
-      cmake_bin="${work}/${cmake_name}/CMake.app/Contents/bin/cmake"
-    else
-      cmake_bin="${work}/${cmake_name}/bin/cmake"
-    fi
-
-    # Platform-specific flags: macOS doesn't have V4L/GTK/1394; LAPACK is
-    # available via Accelerate but we don't need it for our minimal build.
-    platform_flags=""
-    if [ "$(uname)" = "Darwin" ]; then
-      platform_flags="-D WITH_AVFOUNDATION=OFF -D WITH_LAPACK=OFF"
-    else
-      platform_flags="-D WITH_1394=OFF -D WITH_V4L=OFF -D WITH_GTK=OFF -D WITH_LAPACK=OFF"
-    fi
-
-    # Static libs are linked into the plugin's .so/.dylib, so everything must
-    # be PIC. We build only the modules the matcher uses and force OpenCV to
-    # compile its own zlib/libpng/libjpeg so nothing is pulled from the host.
-    "${cmake_bin}" -S "${src}" -B "${work}/build" \
-      -D CMAKE_BUILD_TYPE=Release \
-      -D CMAKE_INSTALL_PREFIX="${OPENCV_PREFIX}" \
-      -D BUILD_LIST=core,imgproc,imgcodecs \
-      -D BUILD_SHARED_LIBS=OFF \
-      -D ENABLE_PIC=ON \
-      -D CMAKE_POSITION_INDEPENDENT_CODE=ON \
-      -D OPENCV_GENERATE_PKGCONFIG=ON \
-      -D OPENCV_FORCE_3RDPARTY_BUILD=ON \
-      -D PNG_PNG_INCLUDE_DIR="${src}/3rdparty/libpng" \
-      -D BUILD_ZLIB=ON \
-      -D BUILD_PNG=ON \
-      -D BUILD_JPEG=ON \
-      -D BUILD_TIFF=OFF -D WITH_TIFF=OFF \
-      -D BUILD_WEBP=OFF -D WITH_WEBP=OFF \
-      -D BUILD_OPENJPEG=OFF -D WITH_OPENJPEG=OFF \
-      -D BUILD_OPENEXR=OFF -D WITH_OPENEXR=OFF \
-      -D WITH_JASPER=OFF \
-      -D WITH_FFMPEG=OFF -D WITH_GSTREAMER=OFF \
-      -D WITH_QT=OFF -D WITH_OPENGL=OFF \
-      -D WITH_PROTOBUF=OFF -D WITH_GPHOTO2=OFF -D WITH_GDAL=OFF \
-      -D WITH_FREETYPE=OFF -D WITH_IPP=OFF -D WITH_ITT=OFF \
-      -D WITH_TBB=OFF -D WITH_OPENMP=OFF -D WITH_CUDA=OFF -D WITH_OPENCL=OFF -D WITH_AVIF=OFF \
-      -D BUILD_opencv_apps=OFF -D BUILD_TESTS=OFF -D BUILD_PERF_TESTS=OFF \
-      -D BUILD_EXAMPLES=OFF -D BUILD_DOCS=OFF -D BUILD_JAVA=OFF \
-      -D BUILD_opencv_python3=OFF \
-      ${platform_flags}
-
-    "${cmake_bin}" --build "${work}/build" -j"${jobs}"
-    "${cmake_bin}" --install "${work}/build"
-    echo "{{ opencv_version }}" > "${version_file}"
-
-    echo
-    echo "Static OpenCV installed to ${OPENCV_PREFIX}"
-    echo "Now run 'just make' / 'just obs' — CMake auto-detects the static prefix."
+    "{{ justfile_directory() }}/obs2/scripts/opencv-static.sh"
 
 # Compile FFmpeg statically, the same way we do OpenCV, so we don't have to
 # depend on users having it installed in order to use the plugin. `ffmpeg-next`
@@ -405,83 +261,7 @@ opencv-static:
 # x86_64 hosts need `nasm` (or `yasm`) for FFmpeg's hand-written assembly;
 # arm64 (Apple Silicon) does not.
 ffmpeg-static:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    version_file="${FFMPEG_PREFIX}/.ge-static-version"
-    installed_version=""
-    if [ -f "${version_file}" ]; then
-      installed_version="$(cat "${version_file}")"
-    elif [ -f "${FFMPEG_PREFIX}/include/libavutil/ffversion.h" ]; then
-      installed_version="$(awk -F'"' '/^#define FFMPEG_VERSION / { print $2; exit }' "${FFMPEG_PREFIX}/include/libavutil/ffversion.h")"
-    fi
-
-    if [ -f "${FFMPEG_PREFIX}/lib/pkgconfig/libavcodec.pc" ]; then
-      if [ "${installed_version}" != "{{ ffmpeg_version }}" ]; then
-        echo "Static FFmpeg at ${FFMPEG_PREFIX} is ${installed_version:-unknown}, expected {{ ffmpeg_version }}; rebuilding."
-        rm -rf "${FFMPEG_PREFIX}"
-      else
-        echo "Static FFmpeg {{ ffmpeg_version }} already built at ${FFMPEG_PREFIX}"
-        echo "{{ ffmpeg_version }}" > "${version_file}"
-        echo "Delete it to rebuild: rm -rf ${FFMPEG_PREFIX}"
-        exit 0
-      fi
-    fi
-
-    rm -rf "${FFMPEG_PREFIX}"
-
-    work="$(mktemp -d)"
-    trap 'rm -rf "${work}"' EXIT
-
-    archive_dir="{{ source_archive_cache }}"
-    archive="${archive_dir}/ffmpeg-{{ ffmpeg_version }}.tar.xz"
-    mkdir -p "${archive_dir}"
-
-    if [ -f "${archive}" ]; then
-      echo "Using cached FFmpeg archive ${archive}"
-    else
-      echo "Downloading FFmpeg {{ ffmpeg_version }} ..."
-      wget -O "${work}/ffmpeg.tar.xz" \
-        "https://ffmpeg.org/releases/ffmpeg-{{ ffmpeg_version }}.tar.xz"
-      mv "${work}/ffmpeg.tar.xz" "${archive}"
-    fi
-
-    tar xJf "${archive}" -C "${work}"
-    src="${work}/ffmpeg-{{ ffmpeg_version }}"
-
-    if [ "$(uname)" = "Darwin" ]; then
-      jobs="$(sysctl -n hw.logicalcpu)"
-    else
-      jobs="$(nproc)"
-    fi
-
-    # Static, PIC, self-contained build. `--disable-autodetect` pins the build to
-    # FFmpeg's own built-in codecs/muxers only (no x264, no system zlib/lzma, no
-    # platform frameworks), so the resulting archives don't drag host libraries
-    # into the plugin — mirroring the way `opencv-static` forces its own zlib/png.
-    # The Rust code uses format/codec/swscale/swresample, not device capture or
-    # libavfilter. The archives are linked into the plugin's .so/.dylib, so
-    # everything is PIC.
-    cd "${src}"
-    ./configure \
-      --prefix="${FFMPEG_PREFIX}" \
-      --enable-static \
-      --disable-shared \
-      --enable-pic \
-      --disable-asm \
-      --disable-autodetect \
-      --disable-avdevice \
-      --disable-avfilter \
-      --disable-programs \
-      --disable-doc \
-      --disable-debug
-    make -j"${jobs}"
-    make install
-    echo "{{ ffmpeg_version }}" > "${version_file}"
-
-    echo
-    echo "Static FFmpeg installed to ${FFMPEG_PREFIX}"
-    echo "Now run 'just make' / 'just obs' — CMake auto-detects the static prefix."
+    "{{ justfile_directory() }}/obs2/scripts/ffmpeg-static.sh"
 
 # setup the repository for local development
 setup: obs-headers opencv-static ffmpeg-static vscode-settings
