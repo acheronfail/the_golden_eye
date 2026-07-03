@@ -50,6 +50,14 @@ static void *g_handle = NULL;
 static ge_core_post_load_fn g_post_load = NULL;
 static ge_core_unload_fn g_unload = NULL;
 
+static bool copy_path(char *out, size_t out_size, const char *path) {
+  if (snprintf(out, out_size, "%s", path) >= (int)out_size) {
+    GE_LOG(LOG_WARNING, "path too long: %s", path);
+    return false;
+  }
+  return true;
+}
+
 static bool copy_dirname(const char *path, char *out, size_t out_size) {
   const char *slash = strrchr(path, '/');
   if (!slash) {
@@ -74,20 +82,28 @@ static bool copy_dirname(const char *path, char *out, size_t out_size) {
   return true;
 }
 
-static bool module_dir(char *out, size_t out_size) {
+static bool module_path(char *out, size_t out_size) {
   Dl_info info;
-  if (dladdr((void *)&module_dir, &info) == 0 || !info.dli_fname || !*info.dli_fname) {
+  if (dladdr((void *)&module_path, &info) == 0 || !info.dli_fname || !*info.dli_fname) {
     GE_LOG(LOG_ERROR, "failed to resolve plugin module path");
     return false;
   }
-  return copy_dirname(info.dli_fname, out, out_size);
+  return copy_path(out, out_size, info.dli_fname);
+}
+
+static bool module_dir(char *out, size_t out_size) {
+  char path[PATH_MAX];
+  if (!module_path(path, sizeof(path))) {
+    return false;
+  }
+  return copy_dirname(path, out, out_size);
 }
 
 static bool join_path(char *out, size_t out_size, const char *dir, const char *leaf) {
   size_t dir_len = strlen(dir);
   const char *sep = dir_len > 0 && dir[dir_len - 1] == '/' ? "" : "/";
   if (snprintf(out, out_size, "%s%s%s", dir, sep, leaf) >= (int)out_size) {
-    GE_LOG(LOG_ERROR, "bundled path too long");
+    GE_LOG(LOG_ERROR, "path too long");
     return false;
   }
   return true;
@@ -96,6 +112,55 @@ static bool join_path(char *out, size_t out_size, const char *dir, const char *l
 static bool bundled_path(const char *relative_path, char *out, size_t out_size) {
   char dir[PATH_MAX];
   return module_dir(dir, sizeof(dir)) && join_path(out, out_size, dir, relative_path);
+}
+
+struct duplicate_module_check {
+  obs_module_t *current;
+  const char *current_file;
+  size_t matches;
+  char other_path[PATH_MAX];
+};
+
+static void count_duplicate_module(void *param, obs_module_t *module) {
+  struct duplicate_module_check *check = param;
+  const char *file = obs_get_module_file_name(module);
+
+  if (!file || strcmp(file, check->current_file) != 0) {
+    return;
+  }
+
+  check->matches++;
+  if (module != check->current && !check->other_path[0]) {
+    const char *path = obs_get_module_binary_path(module);
+    copy_path(check->other_path, sizeof(check->other_path), path ? path : file);
+  }
+}
+
+static bool ge_check_duplicate_obs_module(void) {
+  obs_module_t *current = obs_current_module();
+  const char *current_file = obs_get_module_file_name(current);
+  const char *current_path = obs_get_module_binary_path(current);
+  struct duplicate_module_check check = {
+      .current = current,
+      .current_file = current_file,
+  };
+
+  if (!current || !current_file) {
+    GE_LOG(LOG_WARNING, "could not inspect OBS module registry for duplicate plugin copies");
+    return true;
+  }
+
+  obs_enum_modules(count_duplicate_module, &check);
+  if (check.matches <= 1) {
+    return true;
+  }
+
+  GE_LOG(LOG_ERROR, "found multiple loaded copies of The Golden Eye OBS plugin; disabling this copy");
+  GE_LOG(LOG_ERROR, "current copy: %s", current_path ? current_path : current_file);
+  if (check.other_path[0]) {
+    GE_LOG(LOG_ERROR, "already loaded copy: %s", check.other_path);
+  }
+  return false;
 }
 
 static bool configure_template_dir_from_obs(void) {
@@ -267,6 +332,10 @@ static void core_reload(void) {
 #endif
 
 bool obs_module_load(void) {
+  if (!ge_check_duplicate_obs_module()) {
+    return false;
+  }
+
   if (!core_open()) {
     GE_LOG(LOG_ERROR, "core failed to load; plugin disabled");
     return false;
