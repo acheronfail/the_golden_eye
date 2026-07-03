@@ -100,7 +100,7 @@ jobs:
         run: just make-package
 
       - name: Upload Linux package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: the-golden-eye-linux
           path: obs2/build-flatpak/dist/*.zip
@@ -150,6 +150,7 @@ jobs:
 
       - name: Install system dependencies
         run: |
+          brew untap --force aws/tap || true
           brew install cmake just nasm simde clang-format
 
       - name: Set up Rust
@@ -164,7 +165,7 @@ jobs:
         run: just make-package
 
       - name: Upload macOS package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: the-golden-eye-macos
           path: obs2/build/dist/*.zip
@@ -178,6 +179,7 @@ jobs:
 
     env:
       VCPKGRS_TRIPLET: x64-windows-static-md
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-bincache
 
     steps:
       - name: Checkout
@@ -194,14 +196,17 @@ jobs:
             obs2/browser/package-lock.json
             test/package-lock.json
 
-      - name: Cache vcpkg dependencies
-        uses: actions/cache@v6
+      - name: Restore vcpkg dependencies
+        id: restore-vcpkg
+        uses: actions/cache/restore@v6
         with:
           path: |
             C:\vcpkg\installed
-            C:\vcpkg\packages
-            C:\vcpkg\buildtrees
-          key: windows-vcpkg-${{ hashFiles('.github/workflows/build-packages.yml', 'obs2/rust/Cargo.lock') }}
+            C:\vcpkg\downloads
+            .vcpkg-bincache
+          key: windows-vcpkg-${{ runner.arch }}-${{ hashFiles('obs2/cmake/OpenCVStatic.cmake', 'obs2/cmake/FFmpegStatic.cmake') }}
+          restore-keys: |
+            windows-vcpkg-${{ runner.arch }}-
 
       - name: Cache cargo dependencies
         uses: actions/cache@v6
@@ -215,25 +220,59 @@ jobs:
             obs2/rust/target/**/release/incremental
           key: Windows-${{ runner.arch }}-cargo-build-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/Cargo.toml', 'obs2/rust/build.rs', 'obs2/rust/rust-toolchain.toml') }}
 
-      - name: Install system dependencies
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          choco install just obs-studio -y --no-progress
-          vcpkg install --triplet $env:VCPKGRS_TRIPLET opencv4 ffmpeg llvm simde
-
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
       - name: Set up Rust
         shell: pwsh
         run: |
-          rustup toolchain install 1.96.0 --profile minimal
+          rustup set profile minimal
+          rustup toolchain install 1.96.0 --profile minimal --no-self-update
+          rustup default 1.96.0
+
+      - name: Install system dependencies
+        shell: pwsh
+        run: |
+          choco install just obs-studio -y --no-progress
+
+          $libclang = Get-ChildItem `
+            -Path "$env:ProgramFiles\LLVM", "${env:ProgramFiles(x86)}\LLVM" `
+            -Filter libclang.dll `
+            -Recurse `
+            -ErrorAction SilentlyContinue `
+            | Select-Object -First 1
+          if (-not $libclang) {
+            choco install llvm -y --no-progress
+            $libclang = Get-ChildItem `
+              -Path "$env:ProgramFiles\LLVM", "${env:ProgramFiles(x86)}\LLVM" `
+              -Filter libclang.dll `
+              -Recurse `
+              -ErrorAction SilentlyContinue `
+              | Select-Object -First 1
+          }
+          if (-not $libclang) {
+            throw "libclang.dll was not found after LLVM setup"
+          }
+          "LIBCLANG_PATH=$($libclang.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $libclang.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Install vcpkg dependencies
+        id: install-vcpkg
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          vcpkg install --triplet $env:VCPKGRS_TRIPLET --clean-after-build opencv4 ffmpeg simde
+          Remove-Item -Recurse -Force C:\vcpkg\buildtrees\* -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force C:\vcpkg\packages\* -ErrorAction SilentlyContinue
+
+      - name: Save vcpkg dependencies
+        if: steps.install-vcpkg.outcome == 'success' && steps.restore-vcpkg.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            C:\vcpkg\installed
+            C:\vcpkg\downloads
+            .vcpkg-bincache
+          key: ${{ steps.restore-vcpkg.outputs.cache-primary-key }}
 
       - name: Set up repository
-        continue-on-error: true
         shell: bash
         run: |
           just obs-headers
@@ -242,12 +281,15 @@ jobs:
 
       - name: Build Windows package
         continue-on-error: true
-        shell: bash
-        run: just make-package
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
+          call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
+          bash -lc "just make-package"
 
       - name: Upload Windows package
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: the-golden-eye-windows
           path: obs2/build/dist/*.zip

@@ -312,7 +312,7 @@ windows-vcpkg-deps:
     fi
     vcpkg="${vcpkg_root}/vcpkg"
     [ -x "${vcpkg}.exe" ] && vcpkg="${vcpkg}.exe"
-    "${vcpkg}" install --triplet x64-windows-static-md opencv4 ffmpeg llvm simde
+    "${vcpkg}" install --triplet x64-windows-static-md --clean-after-build opencv4 ffmpeg simde
 
 # setup the repository for local development
 [windows]
