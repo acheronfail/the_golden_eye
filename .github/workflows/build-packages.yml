@@ -60,6 +60,7 @@ jobs:
             flatpak \
             just \
             libobs-dev \
+            libwayland-dev \
             nasm \
             pkg-config \
             wget
