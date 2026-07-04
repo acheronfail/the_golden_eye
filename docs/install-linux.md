@@ -25,7 +25,7 @@ For the flatpak installation, this is usually: `$HOME/.var/app/com.obsproject.St
 Now open OBS Studio or restart it, and the plugin should appear as an integrated window.
 If it doesn't appear, open the `Docks` menu item and make sure that `The Golden Eye` is checked:
 
-![Showing the plugin's item in OBS's Docks menu](assets/macos-browser-dock.png)
+![Showing the plugin's item in OBS's Docks menu](assets/linux-browser-dock.png)
 
 ## Uninstalling the plugin
 

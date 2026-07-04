@@ -14,15 +14,6 @@ Copy the extracted `the_golden_eye` folder to OBS Studio's recommended Windows p
 C:\ProgramData\obs-studio\plugins
 ```
 
-The final layout should look like this:
-
-```text
-C:\ProgramData\obs-studio\plugins\the_golden_eye\bin\64bit\the_golden_eye.dll
-C:\ProgramData\obs-studio\plugins\the_golden_eye\bin\64bit\golden_core.dll
-C:\ProgramData\obs-studio\plugins\the_golden_eye\data\locale\en-US.ini
-C:\ProgramData\obs-studio\plugins\the_golden_eye\data\cv_templates\...
-```
-
 ![Showing the plugin installed in OBS's plugin folder](assets/windows-plugin-folder.png)
 
 Now open OBS Studio or restart it, and the plugin should appear as an integrated window.
