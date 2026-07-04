@@ -14,13 +14,13 @@ concurrency:
 
 jobs:
   build:
-    name: Build packages
+    name: Build
     uses: ./.github/workflows/build-packages.yml
     with:
       fetch-depth: 0
 
   release:
-    name: Create GitHub release
+    name: GitHub Release
     runs-on: ubuntu-latest
     needs: build
     permissions:

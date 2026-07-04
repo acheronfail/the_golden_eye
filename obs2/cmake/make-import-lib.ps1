@@ -26,7 +26,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $symbols = @()
 foreach ($line in $exports) {
-    if ($line -match '^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)\s*$') {
+    if ($line -match '^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+([^\s=]+)(?:\s*=.*)?\s*$') {
         $symbols += $Matches[1]
     }
 }
