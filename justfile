@@ -2,8 +2,6 @@
 # Build variables
 #
 
-set tempdir := "/tmp"
-
 git_plugin_version := `
 tag="$(git describe --tags --exact-match --match 'v*' 2>/dev/null || true)"
 
