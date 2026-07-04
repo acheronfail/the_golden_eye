@@ -127,29 +127,31 @@ clippy:
 
     cd "{{ justfile_directory() }}/obs2/rust" && cargo clippy --all-targets -- -D warnings
 
-preview-release:
+preview-release sha="HEAD":
     #!/usr/bin/env bash
     set -euo pipefail
 
-    last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' HEAD 2>/dev/null || true)"
+    sha="{{ sha }}"
+    target_sha="$(git rev-parse "$sha")"
+
+    last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$target_sha" 2>/dev/null || true)"
     if [ -z "$last_tag" ]; then
-      echo "No previous release tag found." >&2
-      exit 1
-    fi
-    head_sha="$(git rev-parse HEAD)"
-    if ! gh api "repos/:owner/:repo/commits/${head_sha}" >/dev/null 2>&1; then
-      branch="$(git branch --show-current)"
-      echo "GitHub cannot see HEAD (${head_sha}), so it cannot generate release notes for it." >&2
-      echo "Push the branch first, then retry:" >&2
-      echo "  git push -u origin ${branch}" >&2
+      echo "No previous release tag found for ${sha} (${target_sha})." >&2
       exit 1
     fi
 
-    echo "Previewing release notes from ${last_tag}..HEAD (${head_sha})" >&2
+    if ! gh api "repos/:owner/:repo/commits/${target_sha}" >/dev/null 2>&1; then
+      branch="$(git branch --show-current)"
+      echo "GitHub cannot see ${sha} (${target_sha}), so it cannot generate release notes for it." >&2
+      echo "Make sure this commit exists on the remote and try again!" >&2
+      exit 1
+    fi
+
+    echo "Previewing release notes from ${last_tag}..${sha} (${target_sha})" >&2
     gh api repos/:owner/:repo/releases/generate-notes \
       -f tag_name="{{ git_plugin_version }}" \
       -f previous_tag_name="$last_tag" \
-      -f target_commitish="$head_sha" \
+      -f target_commitish="$target_sha" \
       --jq .body
 
 # runs the rust tests (cv matcher + monitor loop) against the fixture screenshots

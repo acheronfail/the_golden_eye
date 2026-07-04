@@ -59,14 +59,32 @@ just fmt
 GitHub release notes are generated from merged PRs and grouped by labels in `.github/release.yml`.
 Every PR must have at least one label before merge.
 
-| Release section           | PR labels                                                     |
-| ------------------------- | ------------------------------------------------------------- |
-| Breaking Changes          | `breaking-change`                                             |
-| Features                  | `enhancement`                                                 |
-| Fixes                     | `bug`, `fix`                                                  |
-| Developer Experience      | `repository`, `dev`, `ci`                                     |
-| Dependencies              | `dependencies`                                                |
-| Hidden from release notes | `ignore-for-release`                                          |
-| Other Changes             | Any other label                                               |
+| Release section           | PR labels                 |
+| ------------------------- | ------------------------- |
+| Breaking Changes          | `breaking-change`         |
+| Features                  | `enhancement`             |
+| Fixes                     | `bug`, `fix`              |
+| Developer Experience      | `repository`, `dev`, `ci` |
+| Dependencies              | `dependencies`            |
+| Hidden from release notes | `ignore-for-release`      |
+| Other Changes             | Any other label           |
 
 Use one main release-note label per PR where possible. If a change needs to appear in separate sections, split it into separate PRs.
+
+## Creating a release
+
+1. Pick the next commit for release (usually `HEAD` on `master`)
+2. Check that the commit already has green CI builds in GitHub
+3. Run `just preview-release` to preview the generated release notes (to preview a specific commit, run `just preview-release <sha>`)
+4. Choose the next version from the previewed changes:
+   - `breaking-change`: major bump
+   - `enhancement`: minor bump
+   - any other labels: patch bump
+5. Create and push the release tag:
+
+```shell
+git tag vX.Y.Z [sha]
+git push --tags
+```
+
+Pushing a `vX.Y.Z` tag starts the release workflow, which builds packages and creates the GitHub release with generated notes and assets.
