@@ -1,0 +1,35 @@
+name: Required PR label
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - labeled
+      - unlabeled
+
+permissions:
+  contents: read
+
+concurrency:
+  group: required-pr-label-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-label:
+    name: Require PR label
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check PR labels
+        env:
+          PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          if ! jq -e 'length > 0' <<<"$PR_LABELS_JSON" >/dev/null; then
+            echo "::error title=Missing PR label::PR must have at least one label before merge."
+            exit 1
+          fi
+
+          echo "Found PR label: $(jq -r 'join(", ")' <<<"$PR_LABELS_JSON")"
