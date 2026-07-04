@@ -6,11 +6,6 @@
 # forwards RUST_BUILD_ENV and the canonical plugin version to npm.
 
 set(BROWSER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/browser")
-if(WIN32)
-  find_program(NPM_EXECUTABLE NAMES npm.cmd npm REQUIRED)
-else()
-  find_program(NPM_EXECUTABLE NAMES npm REQUIRED)
-endif()
 
 # In dev mode we don't build/embed the real SPA. Instead the plugin embeds a
 # tiny HTML file that redirects to the Vite dev server, so the frontend can be
@@ -72,6 +67,12 @@ else()
           VERBATIM
       )
   else()
+    if(WIN32)
+      find_program(NPM_EXECUTABLE NAMES npm.cmd npm REQUIRED)
+    else()
+      find_program(NPM_EXECUTABLE NAMES npm REQUIRED)
+    endif()
+
     add_custom_command(
           OUTPUT "${BROWSER_BUNDLE}"
           COMMAND ${CMAKE_COMMAND} -E env
