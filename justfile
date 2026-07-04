@@ -127,6 +127,31 @@ clippy:
 
     cd "{{ justfile_directory() }}/obs2/rust" && cargo clippy --all-targets -- -D warnings
 
+preview-release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' HEAD 2>/dev/null || true)"
+    if [ -z "$last_tag" ]; then
+      echo "No previous release tag found." >&2
+      exit 1
+    fi
+    head_sha="$(git rev-parse HEAD)"
+    if ! gh api "repos/:owner/:repo/commits/${head_sha}" >/dev/null 2>&1; then
+      branch="$(git branch --show-current)"
+      echo "GitHub cannot see HEAD (${head_sha}), so it cannot generate release notes for it." >&2
+      echo "Push the branch first, then retry:" >&2
+      echo "  git push -u origin ${branch}" >&2
+      exit 1
+    fi
+
+    echo "Previewing release notes from ${last_tag}..HEAD (${head_sha})" >&2
+    gh api repos/:owner/:repo/releases/generate-notes \
+      -f tag_name="{{ git_plugin_version }}" \
+      -f previous_tag_name="$last_tag" \
+      -f target_commitish="$head_sha" \
+      --jq .body
+
 # runs the rust tests (cv matcher + monitor loop) against the fixture screenshots
 test-rust *args:
     #!/usr/bin/env bash
