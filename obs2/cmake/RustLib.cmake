@@ -9,6 +9,15 @@ set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
 
 # Built up as a CMake list so each flag expands to a separate cargo argument.
 set(CARGO_BUILD_FLAGS "")
+if(WIN32)
+  # Windows package builds only need the staticlib that CMake links into
+  # golden_core. Binaries/tests link Rust directly and therefore cannot resolve
+  # OBS bridge symbols such as ge_obs_collect_source_names until golden_core is
+  # linked.
+  list(APPEND CARGO_BUILD_FLAGS --lib)
+else()
+  list(APPEND CARGO_BUILD_FLAGS --all-targets)
+endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(RUST_PROFILE "debug")
 else()
@@ -133,7 +142,7 @@ else()
   add_custom_target(rust_build ALL
       COMMAND ${CMAKE_COMMAND} -E env
               ${RUST_CARGO_ENV}
-              cargo build ${CARGO_BUILD_FLAGS} --all-targets
+              cargo build ${CARGO_BUILD_FLAGS}
       WORKING_DIRECTORY "${RUST_DIR}"
       COMMENT "Building Rust static library (${RUST_PROFILE})"
       VERBATIM
