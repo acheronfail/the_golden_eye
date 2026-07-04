@@ -8,7 +8,7 @@ Follow the instructions for your operating system:
 
 - [Install on Linux](docs/install-linux.md)
 - [Install on macOS](docs/install-macos.md)
-- [Install on Windows](docs/install-windows.md)
+- [Install on Windows](docs/install-windows.md) ⚠️️ untested, may not work!
 
 ## Development
 
