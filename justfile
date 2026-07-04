@@ -235,8 +235,16 @@ _flatpak-build target:
     #!/usr/bin/env bash
     set -euo pipefail
     root="{{ justfile_directory() }}"
-    app="com.obsproject.Studio"
-    sdk_ref="$(flatpak info --show-sdk "${app}")"
+    app="${GE_OBS_FLATPAK_APP_ID:-com.obsproject.Studio}"
+    sdk_ref="${GE_OBS_FLATPAK_SDK_REF:-$(flatpak info --show-sdk "${app}")}"
+
+    if [ -n "${GE_OBS_FLATPAK_VERSION:-}" ]; then
+      installed_version="$(flatpak info "${app}" | awk -F: '/^[[:space:]]*Version:/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit }')"
+      if [ "${installed_version}" != "${GE_OBS_FLATPAK_VERSION}" ]; then
+        echo "OBS Flatpak ${app} is ${installed_version:-unknown}, expected ${GE_OBS_FLATPAK_VERSION}." >&2
+        exit 1
+      fi
+    fi
 
     if ! flatpak info "${sdk_ref}" >/dev/null 2>&1; then
       echo "Flatpak SDK ${sdk_ref} is not installed." >&2

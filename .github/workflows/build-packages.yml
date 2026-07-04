@@ -16,6 +16,17 @@ jobs:
   linux:
     name: Linux
     runs-on: ubuntu-latest
+    env:
+      # Build Linux packages inside the oldest OBS Flatpak runtime we recommend.
+      # The plugin advertises the older 31.0.0 libobs API via vendored headers,
+      # while the Flatpak app/runtime pin keeps glibc and system libraries from
+      # drifting to whatever OBS happens to publish latest on Flathub.
+      GE_OBS_FLATPAK_APP_REF: app/com.obsproject.Studio/x86_64/stable
+      GE_OBS_FLATPAK_APP_ID: com.obsproject.Studio
+      GE_OBS_FLATPAK_VERSION: 31.1.0
+      GE_OBS_FLATPAK_SDK_ID: org.kde.Sdk
+      GE_OBS_FLATPAK_SDK_BRANCH: '6.8'
+      GE_OBS_FLATPAK_SDK_REF: org.kde.Sdk//6.8
 
     steps:
       - name: Checkout
@@ -71,8 +82,46 @@ jobs:
             pkg-config \
             wget
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install -y flathub com.obsproject.Studio
-          sudo flatpak install -y flathub "$(flatpak info --show-sdk com.obsproject.Studio)"
+
+          flatpak_log="$(flatpak remote-info --log flathub "${GE_OBS_FLATPAK_APP_REF}")"
+          obs_commit="$(
+            printf '%s\n' "${flatpak_log}" | awk -v version="${GE_OBS_FLATPAK_VERSION}" '
+              /^[[:space:]]*Commit:/ {
+                commit = $2
+                next
+              }
+              /^[[:space:]]*Version:/ && $2 == version && commit != "" {
+                print commit
+                exit
+              }
+              /^[[:space:]]*Subject:/ && index($0, version) && commit != "" {
+                print commit
+                exit
+              }
+            '
+          )"
+          if [ -z "${obs_commit}" ]; then
+            echo "Could not find OBS Flatpak ${GE_OBS_FLATPAK_VERSION} in Flathub history." >&2
+            printf '%s\n' "${flatpak_log}" | sed -n '1,120p' >&2
+            exit 1
+          fi
+
+          sudo flatpak install -y flathub "${GE_OBS_FLATPAK_SDK_REF}"
+          sudo flatpak install -y --commit="${obs_commit}" flathub "${GE_OBS_FLATPAK_APP_REF}"
+
+          installed_version="$(flatpak info "${GE_OBS_FLATPAK_APP_ID}" | awk -F: '/^[[:space:]]*Version:/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit }')"
+          if [ "${installed_version}" != "${GE_OBS_FLATPAK_VERSION}" ]; then
+            echo "Installed OBS Flatpak ${installed_version:-unknown}, expected ${GE_OBS_FLATPAK_VERSION}." >&2
+            exit 1
+          fi
+          installed_sdk="$(flatpak info --show-sdk "${GE_OBS_FLATPAK_APP_ID}")"
+          case "${installed_sdk}" in
+            "${GE_OBS_FLATPAK_SDK_ID}//${GE_OBS_FLATPAK_SDK_BRANCH}"|"${GE_OBS_FLATPAK_SDK_ID}/"*"/${GE_OBS_FLATPAK_SDK_BRANCH}") ;;
+            *)
+              echo "Installed OBS Flatpak uses SDK ${installed_sdk:-unknown}, expected ${GE_OBS_FLATPAK_SDK_REF}." >&2
+              exit 1
+              ;;
+          esac
 
       - name: Set up Rust
         run: |
