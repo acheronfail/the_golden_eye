@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 set(PLUGIN_NAME the_golden_eye)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-project(${PLUGIN_NAME} C)
+project(${PLUGIN_NAME} C CXX)
 
 if(NOT DEFINED GE_PLUGIN_VERSION)
   if(DEFINED ENV{GE_PLUGIN_VERSION})
