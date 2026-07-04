@@ -12,10 +12,11 @@ changelog:
     - title: Features
       labels:
         - enhancement
-    - title: Fixes
+    - title: Fixes & Tweaks
       labels:
         - bug
         - fix
+        - tweak
     - title: Developer Experience
       labels:
         - repository
