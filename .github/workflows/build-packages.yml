@@ -1,4 +1,4 @@
-name: Build packages
+name: Build
 
 on:
   workflow_call:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   linux:
-    name: Linux checks and package
+    name: Linux
     runs-on: ubuntu-latest
 
     steps:
@@ -107,7 +107,7 @@ jobs:
           if-no-files-found: error
 
   macos:
-    name: macOS package
+    name: macOS
     runs-on: macos-latest
     needs: linux
 
@@ -172,7 +172,7 @@ jobs:
           if-no-files-found: error
 
   windows:
-    name: Windows package
+    name: Windows
     runs-on: windows-latest
     continue-on-error: true
     needs: linux
@@ -286,8 +286,6 @@ jobs:
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
           call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
-          where dumpbin.exe
-          where lib.exe
           bash -c "just make-package"
 
       - name: Upload Windows package

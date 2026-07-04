@@ -14,9 +14,14 @@ if (!(Test-Path -LiteralPath $DllPath)) {
 }
 
 $dllName = Split-Path -Leaf $DllPath
-$exports = & $Dumpbin /nologo /exports $DllPath
+$dumpTool = Split-Path -Leaf $Dumpbin
+if ($dumpTool -ieq "link.exe" -or $dumpTool -ieq "link") {
+    $exports = & $Dumpbin /dump /nologo /exports $DllPath
+} else {
+    $exports = & $Dumpbin /nologo /exports $DllPath
+}
 if ($LASTEXITCODE -ne 0) {
-    throw "dumpbin failed for $DllPath"
+    throw "$dumpTool failed for $DllPath"
 }
 
 $symbols = @()

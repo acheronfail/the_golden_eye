@@ -36,6 +36,10 @@ configure_file(
 
 function(ge_make_windows_import_lib target_name dll_path out_lib)
   set(_ge_msvc_tool_hints "")
+  if(WIN32 AND CMAKE_C_COMPILER)
+    get_filename_component(_ge_c_compiler_dir "${CMAKE_C_COMPILER}" DIRECTORY)
+    list(APPEND _ge_msvc_tool_hints "${_ge_c_compiler_dir}")
+  endif()
   if(WIN32 AND DEFINED ENV{VCToolsInstallDir})
     file(TO_CMAKE_PATH "$ENV{VCToolsInstallDir}" _ge_vc_tools_dir)
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -49,11 +53,11 @@ function(ge_make_windows_import_lib target_name dll_path out_lib)
     endif()
   endif()
 
-  find_program(GE_DUMPBIN_EXECUTABLE NAMES dumpbin.exe dumpbin HINTS ${_ge_msvc_tool_hints})
-  find_program(GE_LIB_EXECUTABLE NAMES lib.exe lib HINTS ${_ge_msvc_tool_hints})
+  find_program(GE_DUMPBIN_EXECUTABLE NAMES dumpbin.exe dumpbin link.exe link HINTS ${_ge_msvc_tool_hints} NO_DEFAULT_PATH)
+  find_program(GE_LIB_EXECUTABLE NAMES lib.exe lib HINTS ${_ge_msvc_tool_hints} NO_DEFAULT_PATH)
   if(NOT GE_DUMPBIN_EXECUTABLE OR NOT GE_LIB_EXECUTABLE)
     message(FATAL_ERROR
-            "dumpbin.exe and lib.exe are required to generate OBS import libraries. "
+            "dumpbin.exe or link.exe, plus lib.exe, are required to generate OBS import libraries. "
             "Run CMake from a Visual Studio Developer shell or initialize MSVC first.")
   endif()
   if(CMAKE_SIZEOF_VOID_P EQUAL 8)
