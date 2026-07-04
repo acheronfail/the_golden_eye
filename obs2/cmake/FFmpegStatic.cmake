@@ -17,9 +17,6 @@
 # crate's `static` feature is enabled in Cargo.toml).
 
 if(WIN32)
-  find_package(unofficial-ffmpeg CONFIG REQUIRED)
-  message(STATUS "Linking FFmpeg from vcpkg/CMake package")
-
   if(DEFINED VCPKG_TARGET_TRIPLET)
     set(_ge_vcpkg_triplet "${VCPKG_TARGET_TRIPLET}")
   elseif(DEFINED ENV{VCPKGRS_TRIPLET})
@@ -28,15 +25,23 @@ if(WIN32)
     set(_ge_vcpkg_triplet "x64-windows-static-md")
   endif()
 
-  # vcpkg's FFmpeg port exports CMake targets under this namespace. The
-  # "unofficial" prefix is vcpkg's naming, not a fork of FFmpeg.
-  set(GE_FFMPEG_LINK
-      unofficial::ffmpeg::avformat
-      unofficial::ffmpeg::avcodec
-      unofficial::ffmpeg::swscale
-      unofficial::ffmpeg::swresample
-      unofficial::ffmpeg::avutil
-  )
+  find_package(FFMPEG REQUIRED)
+  message(STATUS "Linking FFmpeg from vcpkg/CMake package")
+
+  set(GE_FFMPEG_LINK "")
+  foreach(_target FFmpeg::avformat FFmpeg::avcodec FFmpeg::swscale FFmpeg::swresample FFmpeg::avutil)
+    if(TARGET ${_target})
+      list(APPEND GE_FFMPEG_LINK ${_target})
+    endif()
+  endforeach()
+  if(NOT GE_FFMPEG_LINK)
+    if(FFMPEG_LIBRARIES)
+      set(GE_FFMPEG_LINK ${FFMPEG_LIBRARIES})
+    else()
+      message(FATAL_ERROR "vcpkg FFmpeg package did not expose CMake targets or FFMPEG_LIBRARIES")
+    endif()
+  endif()
+
   list(APPEND RUST_BUILD_ENV "VCPKGRS_TRIPLET=${_ge_vcpkg_triplet}")
   return()
 endif()
