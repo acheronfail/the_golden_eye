@@ -19,7 +19,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define DR_LOG(level, fmt, ...) blog(level, "[the-golden-eye] " fmt, ##__VA_ARGS__)
+#define DR_LOG(level, fmt, ...) blog(level, "[the_golden_eye] " fmt, ##__VA_ARGS__)
 
 static pthread_t g_thread;
 static int g_fd = -1;
