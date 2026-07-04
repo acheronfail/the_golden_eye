@@ -127,6 +127,45 @@ foreach(_i RANGE 0 ${_ra_env_last})
 endforeach()
 file(APPEND "${RUST_ANALYZER_SETTINGS_FILE}" "  }\n}\n")
 
+set(ZED_SETTINGS_FILE "${CMAKE_CURRENT_BINARY_DIR}/zed-settings.json")
+file(WRITE "${ZED_SETTINGS_FILE}"
+     "{\n"
+     "  \"lsp\": {\n"
+     "    \"clangd\": {\n"
+     "      \"initialization_options\": {\n"
+     "        \"compilationDatabasePath\": \"obs2/build\"\n"
+     "      }\n"
+     "    },\n"
+     "    \"rust-analyzer\": {\n"
+     "      \"initialization_options\": {\n"
+     "        \"linkedProjects\": [\"${GE_REPO_ROOT}/obs2/rust/Cargo.toml\"],\n"
+     "        \"cargo\": {\n"
+     "          \"extraEnv\": {\n")
+foreach(_i RANGE 0 ${_ra_env_last})
+  list(GET RUST_ANALYZER_ENV ${_i} _env)
+  if(NOT _env MATCHES "^([^=]+)=(.*)$")
+    message(FATAL_ERROR "Invalid rust-analyzer environment entry: ${_env}")
+  endif()
+  set(_env_name "${CMAKE_MATCH_1}")
+  set(_env_value "${CMAKE_MATCH_2}")
+  ge_json_escape(_env_name_json "${_env_name}")
+  ge_json_escape(_env_value_json "${_env_value}")
+  if(_i EQUAL _ra_env_last)
+    set(_comma "")
+  else()
+    set(_comma ",")
+  endif()
+  file(APPEND "${ZED_SETTINGS_FILE}"
+       "            \"${_env_name_json}\": \"${_env_value_json}\"${_comma}\n")
+endforeach()
+file(APPEND "${ZED_SETTINGS_FILE}"
+     "          }\n"
+     "        }\n"
+     "      }\n"
+     "    }\n"
+     "  }\n"
+     "}\n")
+
 if(GE_REUSE_HOST_BUILD_INPUTS)
   add_custom_target(rust_build ALL
       COMMAND ${CMAKE_COMMAND} -E echo "Using existing Rust static library at ${RUST_LIB}"
