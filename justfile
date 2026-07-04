@@ -115,6 +115,17 @@ fmt:
     cd obs2/browser && npm run format:repo
     cd obs2/rust && rustup run nightly cargo fmt --
     find obs2 -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_rust.h -print0 | xargs -0 clang-format -style=file -i
+    just clippy
+
+clippy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build_dir="{{ justfile_directory() }}/obs2/build"
+    just configure-release
+    cmake --build "$build_dir" --target browser_build
+    source "$build_dir/rust-cargo-env.sh"
+
+    cd "{{ justfile_directory() }}/obs2/rust" && cargo clippy --all-targets -- -D warnings
 
 # runs the rust tests (cv matcher + monitor loop) against the fixture screenshots
 test-rust *args:

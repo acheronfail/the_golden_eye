@@ -268,72 +268,6 @@ pub fn collect_sources() -> Vec<routes::sources::Source> {
     routes::sources::collect_sources()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn monitor_version_event_uses_frontend_field_name() {
-        let event = MonitorEvent::Version { build_id: "abc123".to_owned() };
-        let json = serde_json::to_value(event).unwrap();
-
-        assert_eq!(json["type"], "version");
-        assert_eq!(json["buildId"], "abc123");
-        assert!(json.get("build_id").is_none());
-    }
-
-    #[test]
-    fn monitor_recording_state_event_can_clear_status() {
-        let event = MonitorEvent::RecordingState { status: None };
-        let json = serde_json::to_value(event).unwrap();
-
-        assert_eq!(json["type"], "recordingState");
-        assert!(json["status"].is_null());
-    }
-
-    #[test]
-    fn sources_event_uses_frontend_field_name() {
-        let event = MonitorEvent::Sources {
-            sources: vec![routes::sources::Source {
-                name: "N64 Capture".to_owned(),
-                id: "av_capture_input".to_owned(),
-            }],
-        };
-        let json = serde_json::to_value(event).unwrap();
-
-        assert_eq!(json["type"], "sources");
-        assert_eq!(json["sources"][0]["name"], "N64 Capture");
-        assert_eq!(json["sources"][0]["id"], "av_capture_input");
-    }
-
-    #[test]
-    fn recording_state_store_retains_state_without_receivers() {
-        let (tx, rx) = watch::channel(None);
-        let store = RecordingStateStore::new(tx);
-        drop(rx);
-
-        store.set(RecordingStatus::Started);
-        assert_eq!(store.current(), Some(RecordingStatus::Started));
-
-        store.set(RecordingStatus::SavePending);
-        store.set(RecordingStatus::Started);
-        store.clear_if_save_pending();
-        assert_eq!(store.current(), Some(RecordingStatus::Started));
-
-        store.clear();
-        assert_eq!(store.current(), None);
-    }
-
-    #[test]
-    fn monitor_stopped_event_uses_frontend_field_names() {
-        let event = MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped };
-        let json = serde_json::to_value(event).unwrap();
-
-        assert_eq!(json["type"], "monitorStopped");
-        assert_eq!(json["reason"], "replayBufferStopped");
-    }
-}
-
 /// Logs each request as it arrives and again once a response is produced.
 async fn log_requests(req: Request, next: Next) -> Response {
     let method = req.method().clone();
@@ -427,4 +361,70 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         })
         .await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn monitor_version_event_uses_frontend_field_name() {
+        let event = MonitorEvent::Version { build_id: "abc123".to_owned() };
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "version");
+        assert_eq!(json["buildId"], "abc123");
+        assert!(json.get("build_id").is_none());
+    }
+
+    #[test]
+    fn monitor_recording_state_event_can_clear_status() {
+        let event = MonitorEvent::RecordingState { status: None };
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "recordingState");
+        assert!(json["status"].is_null());
+    }
+
+    #[test]
+    fn sources_event_uses_frontend_field_name() {
+        let event = MonitorEvent::Sources {
+            sources: vec![routes::sources::Source {
+                name: "N64 Capture".to_owned(),
+                id: "av_capture_input".to_owned(),
+            }],
+        };
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "sources");
+        assert_eq!(json["sources"][0]["name"], "N64 Capture");
+        assert_eq!(json["sources"][0]["id"], "av_capture_input");
+    }
+
+    #[test]
+    fn recording_state_store_retains_state_without_receivers() {
+        let (tx, rx) = watch::channel(None);
+        let store = RecordingStateStore::new(tx);
+        drop(rx);
+
+        store.set(RecordingStatus::Started);
+        assert_eq!(store.current(), Some(RecordingStatus::Started));
+
+        store.set(RecordingStatus::SavePending);
+        store.set(RecordingStatus::Started);
+        store.clear_if_save_pending();
+        assert_eq!(store.current(), Some(RecordingStatus::Started));
+
+        store.clear();
+        assert_eq!(store.current(), None);
+    }
+
+    #[test]
+    fn monitor_stopped_event_uses_frontend_field_names() {
+        let event = MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped };
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "monitorStopped");
+        assert_eq!(json["reason"], "replayBufferStopped");
+    }
 }

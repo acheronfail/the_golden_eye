@@ -389,18 +389,14 @@ fn rename_run_clip(settings: &AppSettings, req: RunRenameRequest) -> std::result
     let target = parent.join(file_name);
 
     if target == path {
-        return tagged_clip(&path)?
-            .ok_or(RunPathError::Forbidden("run clip was not created by The Golden Eye"))
-            .map_err(Into::into);
+        return tagged_clip(&path)?.ok_or(RunPathError::Forbidden("run clip was not created by The Golden Eye"));
     }
     if target.exists() {
         return Err(RunPathError::Conflict("a run clip with that filename already exists"));
     }
 
     fs::rename(&path, &target).with_context(|| format!("renaming {} to {}", path.display(), target.display()))?;
-    tagged_clip(&target)?
-        .ok_or(RunPathError::Forbidden("run clip was not created by The Golden Eye"))
-        .map_err(Into::into)
+    tagged_clip(&target)?.ok_or(RunPathError::Forbidden("run clip was not created by The Golden Eye"))
 }
 
 fn update_run_metadata(
@@ -415,7 +411,7 @@ fn update_run_metadata(
     apply_metadata_update(&mut metadata, req.metadata)?;
     ffmpeg::rewrite_metadata_in_place(&path, &metadata).map_err(RunPathError::Internal)?;
 
-    tagged_clip(&path)?.ok_or(RunPathError::Forbidden("run clip was not created by The Golden Eye")).map_err(Into::into)
+    tagged_clip(&path)?.ok_or(RunPathError::Forbidden("run clip was not created by The Golden Eye"))
 }
 
 impl From<anyhow::Error> for RunPathError {
@@ -564,7 +560,7 @@ async fn serve_video_file(path: PathBuf, headers: &HeaderMap) -> Result<Response
         })?
         .len();
 
-    let range = parse_range(headers, len).map_err(|response| response.into_response())?;
+    let range = parse_range(headers, len).map_err(|response| *response)?;
     let (status, start, end) = match range {
         Some((start, end)) => (StatusCode::PARTIAL_CONTENT, start, end),
         None => (StatusCode::OK, 0, len.saturating_sub(1)),
@@ -602,7 +598,7 @@ async fn serve_video_file(path: PathBuf, headers: &HeaderMap) -> Result<Response
     Ok(response)
 }
 
-fn parse_range(headers: &HeaderMap, len: u64) -> std::result::Result<Option<(u64, u64)>, Response> {
+fn parse_range(headers: &HeaderMap, len: u64) -> std::result::Result<Option<(u64, u64)>, Box<Response>> {
     let Some(range) = headers.get(header::RANGE) else {
         return Ok(None);
     };
@@ -636,13 +632,15 @@ fn parse_range(headers: &HeaderMap, len: u64) -> std::result::Result<Option<(u64
     Ok(Some((start, end)))
 }
 
-fn range_not_satisfiable(len: u64) -> Response {
-    (
-        StatusCode::RANGE_NOT_SATISFIABLE,
-        [(header::CONTENT_RANGE, format!("bytes */{len}"))],
-        "requested range is not satisfiable",
+fn range_not_satisfiable(len: u64) -> Box<Response> {
+    Box::new(
+        (
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            [(header::CONTENT_RANGE, format!("bytes */{len}"))],
+            "requested range is not satisfiable",
+        )
+            .into_response(),
     )
-        .into_response()
 }
 
 fn configured_run_directories(settings: &AppSettings) -> Vec<ConfiguredRunDirectory> {

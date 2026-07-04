@@ -517,18 +517,18 @@ impl RecordingState {
                 now.saturating_duration_since(pending.clip_start).as_secs_f64() + self.options.pre_run_padding_secs();
             let finish_before_save_secs = now.saturating_duration_since(pending.finish_at).as_secs_f64();
             let trim_tail_secs = (finish_before_save_secs - self.options.post_run_padding_secs()).max(0.0);
-            spawn_save_and_trim(
+            spawn_save_and_trim(SaveAndTrimJob {
                 start_before_save_secs,
                 trim_tail_secs,
-                pending.status,
-                pending.completed_at,
-                pending.stats,
-                self.options.clone(),
-                self.source_name.clone(),
-                self.rom_language.clone(),
-                self.event_tx.clone(),
-                self.recording_state.clone(),
-            );
+                status: pending.status,
+                completed_at: pending.completed_at,
+                stats: pending.stats,
+                options: self.options.clone(),
+                source_name: self.source_name.clone(),
+                rom_language: self.rom_language.clone(),
+                event_tx: self.event_tx.clone(),
+                recording_state: self.recording_state.clone(),
+            });
         }
     }
 
@@ -648,11 +648,9 @@ impl RecordingState {
     }
 }
 
-/// Save the replay buffer and trim it to the last `elapsed` seconds, on a
-/// dedicated thread so the (blocking) save-wait and remux never stall the
-/// monitor's frame loop. On success, broadcasts a [`MonitorEvent::RecordingSaved`]
-/// over `event_tx` describing the written clip.
-fn spawn_save_and_trim(
+/// Inputs for saving the replay buffer and trimming it to the run window on a
+/// dedicated thread.
+struct SaveAndTrimJob {
     start_before_save_secs: f64,
     trim_tail_secs: f64,
     status: RunStatus,
@@ -663,7 +661,21 @@ fn spawn_save_and_trim(
     rom_language: String,
     event_tx: broadcast::Sender<MonitorEvent>,
     recording_state: RecordingStateStore,
-) {
+}
+
+struct TrimClipRequest<'a> {
+    replay_path: &'a str,
+    start_before_save_secs: f64,
+    trim_tail_secs: f64,
+    status: RunStatus,
+    completed_at: SystemTime,
+    stats: Option<LevelMatch>,
+    options: &'a RecordingOptions,
+    source_name: &'a str,
+    rom_language: &'a str,
+}
+
+fn spawn_save_and_trim(job: SaveAndTrimJob) {
     let spawned = std::thread::Builder::new().name("ge-replay-save".to_owned()).spawn(move || {
         // Snapshot the event generation before triggering the save so we only
         // wake on the event this save produces, not one already delivered.
@@ -680,22 +692,22 @@ fn spawn_save_and_trim(
             }
         };
 
-        match trim_clip(
-            &path,
-            start_before_save_secs,
-            trim_tail_secs,
-            status,
-            completed_at,
-            stats,
-            &options,
-            &source_name,
-            &rom_language,
-        ) {
+        match trim_clip(TrimClipRequest {
+            replay_path: &path,
+            start_before_save_secs: job.start_before_save_secs,
+            trim_tail_secs: job.trim_tail_secs,
+            status: job.status,
+            completed_at: job.completed_at,
+            stats: job.stats,
+            options: &job.options,
+            source_name: &job.source_name,
+            rom_language: &job.rom_language,
+        }) {
             Ok(saved) => {
                 // Ignore send errors: with no WebSocket clients there are no
                 // subscribers, but the save still succeeded.
-                let _ = event_tx.send(MonitorEvent::RecordingSaved(saved));
-                recording_state.clear_if_save_pending();
+                let _ = job.event_tx.send(MonitorEvent::RecordingSaved(saved));
+                job.recording_state.clear_if_save_pending();
             }
             Err(err) => tracing::error!("failed to trim replay clip: {err:#}"),
         }
@@ -708,31 +720,21 @@ fn spawn_save_and_trim(
 /// Trim the saved replay file down to the requested run window and write it
 /// alongside the replay file with a descriptive name, returning the details of
 /// the written clip.
-fn trim_clip(
-    replay_path: &str,
-    start_before_save_secs: f64,
-    trim_tail_secs: f64,
-    status: RunStatus,
-    completed_at: SystemTime,
-    stats: Option<LevelMatch>,
-    options: &RecordingOptions,
-    source_name: &str,
-    rom_language: &str,
-) -> anyhow::Result<RecordingSaved> {
-    let input = Path::new(replay_path);
+fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
+    let input = Path::new(req.replay_path);
     let duration = ffmpeg::duration_secs(input)?;
     // The file ends at ~the save moment. `start_before_save_secs` reaches back
     // to the detected start plus pre-run padding; `trim_tail_secs` removes any
     // extra delay beyond the requested post-run padding.
-    let end = (duration - trim_tail_secs).clamp(0.0, duration);
-    let start = (duration - start_before_save_secs).max(0.0).min(end);
+    let end = (duration - req.trim_tail_secs).clamp(0.0, duration);
+    let start = (duration - req.start_before_save_secs).max(0.0).min(end);
 
-    let failed = status.is_failed();
-    let dir = output_dir(input, failed, options);
+    let failed = req.status.is_failed();
+    let dir = output_dir(input, failed, req.options);
     ensure_output_directory(&dir)?;
     let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("replay");
     let ext = input.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
-    let name = clip_name(stem, status, completed_at, stats.as_ref(), options.clip_filename_template());
+    let name = clip_name(stem, req.status, req.completed_at, req.stats.as_ref(), req.options.clip_filename_template());
     let output = unique_output_path(&dir.join(format!("{name}.{ext}")));
 
     tracing::info!(
@@ -743,27 +745,28 @@ fn trim_clip(
         trim_end = end,
         duration,
         failed,
-        status = status.as_str(),
+        status = req.status.as_str(),
         "trimming replay clip",
     );
-    let clip_metadata = clip_metadata(status, completed_at, stats.as_ref(), source_name, rom_language);
+    let clip_metadata =
+        clip_metadata(req.status, req.completed_at, req.stats.as_ref(), req.source_name, req.rom_language);
     ffmpeg::trim_with_metadata(input, &output, start, end, Some(&clip_metadata))?;
     tracing::info!(output = %output.display(), "saved trimmed clip");
     if failed
         && let Err(err) =
-            prune_failed_clips(output.parent().unwrap_or_else(|| Path::new(".")), options.failed_run_limit)
+            prune_failed_clips(output.parent().unwrap_or_else(|| Path::new(".")), req.options.failed_run_limit)
     {
         tracing::warn!("failed to prune old failed clips: {err:#}");
     }
 
     Ok(RecordingSaved {
         path: output.to_string_lossy().into_owned(),
-        replay_path: replay_path.to_owned(),
+        replay_path: req.replay_path.to_owned(),
         // The clip spans [start, end]; clamping `start` above means this is the
         // buffer length when the run outran it, otherwise the configured window.
         duration_secs: end - start,
         failed,
-        stats,
+        stats: req.stats,
     })
 }
 
@@ -945,7 +948,7 @@ fn render_clip_template(
         .replace("{mission}", &mission)
         .replace("{part}", &part)
         .replace("{difficulty}", &difficulty)
-        .replace("{level}", &level)
+        .replace("{level}", level)
         .replace("{levelNumber}", &level_number)
         .replace("{time}", &time)
         .replace("{status}", status.as_str())
@@ -1236,30 +1239,30 @@ mod tests {
             ..RecordingOptions::default()
         };
 
-        let complete_saved = trim_clip(
-            &replay,
-            1.0,
-            0.0,
-            RunStatus::Complete,
-            UNIX_EPOCH,
-            Some(match_with_time()),
-            &options,
-            "N64 Capture",
-            "en",
-        )
+        let complete_saved = trim_clip(TrimClipRequest {
+            replay_path: &replay,
+            start_before_save_secs: 1.0,
+            trim_tail_secs: 0.0,
+            status: RunStatus::Complete,
+            completed_at: UNIX_EPOCH,
+            stats: Some(match_with_time()),
+            options: &options,
+            source_name: "N64 Capture",
+            rom_language: "en",
+        })
         .expect("trim completed clip");
 
-        let failed_saved = trim_clip(
-            &replay,
-            1.0,
-            0.0,
-            RunStatus::Failed,
-            UNIX_EPOCH + Duration::from_secs(1),
-            Some(match_with_time()),
-            &options,
-            "N64 Capture",
-            "en",
-        )
+        let failed_saved = trim_clip(TrimClipRequest {
+            replay_path: &replay,
+            start_before_save_secs: 1.0,
+            trim_tail_secs: 0.0,
+            status: RunStatus::Failed,
+            completed_at: UNIX_EPOCH + Duration::from_secs(1),
+            stats: Some(match_with_time()),
+            options: &options,
+            source_name: "N64 Capture",
+            rom_language: "en",
+        })
         .expect("trim failed clip");
 
         let complete_path = PathBuf::from(&complete_saved.path);
