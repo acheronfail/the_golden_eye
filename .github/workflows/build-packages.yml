@@ -178,6 +178,7 @@ jobs:
     needs: linux
 
     env:
+      VCPKG_ROOT: C:\vcpkg
       VCPKGRS_TRIPLET: x64-windows-static-md
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-bincache
 

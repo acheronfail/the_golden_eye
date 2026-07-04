@@ -24,6 +24,17 @@ if(WIN32)
   else()
     set(_ge_vcpkg_triplet "x64-windows-static-md")
   endif()
+  if(DEFINED ENV{VCPKG_ROOT})
+    file(TO_CMAKE_PATH "$ENV{VCPKG_ROOT}" _ge_vcpkg_root)
+  elseif(DEFINED ENV{VCPKG_INSTALLATION_ROOT})
+    file(TO_CMAKE_PATH "$ENV{VCPKG_INSTALLATION_ROOT}" _ge_vcpkg_root)
+  elseif(DEFINED CMAKE_TOOLCHAIN_FILE)
+    get_filename_component(_ge_vcpkg_buildsystems_dir "${CMAKE_TOOLCHAIN_FILE}" DIRECTORY)
+    get_filename_component(_ge_vcpkg_scripts_dir "${_ge_vcpkg_buildsystems_dir}" DIRECTORY)
+    get_filename_component(_ge_vcpkg_root "${_ge_vcpkg_scripts_dir}" DIRECTORY)
+  else()
+    set(_ge_vcpkg_root "C:/vcpkg")
+  endif()
 
   find_package(FFMPEG REQUIRED)
   message(STATUS "Linking FFmpeg from vcpkg/CMake package")
@@ -42,7 +53,10 @@ if(WIN32)
     endif()
   endif()
 
-  list(APPEND RUST_BUILD_ENV "VCPKGRS_TRIPLET=${_ge_vcpkg_triplet}")
+  list(APPEND RUST_BUILD_ENV
+      "VCPKG_ROOT=${_ge_vcpkg_root}"
+      "VCPKG_INSTALLATION_ROOT=${_ge_vcpkg_root}"
+      "VCPKGRS_TRIPLET=${_ge_vcpkg_triplet}")
   return()
 endif()
 
