@@ -1097,7 +1097,7 @@ mod tests {
     }
 
     fn sample_clip() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sample_clip.mov")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/clips/sample_clip.mov")
     }
 
     fn test_clip_metadata(status: &str, timestamp: &str) -> ffmpeg::ClipMetadata {

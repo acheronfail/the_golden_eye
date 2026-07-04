@@ -492,10 +492,8 @@ fn encode_rgb24_bmp(frame: &Video) -> std::io::Result<Vec<u8>> {
 mod tests {
     use super::*;
 
-    // A short sample clip lives at the repository root; used to exercise the
-    // trim path end-to-end against a real container.
     fn sample_clip() -> std::path::PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sample_clip.mov")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/clips/sample_clip.mov")
     }
 
     #[test]
