@@ -320,6 +320,7 @@ setup: obs-headers windows-vcpkg-deps
     cd obs2/browser && npm install
     cd test && npm install
 
+[unix]
 setup: obs-headers opencv-static ffmpeg-static vscode-settings
     cd obs2/browser && npm install
     cd test && npm install
