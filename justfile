@@ -283,13 +283,20 @@ _flatpak-build target:
       '
 
 obs-headers:
-    "{{ justfile_directory() }}/obs2/scripts/obs-headers.sh"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$(pwd)"
+    "${root}/obs2/scripts/obs-headers.sh"
 
 # Compile OpenCV statically, so we don't have to depend on users having it
 # installed on their system in order to use the plugin.
 # Delete the prefix to force a rebuild.
+[unix]
 opencv-static:
-    "{{ justfile_directory() }}/obs2/scripts/opencv-static.sh"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$(pwd)"
+    "${root}/obs2/scripts/opencv-static.sh"
 
 # Compile FFmpeg statically, the same way we do OpenCV, so we don't have to
 # depend on users having it installed in order to use the plugin. `ffmpeg-next`
@@ -299,8 +306,12 @@ opencv-static:
 #
 # x86_64 hosts need `nasm` (or `yasm`) for FFmpeg's hand-written assembly;
 # arm64 (Apple Silicon) does not.
+[unix]
 ffmpeg-static:
-    "{{ justfile_directory() }}/obs2/scripts/ffmpeg-static.sh"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$(pwd)"
+    "${root}/obs2/scripts/ffmpeg-static.sh"
 
 [windows]
 windows-vcpkg-deps:
