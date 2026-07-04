@@ -280,14 +280,18 @@ jobs:
           cd ../../test && npm install
 
       - name: Build Windows package
+        id: build-windows-package
         continue-on-error: true
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
           call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
-          bash -lc "just make-package"
+          where dumpbin.exe
+          where lib.exe
+          bash -c "just make-package"
 
       - name: Upload Windows package
+        if: steps.build-windows-package.outcome == 'success' && hashFiles('obs2/build/dist/*.zip') != ''
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:

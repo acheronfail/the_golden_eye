@@ -35,8 +35,22 @@ configure_file(
 )
 
 function(ge_make_windows_import_lib target_name dll_path out_lib)
-  find_program(GE_DUMPBIN_EXECUTABLE dumpbin.exe)
-  find_program(GE_LIB_EXECUTABLE lib.exe)
+  set(_ge_msvc_tool_hints "")
+  if(WIN32 AND DEFINED ENV{VCToolsInstallDir})
+    file(TO_CMAKE_PATH "$ENV{VCToolsInstallDir}" _ge_vc_tools_dir)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+      list(APPEND _ge_msvc_tool_hints
+          "${_ge_vc_tools_dir}/bin/Hostx64/x64"
+          "${_ge_vc_tools_dir}/bin/Hostx86/x64")
+    else()
+      list(APPEND _ge_msvc_tool_hints
+          "${_ge_vc_tools_dir}/bin/Hostx64/x86"
+          "${_ge_vc_tools_dir}/bin/Hostx86/x86")
+    endif()
+  endif()
+
+  find_program(GE_DUMPBIN_EXECUTABLE NAMES dumpbin.exe dumpbin HINTS ${_ge_msvc_tool_hints})
+  find_program(GE_LIB_EXECUTABLE NAMES lib.exe lib HINTS ${_ge_msvc_tool_hints})
   if(NOT GE_DUMPBIN_EXECUTABLE OR NOT GE_LIB_EXECUTABLE)
     message(FATAL_ERROR
             "dumpbin.exe and lib.exe are required to generate OBS import libraries. "
