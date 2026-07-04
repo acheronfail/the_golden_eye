@@ -8,16 +8,19 @@ changelog:
   categories:
     - title: Breaking Changes
       labels:
-        - Semver-Major
         - breaking-change
     - title: Features
       labels:
-        - Semver-Minor
         - enhancement
     - title: Fixes
       labels:
         - bug
         - fix
+    - title: Developer Experience
+      labels:
+        - repository
+        - dev
+        - ci
     - title: Dependencies
       labels:
         - dependencies
