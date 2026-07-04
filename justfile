@@ -49,9 +49,11 @@ configure-dev:
 configure-release:
     just configure Release OFF obs2/build
 
-vscode-settings: configure-release
+ide-settings: configure-release
     mkdir -p .vscode
     cp obs2/build/vscode-settings.json .vscode/settings.json
+    mkdir -p .zed
+    cp obs2/build/zed-settings.json .zed/settings.json
 
 # runs the project in dev mode (hot reloads for the UI and the plugin)
 #
@@ -330,7 +332,7 @@ setup: obs-headers windows-vcpkg-deps
     cd test && npm install
 
 [unix]
-setup: obs-headers opencv-static ffmpeg-static vscode-settings
+setup: obs-headers opencv-static ffmpeg-static ide-settings
     cd obs2/browser && npm install
     cd test && npm install
 
