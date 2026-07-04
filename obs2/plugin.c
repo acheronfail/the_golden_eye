@@ -30,7 +30,7 @@
 
 OBS_DECLARE_MODULE()
 
-#define GE_LOG(level, fmt, ...) blog(level, "[the-golden-eye] " fmt, ##__VA_ARGS__)
+#define GE_LOG(level, fmt, ...) blog(level, "[the_golden_eye] " fmt, ##__VA_ARGS__)
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096

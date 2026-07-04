@@ -10,14 +10,19 @@ mod stream_notifier;
 mod timer;
 
 use std::ffi::{CStr, CString};
+use std::fmt;
 use std::os::raw::c_char;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 
 use http::{AppState, AppStateInner, MonitorEvent, MonitorStoppedReason, RecordingStateStore};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
+use tracing::{Event, Subscriber};
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::FmtContext;
+use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
+use tracing_subscriber::registry::LookupSpan;
 
 use crate::settings::SettingsStore;
 
@@ -62,26 +67,44 @@ struct ServerHandle {
 
 /// Global handle to the running server. `None` when the server is stopped.
 static SERVER: Mutex<Option<ServerHandle>> = Mutex::new(None);
+static LOGGING_INIT: Once = Once::new();
 
-/// Start the HTTP server on a background tokio runtime. Returns immediately
-/// without blocking the calling (C) thread. Calling this while the server is
-/// already running is a no-op.
-#[unsafe(no_mangle)]
-pub extern "C" fn ge_rust_start() {
-    // setup logging
-    {
-        let subscriber =
-            tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+struct TheGoldenEyeLogFormat;
+
+impl<S, N> FormatEvent<S, N> for TheGoldenEyeLogFormat
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(&self, ctx: &FmtContext<'_, S, N>, mut writer: Writer<'_>, event: &Event<'_>) -> fmt::Result {
+        write!(writer, "[the_golden_eye] ")?;
+        tracing_subscriber::fmt::format().without_time().format_event(ctx, writer, event)
+    }
+}
+
+fn init_logging() {
+    LOGGING_INIT.call_once(|| {
+        let subscriber = tracing_subscriber::fmt().event_format(TheGoldenEyeLogFormat).with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
                 format!(
                     "{}={level},tower_http={level}",
                     env!("CARGO_CRATE_NAME"),
                     level = if cfg!(debug_assertions) { "debug" } else { "info" }
                 )
                 .into()
-            }));
+            }),
+        );
 
-        subscriber.init();
-    }
+        let _ = subscriber.try_init();
+    });
+}
+
+/// Start the HTTP server on a background tokio runtime. Returns immediately
+/// without blocking the calling (C) thread. Calling this while the server is
+/// already running is a no-op.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_rust_start() {
+    init_logging();
 
     configure_cv_template_dir();
 
