@@ -122,10 +122,10 @@ if(GE_REUSE_HOST_BUILD_INPUTS)
   add_custom_target(rust_build ALL
       COMMAND ${CMAKE_COMMAND} -E echo "Using existing Rust static library at ${RUST_LIB}"
       COMMAND ${CMAKE_COMMAND}
-              -DGE_REQUIRED_FILE="${RUST_LIB}"
+              "-DGE_REQUIRED_FILE=${RUST_LIB}"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check-file-exists.cmake"
       COMMAND ${CMAKE_COMMAND}
-              -DGE_REQUIRED_FILE="${CMAKE_CURRENT_SOURCE_DIR}/ge_rust.h"
+              "-DGE_REQUIRED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/ge_rust.h"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check-file-exists.cmake"
       VERBATIM
   )

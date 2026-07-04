@@ -67,7 +67,7 @@ else()
     add_custom_target(browser_build ALL
           COMMAND ${CMAKE_COMMAND} -E echo "Using existing browser bundle at ${BROWSER_BUNDLE}"
           COMMAND ${CMAKE_COMMAND}
-                  -DGE_REQUIRED_FILE="${BROWSER_BUNDLE}"
+                  "-DGE_REQUIRED_FILE=${BROWSER_BUNDLE}"
                   -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check-file-exists.cmake"
           VERBATIM
       )
@@ -82,7 +82,7 @@ else()
           # Fail the build if the bundle the Rust crate embeds wasn't produced,
           # rather than letting cargo fail later with an opaque include_str! error.
           COMMAND ${CMAKE_COMMAND}
-                  -DGE_REQUIRED_FILE="${BROWSER_BUNDLE}"
+                  "-DGE_REQUIRED_FILE=${BROWSER_BUNDLE}"
                   -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check-file-exists.cmake"
           WORKING_DIRECTORY "${BROWSER_DIR}"
           DEPENDS ${BROWSER_BUILD_DEPENDS}
