@@ -129,6 +129,7 @@ if(APPLE)
 elseif(WIN32)
   target_link_libraries(${CORE_NAME} PRIVATE
       bcrypt
+      ntdll
       ole32
       secur32
       user32
