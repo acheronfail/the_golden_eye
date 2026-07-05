@@ -1,0 +1,110 @@
+name: Bug report
+description: Report a problem with The Golden Eye OBS plugin
+title: ""
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the issue and what you expected to happen instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the steps needed to reproduce the issue.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.5, Windows 10, Arch Linux, Ubuntu 24.04, etc.
+    validations:
+      required: true
+
+  - type: input
+    id: obs-version
+    attributes:
+      label: OBS Studio version
+      placeholder: "Example: 31.0.3"
+    validations:
+      required: true
+
+  - type: input
+    id: golden-eye-version
+    description: You can find this in the header menu of The Golden Eye's interface.
+    attributes:
+      label: The Golden Eye version
+      placeholder: "Example: 0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: goldeneye-version
+    description: Either PAL, NTSC-U, NTSC-J or mod/romhack, also let us know if it's an official cartridge or via a flash cart
+    attributes:
+      label: GoldenEye 007 version/language
+      placeholder: "Official NTSC-J"
+    validations:
+      required: false
+
+  - type: input
+    id: capture-source
+    description: Let us know how you're capturing your N64's output into OBS!
+    attributes:
+      label: Capture device/source
+      placeholder: "RetroScaler2x, Rad2x, RetroTINK 4K, etc / HDMI Capture card, Composite capture, etc"
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        To get an OBS log:
+
+        1. Reproduce the issue in OBS.
+        2. In OBS, choose **Help > Log Files > Upload Current Log File**.
+        3. Copy the log URL and paste it below.
+
+        If you prefer to attach the log file directly, choose **Help > Log Files > Show Log Files** and attach the newest log file.
+
+        Typical log locations:
+
+        - Windows: `%APPDATA%\obs-studio\logs`
+        - macOS: `~/Library/Application Support/obs-studio/logs`
+        - Linux Flatpak: `~/.var/app/com.obsproject.Studio/config/obs-studio/logs`
+        - Linux: `~/.config/obs-studio/logs`
+
+  - type: input
+    id: obs-log-url
+    attributes:
+      label: OBS log URL
+      description: Paste the URL from **Help > Log Files > Upload Current Log File**.
+      placeholder: https://obsproject.com/logs/...
+    validations:
+      required: false
+
+  - type: upload
+    id: obs-log-file
+    attributes:
+      label: OBS log file
+      description: Attach the OBS log file if you did not upload it and paste a URL above.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add screenshots, videos, sample clips, or anything else that helps explain the issue.
+    validations:
+      required: false
