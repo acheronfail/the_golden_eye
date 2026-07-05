@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an idea, improvement, or other non-bug change
+title: ""
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: request
+    attributes:
+      label: What would you like to see?
+      description: Describe the change or idea.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why is this useful?
+      description: Explain the problem it solves or the workflow it improves.
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: What should it look like?
+      description: Add any details about expected behavior, UI, settings, integrations, or alternatives considered.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add screenshots, mockups, sample clips, links, or anything else that helps explain the request.
+    validations:
+      required: false
