@@ -115,6 +115,44 @@ fmt:
     cd obs2/browser && npm run format:repo
     cd obs2/rust && rustup run nightly cargo fmt --
     find obs2 -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_rust.h -print0 | xargs -0 clang-format -style=file -i
+    just clippy
+
+clippy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build_dir="{{ justfile_directory() }}/obs2/build"
+    just configure-release
+    cmake --build "$build_dir" --target browser_build
+    source "$build_dir/rust-cargo-env.sh"
+
+    cd "{{ justfile_directory() }}/obs2/rust" && cargo clippy --all-targets -- -D warnings
+
+preview-release sha="HEAD":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    sha="{{ sha }}"
+    target_sha="$(git rev-parse "$sha")"
+
+    last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$target_sha" 2>/dev/null || true)"
+    if [ -z "$last_tag" ]; then
+      echo "No previous release tag found for ${sha} (${target_sha})." >&2
+      exit 1
+    fi
+
+    if ! gh api "repos/:owner/:repo/commits/${target_sha}" >/dev/null 2>&1; then
+      branch="$(git branch --show-current)"
+      echo "GitHub cannot see ${sha} (${target_sha}), so it cannot generate release notes for it." >&2
+      echo "Make sure this commit exists on the remote and try again!" >&2
+      exit 1
+    fi
+
+    echo "Previewing release notes from ${last_tag}..${sha} (${target_sha})" >&2
+    gh api repos/:owner/:repo/releases/generate-notes \
+      -f tag_name="{{ git_plugin_version }}" \
+      -f previous_tag_name="$last_tag" \
+      -f target_commitish="$target_sha" \
+      --jq .body
 
 # runs the rust tests (cv matcher + monitor loop) against the fixture screenshots
 test-rust *args:

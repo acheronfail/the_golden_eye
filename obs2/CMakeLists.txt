@@ -1,5 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Newer CMake versions understand that Apple ld re-scans static archives and
+# does not need repeated libraries for Rust/OpenCV/FFmpeg dependency closure.
+# Keep the first occurrence so our explicit link order after libge_rust.a is
+# preserved while avoiding duplicate -l warnings on macOS.
+if(POLICY CMP0156)
+  cmake_policy(SET CMP0156 NEW)
+endif()
+if(POLICY CMP0179)
+  cmake_policy(SET CMP0179 NEW)
+endif()
+
 set(PLUGIN_NAME the_golden_eye)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 

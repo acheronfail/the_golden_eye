@@ -182,7 +182,7 @@ pub fn thumbnail_bmp(path: &Path, max_width: u32) -> anyhow::Result<Vec<u8>> {
 
     let mut receive_thumbnail = |decoder: &mut ffmpeg_next::decoder::Video| -> anyhow::Result<Option<Vec<u8>>> {
         let mut decoded = Video::empty();
-        while decoder.receive_frame(&mut decoded).is_ok() {
+        if decoder.receive_frame(&mut decoded).is_ok() {
             let mut rgb_frame = Video::empty();
             scaler.run(&decoded, &mut rgb_frame)?;
             return Ok(Some(encode_rgb24_bmp(&rgb_frame)?));
@@ -492,10 +492,8 @@ fn encode_rgb24_bmp(frame: &Video) -> std::io::Result<Vec<u8>> {
 mod tests {
     use super::*;
 
-    // A short sample clip lives at the repository root; used to exercise the
-    // trim path end-to-end against a real container.
     fn sample_clip() -> std::path::PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sample_clip.mov")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/clips/sample_clip.mov")
     }
 
     #[test]
