@@ -61,49 +61,9 @@ ide-settings: configure-release
 # (the Rust logic + OpenCV), which the shim dlopen's. In dev mode the shim
 # watches the core library on disk and hot-reloads it whenever it's rebuilt —
 # so editing the SvelteKit UI *or* the Rust code reloads live without
-# restarting OBS. The loop below relinks the core whenever Rust sources change.
+# restarting OBS. The dev helper relinks the core whenever Rust sources change.
 dev:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    root="$(pwd)"
-    # FIFO the rebuild loop pings to tell the plugin shim to hot-reload the core.
-    # Shared with the shim (dev_reload.c) via this env var.
-    export GE_RELOAD_FIFO="${TMPDIR:-/tmp}/ge_the_golden_eye.reload"
-    just configure-dev
-    cmake --build obs2/build
-    build_dir="${root}/obs2/build"
-
-    dev_pids=""
-    cleanup() { [ -n "$dev_pids" ] && kill $dev_pids 2>/dev/null || true; }
-    trap cleanup EXIT
-
-    # Vite dev server: hot reload for the SvelteKit SPA.
-    ( cd "$root/obs2/browser" && npm run dev ) &
-    dev_pids="$dev_pids $!"
-
-    # Rebuild the core library when the Rust sources change, then ping the shim
-    # so it hot-reloads the new core — a save in obs2/rust reloads inside the
-    # running OBS with no restart. (The ping is skipped until the shim has
-    # created the FIFO, i.e. once OBS has loaded the plugin.)
-    (
-      cd "$build_dir"
-      stamp="$(mktemp)"
-      while true; do
-        if [ -n "$(find "$root/obs2/rust/src" "$root/obs2/rust/Cargo.toml" -newer "$stamp" 2>/dev/null)" ]; then
-          touch "$stamp"
-          echo "[dev] rust change detected — rebuilding core…"
-          if cmake --build . --target golden_core; then
-            [ -p "$GE_RELOAD_FIFO" ] && ( printf '\n' > "$GE_RELOAD_FIFO" ) &
-          else
-            echo "[dev] core build failed; fix and save again"
-          fi
-        fi
-        sleep 1
-      done
-    ) &
-    dev_pids="$dev_pids $!"
-
-    OBS_PLUGINS_PATH="$build_dir" OBS_PLUGINS_DATA_PATH="$build_dir" obs
+    python3 obs2/scripts/dev.py
 
 test *filter: make-release
     cd test && npm run test -- {{ filter }}
