@@ -15,10 +15,13 @@
 System dependencies:
 
 - Common:
-  - `rustup`, `nodejs` (version from `.nvmrc`), `just`, `wget`
+  - `rustup`
+  - `nodejs` (version from `.nvmrc`)
+  - `just`
+  - `python3` (optional, for `just dev`)
 - Linux:
-  - Debian: `libdbus-1-dev libssl-dev nasm pkg-config`
-  - Arch Linux: `cmake nasm pkg-config`
+  - Debian: `libdbus-1-dev libssl-dev just nasm pkg-config`
+  - Arch Linux: `cmake just nasm pkg-config`
   - This project targets the Flatpak release of OBS Studio, so you need Flatpak installed, plus:
     - OBS: `flatpak install com.obsproject.Studio`
     - SDK: `flatpak install $(flatpak info --show-sdk com.obsproject.Studio)`
