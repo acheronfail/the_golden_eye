@@ -23,10 +23,10 @@ export FFMPEG_PREFIX := justfile_directory() / "obs2/vendor/ffmpeg-static"
 _default:
     just -l
 
-configure build_type browser_dev build_dir *cmake_args:
+configure build_type browser_dev *cmake_args:
     #!/usr/bin/env bash
     set -euo pipefail
-    build_dir="{{ build_dir }}"
+    build_dir="{{ justfile_directory() }}/obs2/build"
     source_dir="{{ justfile_directory() }}/obs2"
     cache="${build_dir}/CMakeCache.txt"
     if [ -f "${cache}" ] && ! grep -qx "CMAKE_HOME_DIRECTORY:INTERNAL=${source_dir}" "${cache}"; then
@@ -41,13 +41,13 @@ configure build_type browser_dev build_dir *cmake_args:
       -DGE_PLUGIN_VERSION="{{ plugin_version }}" {{ cmake_args }}
 
 configure-debug:
-    just configure Debug OFF obs2/build
+    just configure Debug OFF
 
 configure-dev:
-    just configure Debug ON obs2/build
+    just configure Debug ON
 
 configure-release:
-    just configure Release OFF obs2/build
+    just configure Release OFF
 
 ide-settings: configure-release
     mkdir -p .vscode
@@ -190,7 +190,7 @@ configure-release-windows:
       vcpkg_root="$(cygpath -m "${vcpkg_root}")"
     fi
     export VCPKGRS_TRIPLET="${VCPKGRS_TRIPLET:-x64-windows-static-md}"
-    just configure Release OFF obs2/build \
+    just configure Release OFF \
       -DCMAKE_TOOLCHAIN_FILE="${vcpkg_root}/scripts/buildsystems/vcpkg.cmake" \
       -DVCPKG_TARGET_TRIPLET="${VCPKGRS_TRIPLET}"
 
