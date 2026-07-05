@@ -41,27 +41,27 @@ body:
 
   - type: input
     id: golden-eye-version
-    description: You can find this in the header menu of The Golden Eye's interface.
     attributes:
       label: The Golden Eye version
+      description: You can find this in the header menu of The Golden Eye's interface.
       placeholder: "Example: 0.1.0"
     validations:
       required: true
 
   - type: input
     id: goldeneye-version
-    description: Either PAL, NTSC-U, NTSC-J or mod/romhack, also let us know if it's an official cartridge or via a flash cart
     attributes:
       label: GoldenEye 007 version/language
+      description: Either PAL, NTSC-U, NTSC-J, or a mod/romhack. Also let us know if it is an official cartridge or a flash cart.
       placeholder: "Official NTSC-J"
     validations:
       required: false
 
   - type: input
     id: capture-source
-    description: Let us know how you're capturing your N64's output into OBS!
     attributes:
       label: Capture device/source
+      description: Let us know how you are capturing your N64's output into OBS.
       placeholder: "RetroScaler2x, Rad2x, RetroTINK 4K, etc / HDMI Capture card, Composite capture, etc"
     validations:
       required: true
@@ -93,11 +93,11 @@ body:
     validations:
       required: false
 
-  - type: upload
+  - type: textarea
     id: obs-log-file
     attributes:
-      label: OBS log file
-      description: Attach the OBS log file if you did not upload it and paste a URL above.
+      label: OBS log file or attachments
+      description: Attach the OBS log file here if you did not upload it and paste a URL above. You can click this field and drag log files, screenshots, videos, or sample clips into it.
     validations:
       required: false
 
