@@ -56,14 +56,9 @@ fn resolve_cv_template_dir(data_path: Option<&Path>, binary_path: Option<&Path>)
     }
 
     let binary_dir = binary_path.and_then(Path::parent)?;
-    [
-        "../../data/cv_templates",
-        "../Resources/cv_templates",
-        "../cv_templates",
-        "cv_templates",
-    ]
-    .into_iter()
-    .find_map(|relative| existing_template_dir(binary_dir.join(relative)))
+    ["../../data/cv_templates", "../Resources/cv_templates", "../cv_templates", "cv_templates"]
+        .into_iter()
+        .find_map(|relative| existing_template_dir(binary_dir.join(relative)))
 }
 
 fn configure_cv_template_dir() {
