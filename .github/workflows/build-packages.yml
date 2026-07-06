@@ -93,6 +93,14 @@ jobs:
       - name: Run frame regression tests
         run: just test
 
+      - name: Upload frame regression test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: frame-regression-test-results-linux
+          path: test/test_results.json
+          if-no-files-found: ignore
+
       - name: Run Rust tests
         run: just test-rust
 
