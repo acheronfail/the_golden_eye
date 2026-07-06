@@ -103,7 +103,7 @@ export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseSt
 		case null:
 		default:
 			return {
-				title: 'waiting for level start',
+				title: 'waiting',
 				border: 'obs-phase-gold-border',
 				heading: 'obs-phase-gold-text',
 				tag: 'obs-phase-gold-text',

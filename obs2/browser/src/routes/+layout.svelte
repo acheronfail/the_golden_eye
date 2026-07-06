@@ -16,8 +16,11 @@
 	let menuButton = $state<HTMLButtonElement>();
 	let menuPanel = $state<HTMLElement>();
 	let menuOpen = $state(false);
+	let windowFocused = $state(true);
 
 	onMount(() => {
+		windowFocused = document.hasFocus();
+
 		startAppSocket();
 		void settings.load().catch((err) => {
 			console.warn('Failed to load settings', err);
@@ -120,6 +123,14 @@
 		menuButton?.focus();
 	};
 
+	const onWindowFocus = () => {
+		windowFocused = true;
+	};
+
+	const onWindowBlur = () => {
+		windowFocused = false;
+	};
+
 	const bannerClass =
 		'obs-banner inline-block max-w-full p-2 text-left font-mono text-[10px] leading-[1.17] whitespace-pre';
 	const bannerText = `\
@@ -150,9 +161,12 @@
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
-<svelte:window onclick={onWindowClick} onkeydown={onWindowKeydown} />
+<svelte:window onclick={onWindowClick} onkeydown={onWindowKeydown} onfocus={onWindowFocus} onblur={onWindowBlur} />
 
-<div class="obs-app-shell flex h-screen min-h-0 min-w-100 flex-col overflow-hidden">
+<div
+	class="obs-app-shell flex h-screen min-h-0 min-w-100 flex-col overflow-hidden"
+	class:obs-window-focused={windowFocused}
+>
 	<header class="obs-app-header relative flex shrink-0 items-center">
 		<a href="/" aria-label="The Golden Eye home" class="block min-w-0 shrink overflow-hidden">
 			<pre class={bannerClass}>{bannerText}</pre>
