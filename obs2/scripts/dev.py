@@ -25,10 +25,7 @@ RELOAD_FIFO = Path(os.environ.get("TMPDIR", "/tmp")) / "ge_the_golden_eye.reload
 
 def obs_plugin_paths() -> tuple[Path, Path]:
     if sys.platform == "darwin":
-        return (
-            BUILD_DIR / "%module%.plugin" / "Contents" / "MacOS",
-            BUILD_DIR / "%module%.plugin" / "Contents" / "Resources",
-        )
+        return BUILD_DIR, BUILD_DIR
 
     if sys.platform.startswith("linux"):
         arch_dir = "64bit" if sys.maxsize > 2**32 else "32bit"
