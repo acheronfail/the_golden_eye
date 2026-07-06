@@ -23,6 +23,20 @@ RUST_MANIFEST = ROOT / "obs2" / "rust" / "Cargo.toml"
 RELOAD_FIFO = Path(os.environ.get("TMPDIR", "/tmp")) / "ge_the_golden_eye.reload"
 
 
+def obs_plugin_paths() -> tuple[Path, Path]:
+    if sys.platform == "darwin":
+        return (
+            BUILD_DIR / "%module%.plugin" / "Contents" / "MacOS",
+            BUILD_DIR / "%module%.plugin" / "Contents" / "Resources",
+        )
+
+    if sys.platform.startswith("linux"):
+        arch_dir = "64bit" if sys.maxsize > 2**32 else "32bit"
+        return BUILD_DIR / "%module%" / "bin" / arch_dir, BUILD_DIR / "%module%" / "data"
+
+    return BUILD_DIR, BUILD_DIR
+
+
 class ProcessManager:
     def __init__(self) -> None:
         self.processes: list[subprocess.Popen[bytes]] = []
@@ -182,9 +196,10 @@ def main() -> int:
         watcher = threading.Thread(target=rust_watch_loop, args=(manager, stop_event), daemon=True)
         watcher.start()
 
+        plugin_path, data_path = obs_plugin_paths()
         env = os.environ.copy()
-        env["OBS_PLUGINS_PATH"] = str(BUILD_DIR)
-        env["OBS_PLUGINS_DATA_PATH"] = str(BUILD_DIR)
+        env["OBS_PLUGINS_PATH"] = str(plugin_path)
+        env["OBS_PLUGINS_DATA_PATH"] = str(data_path)
         obs = manager.start(["obs"], env=env)
         obs_status = obs.wait()
         manager.forget(obs)

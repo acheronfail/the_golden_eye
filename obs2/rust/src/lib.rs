@@ -9,9 +9,10 @@ mod settings;
 mod stream_notifier;
 mod timer;
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::fmt;
 use std::os::raw::c_char;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 
@@ -28,23 +29,53 @@ use crate::settings::SettingsStore;
 
 pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
 
-fn configure_cv_template_dir() {
-    if std::env::var_os("GE_CV_TEMPLATE_DIR").is_some() {
-        tracing::debug!("using GE_CV_TEMPLATE_DIR override for CV templates");
-        return;
-    }
+type ObsPathGetter = unsafe extern "C" fn(*mut c_char, usize) -> bool;
 
-    let file = CString::new("cv_templates").expect("static string contains no nul");
+fn read_obs_path(getter: ObsPathGetter) -> Option<PathBuf> {
     let mut buffer = vec![0 as c_char; 4096];
-    let ok = unsafe { ffi::ge_obs_module_file(file.as_ptr(), buffer.as_mut_ptr(), buffer.len()) };
+    let ok = unsafe { getter(buffer.as_mut_ptr(), buffer.len()) };
     if !ok {
-        tracing::warn!("OBS did not resolve the bundled CV templates directory");
-        return;
+        return None;
     }
 
-    let template_dir = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().into_owned();
-    tracing::debug!(template_dir, "resolved bundled CV templates directory");
-    cv::set_template_dir(template_dir);
+    let path = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().into_owned();
+    if path.is_empty() { None } else { Some(PathBuf::from(path)) }
+}
+
+fn existing_template_dir(candidate: impl AsRef<Path>) -> Option<PathBuf> {
+    let candidate = candidate.as_ref();
+    if !candidate.is_dir() {
+        return None;
+    }
+    Some(candidate.canonicalize().unwrap_or_else(|_| candidate.to_path_buf()))
+}
+
+fn resolve_cv_template_dir(data_path: Option<&Path>, binary_path: Option<&Path>) -> Option<PathBuf> {
+    if let Some(path) = data_path.and_then(|path| existing_template_dir(path.join("cv_templates"))) {
+        return Some(path);
+    }
+
+    let binary_dir = binary_path.and_then(Path::parent)?;
+    ["../../data/cv_templates", "../Resources/cv_templates", "../cv_templates", "cv_templates"]
+        .into_iter()
+        .find_map(|relative| existing_template_dir(binary_dir.join(relative)))
+}
+
+fn configure_cv_template_dir() {
+    let data_path = read_obs_path(ffi::ge_obs_module_data_path);
+    let binary_path = read_obs_path(ffi::ge_obs_module_binary_path);
+
+    let Some(template_dir) = resolve_cv_template_dir(data_path.as_deref(), binary_path.as_deref()) else {
+        tracing::warn!(
+            data_path = ?data_path,
+            binary_path = ?binary_path,
+            "OBS did not resolve the bundled CV templates directory"
+        );
+        return;
+    };
+
+    tracing::debug!(template_dir = %template_dir.display(), "resolved bundled CV templates directory");
+    cv::set_template_dir(template_dir.to_string_lossy().into_owned());
 }
 
 /// Ensures the OBS custom browser dock is registered after OBS has completed

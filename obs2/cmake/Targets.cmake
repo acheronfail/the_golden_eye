@@ -17,15 +17,19 @@ set(CORE_NAME golden_core)
 # Runtime bundle layout:
 # - macOS: OBS loads the .plugin bundle executable from Contents/MacOS, so keep
 #   the core next to it and put templates in the bundle resources directory.
-# - Linux: OBS loads the plugin shared object from the build/install plugin
-#   directory, so keep the core and templates beside it.
+# - Linux: OBS's module scanner expects a plugin-shaped directory with
+#   bin/<arch> for libraries and data/ for module files.
 if(APPLE)
   set(GE_PLUGIN_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PLUGIN_NAME}.plugin/Contents/MacOS")
-  set(GE_BUNDLED_TEMPLATE_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PLUGIN_NAME}.plugin/Contents/Resources/cv_templates")
+  set(GE_PLUGIN_DATA_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PLUGIN_NAME}.plugin/Contents/Resources")
+elseif(UNIX)
+  set(GE_PLUGIN_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PLUGIN_NAME}/bin/${GE_OBS_ARCH_DIR}")
+  set(GE_PLUGIN_DATA_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PLUGIN_NAME}/data")
 else()
   set(GE_PLUGIN_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}")
-  set(GE_BUNDLED_TEMPLATE_DIR "${CMAKE_CURRENT_BINARY_DIR}/cv_templates")
+  set(GE_PLUGIN_DATA_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 endif()
+set(GE_BUNDLED_TEMPLATE_DIR "${GE_PLUGIN_DATA_DIR}/cv_templates")
 
 if(WIN32 AND BROWSER_DEV)
   message(FATAL_ERROR "BROWSER_DEV hot reload is not supported on Windows yet; configure with -DBROWSER_DEV=OFF.")
@@ -212,6 +216,12 @@ if(APPLE)
         BUNDLE_EXTENSION "plugin"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/templates/Info.plist.in"
         PREFIX ""
+    )
+elseif(UNIX)
+  set_target_properties(${PLUGIN_NAME} PROPERTIES
+        PREFIX ""
+        LIBRARY_OUTPUT_DIRECTORY "${GE_PLUGIN_RUNTIME_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY "${GE_PLUGIN_RUNTIME_DIR}"
     )
 else()
   set_target_properties(${PLUGIN_NAME} PROPERTIES PREFIX "")

@@ -76,7 +76,7 @@ pub(crate) fn set_template_dir(path: String) {
 }
 
 pub fn template_dir() -> Option<String> {
-    std::env::var("GE_CV_TEMPLATE_DIR").ok().or_else(|| TEMPLATE_DIR.get().cloned())
+    TEMPLATE_DIR.get().cloned()
 }
 
 // Correlation needed to accept a mission/part/difficulty label match.
