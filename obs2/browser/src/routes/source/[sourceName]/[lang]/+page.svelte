@@ -43,6 +43,7 @@
 				? 'stopping monitor'
 				: (currentMatch?.screen ?? '...')
 	);
+	const showDetail = $derived(waitingForObs || detail.trim().toLowerCase() !== 'unknown');
 
 	// Format a level time (whole seconds) as m:ss for the stats overlay readout.
 	const formatTime = (secs: number): string => {
@@ -180,6 +181,23 @@
 		     reads even from peripheral vision. -->
 		<div class="pointer-events-none absolute inset-0 z-10 border-8 {style.border}"></div>
 
+		{#if monitoring}
+			<div class="absolute top-6 left-1/2 z-20 flex -translate-x-1/2 flex-col items-center">
+				<button
+					type="button"
+					class="obs-button obs-button-danger min-h-11 px-5 py-2 text-sm shadow-lg shadow-black/25"
+					disabled={transition === 'stopping'}
+					aria-label="Stop monitoring"
+					onclick={stopMonitor}
+				>
+					{transition === 'stopping' ? 'stopping monitor' : 'stop monitor'}
+				</button>
+				<p class="obs-subtitle mt-2 text-xs whitespace-nowrap">
+					{waitingForObs ? 'OBS is finishing the replay buffer transition' : 'press escape or space to stop monitoring'}
+				</p>
+			</div>
+		{/if}
+
 		<p class="font-mono text-xs tracking-widest {style.tag} uppercase">
 			{statusLabel}
 			<span>({params.lang})</span>
@@ -189,10 +207,12 @@
 		<h1 class="mt-4 text-6xl font-semibold wrap-break-word {style.heading}">
 			{title}
 		</h1>
-		<!-- The raw matched screen, for detail beneath the plain-language title. -->
-		<p class="obs-dim mt-3 font-mono text-xs tracking-widest uppercase">
-			{detail}
-		</p>
+		{#if showDetail}
+			<!-- The raw matched screen, for detail beneath the plain-language title. -->
+			<p class="obs-dim mt-3 font-mono text-xs tracking-widest uppercase">
+				{detail}
+			</p>
+		{/if}
 
 		{#if currentTimes && !waitingForObs}
 			<!-- Stats overlay is on screen (e.g. while a save is pending): surface the
@@ -218,10 +238,6 @@
 				{/if}
 			</div>
 		{/if}
-
-		<p class="obs-subtitle mt-6 text-sm">
-			{waitingForObs ? 'OBS is finishing the replay buffer transition' : 'press escape or space to stop monitoring'}
-		</p>
 	</main>
 {:else}
 	<WizardFrame
