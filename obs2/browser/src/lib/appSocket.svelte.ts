@@ -1,6 +1,12 @@
 import { browser } from '$app/environment';
 import { connectAppSocket } from './api';
-import { applyMonitorMatch, applyMonitorStopped, applyRecordingSaved, applyRecordingState } from './monitor.svelte';
+import {
+	applyMonitorMatch,
+	applyMonitorStopped,
+	applyRecordingSaved,
+	applyRecordingSavePending,
+	applyRecordingState
+} from './monitor.svelte';
 import { refreshReplayBuffer } from './replayBuffer.svelte';
 import { setObsSources } from './sources.svelte';
 
@@ -30,6 +36,7 @@ const connect = (): void => {
 		onSources: setObsSources,
 		onMatch: applyMonitorMatch,
 		onRecordingState: applyRecordingState,
+		onRecordingSavePending: applyRecordingSavePending,
 		onRecordingSaved: applyRecordingSaved,
 		onMonitorStopped: (reason) => {
 			applyMonitorStopped(reason);

@@ -64,6 +64,7 @@ unsafe extern "C" {
     /// Writes the buffered window to disk. The save is asynchronous; OBS fires
     /// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED` (handled in `core.c`, forwarded
     /// to `ge_replay_buffer_saved`) once the file is written.
+    #[cfg(not(test))]
     pub fn obs_frontend_replay_buffer_save();
     /// Whether the replay buffer output is currently running.
     pub fn obs_frontend_replay_buffer_active() -> bool;

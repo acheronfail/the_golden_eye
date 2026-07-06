@@ -3,10 +3,11 @@ import {
 	type LevelMatch,
 	type MonitorStatus,
 	type MonitorStoppedReason,
+	type RecordingSavePending,
 	type RecordingSaved,
 	type RecordingStatus
 } from './api';
-import { addNotificationFlag } from './notifications.svelte';
+import { addNotificationFlag, replaceNotificationFlag } from './notifications.svelte';
 
 export interface MonitorPhaseStyle {
 	title: string;
@@ -91,15 +92,6 @@ export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseSt
 				button: 'obs-phase-neutral-button',
 				dot: 'obs-phase-neutral-dot'
 			};
-		case 'savePending':
-			return {
-				title: 'saving recording',
-				border: 'obs-phase-gold-border',
-				heading: 'obs-phase-gold-text',
-				tag: 'obs-phase-gold-text',
-				button: 'obs-phase-gold-button',
-				dot: 'obs-phase-gold-dot'
-			};
 		case null:
 		default:
 			return {
@@ -142,13 +134,47 @@ const clearRunState = () => {
 	monitor.recordingState = null;
 };
 
+const pendingSaveNotificationIds = new Map<number, number>();
+
+const visibleRecordingState = (status: RecordingStatus | null): RecordingStatus | null =>
+	status === 'savePending' ? null : status;
+
+const formatWholeSeconds = (value: number): string => {
+	const seconds = Math.max(0, Math.ceil(value));
+	return `${seconds} second${seconds === 1 ? '' : 's'}`;
+};
+
+const formatRunTime = (seconds: number): string => {
+	const m = Math.floor(seconds / 60);
+	const s = seconds % 60;
+	return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
+const savePendingDetail = (pending: RecordingSavePending): string => {
+	const parts = [
+		pending.levelNumber ? `${pending.levelNumber}. ${pending.level}` : pending.level,
+		pending.difficulty,
+		pending.timeSecs !== undefined ? formatRunTime(pending.timeSecs) : undefined,
+		pending.status
+	].filter((part): part is string => Boolean(part));
+	return parts.join(' | ');
+};
+
+const savePendingMeta = (pending: RecordingSavePending): string => {
+	const parts = [`Clip will save in ${formatWholeSeconds(pending.saveInSecs)}`];
+	parts.push(`about ${pending.estimatedDurationSecs.toFixed(1)}s`);
+	if (pending.targetTimeSecs !== undefined) parts.push(`target ${formatRunTime(pending.targetTimeSecs)}`);
+	if (pending.bestTimeSecs !== undefined) parts.push(`best ${formatRunTime(pending.bestTimeSecs)}`);
+	return parts.join(' | ');
+};
+
 export const applyMonitorMatch = (match: LevelMatch): void => {
 	monitor.match = match;
 };
 
 export const applyRecordingState = (status: RecordingStatus | null): void => {
 	const previous = monitor.recordingState;
-	monitor.recordingState = status;
+	monitor.recordingState = visibleRecordingState(status);
 	if (status === 'kia' && previous !== 'kia') {
 		triggerKiaDeathOverlay();
 	}
@@ -158,16 +184,39 @@ export const triggerKiaDeathOverlay = (): void => {
 	monitor.kiaEffectId += 1;
 };
 
+export const applyRecordingSavePending = (pending: RecordingSavePending): void => {
+	const flag = addNotificationFlag({
+		title: 'Saving recording',
+		detail: savePendingDetail(pending),
+		meta: savePendingMeta(pending),
+		tone: pending.failed ? 'warning' : 'info',
+		sticky: true
+	});
+	pendingSaveNotificationIds.set(pending.saveId, flag.id);
+};
+
 export const applyRecordingSaved = (saved: RecordingSaved): void => {
-	if (monitor.recordingState === 'savePending' || monitor.recordingState === 'statsSkipped') {
+	if (
+		monitor.recordingState === 'complete' ||
+		monitor.recordingState === 'failed' ||
+		monitor.recordingState === 'aborted' ||
+		monitor.recordingState === 'kia' ||
+		monitor.recordingState === 'statsSkipped'
+	) {
 		monitor.recordingState = null;
 	}
-	addNotificationFlag({
+	const notification = {
 		title: 'Clip saved',
 		detail: saved.path,
 		meta: `${saved.durationSecs.toFixed(1)}s${saved.failed ? ' - failed' : ''}`,
 		tone: saved.failed ? 'warning' : 'success'
-	});
+	} as const;
+	const pendingFlagId = pendingSaveNotificationIds.get(saved.saveId);
+	if (pendingFlagId !== undefined) {
+		pendingSaveNotificationIds.delete(saved.saveId);
+		if (replaceNotificationFlag(pendingFlagId, notification)) return;
+	}
+	addNotificationFlag(notification);
 };
 
 export const setMonitorRunning = (sourceName: string, lang: string): void => {
@@ -209,7 +258,7 @@ export const refreshMonitor = async (): Promise<MonitorStatus> => {
 		if (!status.enabled || monitorChanged) {
 			clearRunState();
 		}
-		monitor.recordingState = status.enabled ? status.recordingState : null;
+		monitor.recordingState = status.enabled ? visibleRecordingState(status.recordingState) : null;
 		return monitor.status;
 	} catch (err) {
 		monitor.status = null;

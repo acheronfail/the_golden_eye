@@ -21,7 +21,7 @@ use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::cv::{LevelMatch, Screen};
-use crate::http::{MonitorEvent, RecordingSaved, RecordingStateStore, RecordingStatus};
+use crate::http::{MonitorEvent, RecordingSavePending, RecordingSaved, RecordingStateStore, RecordingStatus};
 use crate::{ffmpeg, ge};
 
 /// Default filename template for trimmed clips. Mirrors the frontend default and
@@ -34,6 +34,7 @@ const PRE_RUN_MATCH_BUFFER_SECS: f64 = 0.5;
 /// How long to wait for OBS to finish writing the saved replay file before
 /// giving up. The save is asynchronous; we block on the replay-saved event
 /// (delivered via [`on_replay_saved`]) rather than polling.
+#[cfg(not(test))]
 const REPLAY_SAVE_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long a monitor start should wait for OBS to finish an in-progress replay
 /// buffer stop before giving up.
@@ -190,12 +191,14 @@ pub fn on_replay_buffer_stopped() {
 
 /// The current event generation. Snapshotted *before* triggering a save so the
 /// subsequent wait only resolves on a new event, never one already delivered.
+#[cfg(not(test))]
 fn replay_saved_generation() -> u64 {
     REPLAY_SAVED.lock().unwrap_or_else(|p| p.into_inner()).generation
 }
 
 /// Block until a replay-saved event newer than `since` arrives, returning the
 /// path OBS wrote, or `None` on timeout (or if the event carried no path).
+#[cfg(not(test))]
 fn wait_for_replay_saved(since: u64, timeout: Duration) -> Option<String> {
     let start = Instant::now();
     let mut guard = REPLAY_SAVED.lock().unwrap_or_else(|p| p.into_inner());
@@ -360,6 +363,8 @@ pub fn stop_replay_buffer_if_active() {
 /// the level grid or immediately starting another run can never drop it -- it
 /// still fires on its own timer.
 struct PendingSave {
+    /// Identifier shared by the pending and saved WebSocket events.
+    save_id: u64,
     /// When the post-run padding window elapses and we save the buffer.
     fire_at: Instant,
     /// When the run began -- the anchor for where the trimmed clip starts.
@@ -416,6 +421,32 @@ impl RunStatus {
     }
 }
 
+fn recording_save_pending_event(
+    save_id: u64,
+    save_delay: Duration,
+    estimated_duration_secs: f64,
+    status: RunStatus,
+    stats: Option<&LevelMatch>,
+) -> RecordingSavePending {
+    let level_info = stats.and_then(|m| ge::level_info(m.mission, m.part));
+    let times = stats.and_then(|m| m.times);
+
+    RecordingSavePending {
+        save_id,
+        save_in_secs: save_delay.as_secs_f64(),
+        estimated_duration_secs,
+        failed: status.is_failed(),
+        status: status.as_str().to_owned(),
+        level: level_info.map(|info| info.name.to_owned()).unwrap_or_else(|| "unknown".to_owned()),
+        level_number: level_info.map(|info| info.number),
+        difficulty: stats.and_then(|m| ge::difficulty_name(m.difficulty)).map(str::to_owned),
+        time_secs: times.map(|t| t.time),
+        target_time_secs: times.and_then(|t| t.target_time),
+        best_time_secs: times.and_then(|t| t.best_time),
+        stats: stats.cloned(),
+    }
+}
+
 /// Tracks one recording session as it moves through the on-screen states, and
 /// drives the replay-buffer save + trim when a run finishes. Fed one matched
 /// frame at a time via [`RecordingState::on_frame`].
@@ -439,6 +470,9 @@ pub struct RecordingState {
     /// set it is always saved when its timer elapses, even if the user backs out
     /// or starts another run in the meantime.
     pending: Option<PendingSave>,
+    /// Monotonic id assigned to the next scheduled save so frontend notifications
+    /// can be replaced when that save completes.
+    next_save_id: u64,
     /// Broadcasts a [`MonitorEvent::RecordingSaved`] to WebSocket clients once a
     /// clip is written. Cloned into each save thread.
     event_tx: broadcast::Sender<MonitorEvent>,
@@ -465,6 +499,7 @@ impl RecordingState {
             status: None,
             report: None,
             pending: None,
+            next_save_id: 1,
             event_tx,
             recording_state,
             options,
@@ -494,7 +529,15 @@ impl RecordingState {
             return false;
         }
         let save_delay = self.options.save_delay();
+        let save_id = self.next_save_id;
+        self.next_save_id = self.next_save_id.saturating_add(1).max(1);
+        let estimated_duration_secs = now.saturating_duration_since(clip_start).as_secs_f64()
+            + self.options.pre_run_padding_secs()
+            + self.options.post_run_padding_secs();
+        let pending_event =
+            recording_save_pending_event(save_id, save_delay, estimated_duration_secs, status, stats.as_ref());
         self.pending = Some(PendingSave {
+            save_id,
             fire_at: now + save_delay,
             clip_start,
             finish_at: now,
@@ -504,20 +547,22 @@ impl RecordingState {
         });
         self.status = None;
         self.report = None;
+        let _ = self.event_tx.send(MonitorEvent::RecordingSavePending(pending_event));
         tracing::info!(?save_delay, "recording save scheduled");
         true
     }
 
-    /// Save and trim the pending clip, if any, anchored to `now` as the save
-    /// moment (the saved file ends at ~now, so the run is its final `elapsed`
-    /// seconds). A no-op when nothing is pending.
-    fn flush_pending(&mut self, now: Instant) {
+    /// Build a save+trim job for the pending clip, if any, anchored to `now` as
+    /// the save moment (the saved file ends at ~now, so the run is its final
+    /// `elapsed` seconds). A no-op when nothing is pending.
+    fn take_pending_job(&mut self, now: Instant) -> Option<SaveAndTrimJob> {
         if let Some(pending) = self.pending.take() {
             let start_before_save_secs =
                 now.saturating_duration_since(pending.clip_start).as_secs_f64() + self.options.pre_run_padding_secs();
             let finish_before_save_secs = now.saturating_duration_since(pending.finish_at).as_secs_f64();
             let trim_tail_secs = (finish_before_save_secs - self.options.post_run_padding_secs()).max(0.0);
-            spawn_save_and_trim(SaveAndTrimJob {
+            Some(SaveAndTrimJob {
+                save_id: pending.save_id,
                 start_before_save_secs,
                 trim_tail_secs,
                 status: pending.status,
@@ -528,7 +573,45 @@ impl RecordingState {
                 rom_language: self.rom_language.clone(),
                 event_tx: self.event_tx.clone(),
                 recording_state: self.recording_state.clone(),
-            });
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Save and trim the pending clip asynchronously, if any.
+    fn flush_pending(&mut self, now: Instant) {
+        if let Some(job) = self.take_pending_job(now) {
+            spawn_save_and_trim(job);
+        }
+    }
+
+    /// Save and trim the pending clip synchronously during shutdown, preserving
+    /// the scheduled post-run padding window before OBS is asked to save.
+    #[cfg(not(test))]
+    fn flush_pending_on_shutdown(&mut self) {
+        self.flush_pending_on_shutdown_with(Instant::now(), std::thread::sleep, save_and_trim);
+    }
+
+    fn flush_pending_on_shutdown_with(
+        &mut self,
+        now: Instant,
+        sleep: impl FnOnce(Duration),
+        save: impl FnOnce(SaveAndTrimJob),
+    ) {
+        let Some(fire_at) = self.pending.as_ref().map(|pending| pending.fire_at) else {
+            return;
+        };
+
+        let save_at = if fire_at > now {
+            sleep(fire_at.duration_since(now));
+            fire_at
+        } else {
+            now
+        };
+
+        if let Some(job) = self.take_pending_job(save_at) {
+            save(job);
         }
     }
 
@@ -648,9 +731,24 @@ impl RecordingState {
     }
 }
 
+#[cfg(not(test))]
+impl Drop for RecordingState {
+    fn drop(&mut self) {
+        self.flush_pending_on_shutdown();
+    }
+}
+
+#[cfg(test)]
+impl Drop for RecordingState {
+    fn drop(&mut self) {
+        assert!(self.pending.is_none(), "test dropped RecordingState with a pending save");
+    }
+}
+
 /// Inputs for saving the replay buffer and trimming it to the run window on a
 /// dedicated thread.
 struct SaveAndTrimJob {
+    save_id: u64,
     start_before_save_secs: f64,
     trim_tail_secs: f64,
     status: RunStatus,
@@ -664,6 +762,7 @@ struct SaveAndTrimJob {
 }
 
 struct TrimClipRequest<'a> {
+    save_id: u64,
     replay_path: &'a str,
     start_before_save_secs: f64,
     trim_tail_secs: f64,
@@ -675,43 +774,52 @@ struct TrimClipRequest<'a> {
     rom_language: &'a str,
 }
 
-fn spawn_save_and_trim(job: SaveAndTrimJob) {
-    let spawned = std::thread::Builder::new().name("ge-replay-save".to_owned()).spawn(move || {
-        // Snapshot the event generation before triggering the save so we only
-        // wake on the event this save produces, not one already delivered.
-        let since = replay_saved_generation();
-        tracing::info!("saving replay buffer");
-        unsafe { crate::ffi::obs_frontend_replay_buffer_save() };
+#[cfg(not(test))]
+fn save_and_trim(job: SaveAndTrimJob) {
+    // Snapshot the event generation before triggering the save so we only
+    // wake on the event this save produces, not one already delivered.
+    let since = replay_saved_generation();
+    tracing::info!("saving replay buffer");
+    unsafe { crate::ffi::obs_frontend_replay_buffer_save() };
 
-        // Block on the OBS replay-saved event (no polling); it carries the path.
-        let path = match wait_for_replay_saved(since, REPLAY_SAVE_TIMEOUT) {
-            Some(path) => path,
-            None => {
-                tracing::error!("replay buffer save did not complete in time");
-                return;
-            }
-        };
-
-        match trim_clip(TrimClipRequest {
-            replay_path: &path,
-            start_before_save_secs: job.start_before_save_secs,
-            trim_tail_secs: job.trim_tail_secs,
-            status: job.status,
-            completed_at: job.completed_at,
-            stats: job.stats,
-            options: &job.options,
-            source_name: &job.source_name,
-            rom_language: &job.rom_language,
-        }) {
-            Ok(saved) => {
-                // Ignore send errors: with no WebSocket clients there are no
-                // subscribers, but the save still succeeded.
-                let _ = job.event_tx.send(MonitorEvent::RecordingSaved(saved));
-                job.recording_state.clear_if_save_pending();
-            }
-            Err(err) => tracing::error!("failed to trim replay clip: {err:#}"),
+    // Block on the OBS replay-saved event (no polling); it carries the path.
+    let path = match wait_for_replay_saved(since, REPLAY_SAVE_TIMEOUT) {
+        Some(path) => path,
+        None => {
+            tracing::error!("replay buffer save did not complete in time");
+            return;
         }
-    });
+    };
+
+    match trim_clip(TrimClipRequest {
+        save_id: job.save_id,
+        replay_path: &path,
+        start_before_save_secs: job.start_before_save_secs,
+        trim_tail_secs: job.trim_tail_secs,
+        status: job.status,
+        completed_at: job.completed_at,
+        stats: job.stats,
+        options: &job.options,
+        source_name: &job.source_name,
+        rom_language: &job.rom_language,
+    }) {
+        Ok(saved) => {
+            // Ignore send errors: with no WebSocket clients there are no
+            // subscribers, but the save still succeeded.
+            let _ = job.event_tx.send(MonitorEvent::RecordingSaved(saved));
+            job.recording_state.clear_if_save_pending();
+        }
+        Err(err) => tracing::error!("failed to trim replay clip: {err:#}"),
+    }
+}
+
+#[cfg(test)]
+fn save_and_trim(_job: SaveAndTrimJob) {
+    panic!("tests must inject save handling instead of calling OBS");
+}
+
+fn spawn_save_and_trim(job: SaveAndTrimJob) {
+    let spawned = std::thread::Builder::new().name("ge-replay-save".to_owned()).spawn(move || save_and_trim(job));
     if let Err(err) = spawned {
         tracing::error!("failed to spawn replay save thread: {err}");
     }
@@ -760,6 +868,7 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
     }
 
     Ok(RecordingSaved {
+        save_id: req.save_id,
         path: output.to_string_lossy().into_owned(),
         replay_path: req.replay_path.to_owned(),
         // The clip spans [start, end]; clamping `start` above means this is the
@@ -1052,8 +1161,9 @@ fn sanitize_filename(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
     use std::{fs, io};
 
     use super::*;
@@ -1097,6 +1207,15 @@ mod tests {
 
     fn write_file(path: &Path) {
         fs::write(path, b"clip").unwrap();
+    }
+
+    fn test_recording(options: RecordingOptions) -> (RecordingState, tokio::sync::broadcast::Receiver<MonitorEvent>) {
+        let (event_tx, event_rx) = tokio::sync::broadcast::channel(8);
+        let (recording_tx, _recording_rx) = tokio::sync::watch::channel(None);
+        let recording_state = RecordingStateStore::new(recording_tx);
+        let recording =
+            RecordingState::new(event_tx, recording_state, options, "N64 Capture".to_owned(), "en".to_owned());
+        (recording, event_rx)
     }
 
     fn sample_clip() -> PathBuf {
@@ -1226,6 +1345,76 @@ mod tests {
     }
 
     #[test]
+    fn shutdown_before_pending_save_fires_waits_and_preserves_save_job() {
+        let options =
+            RecordingOptions { pre_run_padding_secs: 1.0, post_run_padding_secs: 5.0, ..RecordingOptions::default() };
+        let (mut recording, mut events) = test_recording(options);
+        let start = Instant::now();
+        let stats_at = start + Duration::from_secs(10);
+
+        assert!(recording.schedule_save(stats_at, start, Some(match_with_time())));
+
+        let pending = events.try_recv().expect("pending save event");
+        let MonitorEvent::RecordingSavePending(pending) = pending else {
+            panic!("expected pending save event");
+        };
+        assert_eq!(pending.save_id, 1);
+        assert_eq!(pending.save_in_secs, 5.0);
+        assert_eq!(pending.level, "Surface 2");
+        assert_eq!(pending.time_secs, Some(123));
+
+        let slept = RefCell::new(None);
+        let saved_job = RefCell::new(None);
+        recording.flush_pending_on_shutdown_with(
+            stats_at + Duration::from_secs(2),
+            |duration| *slept.borrow_mut() = Some(duration),
+            |job| *saved_job.borrow_mut() = Some(job),
+        );
+
+        assert_eq!(*slept.borrow(), Some(Duration::from_secs(3)));
+        let job = saved_job.borrow_mut().take().expect("save job");
+        assert_eq!(job.save_id, 1);
+        assert_eq!(job.status, RunStatus::Complete);
+        assert!(job.completed_at <= SystemTime::now());
+        assert_eq!(job.stats.as_ref().and_then(|m| m.times).map(|times| times.time), Some(123));
+        assert_eq!(job.options.pre_run_padding_secs, 1.0);
+        assert_eq!(job.options.post_run_padding_secs, 5.0);
+        assert_eq!(job.source_name, "N64 Capture");
+        assert_eq!(job.rom_language, "en");
+        assert_eq!(job.event_tx.receiver_count(), 1);
+        assert_eq!(job.recording_state.current(), None);
+        assert!((job.start_before_save_secs - 16.5).abs() < f64::EPSILON);
+        assert_eq!(job.trim_tail_secs, 0.0);
+        assert!(recording.pending.is_none());
+    }
+
+    #[test]
+    fn shutdown_after_pending_save_fire_time_flushes_without_waiting() {
+        let options =
+            RecordingOptions { pre_run_padding_secs: 1.0, post_run_padding_secs: 5.0, ..RecordingOptions::default() };
+        let (mut recording, _events) = test_recording(options);
+        let start = Instant::now();
+        let stats_at = start + Duration::from_secs(10);
+
+        assert!(recording.schedule_save(stats_at, start, Some(match_with_time())));
+
+        let slept = RefCell::new(None);
+        let saved_job = RefCell::new(None);
+        recording.flush_pending_on_shutdown_with(
+            stats_at + Duration::from_secs(7),
+            |duration| *slept.borrow_mut() = Some(duration),
+            |job| *saved_job.borrow_mut() = Some(job),
+        );
+
+        assert_eq!(*slept.borrow(), None);
+        let job = saved_job.borrow_mut().take().expect("save job");
+        assert_eq!(job.save_id, 1);
+        assert!((job.start_before_save_secs - 18.5).abs() < f64::EPSILON);
+        assert_eq!(job.trim_tail_secs, 2.0);
+        assert!(recording.pending.is_none());
+    }
+
+    #[test]
     fn trim_clip_creates_missing_completed_and_failed_output_directories() {
         let dir = TestDir::new("trim-missing-output");
         let replay_path = sample_clip();
@@ -1240,6 +1429,7 @@ mod tests {
         };
 
         let complete_saved = trim_clip(TrimClipRequest {
+            save_id: 1,
             replay_path: &replay,
             start_before_save_secs: 1.0,
             trim_tail_secs: 0.0,
@@ -1253,6 +1443,7 @@ mod tests {
         .expect("trim completed clip");
 
         let failed_saved = trim_clip(TrimClipRequest {
+            save_id: 2,
             replay_path: &replay,
             start_before_save_secs: 1.0,
             trim_tail_secs: 0.0,
