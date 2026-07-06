@@ -75,8 +75,15 @@ body {
 }
 
 .obs-app-shell {
+	box-sizing: border-box;
+	border: 1px solid var(--obs-titlebar);
 	background: var(--obs-bg);
 	color: var(--obs-text);
+	transition: border-color 120ms ease;
+}
+
+.obs-app-shell.obs-window-focused {
+	border-color: var(--obs-gold);
 }
 
 .obs-app-header {
