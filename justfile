@@ -210,8 +210,8 @@ obs: make-release-flatpak
       --talk-name=org.freedesktop.secrets \
       --talk-name=org.freedesktop.portal.Desktop \
       --env=LD_LIBRARY_PATH="/app/lib" \
-      --env=OBS_PLUGINS_PATH="$(pwd)" \
-      --env=OBS_PLUGINS_DATA_PATH="$(pwd)" \
+      --env=OBS_PLUGINS_PATH="$(pwd)/%module%/bin/64bit" \
+      --env=OBS_PLUGINS_DATA_PATH="$(pwd)/%module%/data" \
       com.obsproject.Studio
 
 [windows]
@@ -340,7 +340,6 @@ clean:
     rm -rf "test/node_modules"
     rm -rf "obs2/ge_rust.h"
     rm -rf "obs2/build"
-    rm -rf "esp32-input-monitor/.pio"
     @echo "Keeping static OBS/OpenCV/FFmpeg prefixes and cached source archives."
     cd "obs2/rust" && cargo clean
 
