@@ -128,18 +128,12 @@ static bool ge_copy_string_to_buffer(const char *value, char *buffer, size_t buf
   return written >= 0 && (size_t)written < buffer_size;
 }
 
-bool ge_obs_module_file(const char *file, char *buffer, size_t buffer_size) {
-  if (!file || !buffer || buffer_size == 0) {
-    return false;
-  }
-  buffer[0] = '\0';
+bool ge_obs_module_data_path(char *buffer, size_t buffer_size) {
+  return ge_copy_string_to_buffer(obs_get_module_data_path(g_module), buffer, buffer_size);
+}
 
-  char *path = obs_find_module_file(g_module, file);
-  bool ok = ge_copy_string_to_buffer(path, buffer, buffer_size);
-  if (path) {
-    bfree(path);
-  }
-  return ok;
+bool ge_obs_module_binary_path(char *buffer, size_t buffer_size) {
+  return ge_copy_string_to_buffer(obs_get_module_binary_path(g_module), buffer, buffer_size);
 }
 
 bool ge_obs_replay_buffer_output_directory(char *buffer, size_t buffer_size) {

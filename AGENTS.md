@@ -19,7 +19,7 @@ This repo is v2-only. Do not add a root Node application, OBS WebSocket control 
 
 The runtime is a layered stack glued together by CMake:
 
-1. **C shim** (`obs2/plugin.c`) - the library OBS actually loads. It contains no core logic; `obs_module_load` rejects duplicate loaded plugin copies, resolves the bundled core library relative to the loaded shim (overridable via `GE_CORE_LIB`), configures `GE_CV_TEMPLATE_DIR` from OBS's module data path or the bundled template path when unset, `dlopen`s the core with `RTLD_NOW | RTLD_LOCAL`, then calls `ge_core_load()`. `obs_module_post_load` forwards to `ge_core_post_load()`. In dev builds (`GE_DEV`, set when `BROWSER_DEV=ON`) it dlopens a throwaway copy so rebuilt images load, then uses `dev_reload.c` to hot-reload the core when `GE_RELOAD_FIFO` is pinged.
+1. **C shim** (`obs2/plugin.c`) - the library OBS actually loads. It contains no core logic; `obs_module_load` rejects duplicate loaded plugin copies, resolves the bundled core library relative to the loaded shim (overridable via `GE_CORE_LIB`), `dlopen`s the core with `RTLD_NOW | RTLD_LOCAL`, then calls `ge_core_load()`. `obs_module_post_load` forwards to `ge_core_post_load()`. In dev builds (`GE_DEV`, set when `BROWSER_DEV=ON`) it dlopens a throwaway copy so rebuilt images load, then uses `dev_reload.c` to hot-reload the core when `GE_RELOAD_FIFO` is pinged. The Rust core resolves `cv_templates` from the OBS module paths, so build and dev launch layouts should mirror the packaged plugin data directory.
 2. **C core** (`obs2/core.c`, `obs_bridge.c`) - the heavy library the shim hosts. `ge_core_load` calls `ge_rust_start()`, registers OBS frontend callbacks, connects OBS source-change signals, and pushes an initial source snapshot. Frontend events drive stream notifications, replay-buffer lifecycle state, replay-save completion, and source refreshes. `ge_core_post_load` refreshes sources and ensures the OBS custom browser dock. `ge_core_unload` disconnects signals/callbacks and stops Rust. `obs_bridge.c` exposes OBS helpers to Rust, including source-frame rendering to BGRA.
 3. **Rust staticlib** (`obs2/rust/`, crate `ge_rust`) - owns a global `tokio::Runtime` inside a `Mutex<Option<ServerHandle>>`. FFI entry points are `extern "C"` and spawn work onto the runtime without blocking the caller. `cv.rs` contains the level/time matcher; `recording.rs` owns replay-buffer save/trim/rename behavior; `settings.rs` persists app settings; `stream_notifier.rs` posts/edits Discord webhooks; `browser_dock.rs` manages the OBS dock; `http/` is the Axum app.
 4. **Axum HTTP server** - listens on `0.0.0.0:31337`. It exposes OBS recording, replay-buffer status, monitoring (including WebSocket), settings, folder picking/validation, runs media/reveal/rename, source, screenshot, matcher, OAuth callback, and SPA routes under `/api/v1`, `/oauth/callback`, and `/`.
@@ -44,7 +44,7 @@ A failed frontend build stops the chain before cargo runs. Do not bypass this de
 
 ### Where Things Live
 
-- `obs2/cv_templates/` - PNG templates for the level matcher. Templates are language-suffixed (`en-`, `jp-`); `test_match` takes the language as a CLI argument. CMake copies these into the built plugin layout (`Contents/Resources/cv_templates` on macOS, `cv_templates/` beside the Linux plugin library).
+- `obs2/cv_templates/` - PNG templates for the level matcher. Templates are language-suffixed (`en-`, `jp-`); `test_match` takes the language as a CLI argument. CMake copies these into the built plugin data layout (`Contents/Resources/cv_templates` on macOS, `data/cv_templates` on Linux/Windows).
 - `obs2/vendor/obs/` - vendored OBS headers, populated by `just obs-headers`.
 - `obs2/vendor/opencv-static/` and `obs2/vendor/ffmpeg-static/` - static dependency prefixes built by `just opencv-static` and `just ffmpeg-static`.
 - `obs2/rust/src/bin/test_match.rs` - standalone CLI that runs `cv::match_level` on a single PNG and emits JSON. Used by the test harness in `test/`.
@@ -126,7 +126,6 @@ cargo test
 
 - `BROWSER_BUNDLE`, `GE_PLUGIN_VERSION`, `GE_BROWSER_DEV_URL` - build-time inputs consumed by Rust/CMake. Build through `just` unless you need direct cargo commands.
 - `GE_CORE_LIB` - optional shim override for the core library path.
-- `GE_CV_TEMPLATE_DIR` - optional template directory override. OBS runtime defaults to the templates bundled by CMake next to/inside the plugin.
 - `GE_CV_THREADS` - caps OpenCV's internal thread pool in `test_match` for benchmarking.
 - `GE_CV_BENCH`, `GE_CV_BENCH_WARM`, `GE_CV_DEBUG`, `GE_CV_TIMING` - matcher benchmarking/debugging hooks.
 - `GE_RELOAD_FIFO` - dev-mode FIFO pinged by `just dev` to trigger core hot reload.

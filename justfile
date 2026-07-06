@@ -199,7 +199,7 @@ uninstall: configure-release-windows
 # builds the project and runs obs
 [macos]
 obs: make-release
-    cd obs2/build && OBS_PLUGINS_PATH=$(pwd) OBS_PLUGINS_DATA_PATH=$(pwd) obs
+    cd obs2/build && OBS_PLUGINS_PATH="$(pwd)/%module%.plugin/Contents/MacOS" OBS_PLUGINS_DATA_PATH="$(pwd)/%module%.plugin/Contents/Resources" obs
 
 [linux]
 obs: make-release-flatpak
