@@ -67,8 +67,8 @@ pub struct StreamMessage {
 /// Messages pushed to app WebSocket clients, serialized internally tagged by
 /// `type` so the SPA can discriminate them. `Version` is sent once per
 /// connection (a handshake); `Sources`, `Match`, and `RecordingState` ride watch
-/// channels (latest-wins, replayed on connect); `RecordingSaved` and
-/// `MonitorStopped` ride `event_tx` (one-off, delivered only to
+/// channels (latest-wins, replayed on connect); `RecordingSavePending`,
+/// `RecordingSaved`, and `MonitorStopped` ride `event_tx` (one-off, delivered only to
 /// currently-connected clients).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -90,6 +90,8 @@ pub enum MonitorEvent {
     /// failure screen, had its save scheduled, or returned to idle). Distinct
     /// from `RecordingSaved`, which reports the final written clip.
     RecordingState { status: Option<RecordingStatus> },
+    /// A run's clip save was scheduled and will fire after the post-run padding.
+    RecordingSavePending(RecordingSavePending),
     /// A run's clip was saved out of the replay buffer and trimmed.
     RecordingSaved(RecordingSaved),
     /// Monitoring was stopped by the backend in response to an external event.
@@ -241,11 +243,50 @@ impl RecordingStateStore {
     }
 }
 
+/// Details of a clip save that has been scheduled after a run ending was seen,
+/// pushed to WebSocket clients as a [`MonitorEvent::RecordingSavePending`].
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingSavePending {
+    /// Identifier shared with the matching [`RecordingSaved`] event.
+    pub save_id: u64,
+    /// Seconds until OBS replay-buffer save is requested.
+    pub save_in_secs: f64,
+    /// Expected trimmed clip length, before replay-buffer duration clamping.
+    pub estimated_duration_secs: f64,
+    /// Whether a failure screen was seen during the run.
+    pub failed: bool,
+    /// Final run status used for naming/metadata.
+    pub status: String,
+    /// Human-readable level name, or "unknown" if the matcher could not resolve it.
+    pub level: String,
+    /// GoldenEye campaign level number, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level_number: Option<i32>,
+    /// Human-readable difficulty label, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub difficulty: Option<String>,
+    /// Run time read from the stats screen, in seconds, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_secs: Option<i32>,
+    /// Target time read from the stats screen, in seconds, when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_time_secs: Option<i32>,
+    /// Best time read from the stats screen, in seconds, when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub best_time_secs: Option<i32>,
+    /// The stats-screen match the clip will be named from, when one was seen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<LevelMatch>,
+}
+
 /// Details of a clip saved out of the replay buffer at the end of a run, pushed
 /// to WebSocket clients as a [`MonitorEvent::RecordingSaved`].
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordingSaved {
+    /// Identifier shared with the matching [`RecordingSavePending`] event.
+    pub save_id: u64,
     /// Absolute path to the trimmed clip written for the run.
     pub path: String,
     /// The full replay-buffer file OBS saved, before trimming.
@@ -384,6 +425,52 @@ mod tests {
 
         assert_eq!(json["type"], "recordingState");
         assert!(json["status"].is_null());
+    }
+
+    #[test]
+    fn recording_save_pending_event_uses_frontend_field_names() {
+        let event = MonitorEvent::RecordingSavePending(RecordingSavePending {
+            save_id: 7,
+            save_in_secs: 5.0,
+            estimated_duration_secs: 74.5,
+            failed: false,
+            status: "complete".to_owned(),
+            level: "Dam".to_owned(),
+            level_number: Some(1),
+            difficulty: Some("Agent".to_owned()),
+            time_secs: Some(69),
+            target_time_secs: Some(120),
+            best_time_secs: None,
+            stats: None,
+        });
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "recordingSavePending");
+        assert_eq!(json["saveId"], 7);
+        assert_eq!(json["saveInSecs"], 5.0);
+        assert_eq!(json["estimatedDurationSecs"], 74.5);
+        assert_eq!(json["timeSecs"], 69);
+        assert!(json.get("bestTimeSecs").is_none());
+    }
+
+    #[test]
+    fn recording_saved_event_uses_frontend_field_names() {
+        let event = MonitorEvent::RecordingSaved(RecordingSaved {
+            save_id: 7,
+            path: "/tmp/clip.mp4".to_owned(),
+            replay_path: "/tmp/replay.mp4".to_owned(),
+            duration_secs: 74.5,
+            failed: false,
+            stats: None,
+        });
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "recordingSaved");
+        assert_eq!(json["saveId"], 7);
+        assert_eq!(json["path"], "/tmp/clip.mp4");
+        assert_eq!(json["replayPath"], "/tmp/replay.mp4");
+        assert_eq!(json["durationSecs"], 74.5);
+        assert!(json.get("stats").is_none());
     }
 
     #[test]

@@ -227,6 +227,8 @@ export interface LevelMatch {
 /** Details of a clip the backend saved out of the replay buffer at the end of a
  * run. Mirrors the Rust `RecordingSaved`. */
 export interface RecordingSaved {
+	/** Identifier shared with the matching pending-save event. */
+	saveId: number;
 	/** Absolute path to the trimmed clip written for the run. */
 	path: string;
 	/** The full replay-buffer file OBS saved, before trimming. */
@@ -236,6 +238,35 @@ export interface RecordingSaved {
 	/** Whether a failure screen was seen during the run. */
 	failed: boolean;
 	/** The stats-screen match the clip was named from, when one was seen. */
+	stats?: LevelMatch;
+}
+
+/** Details of a clip save that has been scheduled after a run ending was seen.
+ * Mirrors the Rust `RecordingSavePending`. */
+export interface RecordingSavePending {
+	/** Identifier shared with the matching saved event. */
+	saveId: number;
+	/** Seconds until OBS replay-buffer save is requested. */
+	saveInSecs: number;
+	/** Expected trimmed clip length, before replay-buffer duration clamping. */
+	estimatedDurationSecs: number;
+	/** Whether a failure screen was seen during the run. */
+	failed: boolean;
+	/** Final run status used for naming/metadata. */
+	status: string;
+	/** Human-readable level name, or "unknown" if unavailable. */
+	level: string;
+	/** GoldenEye campaign level number, when known. */
+	levelNumber?: number;
+	/** Human-readable difficulty label, when known. */
+	difficulty?: string;
+	/** Run time read from the stats screen, in seconds, when known. */
+	timeSecs?: number;
+	/** Target time read from the stats screen, in seconds, when present. */
+	targetTimeSecs?: number;
+	/** Best time read from the stats screen, in seconds, when present. */
+	bestTimeSecs?: number;
+	/** The stats-screen match the clip will be named from, when one was seen. */
 	stats?: LevelMatch;
 }
 
@@ -292,6 +323,7 @@ export type AppSocketEvent =
 	| { type: 'sources'; sources: ObsSource[] }
 	| ({ type: 'match' } & LevelMatch)
 	| { type: 'recordingState'; status: RecordingStatus | null }
+	| ({ type: 'recordingSavePending' } & RecordingSavePending)
 	| ({ type: 'recordingSaved' } & RecordingSaved)
 	| { type: 'monitorStopped'; reason: MonitorStoppedReason };
 
@@ -305,6 +337,8 @@ export interface AppSocketHandlers {
 	onMatch?: (match: LevelMatch) => void;
 	/** The recorder's per-run state changed, or returned to idle (`null`). */
 	onRecordingState?: (status: RecordingStatus | null) => void;
+	/** A run's clip save was scheduled after the post-run padding. */
+	onRecordingSavePending?: (pending: RecordingSavePending) => void;
 	/** A run's clip was saved out of the replay buffer and trimmed. */
 	onRecordingSaved?: (saved: RecordingSaved) => void;
 	/** Monitoring was stopped by the backend in response to an external event. */
@@ -364,6 +398,9 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 				break;
 			case 'recordingState':
 				handlers.onRecordingState?.(msg.status);
+				break;
+			case 'recordingSavePending':
+				handlers.onRecordingSavePending?.(msg);
 				break;
 			case 'recordingSaved':
 				handlers.onRecordingSaved?.(msg);
