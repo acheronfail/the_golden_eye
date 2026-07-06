@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { apiUrl } from '$lib/api';
 	import { triggerKiaDeathOverlay } from '$lib/monitor.svelte';
+	import { addNotificationFlag } from '$lib/notifications.svelte';
 	import { settings } from '$lib/settings.svelte';
 
 	const knownVideoSourceIds = [
@@ -18,6 +19,7 @@
 	let statsScreenIndex = $state(0);
 	let startScreenIndex = $state(0);
 	let failedScreenIndex = $state(0);
+	let notificationTestCount = 0;
 
 	let allStartScreenNames = $derived.by(() => {
 		const values: string[] = [];
@@ -93,6 +95,16 @@
 			await new Promise((resolve) => setTimeout(resolve, 10));
 		}
 	};
+
+	const addTestNotification = () => {
+		notificationTestCount += 1;
+		addNotificationFlag({
+			title: `Test notification ${notificationTestCount}`,
+			detail: 'This notification was triggered from Developer Utilities.',
+			meta: new Date().toLocaleTimeString(),
+			tone: 'info'
+		});
+	};
 </script>
 
 <div class="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4">
@@ -100,9 +112,12 @@
 
 	<div class="obs-panel flex flex-col gap-3 rounded px-4 py-3">
 		<h2 class="text-xl font-semibold">Visual Effects</h2>
-		<div>
+		<div class="flex flex-wrap gap-2">
 			<button class="obs-button obs-button-danger px-3 py-1.5 text-sm" onclick={triggerKiaDeathOverlay}>
 				trigger KIA overlay
+			</button>
+			<button class="obs-button obs-button-gold px-3 py-1.5 text-sm" onclick={addTestNotification}>
+				add test notification
 			</button>
 		</div>
 	</div>
