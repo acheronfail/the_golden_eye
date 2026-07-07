@@ -357,6 +357,16 @@ pub fn ensure_replay_buffer_running() -> bool {
     true
 }
 
+#[cfg(not(test))]
+fn ensure_replay_buffer_running_for_recording() -> bool {
+    ensure_replay_buffer_running()
+}
+
+#[cfg(test)]
+fn ensure_replay_buffer_running_for_recording() -> bool {
+    true
+}
+
 /// Stop the replay buffer if it is currently running.
 pub fn stop_replay_buffer_if_active() {
     if replay_buffer_active() {
@@ -656,7 +666,7 @@ impl RecordingState {
                     self.clip_start = Some(now);
                     self.status = None;
                     self.report = None;
-                    ensure_replay_buffer_running();
+                    ensure_replay_buffer_running_for_recording();
                     tracing::info!("recording session started");
                     self.emit(RecordingStatus::Started);
                 }
@@ -1311,6 +1321,24 @@ mod tests {
         }
     }
 
+    fn match_for_screen(screen: Screen) -> LevelMatch {
+        let mut m = match_without_time();
+        m.screen = screen;
+        m
+    }
+
+    fn pending_save_event(events: &mut tokio::sync::broadcast::Receiver<MonitorEvent>) -> RecordingSavePending {
+        let pending = events.try_recv().expect("pending save event");
+        let MonitorEvent::RecordingSavePending(pending) = pending else {
+            panic!("expected pending save event");
+        };
+        pending
+    }
+
+    fn assert_no_monitor_event(events: &mut tokio::sync::broadcast::Receiver<MonitorEvent>) {
+        assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
+    }
+
     #[test]
     fn pre_run_padding_defaults_to_five_and_adds_match_buffer() {
         let default = RecordingOptions::default();
@@ -1322,6 +1350,247 @@ mod tests {
 
         let negative = RecordingOptions { pre_run_padding_secs: -2.0, ..RecordingOptions::default() };
         assert_eq!(negative.pre_run_padding_secs(), PRE_RUN_MATCH_BUFFER_SECS);
+    }
+
+    #[test]
+    fn start_then_level_screen_cancels_active_session_without_save() {
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let start = Instant::now();
+
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(3), &match_for_screen(Screen::Unknown));
+        recording.on_frame(start + Duration::from_secs(10), &match_for_screen(Screen::Levels));
+
+        assert_eq!(recording.clip_start, None);
+        assert_eq!(recording.status, None);
+        assert!(recording.report.is_none());
+        assert!(recording.pending.is_none());
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Cancelled));
+        assert_no_monitor_event(&mut events);
+    }
+
+    #[test]
+    fn failed_report_then_stats_schedules_failed_save() {
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let start = Instant::now();
+        let failed_at = start + Duration::from_secs(8);
+        let stats_at = start + Duration::from_secs(12);
+
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Unknown));
+        recording.on_frame(failed_at, &match_for_screen(Screen::Failed));
+
+        assert_eq!(recording.status, Some(RunStatus::Failed));
+        assert_eq!(recording.report.as_ref().map(|m| m.screen), Some(Screen::Failed));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Failed));
+
+        recording.on_frame(stats_at, &match_with_time());
+
+        let pending = pending_save_event(&mut events);
+        assert!(pending.failed);
+        assert_eq!(pending.status, "failed");
+        assert_eq!(pending.time_secs, Some(123));
+        assert!((pending.estimated_duration_secs - 22.5).abs() < f64::EPSILON);
+        assert_eq!(recording.clip_start, None);
+        assert_eq!(recording.status, None);
+        assert!(recording.report.is_none());
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
+
+        let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
+        assert_eq!(job.status, RunStatus::Failed);
+        assert_eq!(job.stats.as_ref().map(|m| m.screen), Some(Screen::Stats));
+        assert!((job.start_before_save_secs - 22.5).abs() < f64::EPSILON);
+        assert_eq!(job.trim_tail_secs, 0.0);
+    }
+
+    #[test]
+    fn complete_report_then_stats_schedules_completed_save() {
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let start = Instant::now();
+        let complete_at = start + Duration::from_secs(20);
+        let stats_at = start + Duration::from_secs(22);
+
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Unknown));
+        recording.on_frame(complete_at, &match_for_screen(Screen::Complete));
+
+        assert_eq!(recording.status, Some(RunStatus::Complete));
+        assert_eq!(recording.report.as_ref().map(|m| m.screen), Some(Screen::Complete));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Complete));
+
+        recording.on_frame(stats_at, &match_with_time());
+
+        let pending = pending_save_event(&mut events);
+        assert!(!pending.failed);
+        assert_eq!(pending.status, "complete");
+        assert_eq!(pending.time_secs, Some(123));
+        assert!((pending.estimated_duration_secs - 32.5).abs() < f64::EPSILON);
+        assert_eq!(recording.clip_start, None);
+        assert_eq!(recording.status, None);
+        assert!(recording.report.is_none());
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
+
+        let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
+        assert_eq!(job.status, RunStatus::Complete);
+        assert_eq!(job.stats.as_ref().map(|m| m.screen), Some(Screen::Stats));
+    }
+
+    #[test]
+    fn complete_report_then_level_screen_saves_as_stats_skipped() {
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let start = Instant::now();
+        let complete_at = start + Duration::from_secs(20);
+        let levels_at = start + Duration::from_secs(24);
+
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(complete_at, &match_for_screen(Screen::Complete));
+        recording.on_frame(levels_at, &match_for_screen(Screen::Levels));
+
+        let pending = pending_save_event(&mut events);
+        assert!(!pending.failed);
+        assert_eq!(pending.status, "complete");
+        assert_eq!(pending.time_secs, None);
+        assert_eq!(pending.stats.as_ref().map(|m| m.screen), Some(Screen::Complete));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::StatsSkipped));
+
+        let job = recording.take_pending_job(levels_at + Duration::from_secs(5)).expect("save job");
+        assert_eq!(job.status, RunStatus::Complete);
+        assert_eq!(job.stats.as_ref().map(|m| m.screen), Some(Screen::Complete));
+    }
+
+    #[test]
+    fn failed_report_then_level_screen_schedules_save_without_stats_skipped() {
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let start = Instant::now();
+        let failed_at = start + Duration::from_secs(20);
+        let levels_at = start + Duration::from_secs(24);
+
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(failed_at, &match_for_screen(Screen::Failed));
+        recording.on_frame(levels_at, &match_for_screen(Screen::Levels));
+
+        let pending = pending_save_event(&mut events);
+        assert!(pending.failed);
+        assert_eq!(pending.status, "failed");
+        assert_eq!(pending.time_secs, None);
+        assert_eq!(pending.stats.as_ref().map(|m| m.screen), Some(Screen::Failed));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
+
+        let job = recording.take_pending_job(levels_at + Duration::from_secs(5)).expect("save job");
+        assert_eq!(job.status, RunStatus::Failed);
+        assert_eq!(job.stats.as_ref().map(|m| m.screen), Some(Screen::Failed));
+    }
+
+    #[test]
+    fn failed_run_discarded_when_failed_saves_are_disabled() {
+        let options = RecordingOptions { save_failed_runs: false, ..RecordingOptions::default() };
+        let (mut recording, mut events) = test_recording(options);
+        let start = Instant::now();
+
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(10), &match_for_screen(Screen::Failed));
+        recording.on_frame(start + Duration::from_secs(12), &match_with_time());
+
+        assert_eq!(recording.clip_start, None);
+        assert_eq!(recording.status, None);
+        assert!(recording.report.is_none());
+        assert!(recording.pending.is_none());
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::FailedDiscarded));
+        assert_no_monitor_event(&mut events);
+    }
+
+    #[test]
+    fn complete_report_after_failure_clears_failure_and_saves_completed_stats() {
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let start = Instant::now();
+        let stats_at = start + Duration::from_secs(15);
+
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(8), &match_for_screen(Screen::Failed));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Failed));
+
+        recording.on_frame(start + Duration::from_secs(10), &match_for_screen(Screen::Complete));
+        assert_eq!(recording.status, Some(RunStatus::Complete));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Complete));
+
+        recording.on_frame(stats_at, &match_with_time());
+
+        let pending = pending_save_event(&mut events);
+        assert!(!pending.failed);
+        assert_eq!(pending.status, "complete");
+        assert_eq!(pending.time_secs, Some(123));
+
+        let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
+        assert_eq!(job.status, RunStatus::Complete);
+        assert_eq!(job.stats.as_ref().map(|m| m.screen), Some(Screen::Stats));
+    }
+
+    #[test]
+    fn terminal_screens_without_active_session_are_ignored() {
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let now = Instant::now();
+
+        for screen in [Screen::Failed, Screen::Abort, Screen::Kia, Screen::Complete, Screen::Stats, Screen::Levels] {
+            let m = if screen == Screen::Stats { match_with_time() } else { match_for_screen(screen) };
+            recording.on_frame(now, &m);
+            assert_eq!(recording.clip_start, None);
+            assert_eq!(recording.status, None);
+            assert!(recording.report.is_none());
+            assert!(recording.pending.is_none());
+            assert_eq!(recording.recording_state.current(), None);
+            assert_no_monitor_event(&mut events);
+        }
+    }
+
+    #[test]
+    fn duplicate_start_frames_do_not_reset_the_session_anchor() {
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let start = Instant::now();
+        let duplicate_start = start + Duration::from_secs(10);
+        let stats_at = start + Duration::from_secs(20);
+
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(duplicate_start, &match_for_screen(Screen::Start));
+        assert_eq!(recording.clip_start, Some(start));
+
+        recording.on_frame(stats_at, &match_with_time());
+
+        let pending = pending_save_event(&mut events);
+        assert_eq!(pending.status, "complete");
+        assert!((pending.estimated_duration_secs - 30.5).abs() < f64::EPSILON);
+
+        let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
+        assert_eq!(job.status, RunStatus::Complete);
+        assert!((job.start_before_save_secs - 30.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn failure_screen_variants_emit_distinct_statuses_and_save_statuses() {
+        for (screen, recording_status, run_status, pending_status) in [
+            (Screen::Failed, RecordingStatus::Failed, RunStatus::Failed, "failed"),
+            (Screen::Abort, RecordingStatus::Aborted, RunStatus::Abort, "abort"),
+            (Screen::Kia, RecordingStatus::Kia, RunStatus::Kia, "kia"),
+        ] {
+            let (mut recording, mut events) = test_recording(RecordingOptions::default());
+            let start = Instant::now();
+            let stats_at = start + Duration::from_secs(12);
+
+            recording.on_frame(start, &match_for_screen(Screen::Start));
+            recording.on_frame(start + Duration::from_secs(10), &match_for_screen(screen));
+
+            assert_eq!(recording.status, Some(run_status));
+            assert_eq!(recording.report.as_ref().map(|m| m.screen), Some(screen));
+            assert_eq!(recording.recording_state.current(), Some(recording_status));
+
+            recording.on_frame(stats_at, &match_with_time());
+
+            let pending = pending_save_event(&mut events);
+            assert!(pending.failed);
+            assert_eq!(pending.status, pending_status);
+
+            let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
+            assert_eq!(job.status, run_status);
+        }
     }
 
     #[test]
