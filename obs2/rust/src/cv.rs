@@ -1702,6 +1702,9 @@ impl CvMatcher {
         } else {
             find_times_band(&frame, &colon_tmpl, &digit_tmpls)?.into_iter().map(|t| t.seconds).collect()
         };
+        if screen == Screen::Stats && times.is_empty() {
+            result.screen = Screen::Unknown;
+        }
         result.times = ge::Times::classify(result.mission, result.part, result.difficulty, &times);
         result.raw_times = times;
         timer.lap("time assembly");
