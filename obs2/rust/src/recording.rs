@@ -1355,6 +1355,7 @@ mod tests {
             detected_lang: None,
             times: Some(Times { time: 123, target_time: Some(100), best_time: Some(130) }),
             raw_times: vec![123, 100, 130],
+            match_regions: Vec::new(),
             runtime_ms: 0.0,
         }
     }
@@ -1368,6 +1369,7 @@ mod tests {
             detected_lang: None,
             times: None,
             raw_times: Vec::new(),
+            match_regions: Vec::new(),
             runtime_ms: 0.0,
         }
     }
@@ -1381,6 +1383,7 @@ mod tests {
             detected_lang: None,
             times: Some(Times { time: -5, target_time: None, best_time: None }),
             raw_times: vec![-5],
+            match_regions: Vec::new(),
             runtime_ms: 0.0,
         }
     }

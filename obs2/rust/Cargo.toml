@@ -16,6 +16,10 @@ crate-type = ["staticlib", "rlib"]
 name = "test_match"
 path = "src/bin/test_match.rs"
 
+[[bin]]
+name = "annotate_match"
+path = "src/bin/annotate_match.rs"
+
 [features]
 # Enabled by the CMake build when BROWSER_DEV=ON. Turns on permissive CORS so
 # the SPA served from the Vite dev server (a different origin) can call the API.

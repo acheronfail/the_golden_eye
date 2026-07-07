@@ -19,6 +19,7 @@ fn run() -> Result<i32> {
     // relative to this crate at compile time (mirrors GE_TEMPLATES_DIR).
     let default_templates = concat!(env!("CARGO_MANIFEST_DIR"), "/../cv_templates");
     let templates_dir = args.get(3).map(|s| s.as_str()).unwrap_or(default_templates);
+    let diagnostics = matches!(env::var("GE_CV_DIAGNOSTICS").as_deref(), Ok("1" | "true" | "TRUE" | "yes" | "YES"));
 
     // Benchmarking hook: GE_CV_THREADS caps OpenCV's internal thread pool.
     if let Ok(t) = env::var("GE_CV_THREADS")
@@ -63,7 +64,11 @@ fn run() -> Result<i32> {
         }
     }
 
-    let result = ge_rust::cv::match_level(&bgra, lang, templates_dir)?;
+    let matcher = ge_rust::cv::CvMatcher::new(lang, templates_dir)?.with_diagnostics(diagnostics);
+    if diagnostics && !matcher.diagnostics_enabled() {
+        eprintln!("[test_match] GE_CV_DIAGNOSTICS requested, but diagnostics are unavailable in this build");
+    }
+    let result = matcher.match_level_from_bgra_frame(&bgra)?;
 
     println!(
         "{}",
@@ -79,6 +84,7 @@ fn run() -> Result<i32> {
             "detected_lang": result.detected_lang,
             "times": result.times,
             "raw_times": result.raw_times,
+            "match_regions": result.match_regions,
             "runtime_ms": result.runtime_ms,
         })
     );
