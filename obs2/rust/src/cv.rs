@@ -381,8 +381,34 @@ struct Detection {
     x: i32,     // left edge in the frame
     y: i32,     // top edge in the frame
     w: i32,     // glyph width at the matched scale
+    h: i32,     // glyph height at the matched scale
     score: f64, // correlation score
     value: i32, // digit value 0-9 (unused for the colon)
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MatchRect {
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    score: f64,
+}
+
+impl MatchRect {
+    fn offset(self, dx: i32, dy: i32) -> Self {
+        MatchRect { x: self.x + dx, y: self.y + dy, ..self }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MatchRegion {
+    pub label: String,
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+    pub score: f64,
 }
 
 // A time recovered from the screen, kept with its position so the final array
@@ -391,6 +417,11 @@ struct FoundTime {
     y: i32,
     x: i32,
     seconds: i32,
+    colon: MatchRect,
+}
+
+fn format_seconds(seconds: i32) -> String {
+    format!("{:02}:{:02}", seconds / 60, seconds % 60)
 }
 
 #[derive(Clone, Copy)]
@@ -403,6 +434,8 @@ struct FoundMission {
     // re-search the mission in a tight box instead of the whole header.
     colon_cx: i32,
     colon_cy: i32,
+    colon: Option<MatchRect>,
+    digit: Option<MatchRect>,
 }
 
 // Which overlay screen a frame shows. All of these except `Levels` (the
@@ -463,6 +496,10 @@ pub struct LevelMatch {
     /// which asserts every rendered row was read correctly; production code uses
     /// the classified `times` instead.
     pub raw_times: Vec<i32>,
+    /// Optional template-match rectangles for developer tooling. These are
+    /// empty in release builds and unless diagnostics are explicitly enabled.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub match_regions: Vec<MatchRegion>,
     pub runtime_ms: f64,
 }
 
@@ -534,95 +571,94 @@ fn scaled(tmpl: &Mat, scale: f64) -> Result<Mat> {
     blurred(&out)
 }
 
-// Best single-location match of `tmpl` against `frame`. Returns the peak
-// correlation, or -1.0 if the template does not fit inside the frame.
-fn best_score(frame: &(impl MatTraitConst + ToInputArray), tmpl: &Mat) -> Result<f64> {
+// Best single-location match of `tmpl` against `frame`.
+fn best_match(frame: &(impl MatTraitConst + ToInputArray), tmpl: &Mat) -> Result<Option<MatchRect>> {
     if tmpl.empty() || tmpl.rows() > frame.rows() || tmpl.cols() > frame.cols() {
-        return Ok(-1.0);
+        return Ok(None);
     }
     let mut result = Mat::default();
     imgproc::match_template(frame, tmpl, &mut result, imgproc::TM_CCOEFF_NORMED, &core::no_array())?;
     let mut max_val = 0f64;
-    core::min_max_loc(&result, None, Some(&mut max_val), None, None, &core::no_array())?;
-    Ok(max_val)
+    let mut max_loc = core::Point::default();
+    core::min_max_loc(&result, None, Some(&mut max_val), None, Some(&mut max_loc), &core::no_array())?;
+    Ok(Some(MatchRect { x: max_loc.x, y: max_loc.y, w: tmpl.cols(), h: tmpl.rows(), score: max_val }))
 }
 
 // Picks the highest-scoring template from `templates` (matched at `scale`).
-// Returns the 1-based index of the winner, or -1 when none clears the
-// threshold.
-fn best_label(
+// Returns the 1-based index of the winner and its rectangle.
+fn best_label_match(
     frame: &(impl MatTraitConst + ToInputArray),
     templates: &[Mat],
     scale: f64,
     threshold: f64,
-) -> Result<i32> {
+) -> Result<Option<(i32, MatchRect)>> {
     // Own the (small) region so the per-template closures can share a `&Mat`
     // across the scoped threads, then match every label template in parallel.
     let frame = frame.try_clone()?;
     let frame = &frame;
-    let scores: Vec<Result<f64>> = par_map(templates.len(), |i| best_score(frame, &scaled(&templates[i], scale)?));
+    let scores: Vec<Result<Option<MatchRect>>> =
+        par_map(templates.len(), |i| best_match(frame, &scaled(&templates[i], scale)?));
 
     let mut best = -1;
+    let mut best_rect = None;
     let mut best_score_v = threshold;
-    for (i, s) in scores.into_iter().enumerate() {
-        let s = s?;
+    for (i, r) in scores.into_iter().enumerate() {
+        let Some(r) = r? else { continue };
+        let s = r.score;
         dbg_cv!("[label] idx={} scale={scale:.3} score={s:.3}", i + 1);
         if s >= best_score_v {
             best_score_v = s;
             best = i as i32 + 1;
+            best_rect = Some(r);
         }
     }
-    Ok(best)
+    Ok(best_rect.map(|r| (best, r)))
 }
 
-// Best label within a horizontal band of `region` spanning rows
-// [y0, y1) (clamped to the region). The header rows are one glyph-line apart, so
-// restricting the search to the band where a label sits cuts the work several
-// fold versus scanning the whole upper-left corner. Returns -1 when the band is
-// degenerate so the caller can fall back to a full-region search.
-fn best_label_in_band(
+// Best label within a horizontal band of `region` spanning rows [y0, y1).
+// Coordinates in the returned rectangle are relative to `region`.
+fn best_label_in_band_match(
     region: &(impl MatTraitConst + ToInputArray),
     templates: &[Mat],
     scale: f64,
     threshold: f64,
     y0: i32,
     y1: i32,
-) -> Result<i32> {
+) -> Result<Option<(i32, MatchRect)>> {
     let y0 = y0.clamp(0, region.rows());
     let y1 = y1.clamp(0, region.rows());
     if y1 - y0 < 2 {
-        return Ok(-1);
+        return Ok(None);
     }
     let band = region.roi(Rect::new(0, y0, region.cols(), y1 - y0))?;
-    best_label(&band, templates, scale, threshold)
+    Ok(best_label_match(&band, templates, scale, threshold)?.map(|(idx, r)| (idx, r.offset(0, y0))))
 }
 
-// Like `best_label`, but also sweeps `scales` and returns the (1-based winner,
-// scale) pair with the strongest correlation. Used to recover the true overlay
-// scale when the scale implied by the frame height is wrong -- e.g. a capture
-// that includes window chrome or letterboxing, where the overlay fills less of
-// the frame than its pixel height suggests. Whole-word labels are scale
-// sensitive, so the scale that best fits one is the overlay's real scale.
-fn best_label_over_scales(
+// Like `best_label_match`, but also sweeps `scales`. Used to recover the true
+// overlay scale when the scale implied by the frame height is wrong.
+fn best_label_match_over_scales(
     frame: &(impl MatTraitConst + ToInputArray),
     templates: &[Mat],
     scales: &[f64],
     threshold: f64,
-) -> Result<(i32, f64)> {
+) -> Result<(i32, f64, Option<MatchRect>)> {
     let mut best = -1;
     let mut best_score_v = threshold;
     let mut best_scale = scales.first().copied().unwrap_or(1.0);
+    let mut best_rect = None;
     for &scale in scales {
         for (i, t) in templates.iter().enumerate() {
-            let s = best_score(frame, &scaled(t, scale)?)?;
+            let Some(r) = best_match(frame, &scaled(t, scale)?)? else { continue };
+            let s = r.score;
             if s >= best_score_v {
                 best_score_v = s;
                 best = i as i32 + 1;
                 best_scale = scale;
+                best_rect = Some(r);
             }
         }
     }
-    Ok((best, best_scale))
+    Ok((best, best_scale, best_rect))
 }
 
 // Collects every location where `tmpl` matches `frame` above `threshold`.
@@ -647,7 +683,7 @@ fn collect_detections(
         for x in 0..cols {
             let score = row[x as usize];
             if score as f64 >= threshold {
-                out.push(Detection { x, y, w, score: score as f64, value });
+                out.push(Detection { x, y, w, h: tmpl.rows(), score: score as f64, value });
             }
         }
     }
@@ -746,6 +782,26 @@ fn detect_header_colons(
     Ok(best)
 }
 
+fn header_colon_regions(frame: &Mat, base_colon: &Mat, scale: f64, threshold: f64) -> Result<Vec<MatchRect>> {
+    if base_colon.empty() {
+        return Ok(Vec::new());
+    }
+    let colon_tmpl = scaled(base_colon, scale)?;
+    if colon_tmpl.empty() {
+        return Ok(Vec::new());
+    }
+    let (rx, ry, rw, rh) = (HEADER_REGION_X, HEADER_REGION_Y, HEADER_REGION_W, HEADER_REGION_H);
+    let x0 = (frame.cols() as f64 * rx) as i32;
+    let y0 = (frame.rows() as f64 * ry) as i32;
+    let region = frame.roi(Rect::new(x0, y0, (frame.cols() as f64 * rw) as i32, (frame.rows() as f64 * rh) as i32))?;
+    let mut detections = Vec::new();
+    collect_detections(&region, &colon_tmpl, threshold, 0, &mut detections)?;
+    Ok(suppress(detections, colon_tmpl.cols(), colon_tmpl.rows(), 0.5)
+        .into_iter()
+        .map(|d| MatchRect { x: d.x + x0, y: d.y + y0, w: d.w, h: d.h, score: d.score })
+        .collect())
+}
+
 // Finds a mission number (1-9) by anchoring on ':' in the label region and
 // taking the strongest single digit immediately to its left on the same line.
 fn find_mission_from_colons(
@@ -753,7 +809,7 @@ fn find_mission_from_colons(
     colon_tmpl: &Mat,
     digit_tmpls: &[Mat],
 ) -> Result<FoundMission> {
-    let none = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1 };
+    let none = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1, colon: None, digit: None };
     if colon_tmpl.empty() || digit_tmpls.len() < 10 {
         return Ok(none);
     }
@@ -828,13 +884,15 @@ fn find_mission_from_colons(
                     score: d.score,
                     colon_cx: colon.x + colon_w / 2,
                     colon_cy: colon_center_y.round() as i32,
+                    colon: Some(MatchRect { x: colon.x, y: colon.y, w: colon.w, h: colon.h, score: colon.score }),
+                    digit: Some(MatchRect { x: d.x, y: d.y, w: d.w, h: d.h, score: d.score }),
                 });
             }
         }
         Ok(best)
     });
 
-    let mut best = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1 };
+    let mut best = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1, colon: None, digit: None };
     for p in partials {
         if let Some(cand) = p?
             && cand.score >= best.score
@@ -976,7 +1034,12 @@ fn find_times_band(
         }
         let total_seconds = minutes * 60 + seconds;
         if total_seconds < 0x3ff {
-            times.push(FoundTime { y: colon.y, x: colon.x, seconds: total_seconds });
+            times.push(FoundTime {
+                y: colon.y,
+                x: colon.x,
+                seconds: total_seconds,
+                colon: MatchRect { x: colon.x, y: colon.y, w: colon.w, h: colon.h, score: colon.score },
+            });
         }
     }
 
@@ -1118,8 +1181,53 @@ impl AspectCalibration {
     }
 }
 
+struct RegionMapper {
+    calib: AspectCalibration,
+    corrected_w: i32,
+    corrected_h: i32,
+    work_w: i32,
+    work_h: i32,
+}
+
+impl RegionMapper {
+    fn from_frames(calib: AspectCalibration, corrected: &Mat, work: &Mat) -> Self {
+        RegionMapper {
+            calib,
+            corrected_w: corrected.cols(),
+            corrected_h: corrected.rows(),
+            work_w: work.cols(),
+            work_h: work.rows(),
+        }
+    }
+
+    fn corrected_to_source(&self, r: MatchRect) -> MatchRegion {
+        let x = self.calib.crop_x as f64 + r.x as f64 * self.calib.crop_w as f64 / self.calib.target_w as f64;
+        let w = r.w as f64 * self.calib.crop_w as f64 / self.calib.target_w as f64;
+        MatchRegion {
+            label: String::new(),
+            x: x.round() as i32,
+            y: r.y,
+            w: w.round().max(1.0) as i32,
+            h: r.h.max(1),
+            score: r.score,
+        }
+    }
+
+    fn work_to_source(&self, r: MatchRect) -> MatchRegion {
+        let corrected = MatchRect {
+            x: (r.x as f64 * self.corrected_w as f64 / self.work_w as f64).round() as i32,
+            y: (r.y as f64 * self.corrected_h as f64 / self.work_h as f64).round() as i32,
+            w: (r.w as f64 * self.corrected_w as f64 / self.work_w as f64).round().max(1.0) as i32,
+            h: (r.h as f64 * self.corrected_h as f64 / self.work_h as f64).round().max(1.0) as i32,
+            score: r.score,
+        };
+        self.corrected_to_source(corrected)
+    }
+}
+
 pub struct CvMatcher {
     lang: String,
+    diagnostics: bool,
     parts: Vec<Mat>,
     diffs: Vec<Mat>,
     colon: Mat,
@@ -1200,6 +1308,7 @@ impl CvMatcher {
 
         Ok(CvMatcher {
             lang: lang.to_owned(),
+            diagnostics: false,
             parts,
             diffs,
             colon,
@@ -1220,6 +1329,49 @@ impl CvMatcher {
         })
     }
 
+    pub fn diagnostics_available() -> bool {
+        cfg!(any(debug_assertions, feature = "dev"))
+    }
+
+    pub fn with_diagnostics(mut self, enabled: bool) -> Self {
+        self.diagnostics = enabled && Self::diagnostics_available();
+        self
+    }
+
+    pub fn diagnostics_enabled(&self) -> bool {
+        self.diagnostics
+    }
+
+    fn push_work_region(
+        &self,
+        out: &mut Vec<MatchRegion>,
+        mapper: &RegionMapper,
+        label: impl Into<String>,
+        rect: MatchRect,
+    ) {
+        if !self.diagnostics {
+            return;
+        }
+        let mut region = mapper.work_to_source(rect);
+        region.label = label.into();
+        out.push(region);
+    }
+
+    fn push_corrected_region(
+        &self,
+        out: &mut Vec<MatchRegion>,
+        mapper: &RegionMapper,
+        label: impl Into<String>,
+        rect: MatchRect,
+    ) {
+        if !self.diagnostics {
+            return;
+        }
+        let mut region = mapper.corrected_to_source(rect);
+        region.label = label.into();
+        out.push(region);
+    }
+
     // Returns `gray` corrected to 4:3 when the source is a stretched 4:3 picture,
     // or unchanged otherwise. The correction is learned once per source
     // resolution (the "calibration" step) and cached: on the first frame at a
@@ -1229,12 +1381,12 @@ impl CvMatcher {
     // calibrate on their own but inherit a calibration learned from an earlier
     // menu frame this session -- so once any folder has been seen, the whole
     // session's frames are corrected.
-    fn calibrate_aspect(&self, bgra_frame: &impl ToInputArray, gray: &Mat) -> Result<Mat> {
+    fn calibrate_aspect(&self, bgra_frame: &impl ToInputArray, gray: &Mat) -> Result<(Mat, AspectCalibration)> {
         let (w, h) = (gray.cols(), gray.rows());
 
         // Reuse the calibration already learned for this resolution.
         if let Some(c) = self.aspect_cache.lock().ok().and_then(|c| *c).filter(|c| c.src_w == w && c.src_h == h) {
-            return c.apply(gray);
+            return Ok((c.apply(gray)?, c));
         }
 
         // Cold: measure the folder to decide whether this resolution is
@@ -1242,7 +1394,8 @@ impl CvMatcher {
         let Some(folder_aspect) = detect_folder_aspect(bgra_frame, w, h)? else {
             // No folder on this frame -- can't calibrate yet. Match it as-is and
             // leave the cache empty so a later menu frame can calibrate.
-            return gray.try_clone();
+            let calib = AspectCalibration::identity(w, h);
+            return Ok((gray.try_clone()?, calib));
         };
 
         let calib = if folder_aspect > FOLDER_STRETCH_ASPECT {
@@ -1265,7 +1418,7 @@ impl CvMatcher {
         if let Ok(mut cache) = self.aspect_cache.lock() {
             *cache = Some(calib);
         }
-        calib.apply(gray)
+        Ok((calib.apply(gray)?, calib))
     }
 
     /// The capture transform learned for the current source, or `None` while the
@@ -1287,7 +1440,8 @@ impl CvMatcher {
     // scale it was found at. Coordinates in the result are relative to `rect`.
     fn read_mission(&self, gray: &Mat, rect: Rect, scales: &[f64]) -> Result<(FoundMission, f64)> {
         let region = gray.roi(rect)?;
-        let mut found = FoundMission { mission: -1, score: GLYPH_THRESHOLD, colon_cx: -1, colon_cy: -1 };
+        let mut found =
+            FoundMission { mission: -1, score: GLYPH_THRESHOLD, colon_cx: -1, colon_cy: -1, colon: None, digit: None };
         let mut scale_used = scales.first().copied().unwrap_or(1.0);
         // Sweep scales sequentially so the early-exit is preserved: a single
         // scale's mission read is expensive at native resolution (the digit
@@ -1326,9 +1480,9 @@ impl CvMatcher {
     // resolution-implied scale first) and stops at the first that clears the
     // threshold, so an in-spec capture settles on the first try. Returns the
     // peak correlation found.
-    fn detect_levels(&self, frame: &Mat, scales: &[f64]) -> Result<f64> {
+    fn detect_levels(&self, frame: &Mat, scales: &[f64]) -> Result<Option<MatchRect>> {
         if self.levels.empty() {
-            return Ok(-1.0);
+            return Ok(None);
         }
         let (rx, ry, rw, rh) = LEVELS_REGION;
         let x0 = (frame.cols() as f64 * rx) as i32;
@@ -1341,32 +1495,37 @@ impl CvMatcher {
 
         // Score the divider at every scale in parallel (the dominant cost on a
         // rejected/unknown frame, where no scale clears the bar and all run).
-        let scores: Vec<Result<f64>> = par_map(scales.len(), |i| best_score(region, &scaled(&self.levels, scales[i])?));
+        let scores: Vec<Result<Option<MatchRect>>> =
+            par_map(scales.len(), |i| best_match(region, &scaled(&self.levels, scales[i])?));
 
         // Replay the sequential early-exit selection so the result matches the
         // serial version exactly: the first scale to clear the threshold wins.
-        let mut best = -1.0;
-        for (i, s) in scores.into_iter().enumerate() {
-            let s = s?;
-            dbg_cv!("[levels] scale={:.3} score={s:.3}", scales[i]);
-            if s > best {
-                best = s;
+        let mut best: Option<MatchRect> = None;
+        for (i, r) in scores.into_iter().enumerate() {
+            let Some(mut r) = r? else { continue };
+            r = r.offset(x0, y0);
+            dbg_cv!("[levels] scale={:.3} score={:.3}", scales[i], r.score);
+            if best.is_none_or(|b| r.score > b.score) {
+                best = Some(r);
             }
-            if best >= LEVELS_THRESHOLD {
+            if best.is_some_and(|b| b.score >= LEVELS_THRESHOLD) {
                 break;
             }
         }
         Ok(best)
     }
 
-    fn detect_start_language(&self, frame: &Mat, scale: f64) -> Result<Option<&'static str>> {
-        let en = best_score(frame, &scaled(&self.language_start_en, scale)?)?;
-        let jp = best_score(frame, &scaled(&self.language_start_jp, scale)?)?;
-        dbg_cv!("[language] start en={en:.3} jp={jp:.3}");
+    fn detect_start_language(&self, frame: &Mat, scale: f64) -> Result<Option<(&'static str, MatchRect)>> {
+        let en = best_match(frame, &scaled(&self.language_start_en, scale)?)?;
+        let jp = best_match(frame, &scaled(&self.language_start_jp, scale)?)?;
+        let en_score = en.map_or(-1.0, |r| r.score);
+        let jp_score = jp.map_or(-1.0, |r| r.score);
+        dbg_cv!("[language] start en={en_score:.3} jp={jp_score:.3}");
 
-        let (lang, score, other) = if en >= jp { ("en", en, jp) } else { ("jp", jp, en) };
+        let (lang, rect, score, other) =
+            if en_score >= jp_score { ("en", en, en_score, jp_score) } else { ("jp", jp, jp_score, en_score) };
         if score >= LANGUAGE_START_THRESHOLD && score - other >= LANGUAGE_START_MARGIN {
-            Ok(Some(lang))
+            Ok(rect.map(|r| (lang, r)))
         } else {
             Ok(None)
         }
@@ -1386,7 +1545,7 @@ impl CvMatcher {
     // captured a few percent off the header-implied scale) is a small
     // neighbour-scale sweep run to recover it, so the per-frame cost stays at
     // one match per template for nearly every frame.
-    fn classify_screen(&self, frame: &Mat, scale: f64) -> Result<Screen> {
+    fn classify_screen(&self, frame: &Mat, scale: f64) -> Result<(Screen, Option<MatchRect>)> {
         // Sub-region of `frame` given as fractional (x, y, w, h).
         let region = |r: (f64, f64, f64, f64)| -> Result<Mat> {
             let (rx, ry, rw, rh) = r;
@@ -1411,25 +1570,32 @@ impl CvMatcher {
         ];
 
         let mut best = Screen::Unknown;
+        let mut best_rect: Option<MatchRect> = None;
         let mut best_score_v = -1.0;
-        let search = |scale: f64, best: &mut Screen, best_score_v: &mut f64| -> Result<()> {
-            // Match all eight banner/status templates for this scale in parallel,
-            // then fold in index order so ties resolve exactly as the serial
-            // version did.
-            let scores: Vec<Result<f64>> =
-                par_map(candidates.len(), |i| best_score(candidates[i].2, &scaled(candidates[i].1, scale)?));
-            for (i, s) in scores.into_iter().enumerate() {
-                let s = s?;
-                dbg_cv!("[screen] {:?} scale={scale:.3} score={s:.3}", candidates[i].0);
-                if s > *best_score_v {
-                    *best_score_v = s;
-                    *best = candidates[i].0;
+        let search =
+            |scale: f64, best: &mut Screen, best_rect: &mut Option<MatchRect>, best_score_v: &mut f64| -> Result<()> {
+                // Match all eight banner/status templates for this scale in parallel,
+                // then fold in index order so ties resolve exactly as the serial
+                // version did.
+                let scores: Vec<Result<Option<MatchRect>>> =
+                    par_map(candidates.len(), |i| best_match(candidates[i].2, &scaled(candidates[i].1, scale)?));
+                for (i, r) in scores.into_iter().enumerate() {
+                    let Some(r) = r? else { continue };
+                    let s = r.score;
+                    dbg_cv!("[screen] {:?} scale={scale:.3} score={s:.3}", candidates[i].0);
+                    if s > *best_score_v {
+                        *best_score_v = s;
+                        *best = candidates[i].0;
+                        let (rx, ry, _, _) = if i < 4 { SCREEN_BANNER_REGION } else { SCREEN_STATUS_REGION };
+                        let ox = (frame.cols() as f64 * rx) as i32;
+                        let oy = (frame.rows() as f64 * ry) as i32;
+                        *best_rect = Some(r.offset(ox, oy));
+                    }
                 }
-            }
-            Ok(())
-        };
+                Ok(())
+            };
 
-        search(scale, &mut best, &mut best_score_v)?;
+        search(scale, &mut best, &mut best_rect, &mut best_score_v)?;
         // Recover an off-scale overlay only when the implied scale resolved
         // nothing; the true screen's word climbs above the bar at its real
         // scale while the others stay well below it.
@@ -1448,7 +1614,7 @@ impl CvMatcher {
         // first scale that clears the bar, so the recovery stays cheap.
         if best_score_v < SCREEN_THRESHOLD {
             for m in [0.975, 1.025, 0.95, 1.05, 0.925, 1.075, 0.90, 1.10] {
-                search(scale * m, &mut best, &mut best_score_v)?;
+                search(scale * m, &mut best, &mut best_rect, &mut best_score_v)?;
                 if best_score_v >= SCREEN_THRESHOLD {
                     break;
                 }
@@ -1456,7 +1622,7 @@ impl CvMatcher {
         }
 
         dbg_cv!("[screen] => {best:?} ({best_score_v:.3})");
-        Ok(if best_score_v >= SCREEN_THRESHOLD { best } else { Screen::Unknown })
+        Ok(if best_score_v >= SCREEN_THRESHOLD { (best, best_rect) } else { (Screen::Unknown, None) })
     }
 
     /// # Safety
@@ -1485,8 +1651,10 @@ impl CvMatcher {
             detected_lang: None,
             times: None,
             raw_times: Vec::new(),
+            match_regions: Vec::new(),
             runtime_ms: 0.0,
         };
+        let mut match_regions = Vec::new();
         let mut timer = PhaseTimer::new();
 
         // Convert the BGRA frame to grayscale once; every template is matched
@@ -1498,7 +1666,7 @@ impl CvMatcher {
         // aspect, so the glyphs regain the proportions the templates expect.
         // Calibrated once per resolution off the manilla folder; a no-op on
         // clean 4:3 grabs and on 4:3 content pillarboxed in 16:9.
-        let gray = self.calibrate_aspect(bgra_frame, &gray)?;
+        let (gray, calib) = self.calibrate_aspect(bgra_frame, &gray)?;
 
         // Template matching cost grows with frame area, so a native 1080p (or
         // larger) capture is ~5x more expensive than a 480p composite grab for
@@ -1519,6 +1687,7 @@ impl CvMatcher {
         } else {
             gray.try_clone()?
         };
+        let mapper = RegionMapper::from_frames(calib, &gray, &frame);
         timer.lap("grayscale+downscale");
 
         // Scales to try are derived from the frame height, so each resolution
@@ -1551,6 +1720,14 @@ impl CvMatcher {
             (HEADER_REGION_X, HEADER_REGION_Y, HEADER_REGION_W, HEADER_REGION_H),
         )?;
         let has_header = header.count >= 2 && header.peak >= TIME_GATE_STRONG_COLON;
+        if self.diagnostics {
+            for (i, r) in header_colon_regions(&frame, &self.colon, header.scale, TIME_GATE_COLON_THRESHOLD)?
+                .into_iter()
+                .enumerate()
+            {
+                self.push_work_region(&mut match_regions, &mapper, format!("header colon {}", i + 1), r);
+            }
+        }
         dbg_cv!(
             "[gate] header_colons={} best_colon={:.3} scale={:.3} has_header={has_header} frame={}x{}",
             header.count,
@@ -1573,20 +1750,25 @@ impl CvMatcher {
             // so dropping it from a full ladder sweep to a single scale keeps the
             // matcher cheap on every non-overlay frame. A cold session (no hint)
             // still sweeps the full ladder via `gate_scales == scales`.
-            let levels_score = self.detect_levels(&frame, &gate_scales)?;
-            if levels_score >= LEVELS_THRESHOLD {
+            let levels_match = self.detect_levels(&frame, &gate_scales)?;
+            let levels_score = levels_match.map_or(-1.0, |m| m.score);
+            if let Some(r) = levels_match.filter(|m| m.score >= LEVELS_THRESHOLD) {
                 result.screen = Screen::Levels;
+                self.push_work_region(&mut match_regions, &mapper, "levels divider", r);
             }
             dbg_cv!("[gate] no header; levels_score={levels_score:.3} => {:?}", result.screen);
             timer.lap("levels detect");
+            result.match_regions = match_regions;
             result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
             return Ok(result);
         }
 
-        if let Some(detected_lang) = self.detect_start_language(&frame, header.scale)? {
+        if let Some((detected_lang, rect)) = self.detect_start_language(&frame, header.scale)? {
             result.detected_lang = Some(detected_lang.to_owned());
+            self.push_work_region(&mut match_regions, &mapper, format!("language {detected_lang} start tab"), rect);
             if detected_lang != self.lang {
                 dbg_cv!("[language] configured={} detected={detected_lang}; rejecting wrong-language frame", self.lang);
+                result.match_regions = match_regions;
                 result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
                 return Ok(result);
             }
@@ -1651,6 +1833,12 @@ impl CvMatcher {
             mission_scale = s;
         }
         result.mission = found.mission;
+        if let Some(r) = found.colon.map(|r| r.offset(mission_rect.x, mission_rect.y)) {
+            self.push_corrected_region(&mut match_regions, &mapper, "mission colon", r);
+        }
+        if let Some(r) = found.digit.map(|r| r.offset(mission_rect.x, mission_rect.y)) {
+            self.push_corrected_region(&mut match_regions, &mapper, format!("mission {}", found.mission), r);
+        }
 
         // Absolute native colon centre (the search box origin offset added back),
         // used to anchor the label bands and to seed the location cache.
@@ -1674,47 +1862,72 @@ impl CvMatcher {
         let mission_cy = mission_cy_frame;
         let pad = ((colon_h as f64) * 0.4) as i32;
 
+        let mut part_rect = None;
         result.part = if mission_cy >= 0 && colon_h > 0 {
-            best_label_in_band(
+            let part = best_label_in_band_match(
                 &label_region,
                 &self.parts,
                 global_scale,
                 LABEL_THRESHOLD,
                 mission_cy + pad,
                 mission_cy + colon_h * 3,
-            )?
+            )?;
+            if let Some((part, r)) = part {
+                part_rect = Some(r);
+                part
+            } else {
+                -1
+            }
         } else {
             -1
         };
         // Fall back to a full-region scale sweep when the anchored band misses,
         // which also recovers the true scale on off-scale captures.
         if result.part < 0 {
-            let (part, part_scale) = best_label_over_scales(&label_region, &self.parts, &scales, LABEL_THRESHOLD)?;
+            let (part, part_scale, rect) =
+                best_label_match_over_scales(&label_region, &self.parts, &scales, LABEL_THRESHOLD)?;
             if part >= 0 {
                 result.part = part;
+                part_rect = rect;
                 global_scale = part_scale;
                 dbg_cv!("[scale recovery] part={part} scale={part_scale:.3}");
             }
         }
+        if let Some(r) = part_rect {
+            self.push_work_region(&mut match_regions, &mapper, format!("part {}", result.part), r);
+        }
         timer.lap("part label");
 
         let colon_h = (self.colon.rows() as f64 * global_scale).round() as i32;
+        let mut difficulty_rect = None;
         let mut difficulty_label = if mission_cy >= 0 && colon_h > 0 {
-            best_label_in_band(
+            let difficulty = best_label_in_band_match(
                 &label_region,
                 &self.diffs,
                 global_scale,
                 LABEL_THRESHOLD,
                 mission_cy - colon_h * 3,
                 mission_cy - pad,
-            )?
+            )?;
+            if let Some((difficulty, r)) = difficulty {
+                difficulty_rect = Some(r);
+                difficulty
+            } else {
+                -1
+            }
         } else {
             -1
         };
-        if difficulty_label < 0 {
-            difficulty_label = best_label(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD)?;
+        if difficulty_label < 0
+            && let Some((difficulty, r)) = best_label_match(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD)?
+        {
+            difficulty_label = difficulty;
+            difficulty_rect = Some(r);
         }
         result.difficulty = if difficulty_label >= 0 { difficulty_label.saturating_sub(1) } else { -1 };
+        if let Some(r) = difficulty_rect {
+            self.push_work_region(&mut match_regions, &mapper, format!("difficulty {}", result.difficulty), r);
+        }
         timer.lap("difficulty label");
 
         // Locate the digit and colon glyphs at the same scale.
@@ -1733,17 +1946,24 @@ impl CvMatcher {
         // search be skipped on every other screen (start lists objectives, the
         // report screens list per-objective results, etc.), which would
         // otherwise be mis-read as times.
-        let screen = self.classify_screen(&frame, global_scale)?;
+        let (screen, screen_rect) = self.classify_screen(&frame, global_scale)?;
         result.screen = screen;
+        if let Some(r) = screen_rect {
+            self.push_work_region(&mut match_regions, &mapper, format!("screen {}", screen.as_str()), r);
+        }
         timer.lap("screen classify");
 
         // Read the raw times off the overlay (top-to-bottom), then classify them
         // into run / target / best using the level's mission/part/difficulty.
-        let times: Vec<i32> = if screen != Screen::Stats || colon_tmpl.empty() || digit_width_sum == 0 {
+        let found_times: Vec<FoundTime> = if screen != Screen::Stats || colon_tmpl.empty() || digit_width_sum == 0 {
             Vec::new()
         } else {
-            find_times_band(&frame, &colon_tmpl, &digit_tmpls)?.into_iter().map(|t| t.seconds).collect()
+            find_times_band(&frame, &colon_tmpl, &digit_tmpls)?
         };
+        for t in &found_times {
+            self.push_work_region(&mut match_regions, &mapper, format!("time {}", format_seconds(t.seconds)), t.colon);
+        }
+        let times: Vec<i32> = found_times.into_iter().map(|t| t.seconds).collect();
         if screen == Screen::Stats && times.is_empty() {
             result.screen = Screen::Unknown;
         }
@@ -1774,6 +1994,7 @@ impl CvMatcher {
         }
 
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
+        result.match_regions = match_regions;
 
         Ok(result)
     }
