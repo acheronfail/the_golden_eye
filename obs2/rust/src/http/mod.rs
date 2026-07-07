@@ -68,8 +68,8 @@ pub struct StreamMessage {
 /// `type` so the SPA can discriminate them. `Version` is sent once per
 /// connection (a handshake); `Sources`, `Match`, and `RecordingState` ride watch
 /// channels (latest-wins, replayed on connect); `RecordingSavePending`,
-/// `RecordingSaved`, and `MonitorStopped` ride `event_tx` (one-off, delivered only to
-/// currently-connected clients).
+/// `RecordingSaved`, and `MonitorStopped` ride `event_tx` (one-off, delivered
+/// only to currently-connected clients).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum MonitorEvent {
@@ -94,16 +94,17 @@ pub enum MonitorEvent {
     RecordingSavePending(RecordingSavePending),
     /// A run's clip was saved out of the replay buffer and trimmed.
     RecordingSaved(RecordingSaved),
-    /// Monitoring was stopped by the backend in response to an external event.
+    /// Monitoring stopped, either from a user request or an external OBS event.
     MonitorStopped { reason: MonitorStoppedReason },
 }
 
-/// Why the backend stopped an active monitor without the user pressing the
-/// plugin's stop control. Serialized as a plain string inside
-/// [`MonitorEvent::MonitorStopped`].
+/// Why the backend stopped an active monitor. Serialized as a plain string
+/// inside [`MonitorEvent::MonitorStopped`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MonitorStoppedReason {
+    /// A client requested `/api/v1/monitor/stop`.
+    UserStopped,
     /// OBS reported that its replay buffer stopped while monitoring was active.
     ReplayBufferStopped,
 }
@@ -514,5 +515,11 @@ mod tests {
 
         assert_eq!(json["type"], "monitorStopped");
         assert_eq!(json["reason"], "replayBufferStopped");
+
+        let event = MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::UserStopped };
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "monitorStopped");
+        assert_eq!(json["reason"], "userStopped");
     }
 }

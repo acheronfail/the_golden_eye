@@ -314,9 +314,8 @@ export type RecordingStatus =
 	| 'failedDiscarded'
 	| 'savePending';
 
-/** Why the backend stopped monitoring without the user pressing the plugin's
- * stop control. Mirrors the Rust `MonitorStoppedReason`. */
-export type MonitorStoppedReason = 'replayBufferStopped';
+/** Why the backend stopped monitoring. Mirrors the Rust `MonitorStoppedReason`. */
+export type MonitorStoppedReason = 'userStopped' | 'replayBufferStopped';
 
 /** A message pushed over the app WebSocket. Mirrors the Rust `MonitorEvent`,
  * which is serialized internally tagged by `type`, so each variant is its
@@ -344,7 +343,7 @@ export interface AppSocketHandlers {
 	onRecordingSavePending?: (pending: RecordingSavePending) => void;
 	/** A run's clip was saved out of the replay buffer and trimmed. */
 	onRecordingSaved?: (saved: RecordingSaved) => void;
-	/** Monitoring was stopped by the backend in response to an external event. */
+	/** Monitoring stopped in the backend. */
 	onMonitorStopped?: (reason: MonitorStoppedReason) => void;
 	/** Fires when the socket closes. */
 	onClose?: () => void;

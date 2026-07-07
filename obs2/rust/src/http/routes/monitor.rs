@@ -11,7 +11,7 @@ use serde::Deserialize;
 use tokio::sync::{broadcast, watch};
 
 use crate::cv::{CaptureRegion, CvMatcher, LevelMatch};
-use crate::http::{AppState, MonitorEvent, RecordingStatus};
+use crate::http::{AppState, MonitorEvent, MonitorStoppedReason, RecordingStatus};
 
 /// A running monitor. OBS pushes captured frames into `mailbox` from its render
 /// callback (keyed by the leaked `producer` pointer); the worker `thread`
@@ -514,6 +514,7 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
     if !stop_monitor(&state).await {
         return Err((StatusCode::CONFLICT, "no monitor is running").into());
     }
+    let _ = state.event_tx.send(MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::UserStopped });
 
     if state.settings.get().stop_replay_buffer_when_monitor_stopped {
         crate::recording::stop_replay_buffer_if_active();
