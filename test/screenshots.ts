@@ -7,15 +7,27 @@ import { Difficulties, type Difficulty } from "./difficulty.ts";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const Screens = [
+  // options screen for 007 difficulty
   "007opts",
+  // mission aborted
   "abort",
+  // mission complete
   "complete",
+  // mission details screen (shown after clicking "next" on level start)
+  "detail",
+  // mission killed in action
   "kia",
+  // mission failed
   "failed",
+  // level select screen (filmstrips)
   "levels",
+  // difficulty select screen
   "select",
+  // mission start screen
   "start",
+  // mission stats screen
   "stats",
+  // anything else!
   "unknown",
 ] as const;
 export type Screen = (typeof Screens)[number];

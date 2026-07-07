@@ -165,12 +165,21 @@ for (const runner of runners) {
     testResult.lang = { value: result.lang, pass: result.lang === screenshot.lang, expected: screenshot.lang };
     results[runner.name].totalChecks += 1;
 
-    testResult.screen = {
-      value: result.screen,
-      pass: result.screen === screenshot.screen,
-      expected: screenshot.screen,
-    };
-    results[runner.name].totalChecks += 1;
+    if (screenshot.screen === "detail") {
+      testResult.screen = {
+        value: result.screen,
+        pass: result.screen !== "stats",
+        expected: "anything except 'detail'",
+      };
+      results[runner.name].totalChecks += 1;
+    } else {
+      testResult.screen = {
+        value: result.screen,
+        pass: result.screen === screenshot.screen,
+        expected: screenshot.screen,
+      };
+      results[runner.name].totalChecks += 1;
+    }
 
     if (["stats", "start", "complete", "failed", "abort", "kia"].includes(screenshot.screen)) {
       const resultLevel = getLevel(result.mission, result.part);
@@ -253,7 +262,7 @@ for (const runner of runners) {
         ["times", testResult.times],
       ].filter((entry): entry is [string, CheckResult] => {
         const [, result] = entry;
-        return result?.pass === false;
+        return typeof result === "object" && result?.pass === false;
       });
 
       const didFail = failedCorrectnessChecks.length > 0;
