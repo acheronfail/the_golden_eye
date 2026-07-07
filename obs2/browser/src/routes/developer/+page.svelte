@@ -231,6 +231,9 @@
 							<button class="obs-button px-2 py-1 text-sm" onclick={getScreenshot(selectedSource.name)}
 								>get screenshot</button
 							>
+							<button class="obs-button px-2 py-1 text-sm" disabled={matchLoading} onclick={runMatcher}>
+								{matchLoading ? 'matching…' : 'match screenshot'}
+							</button>
 						{/if}
 
 						{#if screenshottingSource === selectedSource.name}
@@ -244,10 +247,6 @@
 								onclick={startScreenshotting(selectedSource.name)}>start screenshotting</button
 							>
 						{/if}
-
-						<button class="obs-button px-2 py-1 text-sm" disabled={matchLoading} onclick={runMatcher}>
-							{matchLoading ? 'matching…' : 'match screenshot'}
-						</button>
 					</div>
 				{:else}
 					<p class="obs-dim font-mono">(not a video source)</p>
@@ -312,7 +311,14 @@
 					<span class="obs-muted">regions</span>
 					<span class="font-mono">{matchResult.match_regions?.length ?? 0}</span>
 					<span class="obs-muted">diagnostics</span>
-					<span class="font-mono">{diagnosticsEnabled ? 'enabled' : 'disabled'}</span>
+					{#if diagnosticsEnabled}
+						<span class="font-mono">enabled</span>
+					{:else}
+						<span
+							class="cursor-help font-mono text-(--obs-danger) uppercase"
+							title="re-run the backend in debug mode to enable annotation support">disabled</span
+						>
+					{/if}
 
 					{#if matchResult.times}
 						<span class="obs-muted">time</span>
