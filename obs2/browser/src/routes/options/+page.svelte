@@ -102,6 +102,11 @@
 		settings.failedRunLimit = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
 	};
 
+	const normalizeMinimumFailedRunLength = () => {
+		const value = Number(settings.minimumFailedRunLengthSecs);
+		settings.minimumFailedRunLengthSecs = Number.isFinite(value) ? Math.max(0, value) : 0;
+	};
+
 	const normalizePreRunPadding = () => {
 		const value = Number(settings.preRunPaddingSecs);
 		settings.preRunPaddingSecs = Number.isFinite(value) ? Math.max(0, value) : DEFAULT_PRE_RUN_PADDING_SECS;
@@ -390,18 +395,37 @@
 							{/if}
 						</div>
 
-						<div>
-							<label class={labelClass} for="failed-run-limit">Failed run limit</label>
-							<input
-								id="failed-run-limit"
-								type="number"
-								min="0"
-								step="1"
-								bind:value={settings.failedRunLimit}
-								onblur={normalizeFailedRunLimit}
-								class={`${inputClass} max-w-40`}
-							/>
-							<p class={hintClass}>0 keeps all failed clips.</p>
+						<div class="grid gap-5 sm:grid-cols-2">
+							<div>
+								<label class={labelClass} for="failed-run-limit">Failed run limit</label>
+								<input
+									id="failed-run-limit"
+									type="number"
+									min="0"
+									step="1"
+									bind:value={settings.failedRunLimit}
+									onblur={normalizeFailedRunLimit}
+									class={inputClass}
+								/>
+								<p class={hintClass}>0 keeps all failed clips.</p>
+							</div>
+
+							<div>
+								<label class={labelClass} for="minimum-failed-run-length">Minimum failed run length</label>
+								<input
+									id="minimum-failed-run-length"
+									type="number"
+									min="0"
+									step="0.25"
+									bind:value={settings.minimumFailedRunLengthSecs}
+									onblur={normalizeMinimumFailedRunLength}
+									class={inputClass}
+								/>
+								<p class={hintClass}>
+									0 saves all failed runs. Uses the time displayed on the stats screen when available (or falls back to
+									the time between seeing the start screen and then seeing the stats screen).
+								</p>
+							</div>
 						</div>
 					</div>
 				{/if}

@@ -61,6 +61,10 @@ pub struct RecordingOptions {
     /// Number of failed clips to keep in the failed output directory. 0 means
     /// unlimited.
     pub failed_run_limit: usize,
+    /// Minimum run length required before a failed run is saved. 0 saves every
+    /// failed run. Uses stats-screen time when present, otherwise detected
+    /// start-to-end time. This excludes pre/post padding.
+    pub minimum_failed_run_length_secs: f64,
     pub clip_filename_template: String,
     pub pre_run_padding_secs: f64,
     pub post_run_padding_secs: f64,
@@ -73,6 +77,7 @@ impl Default for RecordingOptions {
             save_failed_runs: true,
             failed_output_path: String::new(),
             failed_run_limit: 0,
+            minimum_failed_run_length_secs: 0.0,
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
             pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
             post_run_padding_secs: DEFAULT_POST_RUN_PADDING_SECS,
@@ -96,6 +101,10 @@ impl RecordingOptions {
 
     fn post_run_padding_secs(&self) -> f64 {
         Self::non_negative_secs(self.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS)
+    }
+
+    fn minimum_failed_run_length_secs(&self) -> f64 {
+        Self::non_negative_secs(self.minimum_failed_run_length_secs, 0.0)
     }
 
     fn save_delay(&self) -> Duration {
@@ -447,6 +456,15 @@ fn recording_save_pending_event(
     }
 }
 
+fn failed_run_length_secs(now: Instant, clip_start: Instant, stats: Option<&LevelMatch>) -> f64 {
+    stats
+        .and_then(|m| m.times)
+        .map(|times| times.time)
+        .filter(|time| *time >= 0)
+        .map(|time| time as f64)
+        .unwrap_or_else(|| now.saturating_duration_since(clip_start).as_secs_f64())
+}
+
 /// Tracks one recording session as it moves through the on-screen states, and
 /// drives the replay-buffer save + trim when a run finishes. Fed one matched
 /// frame at a time via [`RecordingState::on_frame`].
@@ -528,12 +546,23 @@ impl RecordingState {
             self.report = None;
             return false;
         }
+        let run_length_secs = now.saturating_duration_since(clip_start).as_secs_f64();
+        let measured_failed_run_length_secs = failed_run_length_secs(now, clip_start, stats.as_ref());
+        if status.is_failed() && measured_failed_run_length_secs < self.options.minimum_failed_run_length_secs() {
+            tracing::info!(
+                failed_run_length_secs = measured_failed_run_length_secs,
+                minimum_failed_run_length_secs = self.options.minimum_failed_run_length_secs(),
+                "failed run reached an ending screen but was shorter than the configured minimum"
+            );
+            self.status = None;
+            self.report = None;
+            return false;
+        }
         let save_delay = self.options.save_delay();
         let save_id = self.next_save_id;
         self.next_save_id = self.next_save_id.saturating_add(1).max(1);
-        let estimated_duration_secs = now.saturating_duration_since(clip_start).as_secs_f64()
-            + self.options.pre_run_padding_secs()
-            + self.options.post_run_padding_secs();
+        let estimated_duration_secs =
+            run_length_secs + self.options.pre_run_padding_secs() + self.options.post_run_padding_secs();
         let pending_event =
             recording_save_pending_event(save_id, save_delay, estimated_duration_secs, status, stats.as_ref());
         self.pending = Some(PendingSave {
@@ -1412,6 +1441,96 @@ mod tests {
         assert!((job.start_before_save_secs - 18.5).abs() < f64::EPSILON);
         assert_eq!(job.trim_tail_secs, 2.0);
         assert!(recording.pending.is_none());
+    }
+
+    #[test]
+    fn failed_run_without_stats_shorter_than_minimum_length_is_not_scheduled() {
+        let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
+        let (mut recording, mut events) = test_recording(options);
+        let start = Instant::now();
+        let failed_at = start + Duration::from_secs(19);
+
+        recording.status = Some(RunStatus::Failed);
+        assert!(!recording.schedule_save(failed_at, start, Some(match_without_time())));
+
+        assert!(recording.pending.is_none());
+        assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn failed_run_without_stats_at_or_above_minimum_length_is_scheduled() {
+        let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
+        let (mut recording, mut events) = test_recording(options);
+        let start = Instant::now();
+        let failed_at = start + Duration::from_secs(20);
+
+        recording.status = Some(RunStatus::Failed);
+        assert!(recording.schedule_save(failed_at, start, Some(match_without_time())));
+
+        let pending = events.try_recv().expect("pending save event");
+        let MonitorEvent::RecordingSavePending(pending) = pending else {
+            panic!("expected pending save event");
+        };
+        assert!(pending.failed);
+        assert_eq!(pending.status, "failed");
+        assert!((pending.estimated_duration_secs - 30.5).abs() < f64::EPSILON);
+        recording.pending = None;
+    }
+
+    #[test]
+    fn failed_run_minimum_length_uses_stats_time_when_present() {
+        let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
+        let (mut recording, mut events) = test_recording(options);
+        let start = Instant::now();
+        let failed_at = start + Duration::from_secs(25);
+        let mut stats = match_with_time();
+        stats.times = Some(Times { time: 19, target_time: None, best_time: None });
+
+        recording.status = Some(RunStatus::Failed);
+        assert!(!recording.schedule_save(failed_at, start, Some(stats)));
+
+        assert!(recording.pending.is_none());
+        assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn failed_run_minimum_length_accepts_stats_time_at_threshold() {
+        let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
+        let (mut recording, mut events) = test_recording(options);
+        let start = Instant::now();
+        let failed_at = start + Duration::from_secs(10);
+        let mut stats = match_with_time();
+        stats.times = Some(Times { time: 20, target_time: None, best_time: None });
+
+        recording.status = Some(RunStatus::Failed);
+        assert!(recording.schedule_save(failed_at, start, Some(stats)));
+
+        let pending = events.try_recv().expect("pending save event");
+        let MonitorEvent::RecordingSavePending(pending) = pending else {
+            panic!("expected pending save event");
+        };
+        assert!(pending.failed);
+        assert_eq!(pending.status, "failed");
+        assert_eq!(pending.time_secs, Some(20));
+        assert!((pending.estimated_duration_secs - 20.5).abs() < f64::EPSILON);
+        recording.pending = None;
+    }
+
+    #[test]
+    fn zero_minimum_failed_run_length_saves_all_failed_runs() {
+        let options = RecordingOptions { minimum_failed_run_length_secs: 0.0, ..RecordingOptions::default() };
+        let (mut recording, mut events) = test_recording(options);
+        let start = Instant::now();
+
+        recording.status = Some(RunStatus::Failed);
+        assert!(recording.schedule_save(start, start, Some(match_without_time())));
+
+        let pending = events.try_recv().expect("pending save event");
+        let MonitorEvent::RecordingSavePending(pending) = pending else {
+            panic!("expected pending save event");
+        };
+        assert!(pending.failed);
+        recording.pending = None;
     }
 
     #[test]

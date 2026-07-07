@@ -143,8 +143,9 @@ pub enum RecordingStatus {
     /// it emits [`RecordingStatus::SavePending`] instead (not "skipped stats").
     StatsSkipped,
     /// A failed run reached an ending screen, but the active recording
-    /// configuration has failed-run saving disabled, so no replay-buffer save was
-    /// triggered for it.
+    /// configuration says not to save it (failed-run saving is disabled, or the
+    /// stats-screen run time, falling back to detected duration, is shorter
+    /// than the configured minimum failed-run length).
     FailedDiscarded,
     /// A run ended at the stats screen (or, via `StatsSkipped`, the report
     /// screen): a save has been scheduled and will fire a few seconds later. A
