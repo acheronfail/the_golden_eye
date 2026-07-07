@@ -256,8 +256,33 @@ export interface LevelMatch {
 		target_time: number | null;
 		best_time: number | null;
 	} | null;
+	raw_times?: number[];
+	match_regions?: {
+		label: string;
+		x: number;
+		y: number;
+		w: number;
+		h: number;
+		score: number;
+	}[];
 	runtime_ms: number;
 }
+
+export interface MatchSourceResponse {
+	match: LevelMatch;
+	imageData: string;
+	imageMime: string;
+	diagnosticsEnabled: boolean;
+}
+
+export const matchSource = async (source: string, lang: 'en' | 'jp'): Promise<MatchSourceResponse> => {
+	const res = await fetch(
+		apiUrl(`/api/v1/match?source=${encodeURIComponent(source)}&lang=${encodeURIComponent(lang)}`),
+		{ method: 'POST' }
+	);
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
 
 /** Details of a clip the backend saved out of the replay buffer at the end of a
  * run. Mirrors the Rust `RecordingSaved`. */
