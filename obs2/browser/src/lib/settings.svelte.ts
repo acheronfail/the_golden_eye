@@ -17,6 +17,7 @@ const SettingsSchema = z.object({
 	saveFailedRuns: z.boolean().catch(true),
 	failedOutputPath: z.string().catch(''),
 	failedRunLimit: z.coerce.number().int().min(0).catch(0),
+	minimumFailedRunLengthSecs: z.coerce.number().min(0).catch(0),
 	clipFilenameTemplate: z.string().catch(DEFAULT_CLIP_FILENAME_TEMPLATE),
 	preRunPaddingSecs: z.coerce.number().min(0).catch(DEFAULT_PRE_RUN_PADDING_SECS),
 	postRunPaddingSecs: z.coerce.number().min(0).catch(DEFAULT_POST_RUN_PADDING_SECS),
@@ -32,6 +33,7 @@ export interface RecordingOptions {
 	saveFailedRuns: boolean;
 	failedOutputPath: string;
 	failedRunLimit: number;
+	minimumFailedRunLengthSecs: number;
 	clipFilenameTemplate: string;
 	preRunPaddingSecs: number;
 	postRunPaddingSecs: number;
@@ -62,6 +64,7 @@ const parseSettings = (value: unknown): Settings => {
 	return {
 		...parsed,
 		failedRunLimit: nonNegativeInt(parsed.failedRunLimit),
+		minimumFailedRunLengthSecs: nonNegativeNumber(parsed.minimumFailedRunLengthSecs, 0),
 		clipFilenameTemplate: normalizeClipFilenameTemplate(parsed.clipFilenameTemplate),
 		preRunPaddingSecs: nonNegativeNumber(parsed.preRunPaddingSecs, DEFAULT_PRE_RUN_PADDING_SECS),
 		postRunPaddingSecs: nonNegativeNumber(parsed.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS),
@@ -118,6 +121,7 @@ export const settings = new (class {
 	saveFailedRuns = $state(initialSettings.saveFailedRuns);
 	failedOutputPath = $state(initialSettings.failedOutputPath);
 	failedRunLimit = $state(initialSettings.failedRunLimit);
+	minimumFailedRunLengthSecs = $state(initialSettings.minimumFailedRunLengthSecs);
 	clipFilenameTemplate = $state(initialSettings.clipFilenameTemplate);
 	preRunPaddingSecs = $state(initialSettings.preRunPaddingSecs);
 	postRunPaddingSecs = $state(initialSettings.postRunPaddingSecs);
@@ -136,6 +140,7 @@ export const settings = new (class {
 		saveFailedRuns: this.saveFailedRuns,
 		failedOutputPath: this.failedOutputPath.trim(),
 		failedRunLimit: nonNegativeInt(this.failedRunLimit),
+		minimumFailedRunLengthSecs: nonNegativeNumber(this.minimumFailedRunLengthSecs, 0),
 		clipFilenameTemplate: this.clipFilenameTemplate.trim() || DEFAULT_CLIP_FILENAME_TEMPLATE,
 		preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs, DEFAULT_PRE_RUN_PADDING_SECS),
 		postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS)
@@ -153,6 +158,7 @@ export const settings = new (class {
 			saveFailedRuns: this.saveFailedRuns,
 			failedOutputPath: this.failedOutputPath,
 			failedRunLimit: nonNegativeInt(this.failedRunLimit),
+			minimumFailedRunLengthSecs: nonNegativeNumber(this.minimumFailedRunLengthSecs, 0),
 			clipFilenameTemplate: this.clipFilenameTemplate,
 			preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs, DEFAULT_PRE_RUN_PADDING_SECS),
 			postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS),
@@ -259,6 +265,7 @@ export const settings = new (class {
 		this.saveFailedRuns = next.saveFailedRuns;
 		this.failedOutputPath = next.failedOutputPath;
 		this.failedRunLimit = next.failedRunLimit;
+		this.minimumFailedRunLengthSecs = next.minimumFailedRunLengthSecs;
 		this.clipFilenameTemplate = normalizeClipFilenameTemplate(next.clipFilenameTemplate);
 		this.preRunPaddingSecs = next.preRunPaddingSecs;
 		this.postRunPaddingSecs = next.postRunPaddingSecs;

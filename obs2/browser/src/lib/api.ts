@@ -277,6 +277,7 @@ export interface RecordingOptions {
 	saveFailedRuns: boolean;
 	failedOutputPath: string;
 	failedRunLimit: number;
+	minimumFailedRunLengthSecs: number;
 	clipFilenameTemplate: string;
 	preRunPaddingSecs: number;
 	postRunPaddingSecs: number;
@@ -296,7 +297,9 @@ export interface RecordingOptions {
  *   backed out of the report screen to the level grid); the clip is still saved
  *   (a {@link RecordingSaved} still follows). A failed run backing out this way
  *   emits `savePending` instead;
- * - `failedDiscarded` — a failed run ended, but failed-run saving is disabled;
+ * - `failedDiscarded` — a failed run ended, but failed-run saving is disabled
+ *   or the stats-screen run time, falling back to detected duration, is shorter
+ *   than the configured minimum failed-run length;
  * - `savePending` — a run ended (at the stats screen, or a failed run backing
  *   out) and a save was scheduled; a {@link RecordingSaved} follows once the clip
  *   is written. */

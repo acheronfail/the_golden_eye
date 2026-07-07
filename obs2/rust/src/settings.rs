@@ -35,6 +35,7 @@ pub struct AppSettings {
     pub save_failed_runs: bool,
     pub failed_output_path: String,
     pub failed_run_limit: usize,
+    pub minimum_failed_run_length_secs: f64,
     pub clip_filename_template: String,
     pub pre_run_padding_secs: f64,
     pub post_run_padding_secs: f64,
@@ -53,6 +54,7 @@ impl Default for AppSettings {
             save_failed_runs: true,
             failed_output_path: String::new(),
             failed_run_limit: 0,
+            minimum_failed_run_length_secs: 0.0,
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
             pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
             post_run_padding_secs: DEFAULT_POST_RUN_PADDING_SECS,
@@ -81,6 +83,10 @@ impl AppSettings {
             save_failed_runs: bool_field(object.get("saveFailedRuns"), default.save_failed_runs),
             failed_output_path: string_field(object.get("failedOutputPath"), &default.failed_output_path),
             failed_run_limit: non_negative_usize(object.get("failedRunLimit"), default.failed_run_limit),
+            minimum_failed_run_length_secs: non_negative_f64(
+                object.get("minimumFailedRunLengthSecs"),
+                default.minimum_failed_run_length_secs,
+            ),
             clip_filename_template: clip_filename_template(object.get("clipFilenameTemplate")),
             pre_run_padding_secs: non_negative_f64(object.get("preRunPaddingSecs"), default.pre_run_padding_secs),
             post_run_padding_secs: non_negative_f64(object.get("postRunPaddingSecs"), default.post_run_padding_secs),
@@ -106,6 +112,7 @@ impl AppSettings {
             save_failed_runs: self.save_failed_runs,
             failed_output_path: self.failed_output_path.trim().to_owned(),
             failed_run_limit: self.failed_run_limit,
+            minimum_failed_run_length_secs: self.minimum_failed_run_length_secs,
             clip_filename_template: self.clip_filename_template.trim().to_owned(),
             pre_run_padding_secs: self.pre_run_padding_secs,
             post_run_padding_secs: self.post_run_padding_secs,
@@ -399,6 +406,7 @@ mod tests {
             "saveFailedRuns": false,
             "failedOutputPath": "/tmp/failed",
             "failedRunLimit": "7.9",
+            "minimumFailedRunLengthSecs": "20.5",
             "clipFilenameTemplate": LEGACY_CLIP_FILENAME_TEMPLATE,
             "preRunPaddingSecs": -3,
             "postRunPaddingSecs": "2.5",
@@ -414,6 +422,7 @@ mod tests {
         assert!(!settings.save_failed_runs);
         assert_eq!(settings.failed_output_path, "/tmp/failed");
         assert_eq!(settings.failed_run_limit, 7);
+        assert_eq!(settings.minimum_failed_run_length_secs, 20.5);
         assert_eq!(settings.clip_filename_template, DEFAULT_CLIP_FILENAME_TEMPLATE);
         assert_eq!(settings.pre_run_padding_secs, 0.0);
         assert_eq!(settings.post_run_padding_secs, 2.5);
@@ -455,6 +464,7 @@ mod tests {
                 "saveFailedRuns": true,
                 "failedOutputPath": "/fails",
                 "failedRunLimit": 3,
+                "minimumFailedRunLengthSecs": 12.5,
                 "clipFilenameTemplate": "{level}",
                 "preRunPaddingSecs": 1.25,
                 "postRunPaddingSecs": 4,
