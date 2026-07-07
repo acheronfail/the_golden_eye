@@ -8,7 +8,6 @@
 - `obs2/browser/` is the SvelteKit browser dock UI embedded into the plugin build.
 - `obs2/cv_templates/` contains the image templates used by the level and time matcher.
 - `test/` contains the Node-based frame regression harness for the matcher CLI.
-- `esp32-input-monitor/` is independent PlatformIO firmware for monitoring N64 controller input.
 
 ## Development
 
@@ -91,3 +90,4 @@ git push --tags
 ```
 
 Pushing a `vX.Y.Z` tag starts the release workflow, which builds packages and creates the GitHub release with generated notes and assets.
+Any release with a hyphen (e.g., `vX.Y.Z-beta`) will trigger a pre-release version.
