@@ -85,10 +85,7 @@ export const getRuns = async (): Promise<RunsResponse> => {
 	return res.json();
 };
 
-export const streamRuns = async (
-	onEvent: (event: RunsStreamEvent) => void,
-	signal?: AbortSignal
-): Promise<void> => {
+export const streamRuns = async (onEvent: (event: RunsStreamEvent) => void, signal?: AbortSignal): Promise<void> => {
 	const res = await fetch(apiUrl('/api/v1/runs/stream'), { signal });
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 	if (!res.body) {

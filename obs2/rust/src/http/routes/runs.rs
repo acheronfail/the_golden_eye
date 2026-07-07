@@ -11,8 +11,7 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response, Result};
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tokio_util::io::ReaderStream;
 
@@ -62,7 +61,7 @@ pub struct RunsResponse {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum RunsStreamEvent {
     Directory { directory: RunDirectoryScan },
-    Clip { clip: RunClip },
+    Clip { clip: Box<RunClip> },
     Done,
 }
 
@@ -174,7 +173,7 @@ pub async fn handle_stream(State(state): State<AppState>) -> Result<Response> {
     let (tx, mut rx) = mpsc::channel::<String>(32);
     let (mut writer, reader) = tokio::io::duplex(64 * 1024);
 
-    let _ = tokio::task::spawn_blocking(move || {
+    std::mem::drop(tokio::task::spawn_blocking(move || {
         stream_configured_runs(&settings, |event| {
             let Ok(mut line) = serde_json::to_string(&event) else {
                 return true;
@@ -182,15 +181,15 @@ pub async fn handle_stream(State(state): State<AppState>) -> Result<Response> {
             line.push('\n');
             tx.blocking_send(line).is_ok()
         });
-    });
+    }));
 
-    let _ = tokio::spawn(async move {
+    std::mem::drop(tokio::spawn(async move {
         while let Some(line) = rx.recv().await {
             if writer.write_all(line.as_bytes()).await.is_err() {
                 break;
             }
         }
-    });
+    }));
 
     let stream = ReaderStream::new(reader);
     let body = Body::from_stream(stream);
@@ -483,7 +482,7 @@ fn stream_tagged_clips_recursive(
             }
             match tagged_clip(&path) {
                 Ok(Some(clip)) => {
-                    if !emit(RunsStreamEvent::Clip { clip }) {
+                    if !emit(RunsStreamEvent::Clip { clip: Box::new(clip) }) {
                         return Ok(());
                     }
                 }

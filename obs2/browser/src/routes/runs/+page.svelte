@@ -193,7 +193,9 @@
 
 	function upsertDirectory(directory: RunDirectoryScan) {
 		const current = runs ?? emptyRuns();
-		const index = current.directories.findIndex((candidate) => candidate.kind === directory.kind && candidate.path === directory.path);
+		const index = current.directories.findIndex(
+			(candidate) => candidate.kind === directory.kind && candidate.path === directory.path
+		);
 		const directories =
 			index === -1
 				? [...current.directories, directory]
@@ -204,7 +206,8 @@
 	function upsertClip(clip: RunClip) {
 		const current = runs ?? emptyRuns();
 		const index = current.clips.findIndex((candidate) => candidate.path === clip.path);
-		const clips = index === -1 ? [...current.clips, clip] : current.clips.map((candidate, i) => (i === index ? clip : candidate));
+		const clips =
+			index === -1 ? [...current.clips, clip] : current.clips.map((candidate, i) => (i === index ? clip : candidate));
 		runs = { ...current, clips };
 		if (selected?.path === clip.path) {
 			selected = clip;
