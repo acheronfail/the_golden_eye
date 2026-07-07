@@ -4,8 +4,9 @@
 
 git_plugin_version := `
 tag="$(git describe --tags --exact-match --match 'v*' 2>/dev/null || true)"
+release_tag_regex='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A-Za-z][0-9A-Za-z.-]*)?$'
 
-  if printf '%s\n' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+  if printf '%s\n' "$tag" | grep -Eq "$release_tag_regex"; then
     printf '%s' "${tag#v}"
   else
     sha="$(git rev-parse --short HEAD 2>/dev/null || printf unknown)"
@@ -94,7 +95,7 @@ preview-release sha="HEAD":
     sha="{{ sha }}"
     target_sha="$(git rev-parse "$sha")"
 
-    last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$target_sha" 2>/dev/null || true)"
+    last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --match 'v[0-9]*.[0-9]*.[0-9]*-*' "$target_sha" 2>/dev/null || true)"
     if [ -z "$last_tag" ]; then
       echo "No previous release tag found for ${sha} (${target_sha})." >&2
       exit 1

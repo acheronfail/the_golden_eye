@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
 
 permissions:
   contents: read
@@ -38,4 +39,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.zip --verify-tag --generate-notes
+        run: |
+          args=(release create "$GITHUB_REF_NAME" dist/*.zip --verify-tag --generate-notes)
+          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+- ]]; then
+            args+=(--prerelease)
+          fi
+          gh "${args[@]}"
