@@ -126,7 +126,7 @@ export const monitor = $state<{
 
 export const monitorHref = (status: MonitorStatus | null = monitor.status): string | null => {
 	if (!status?.enabled) return null;
-	return `/source/${encodeURIComponent(status.sourceName)}/${encodeURIComponent(status.lang)}`;
+	return `/sources/${encodeURIComponent(status.sourceName)}`;
 };
 
 const clearRunState = () => {
@@ -135,7 +135,7 @@ const clearRunState = () => {
 };
 
 const pendingSaveNotificationIds = new Map<number, number>();
-let languageMismatchNotificationId: number | null = null;
+let languageDetectedNotificationId: number | null = null;
 
 const visibleRecordingState = (status: RecordingStatus | null): RecordingStatus | null =>
 	status === 'savePending' ? null : status;
@@ -192,24 +192,20 @@ const languageLabel = (lang: string): string => {
 	}
 };
 
-export const applyLanguageMismatch = (configuredLang: 'en' | 'jp', detectedLang: 'en' | 'jp'): void => {
-	if (monitor.status?.enabled && monitor.status.lang === configuredLang) {
-		monitor.status = { ...monitor.status, lang: detectedLang };
-	}
-
+export const applyLanguageDetected = (lang: 'en' | 'jp'): void => {
 	const notification = {
-		title: 'ROM language corrected',
-		detail: `This source looks ${languageLabel(detectedLang)}, but ${languageLabel(configuredLang)} was selected.`,
-		meta: `Monitoring has been switched to ${languageLabel(detectedLang)}.`,
-		tone: 'error',
+		title: 'ROM language detected',
+		detail: `${languageLabel(lang)} templates are active for this source.`,
+		meta: 'Monitoring will switch automatically if needed.',
+		tone: 'info',
 		sticky: false
 	} as const;
 
-	if (languageMismatchNotificationId !== null) {
-		const replaced = replaceNotificationFlag(languageMismatchNotificationId, notification);
+	if (languageDetectedNotificationId !== null) {
+		const replaced = replaceNotificationFlag(languageDetectedNotificationId, notification);
 		if (replaced) return;
 	}
-	languageMismatchNotificationId = addNotificationFlag(notification).id;
+	languageDetectedNotificationId = addNotificationFlag(notification).id;
 };
 
 export const triggerKiaDeathOverlay = (): void => {
@@ -251,9 +247,9 @@ export const applyRecordingSaved = (saved: RecordingSaved): void => {
 	addNotificationFlag(notification);
 };
 
-export const setMonitorRunning = (sourceName: string, lang: string): void => {
+export const setMonitorRunning = (sourceName: string): void => {
 	clearRunState();
-	monitor.status = { enabled: true, sourceName, lang, recordingState: null };
+	monitor.status = { enabled: true, sourceName, recordingState: null };
 	monitor.loaded = true;
 };
 
@@ -281,10 +277,7 @@ export const refreshMonitor = async (): Promise<MonitorStatus> => {
 	try {
 		const status = await getMonitorStatus();
 		const monitorChanged =
-			status.enabled &&
-			(!monitor.status?.enabled ||
-				monitor.status.sourceName !== status.sourceName ||
-				monitor.status.lang !== status.lang);
+			status.enabled && (!monitor.status?.enabled || monitor.status.sourceName !== status.sourceName);
 
 		monitor.status = status;
 		if (!status.enabled || monitorChanged) {

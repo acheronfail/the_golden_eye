@@ -68,8 +68,8 @@ pub struct StreamMessage {
 /// `type` so the SPA can discriminate them. `Version` is sent once per
 /// connection (a handshake); `Sources`, `Match`, and `RecordingState` ride watch
 /// channels (latest-wins, replayed on connect); `RecordingSavePending`,
-/// `RecordingSaved`, and `MonitorStopped` ride `event_tx` (one-off, delivered
-/// only to currently-connected clients).
+/// `LanguageDetected`, `RecordingSaved`, and `MonitorStopped` ride `event_tx`
+/// (one-off, delivered only to currently-connected clients).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum MonitorEvent {
@@ -90,14 +90,9 @@ pub enum MonitorEvent {
     /// failure screen, had its save scheduled, or returned to idle). Distinct
     /// from `RecordingSaved`, which reports the final written clip.
     RecordingState { status: Option<RecordingStatus> },
-    /// The source showed a ROM language-specific marker that disagrees with the
-    /// language selected for this monitor session.
-    LanguageMismatch {
-        #[serde(rename = "configuredLang")]
-        configured_lang: String,
-        #[serde(rename = "detectedLang")]
-        detected_lang: String,
-    },
+    /// The source showed a ROM language-specific marker. The monitor uses this
+    /// to keep its active matcher and recording metadata aligned automatically.
+    LanguageDetected { lang: String },
     /// A run's clip save was scheduled and will fire after the post-run padding.
     RecordingSavePending(RecordingSavePending),
     /// A run's clip was saved out of the replay buffer and trimmed.
@@ -439,15 +434,12 @@ mod tests {
     }
 
     #[test]
-    fn language_mismatch_event_uses_frontend_field_names() {
-        let event = MonitorEvent::LanguageMismatch { configured_lang: "jp".to_owned(), detected_lang: "en".to_owned() };
+    fn language_detected_event_uses_frontend_field_names() {
+        let event = MonitorEvent::LanguageDetected { lang: "en".to_owned() };
         let json = serde_json::to_value(event).unwrap();
 
-        assert_eq!(json["type"], "languageMismatch");
-        assert_eq!(json["configuredLang"], "jp");
-        assert_eq!(json["detectedLang"], "en");
-        assert!(json.get("configured_lang").is_none());
-        assert!(json.get("detected_lang").is_none());
+        assert_eq!(json["type"], "languageDetected");
+        assert_eq!(json["lang"], "en");
     }
 
     #[test]

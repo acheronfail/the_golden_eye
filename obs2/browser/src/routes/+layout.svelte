@@ -8,7 +8,7 @@
 	import NotificationFlags from '$lib/NotificationFlags.svelte';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
 
 	let { children } = $props();
@@ -17,6 +17,7 @@
 	let menuPanel = $state<HTMLElement>();
 	let menuOpen = $state(false);
 	let windowFocused = $state(true);
+	let pendingNavigation = $state<string | null>(null);
 
 	onMount(() => {
 		windowFocused = document.hasFocus();
@@ -42,15 +43,20 @@
 	});
 
 	// The wizard can't do anything useful without the replay buffer, so re-check
-	// its status on load and on every navigation. Re-runs whenever the path
-	// changes (referenced below so it's tracked as a dependency).
-	$effect(() => {
-		page.url.pathname;
-		refreshReplayBuffer();
+	// its status on load and on every navigation.
+	afterNavigate(() => {
+		pendingNavigation = null;
+		void refreshReplayBuffer();
 		void refreshMonitor().catch(() => {
 			// Keep the global indicator hidden if the backend is unavailable.
 		});
 	});
+
+	const navigate = (href: string, options: { replaceState?: boolean } = {}) => {
+		if (page.url.pathname === href || pendingNavigation === href) return;
+		pendingNavigation = href;
+		goto(href, options);
+	};
 
 	// While the replay buffer is confirmed unavailable, force the user back to `/`
 	// (which explains how to enable it). `/`, `/runs`, `/options`, and the dev-only
@@ -61,16 +67,12 @@
 		const path = page.url.pathname;
 		const exempt = path === '/' || path === '/runs' || path === '/options' || path === '/developer';
 		if (replayBuffer.status?.available === false && !exempt) {
-			goto('/');
+			navigate('/', { replaceState: true });
 		}
 	});
 
 	const isMonitorSetupPath = (path: string): boolean =>
-		path === '/' ||
-		path === '/source' ||
-		path.startsWith('/source/') ||
-		path === '/sources' ||
-		path.startsWith('/sources/');
+		path === '/' || path === '/sources' || path.startsWith('/sources/');
 
 	// If monitoring is already active, the setup flow should collapse back to the
 	// live monitor page. Keep non-monitoring pages such as runs/options reachable.
@@ -78,7 +80,7 @@
 		const path = page.url.pathname;
 		const href = monitorHref(monitor.status);
 		if (href && path !== href && isMonitorSetupPath(path)) {
-			goto(href, { replaceState: true });
+			navigate(href, { replaceState: true });
 		}
 	});
 

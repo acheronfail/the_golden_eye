@@ -53,7 +53,7 @@
 
 	const select = (option: Option) => {
 		if (replayUnavailable) return;
-		goto(`/source/${encodeURIComponent(option.title)}`);
+		goto(`/sources/${encodeURIComponent(option.title)}`);
 	};
 
 	const previewKey = (option: Option): string => option.key ?? option.title;
@@ -101,11 +101,7 @@
 	{/if}
 {/snippet}
 
-<WizardFrame
-	step={1}
-	title="Choose your capture source"
-	subtitle="Pick the OBS source attached to your N64's video output."
->
+<WizardFrame title="Choose your capture source" subtitle="Pick the OBS source attached to your N64's video output.">
 	{#if replayBuffer.status && !replayBuffer.status.available}
 		<div class="obs-alert-warning mb-4 rounded px-4 py-3">
 			<p class="obs-alert-warning-title text-sm font-semibold">
