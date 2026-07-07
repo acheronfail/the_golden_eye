@@ -32,6 +32,7 @@
 	let failedValidation: FolderValidation | null = $state(null);
 	let completedValidationSeq = 0;
 	let failedValidationSeq = 0;
+	let clipTemplateSeparator = $state('/');
 
 	const selectTab = (tab: OptionsTab) => {
 		const url = new URL(page.url);
@@ -113,6 +114,41 @@
 	};
 
 	const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+	$effect(() => {
+		if (typeof navigator !== 'undefined') {
+			clipTemplateSeparator = navigator.platform.toLowerCase().includes('win') ? '\\' : '/';
+		}
+	});
+
+	const wrongClipTemplateSeparator = $derived(clipTemplateSeparator === '/' ? '\\' : '/');
+	const clipTemplateError = $derived(
+		validateClipFilenameTemplate(settings.clipFilenameTemplate, clipTemplateSeparator, wrongClipTemplateSeparator)
+	);
+
+	const setClipFilenameTemplate = (value: string) => {
+		settings.clipFilenameTemplate = value.split(wrongClipTemplateSeparator).join(clipTemplateSeparator);
+	};
+
+	function validateClipFilenameTemplate(value: string, separator: string, wrongSeparator: string): string | null {
+		const trimmed = value.trim();
+		if (!trimmed) return null;
+		if (trimmed.includes(wrongSeparator)) {
+			return `Use ${separator} as the folder separator on this platform.`;
+		}
+		if (trimmed.startsWith(separator)) {
+			return 'Template paths must be relative to the configured output folder.';
+		}
+
+		const parts = trimmed.split(separator);
+		if (parts.some((part) => part.trim() === '')) {
+			return 'Folder names in the template cannot be empty.';
+		}
+		if (parts.some((part) => part.trim() === '.' || part.trim() === '..')) {
+			return 'Template paths can only go into child folders.';
+		}
+		return null;
+	}
 
 	const outputPath = (kind: PathKind): string =>
 		kind === 'completed' ? settings.completedOutputPath : settings.failedOutputPath;
@@ -282,10 +318,19 @@
 				<input
 					id="clip-filename-template"
 					type="text"
-					bind:value={settings.clipFilenameTemplate}
+					value={settings.clipFilenameTemplate}
+					oninput={(event) => setClipFilenameTemplate((event.currentTarget as HTMLInputElement).value)}
 					placeholder={DEFAULT_CLIP_FILENAME_TEMPLATE}
+					aria-invalid={Boolean(clipTemplateError)}
 					class={inputClass}
 				/>
+				{#if clipTemplateError}
+					<p class={pathErrorClass}>{clipTemplateError}</p>
+				{:else}
+					<p class={hintClass}>
+						Use {clipTemplateSeparator} to create folders inside the output folder, for example {`{level}${clipTemplateSeparator}{difficulty}${clipTemplateSeparator}{time}`}.
+					</p>
+				{/if}
 				<p class={hintClass}>Available tokens</p>
 				<div class="mt-2 flex flex-wrap gap-2">
 					{#each clipTemplateTokens as token}

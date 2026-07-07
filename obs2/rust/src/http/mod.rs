@@ -363,6 +363,7 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
                 .delete(routes::runs::handle_delete)
                 .patch(routes::runs::handle_update_metadata),
         )
+        .route("/api/v1/runs/stream", get(routes::runs::handle_stream))
         .route("/api/v1/runs/reveal", post(routes::runs::handle_reveal))
         .route("/api/v1/runs/rename", post(routes::runs::handle_rename))
         .route("/api/v1/runs/thumbnail", get(routes::runs::handle_thumbnail))

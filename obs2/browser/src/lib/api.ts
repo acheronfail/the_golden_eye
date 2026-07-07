@@ -74,10 +74,47 @@ export interface RunsResponse {
 	clips: RunClip[];
 }
 
+export type RunsStreamEvent =
+	| { type: 'directory'; directory: RunDirectoryScan }
+	| { type: 'clip'; clip: RunClip }
+	| { type: 'done' };
+
 export const getRuns = async (): Promise<RunsResponse> => {
 	const res = await fetch(apiUrl('/api/v1/runs'));
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 	return res.json();
+};
+
+export const streamRuns = async (
+	onEvent: (event: RunsStreamEvent) => void,
+	signal?: AbortSignal
+): Promise<void> => {
+	const res = await fetch(apiUrl('/api/v1/runs/stream'), { signal });
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	if (!res.body) {
+		const runs = await getRuns();
+		for (const directory of runs.directories) onEvent({ type: 'directory', directory });
+		for (const clip of runs.clips) onEvent({ type: 'clip', clip });
+		onEvent({ type: 'done' });
+		return;
+	}
+
+	const reader = res.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = '';
+
+	while (true) {
+		const { value, done } = await reader.read();
+		buffer += decoder.decode(value, { stream: !done });
+		const lines = buffer.split('\n');
+		buffer = lines.pop() ?? '';
+		for (const line of lines) {
+			if (line.trim()) onEvent(JSON.parse(line) as RunsStreamEvent);
+		}
+		if (done) break;
+	}
+
+	if (buffer.trim()) onEvent(JSON.parse(buffer) as RunsStreamEvent);
 };
 
 export const runThumbnailUrl = (path: string): string =>

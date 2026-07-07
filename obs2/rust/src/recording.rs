@@ -842,8 +842,17 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
     ensure_output_directory(&dir)?;
     let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("replay");
     let ext = input.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
-    let name = clip_name(stem, req.status, req.completed_at, req.stats.as_ref(), req.options.clip_filename_template());
-    let output = unique_output_path(&dir.join(format!("{name}.{ext}")));
+    let relative_path = clip_relative_path(
+        stem,
+        req.status,
+        req.completed_at,
+        req.stats.as_ref(),
+        req.options.clip_filename_template(),
+    );
+    let output = unique_output_path(&dir.join(append_extension(relative_path, ext)));
+    if let Some(parent) = output.parent() {
+        ensure_output_directory(parent)?;
+    }
 
     tracing::info!(
         input = %input.display(),
@@ -1015,22 +1024,28 @@ fn is_failed_clip_status(status: &str) -> bool {
     RunStatus::from_str(status.trim()).is_some_and(RunStatus::is_failed)
 }
 
-/// Build an output file name from the configured template and matched level info.
+/// Build an output path from the configured template and matched level info.
 /// Collisions are handled by [`unique_output_path`], so terse templates remain
-/// safe even when multiple runs render to the same base name.
-fn clip_name(
+/// safe even when multiple runs render to the same relative path.
+fn clip_relative_path(
     stem: &str,
     status: RunStatus,
     completed_at: SystemTime,
     stats: Option<&LevelMatch>,
     template: &str,
-) -> String {
+) -> PathBuf {
     let rendered = render_clip_template(template, stem, status, completed_at, stats);
-    let sanitized = sanitize_filename(&rendered);
-    if sanitized.is_empty() {
-        sanitize_filename(&render_clip_template(DEFAULT_CLIP_FILENAME_TEMPLATE, stem, status, completed_at, stats))
+    if let Some(path) = sanitize_relative_clip_path(&rendered) {
+        path
     } else {
-        sanitized
+        sanitize_relative_clip_path(&render_clip_template(
+            DEFAULT_CLIP_FILENAME_TEMPLATE,
+            stem,
+            status,
+            completed_at,
+            stats,
+        ))
+        .unwrap_or_else(|| PathBuf::from("clip"))
     }
 }
 
@@ -1147,7 +1162,44 @@ fn format_iso_local(time: SystemTime) -> String {
     format_iso_utc(time)
 }
 
-fn sanitize_filename(name: &str) -> String {
+fn append_extension(mut path: PathBuf, ext: &str) -> PathBuf {
+    if ext.is_empty() {
+        return path;
+    }
+
+    let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("clip");
+    path.set_file_name(format!("{file_name}.{ext}"));
+    path
+}
+
+fn sanitize_relative_clip_path(path: &str) -> Option<PathBuf> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') || trimmed.contains(wrong_platform_separator()) {
+        return None;
+    }
+
+    let path = Path::new(trimmed);
+    if path.is_absolute() {
+        return None;
+    }
+
+    let mut sanitized = PathBuf::new();
+    for component in trimmed.split(std::path::MAIN_SEPARATOR) {
+        let component = sanitize_path_component(component);
+        if component.is_empty() || component == "." || component == ".." {
+            return None;
+        }
+        sanitized.push(component);
+    }
+
+    Some(sanitized)
+}
+
+fn wrong_platform_separator() -> char {
+    if std::path::MAIN_SEPARATOR == '/' { '\\' } else { '/' }
+}
+
+fn sanitize_path_component(name: &str) -> String {
     name.chars()
         .map(|c| match c {
             '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
@@ -1566,7 +1618,7 @@ mod tests {
     }
 
     #[test]
-    fn clip_template_renders_and_sanitizes_filenames() {
+    fn clip_template_renders_and_sanitizes_relative_paths() {
         let m = match_with_time();
 
         let rendered = render_clip_template(
@@ -1578,21 +1630,49 @@ mod tests {
         );
         assert_eq!(rendered, "obs replay-05-1-8-Surface 2-02:03-00 Agent-abort-1970-01-01T00:00:00Z");
 
-        let name = clip_name(
+        let path = clip_relative_path(
             "OBS/Replay:01",
             RunStatus::Kia,
             UNIX_EPOCH,
             Some(&m),
-            "../{obs_replay_name}/{level}:{time}?{status}",
+            "{level}/{difficulty}/{time}?{status}",
         );
+        let name = path.file_name().and_then(|name| name.to_str()).unwrap();
         for forbidden in ['/', '\\', ':', '*', '?', '"', '<', '>', '|'] {
             assert!(!name.contains(forbidden), "{name:?} still contains {forbidden:?}");
         }
-        assert!(name.contains("OBS-Replay-01"));
-        assert!(name.contains("Surface 2"));
+        assert_eq!(path.parent().unwrap(), Path::new("Surface 2").join("00 Agent"));
+        assert!(name.contains("02-03"));
         assert!(name.ends_with("-kia"));
 
-        assert_eq!(clip_name("replay", RunStatus::Complete, UNIX_EPOCH, None, "..."), "unknown -  -  - complete");
+        assert_eq!(
+            clip_relative_path("replay", RunStatus::Complete, UNIX_EPOCH, None, "..."),
+            PathBuf::from("unknown -  -  - complete"),
+        );
+    }
+
+    #[test]
+    fn clip_template_rejects_traversal_and_wrong_platform_separator() {
+        let m = match_with_time();
+
+        assert_eq!(
+            clip_relative_path("replay", RunStatus::Complete, UNIX_EPOCH, Some(&m), "../{level}"),
+            PathBuf::from("Surface 2 - 02-03 - 00 Agent - complete"),
+        );
+        assert_eq!(
+            clip_relative_path("replay", RunStatus::Complete, UNIX_EPOCH, Some(&m), "{level}/../{time}"),
+            PathBuf::from("Surface 2 - 02-03 - 00 Agent - complete"),
+        );
+        assert_eq!(
+            clip_relative_path(
+                "replay",
+                RunStatus::Complete,
+                UNIX_EPOCH,
+                Some(&m),
+                if std::path::MAIN_SEPARATOR == '/' { "{level}\\{time}" } else { "{level}/{time}" },
+            ),
+            PathBuf::from("Surface 2 - 02-03 - 00 Agent - complete"),
+        );
     }
 
     #[test]

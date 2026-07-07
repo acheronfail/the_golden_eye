@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -10,7 +11,9 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response, Result};
 use serde::{Deserialize, Serialize};
+use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::sync::mpsc;
 use tokio_util::io::ReaderStream;
 
 use crate::ffmpeg::{self, ClipMetadata};
@@ -53,6 +56,14 @@ pub struct EditableRunMetadata {
 pub struct RunsResponse {
     directories: Vec<RunDirectoryScan>,
     clips: Vec<RunClip>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum RunsStreamEvent {
+    Directory { directory: RunDirectoryScan },
+    Clip { clip: RunClip },
+    Done,
 }
 
 #[derive(Debug, Serialize)]
@@ -158,6 +169,42 @@ pub async fn handle_list(State(state): State<AppState>) -> Result<impl IntoRespo
     Ok((StatusCode::OK, Json(response)))
 }
 
+pub async fn handle_stream(State(state): State<AppState>) -> Result<Response> {
+    let settings = state.settings.get_effective();
+    let (tx, mut rx) = mpsc::channel::<String>(32);
+    let (mut writer, reader) = tokio::io::duplex(64 * 1024);
+
+    let _ = tokio::task::spawn_blocking(move || {
+        stream_configured_runs(&settings, |event| {
+            let Ok(mut line) = serde_json::to_string(&event) else {
+                return true;
+            };
+            line.push('\n');
+            tx.blocking_send(line).is_ok()
+        });
+    });
+
+    let _ = tokio::spawn(async move {
+        while let Some(line) = rx.recv().await {
+            if writer.write_all(line.as_bytes()).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let stream = ReaderStream::new(reader);
+    let body = Body::from_stream(stream);
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/x-ndjson")
+        .body(body)
+        .map_err(|err| {
+            tracing::error!("failed to build run stream response: {err}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "run stream response failed").into_response()
+        })?;
+    Ok(response)
+}
+
 pub async fn handle_thumbnail(State(state): State<AppState>, Query(params): Query<RunPathParams>) -> Result<Response> {
     let settings = state.settings.get_effective();
     let path = authorize_tagged_run_path(&settings, &params.path).map_err(RunPathError::into_response)?;
@@ -261,13 +308,14 @@ pub fn list_configured_runs(settings: &AppSettings) -> RunsResponse {
     let dirs = configured_run_directories(settings);
     let mut directories = Vec::new();
     let mut clips = Vec::new();
+    let mut seen = HashSet::new();
 
     for dir in dirs {
         let display_path = dir.path.to_string_lossy().into_owned();
         match ensure_configured_run_directory(&dir.path) {
             Ok(()) => {
                 directories.push(RunDirectoryScan { kind: dir.kind, path: display_path, exists: true, error: None });
-                match list_tagged_clips_in_directory(&dir.path) {
+                match list_tagged_clips_in_directory_with_seen(&dir.path, &mut seen) {
                     Ok(mut found) => clips.append(&mut found),
                     Err(err) => {
                         tracing::warn!(path = %dir.path.display(), "failed to scan run directory: {err:#}");
@@ -297,6 +345,56 @@ pub fn list_configured_runs(settings: &AppSettings) -> RunsResponse {
     RunsResponse { directories, clips }
 }
 
+pub fn stream_configured_runs(settings: &AppSettings, mut emit: impl FnMut(RunsStreamEvent) -> bool) {
+    let dirs = configured_run_directories(settings);
+    let mut seen = HashSet::new();
+
+    for dir in dirs {
+        let display_path = dir.path.to_string_lossy().into_owned();
+        match ensure_configured_run_directory(&dir.path) {
+            Ok(()) => {
+                if !emit(RunsStreamEvent::Directory {
+                    directory: RunDirectoryScan {
+                        kind: dir.kind,
+                        path: display_path.clone(),
+                        exists: true,
+                        error: None,
+                    },
+                }) {
+                    return;
+                }
+                if let Err(err) = stream_tagged_clips_in_directory(&dir.path, &mut seen, &mut emit) {
+                    tracing::warn!(path = %dir.path.display(), "failed to scan run directory: {err:#}");
+                    if !emit(RunsStreamEvent::Directory {
+                        directory: RunDirectoryScan {
+                            kind: dir.kind,
+                            path: display_path,
+                            exists: true,
+                            error: Some(err.to_string()),
+                        },
+                    }) {
+                        return;
+                    }
+                }
+            }
+            Err(err) => {
+                if !emit(RunsStreamEvent::Directory {
+                    directory: RunDirectoryScan {
+                        kind: dir.kind,
+                        path: display_path,
+                        exists: false,
+                        error: Some(err.to_string()),
+                    },
+                }) {
+                    return;
+                }
+            }
+        }
+    }
+
+    let _ = emit(RunsStreamEvent::Done);
+}
+
 fn ensure_configured_run_directory(dir: &Path) -> anyhow::Result<()> {
     match fs::metadata(dir) {
         Ok(metadata) if metadata.is_dir() => Ok(()),
@@ -314,9 +412,12 @@ fn ensure_configured_run_directory(dir: &Path) -> anyhow::Result<()> {
     }
 }
 
-pub fn list_tagged_clips_in_directory(dir: &Path) -> anyhow::Result<Vec<RunClip>> {
+fn list_tagged_clips_in_directory_with_seen(dir: &Path, seen: &mut HashSet<PathBuf>) -> anyhow::Result<Vec<RunClip>> {
     let mut clips = Vec::new();
-    for path in video_files_in_directory(dir)? {
+    for path in video_files_in_directory_recursive(dir)? {
+        if !seen.insert(clip_dedupe_key(&path)) {
+            continue;
+        }
         match tagged_clip(&path) {
             Ok(Some(clip)) => clips.push(clip),
             Ok(None) => {}
@@ -326,17 +427,78 @@ pub fn list_tagged_clips_in_directory(dir: &Path) -> anyhow::Result<Vec<RunClip>
     Ok(clips)
 }
 
-pub fn video_files_in_directory(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+pub fn video_files_in_directory_recursive(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
+    collect_video_files_recursive(dir, &mut paths)?;
+    paths.sort();
+    Ok(paths)
+}
+
+fn collect_video_files_recursive(dir: &Path, paths: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+    let mut entries = Vec::new();
     for entry in fs::read_dir(dir).with_context(|| format!("reading directory {}", dir.display()))? {
-        let entry = entry?;
+        entries.push(entry?);
+    }
+    entries.sort_by_key(|entry| entry.path());
+
+    for entry in entries {
         let path = entry.path();
-        if entry.file_type().is_ok_and(|file_type| file_type.is_file()) && is_video_file(&path) {
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_video_files_recursive(&path, paths)?;
+        } else if file_type.is_file() && is_video_file(&path) {
             paths.push(path);
         }
     }
-    paths.sort();
-    Ok(paths)
+    Ok(())
+}
+
+fn stream_tagged_clips_in_directory(
+    dir: &Path,
+    seen: &mut HashSet<PathBuf>,
+    emit: &mut impl FnMut(RunsStreamEvent) -> bool,
+) -> anyhow::Result<()> {
+    stream_tagged_clips_recursive(dir, seen, emit)
+}
+
+fn stream_tagged_clips_recursive(
+    dir: &Path,
+    seen: &mut HashSet<PathBuf>,
+    emit: &mut impl FnMut(RunsStreamEvent) -> bool,
+) -> anyhow::Result<()> {
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(dir).with_context(|| format!("reading directory {}", dir.display()))? {
+        entries.push(entry?);
+    }
+    entries.sort_by_key(|entry| entry.path());
+
+    for entry in entries {
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            stream_tagged_clips_recursive(&path, seen, emit)?;
+        } else if file_type.is_file() && is_video_file(&path) {
+            if !seen.insert(clip_dedupe_key(&path)) {
+                continue;
+            }
+            match tagged_clip(&path) {
+                Ok(Some(clip)) => {
+                    if !emit(RunsStreamEvent::Clip { clip }) {
+                        return Ok(());
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    tracing::debug!(path = %path.display(), "skipping non-readable run clip candidate: {err:#}")
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn clip_dedupe_key(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 pub fn tagged_clip(path: &Path) -> anyhow::Result<Option<RunClip>> {
@@ -795,6 +957,25 @@ mod tests {
         let path = Path::new("/runs/original.mov");
         assert!(matches!(normalized_run_file_name(path, "../renamed.mov"), Err(RunPathError::BadRequest(_))));
         assert!(matches!(normalized_run_file_name(path, "renamed.txt"), Err(RunPathError::BadRequest(_))));
+    }
+
+    #[test]
+    fn video_files_in_directory_searches_recursively() {
+        let dir = TestDir::new("recursive-video-files");
+        let nested = dir.join("Surface 2/00 Agent");
+        fs::create_dir_all(&nested).unwrap();
+        let root_clip = dir.join("root.mov");
+        let nested_clip = nested.join("02-03.mp4");
+        let ignored = nested.join("notes.txt");
+        fs::write(&root_clip, b"root").unwrap();
+        fs::write(&nested_clip, b"nested").unwrap();
+        fs::write(&ignored, b"ignored").unwrap();
+
+        let files = video_files_in_directory_recursive(&dir.path).unwrap();
+
+        let mut expected = vec![root_clip, nested_clip];
+        expected.sort();
+        assert_eq!(files, expected);
     }
 
     #[test]

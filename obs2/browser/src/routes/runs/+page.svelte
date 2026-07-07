@@ -1,18 +1,19 @@
 <script lang="ts">
 	import {
 		deleteRun,
-		getRuns,
 		renameRun,
 		revealRun,
 		runThumbnailUrl,
 		runVideoUrl,
+		streamRuns,
 		updateRunMetadata,
 		type EditableRunMetadata,
 		type RunClip,
+		type RunDirectoryScan,
 		type RunsResponse
 	} from '$lib/api';
 	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 
 	let runs = $state<RunsResponse | null>(null);
 	let loading = $state(false);
@@ -23,6 +24,7 @@
 	let modalBusy = $state<string | null>(null);
 	let fileBrowserLabel = $state('show in file browser');
 	let previewVersion = $state(0);
+	let reloadAbort: AbortController | null = null;
 
 	const LANGUAGE_OPTIONS = [
 		{ value: 'en', label: 'en' },
@@ -74,34 +76,53 @@
 		}))
 	);
 	const directoryErrors = $derived((runs?.directories ?? []).filter((dir) => dir.error));
+	const scannedDirectoryCount = $derived(runs?.directories.length ?? 0);
 	let metadataDirty = $derived.by(() => {
 		if (!selected || !metadataDraft) return false;
 		return !sameMetadataDraft(metadataDraft, draftFromClip(selected));
 	});
 
 	const reload = async () => {
+		if (loading) return;
+		reloadAbort?.abort();
+		const abort = new AbortController();
+		reloadAbort = abort;
 		loading = true;
 		error = null;
 		const selectedPath = selected?.path;
+		let selectedFound = false;
+		runs = { directories: [], clips: [] };
 		try {
-			const nextRuns = await getRuns();
-			runs = nextRuns;
-			if (selectedPath) {
-				const nextSelected = nextRuns.clips.find((clip) => clip.path === selectedPath) ?? null;
-				selected = nextSelected;
-				metadataDraft = nextSelected ? draftFromClip(nextSelected) : null;
+			await streamRuns((event) => {
+				if (event.type === 'directory') {
+					upsertDirectory(event.directory);
+				} else if (event.type === 'clip') {
+					upsertClip(event.clip);
+					if (selectedPath && event.clip.path === selectedPath) selectedFound = true;
+				}
+			}, abort.signal);
+			if (selectedPath && !selectedFound) {
+				selected = null;
+				metadataDraft = null;
 			}
 			previewVersion++;
 		} catch (err) {
-			error = err instanceof Error ? err.message : String(err);
+			if (!abort.signal.aborted) error = err instanceof Error ? err.message : String(err);
 		} finally {
-			loading = false;
+			if (reloadAbort === abort) {
+				loading = false;
+				reloadAbort = null;
+			}
 		}
 	};
 
 	onMount(() => {
 		fileBrowserLabel = platformFileBrowserLabel();
 		reload();
+	});
+
+	onDestroy(() => {
+		reloadAbort?.abort();
 	});
 
 	const select = (option: Option) => {
@@ -164,6 +185,31 @@
 		selected = clip;
 		metadataDraft = draftFromClip(clip);
 		previewVersion++;
+	}
+
+	function emptyRuns(): RunsResponse {
+		return { directories: [], clips: [] };
+	}
+
+	function upsertDirectory(directory: RunDirectoryScan) {
+		const current = runs ?? emptyRuns();
+		const index = current.directories.findIndex((candidate) => candidate.kind === directory.kind && candidate.path === directory.path);
+		const directories =
+			index === -1
+				? [...current.directories, directory]
+				: current.directories.map((candidate, i) => (i === index ? directory : candidate));
+		runs = { ...current, directories };
+	}
+
+	function upsertClip(clip: RunClip) {
+		const current = runs ?? emptyRuns();
+		const index = current.clips.findIndex((candidate) => candidate.path === clip.path);
+		const clips = index === -1 ? [...current.clips, clip] : current.clips.map((candidate, i) => (i === index ? clip : candidate));
+		runs = { ...current, clips };
+		if (selected?.path === clip.path) {
+			selected = clip;
+			metadataDraft = draftFromClip(clip);
+		}
 	}
 
 	function removeClip(path: string) {
@@ -381,7 +427,7 @@
 			disabled={loading}
 			class="obs-text-button ml-auto shrink-0 px-2 py-1 font-mono text-xs underline-offset-2"
 		>
-			{loading ? 'refreshing...' : 'reload'}
+			{loading ? 'loading...' : 'reload'}
 		</button>
 	</div>
 
@@ -403,8 +449,10 @@
 		</div>
 	{/if}
 
-	{#if loading && runs === null}
-		<p class="obs-dim font-mono text-sm">Loading runs...</p>
+	{#if loading && clips.length === 0}
+		<p class="obs-dim font-mono text-sm">
+			{scannedDirectoryCount === 0 ? 'Searching run folders...' : 'Probing clips...'}
+		</p>
 	{:else if runs && runs.directories.length === 0}
 		<div class="obs-empty-state rounded px-4 py-6 text-center">
 			<p class="obs-muted text-sm">No run folders configured.</p>
@@ -416,6 +464,9 @@
 			<p class="obs-dim mt-1 font-mono text-xs">New clips saved by this plugin will appear here.</p>
 		</div>
 	{:else}
+		{#if loading}
+			<p class="obs-dim mb-3 font-mono text-xs">Search still running...</p>
+		{/if}
 		<OptionList {options} onSelect={select} {leading} />
 	{/if}
 </main>
