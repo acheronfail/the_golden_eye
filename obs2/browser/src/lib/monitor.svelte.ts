@@ -193,12 +193,16 @@ const languageLabel = (lang: string): string => {
 };
 
 export const applyLanguageMismatch = (configuredLang: 'en' | 'jp', detectedLang: 'en' | 'jp'): void => {
+	if (monitor.status?.enabled && monitor.status.lang === configuredLang) {
+		monitor.status = { ...monitor.status, lang: detectedLang };
+	}
+
 	const notification = {
-		title: 'ROM language mismatch',
-		detail: `This source looks ${languageLabel(detectedLang)}, but monitoring is configured for ${languageLabel(configuredLang)}.`,
-		meta: `Stop monitoring and choose ${languageLabel(detectedLang)} for this source.`,
+		title: 'ROM language corrected',
+		detail: `This source looks ${languageLabel(detectedLang)}, but ${languageLabel(configuredLang)} was selected.`,
+		meta: `Monitoring has been switched to ${languageLabel(detectedLang)}.`,
 		tone: 'error',
-		sticky: true
+		sticky: false
 	} as const;
 
 	if (languageMismatchNotificationId !== null) {
