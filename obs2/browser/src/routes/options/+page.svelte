@@ -5,6 +5,7 @@
 	import { replayBuffer } from '$lib/replayBuffer.svelte';
 	import {
 		DEFAULT_CLIP_FILENAME_TEMPLATE,
+		DEFAULT_MIN_FAILED_RUN_LEN_SECS,
 		DEFAULT_POST_RUN_PADDING_SECS,
 		DEFAULT_PRE_RUN_PADDING_SECS,
 		DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE,
@@ -105,7 +106,7 @@
 
 	const normalizeMinimumFailedRunLength = () => {
 		const value = Number(settings.minimumFailedRunLengthSecs);
-		settings.minimumFailedRunLengthSecs = Number.isFinite(value) ? Math.max(0, value) : 0;
+		settings.minimumFailedRunLengthSecs = Number.isFinite(value) ? Math.max(0, value) : DEFAULT_MIN_FAILED_RUN_LEN_SECS;
 	};
 
 	const normalizePreRunPadding = () => {
@@ -442,7 +443,7 @@
 
 						<div class="grid gap-5 sm:grid-cols-2">
 							<div>
-								<label class={labelClass} for="failed-run-limit">Failed run limit</label>
+								<label class={labelClass} for="failed-run-limit">How many failed runs to keep</label>
 								<input
 									id="failed-run-limit"
 									type="number"
@@ -452,11 +453,13 @@
 									onblur={normalizeFailedRunLimit}
 									class={inputClass}
 								/>
-								<p class={hintClass}>0 keeps all failed clips.</p>
+								<p class={hintClass}>
+									Set to 0 to keep all failed clips. When the limit is reached the oldest clips are deleted first.
+								</p>
 							</div>
 
 							<div>
-								<label class={labelClass} for="minimum-failed-run-length">Minimum failed run length</label>
+								<label class={labelClass} for="minimum-failed-run-length">Minimum failed run length (seconds)</label>
 								<input
 									id="minimum-failed-run-length"
 									type="number"
@@ -467,8 +470,8 @@
 									class={inputClass}
 								/>
 								<p class={hintClass}>
-									0 saves all failed runs. Uses the time displayed on the stats screen when available (or falls back to
-									the time between seeing the start screen and then seeing the stats screen).
+									Set to 0 to save every failed run. Uses the time displayed on the stats screen when available (or
+									falls back to the time between seeing the start screen and then seeing the stats screen).
 								</p>
 							</div>
 						</div>
@@ -480,7 +483,7 @@
 				<h2 class={labelClass}>Trim timing</h2>
 				<div class="mt-4 grid gap-5 sm:grid-cols-2">
 					<div>
-						<label class={labelClass} for="pre-run-padding">Pre-run padding</label>
+						<label class={labelClass} for="pre-run-padding">Pre-run padding (seconds)</label>
 						<input
 							id="pre-run-padding"
 							type="number"
@@ -494,7 +497,7 @@
 					</div>
 
 					<div>
-						<label class={labelClass} for="post-run-padding">Post-run padding</label>
+						<label class={labelClass} for="post-run-padding">Post-run padding (seconds)</label>
 						<input
 							id="post-run-padding"
 							type="number"
