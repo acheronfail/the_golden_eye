@@ -460,14 +460,16 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let recording_state = state.recording_state.clone();
     let recording_source_name = status_source_name.clone();
     let recording_lang = lang.clone();
+    let monitor_lang = lang.clone();
     let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
         let mut source = ObsSource { mailbox: worker_mailbox, region };
         let mut last: Option<LevelMatch> = None;
+        let mut last_language_mismatch: Option<String> = None;
         // Drives the replay-buffer save/trim as the session progresses. Fed
         // every matched frame (not just state changes) so its save timer is
         // polled each tick.
         let mut recording = crate::recording::RecordingState::new(
-            event_tx,
+            event_tx.clone(),
             recording_state,
             recording_options,
             recording_source_name,
@@ -476,6 +478,24 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         session.run(&mut source, |result| match result {
             Ok(info) => {
                 tracing::debug!(?info);
+                if let Some(detected_lang) =
+                    info.detected_lang.as_deref().filter(|detected| *detected != monitor_lang.as_str())
+                {
+                    if last_language_mismatch.as_deref() != Some(detected_lang) {
+                        tracing::warn!(
+                            configured_lang = %monitor_lang,
+                            detected_lang,
+                            "detected ROM/template language mismatch"
+                        );
+                        last_language_mismatch = Some(detected_lang.to_owned());
+                        let _ = event_tx.send(MonitorEvent::LanguageMismatch {
+                            configured_lang: monitor_lang.clone(),
+                            detected_lang: detected_lang.to_owned(),
+                        });
+                    }
+                } else {
+                    last_language_mismatch = None;
+                }
                 recording.on_frame(std::time::Instant::now(), &info);
                 let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&info));
                 if changed {
@@ -866,6 +886,25 @@ mod tests {
         for case in CASES {
             let session = MonitorSession::new(case.lang, TEMPLATES_DIR).expect("session");
             assert_case(&session, case);
+        }
+    }
+
+    #[test]
+    fn start_screen_language_mismatch_is_detected_and_rejected() {
+        let cases = [
+            ("jp", "en", "screenshots-emu/en - start - 01 - Agent.png"),
+            ("en", "jp", "screenshots-emu/jp - start - 01 - Agent.png"),
+            ("jp", "en", "screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png"),
+        ];
+
+        for (configured, detected, file) in cases {
+            let session = MonitorSession::new(configured, TEMPLATES_DIR).expect("session");
+            let (bytes, w, h) = load_bgra(file);
+            let m = session.match_frame(&bytes, w, h).expect("match");
+            assert_eq!(m.detected_lang.as_deref(), Some(detected), "{file} detected language");
+            assert_eq!(m.screen, crate::cv::Screen::Unknown, "{file} screen");
+            assert_eq!(m.raw_times, Vec::<i32>::new(), "{file} raw times");
+            assert_eq!(m.times, None, "{file} times");
         }
     }
 

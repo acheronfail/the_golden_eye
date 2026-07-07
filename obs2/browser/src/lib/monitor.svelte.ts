@@ -135,6 +135,7 @@ const clearRunState = () => {
 };
 
 const pendingSaveNotificationIds = new Map<number, number>();
+let languageMismatchNotificationId: number | null = null;
 
 const visibleRecordingState = (status: RecordingStatus | null): RecordingStatus | null =>
 	status === 'savePending' ? null : status;
@@ -178,6 +179,33 @@ export const applyRecordingState = (status: RecordingStatus | null): void => {
 	if (status === 'kia' && previous !== 'kia') {
 		triggerKiaDeathOverlay();
 	}
+};
+
+const languageLabel = (lang: string): string => {
+	switch (lang) {
+		case 'en':
+			return 'English';
+		case 'jp':
+			return 'Japanese';
+		default:
+			return lang.toUpperCase();
+	}
+};
+
+export const applyLanguageMismatch = (configuredLang: 'en' | 'jp', detectedLang: 'en' | 'jp'): void => {
+	const notification = {
+		title: 'ROM language mismatch',
+		detail: `This source looks ${languageLabel(detectedLang)}, but monitoring is configured for ${languageLabel(configuredLang)}.`,
+		meta: `Stop monitoring and choose ${languageLabel(detectedLang)} for this source.`,
+		tone: 'error',
+		sticky: true
+	} as const;
+
+	if (languageMismatchNotificationId !== null) {
+		const replaced = replaceNotificationFlag(languageMismatchNotificationId, notification);
+		if (replaced) return;
+	}
+	languageMismatchNotificationId = addNotificationFlag(notification).id;
 };
 
 export const triggerKiaDeathOverlay = (): void => {

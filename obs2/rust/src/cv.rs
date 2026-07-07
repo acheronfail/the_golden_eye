@@ -152,6 +152,12 @@ const SCREEN_THRESHOLD: f64 = 0.78;
 // (x, y, w, h) as fractions of the frame.
 const SCREEN_BANNER_REGION: (f64, f64, f64, f64) = (0.04, 0.39, 0.56, 0.11);
 const SCREEN_STATUS_REGION: (f64, f64, f64, f64) = (0.18, 0.47, 0.48, 0.10);
+// Language detection uses the side tab on the level-start briefing. The tab is
+// short, static, and visually distinct between the English and Japanese ROMs,
+// so it can reject a wrong ROM/template language before a
+// same-shaped banner in the wrong language is misclassified as another screen.
+const LANGUAGE_START_THRESHOLD: f64 = 0.82;
+const LANGUAGE_START_MARGIN: f64 = 0.12;
 // The mission-select grid ("levels" screen) carries none of the header colons
 // the other overlays share, so the entry gate rejects it. It is instead
 // recognized by the distinctive film-strip divider that separates its four
@@ -444,6 +450,10 @@ pub struct LevelMatch {
     pub mission: i32,
     pub part: i32,
     pub difficulty: i32,
+    /// ROM language detected from language-specific static UI, when a strong
+    /// signal is visible. Currently emitted on level-start briefing screens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detected_lang: Option<String>,
     /// The stats-screen times split into run / target / best (see [`ge::Times`]).
     /// `None` on any screen that carries no timed rows (start, report, gameplay).
     pub times: Option<ge::Times>,
@@ -465,6 +475,7 @@ impl LevelMatch {
             && self.mission == other.mission
             && self.part == other.part
             && self.difficulty == other.difficulty
+            && self.detected_lang == other.detected_lang
             && self.times == other.times
     }
 }
@@ -1108,6 +1119,7 @@ impl AspectCalibration {
 }
 
 pub struct CvMatcher {
+    lang: String,
     parts: Vec<Mat>,
     diffs: Vec<Mat>,
     colon: Mat,
@@ -1126,6 +1138,8 @@ pub struct CvMatcher {
     status_failed: Mat,
     status_abort: Mat,
     status_kia: Mat,
+    language_start_en: Mat,
+    language_start_jp: Mat,
     // Film-strip divider of the mission-select grid, used to recognize the
     // `Levels` screen (which carries no header colons for the gate to latch on).
     levels: Mat,
@@ -1180,9 +1194,12 @@ impl CvMatcher {
         let status_failed = load_template(templates_dir, lang, "status_failed")?;
         let status_abort = load_template(templates_dir, lang, "status_abort")?;
         let status_kia = load_template(templates_dir, lang, "status_kia")?;
+        let language_start_en = load_template(templates_dir, "en", "start")?;
+        let language_start_jp = load_template(templates_dir, "jp", "start")?;
         let levels = load_template(templates_dir, lang, "levels")?;
 
         Ok(CvMatcher {
+            lang: lang.to_owned(),
             parts,
             diffs,
             colon,
@@ -1195,6 +1212,8 @@ impl CvMatcher {
             status_failed,
             status_abort,
             status_kia,
+            language_start_en,
+            language_start_jp,
             levels,
             scale_cache: Mutex::new(None),
             aspect_cache: Mutex::new(None),
@@ -1340,6 +1359,19 @@ impl CvMatcher {
         Ok(best)
     }
 
+    fn detect_start_language(&self, frame: &Mat, scale: f64) -> Result<Option<&'static str>> {
+        let en = best_score(frame, &scaled(&self.language_start_en, scale)?)?;
+        let jp = best_score(frame, &scaled(&self.language_start_jp, scale)?)?;
+        dbg_cv!("[language] start en={en:.3} jp={jp:.3}");
+
+        let (lang, score, other) = if en >= jp { ("en", en, jp) } else { ("jp", jp, en) };
+        if score >= LANGUAGE_START_THRESHOLD && score - other >= LANGUAGE_START_MARGIN {
+            Ok(Some(lang))
+        } else {
+            Ok(None)
+        }
+    }
+
     // Identifies the overlay screen by matching each screen's banner word in
     // the band below the header, and the four report screens' status values in
     // the band beneath that, at the scale already established from the header
@@ -1450,6 +1482,7 @@ impl CvMatcher {
             mission: -1,
             part: -1,
             difficulty: -1,
+            detected_lang: None,
             times: None,
             raw_times: Vec::new(),
             runtime_ms: 0.0,
@@ -1548,6 +1581,15 @@ impl CvMatcher {
             timer.lap("levels detect");
             result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
             return Ok(result);
+        }
+
+        if let Some(detected_lang) = self.detect_start_language(&frame, header.scale)? {
+            result.detected_lang = Some(detected_lang.to_owned());
+            if detected_lang != self.lang {
+                dbg_cv!("[language] configured={} detected={detected_lang}; rejecting wrong-language frame", self.lang);
+                result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
+                return Ok(result);
+            }
         }
 
         // The mission/part/difficulty labels always sit in the upper-left of the
