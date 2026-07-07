@@ -1,5 +1,4 @@
 use std::ffi::CString;
-use std::io::Cursor;
 
 use axum::Json;
 use axum::extract::Query;
@@ -24,9 +23,13 @@ pub struct Params {
 pub struct MatchResponse {
     #[serde(rename = "match")]
     level_match: LevelMatch,
-    /// The captured frame, BMP-encoded and base64-encoded.
+    /// The annotated captured frame, PNG-encoded and base64-encoded.
     #[serde(rename = "imageData")]
     image_data: String,
+    #[serde(rename = "imageMime")]
+    image_mime: &'static str,
+    #[serde(rename = "diagnosticsEnabled")]
+    diagnostics_enabled: bool,
 }
 
 pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> {
@@ -42,6 +45,8 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
         tracing::error!("failed to init matcher: {err}");
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher")
     })?;
+    let matcher = matcher.with_diagnostics(true);
+    let diagnostics_enabled = matcher.diagnostics_enabled();
     timer.lap("matcher init");
 
     // Render the source into a BGRA buffer owned by the C side.
@@ -54,45 +59,30 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
 
     timer.lap("obs frame");
 
-    let level_match = unsafe { matcher.match_level_from_raw_bytes(frame, width, height) };
+    let frame_len = (width * height * 4) as usize;
+    let frame_bytes = unsafe { std::slice::from_raw_parts(frame, frame_len).to_vec() };
+    unsafe { crate::ffi::free(frame.cast()) };
+
+    let level_match = matcher.match_level_from_bgra_bytes(&frame_bytes, width, height);
     timer.lap("cv match");
     tracing::info!(?level_match, "match result");
-
-    // Encode while we still own the buffer, then hand it straight back to the
-    // C allocator regardless of whether encoding succeeded.
-    let encoded = encode_bmp(frame, width, height);
-    unsafe { crate::ffi::free(frame.cast()) };
 
     let level_match = level_match.map_err(|err| {
         tracing::error!("failed to match level: {err}");
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to match level")
     })?;
 
-    let bytes = encoded.map_err(|err| {
-        tracing::error!("failed to encode screenshot: {err}");
-        (StatusCode::INTERNAL_SERVER_ERROR, "failed to encode screenshot")
-    })?;
+    let bytes =
+        crate::cv_annotate::annotated_png_from_bgra(&frame_bytes, width, height, &level_match).map_err(|err| {
+            tracing::error!("failed to encode annotated match image: {err}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "failed to encode annotated match image")
+        })?;
+    timer.lap("annotated image");
 
-    Ok(Json(MatchResponse { level_match, image_data: BASE64.encode(bytes) }))
-}
-
-/// Copies a `width * height` BGRA buffer into a BMP-encoded byte vector.
-///
-/// # Safety
-/// `frame` must point to at least `width * height * 4` valid bytes.
-fn encode_bmp(frame: *const u8, width: u32, height: u32) -> std::io::Result<Vec<u8>> {
-    let pixels = unsafe { std::slice::from_raw_parts(frame, (width * height * 4) as usize) };
-
-    let mut image = bmp::Image::new(width, height);
-    for y in 0..height {
-        for x in 0..width {
-            let i = ((y * width + x) * 4) as usize;
-            // Source is BGRA; drop the alpha channel.
-            image.set_pixel(x, y, bmp::Pixel::new(pixels[i + 2], pixels[i + 1], pixels[i]));
-        }
-    }
-
-    let mut out = Cursor::new(Vec::new());
-    image.to_writer(&mut out)?;
-    Ok(out.into_inner())
+    Ok(Json(MatchResponse {
+        level_match,
+        image_data: BASE64.encode(bytes),
+        image_mime: "image/png",
+        diagnostics_enabled,
+    }))
 }

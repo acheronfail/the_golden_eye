@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { apiUrl } from '$lib/api';
+	import { apiUrl, matchSource, type LevelMatch } from '$lib/api';
 	import { triggerKiaDeathOverlay } from '$lib/monitor.svelte';
 	import { addNotificationFlag } from '$lib/notifications.svelte';
 
@@ -13,8 +13,15 @@
 
 	let imageData = $state<string | null>(null);
 	let sources = $state<{ name: string; id: string }[]>([]);
+	let selectedSource = $state<{ name: string; id: string } | null>(null);
 	let sourcesLoading = $state(false);
 	let screenshottingSource = $state<string | null>(null);
+	let screenshotError = $state<string | null>(null);
+	let matchError = $state<string | null>(null);
+	let matchLoading = $state(false);
+	let matchResult = $state<LevelMatch | null>(null);
+	let matchImageData = $state<string | null>(null);
+	let diagnosticsEnabled = $state(false);
 	let statsScreenIndex = $state(0);
 	let startScreenIndex = $state(0);
 	let failedScreenIndex = $state(0);
@@ -67,22 +74,55 @@
 		return (index + 1) % nameList.length;
 	};
 
+	const clearImageData = () => {
+		if (imageData) URL.revokeObjectURL(imageData);
+		imageData = null;
+	};
+
+	const clearMatchResult = () => {
+		matchResult = null;
+		matchError = null;
+		diagnosticsEnabled = false;
+		matchImageData = null;
+	};
+
 	const getSources = async () => {
 		sourcesLoading = true;
-		const res = await fetch(apiUrl('/api/v1/sources'));
-		const data = await res.json();
-		sources = data;
-		setTimeout(() => (sourcesLoading = false), 250);
+		try {
+			const res = await fetch(apiUrl('/api/v1/sources'));
+			const data = await res.json();
+			sources = data;
+		} finally {
+			setTimeout(() => (sourcesLoading = false), 250);
+		}
+	};
+
+	const selectSource = (source: { name: string; id: string }) => {
+		selectedSource = source;
+		clearMatchResult();
+	};
+
+	const closeSource = () => {
+		stopScreenshotting();
+		selectedSource = null;
+		clearImageData();
+		clearMatchResult();
 	};
 
 	const getScreenshot = (sourceName: string) => async () => {
-		const res = await fetch(apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}`));
-		const blob = await res.blob();
-		const url = URL.createObjectURL(blob);
+		screenshotError = null;
+		try {
+			const res = await fetch(apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}`));
+			if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+			const blob = await res.blob();
+			const url = URL.createObjectURL(blob);
 
-		const old = imageData;
-		imageData = url;
-		if (old) URL.revokeObjectURL(old);
+			const old = imageData;
+			imageData = url;
+			if (old) URL.revokeObjectURL(old);
+		} catch (err) {
+			screenshotError = err instanceof Error ? err.message : 'failed to capture screenshot';
+		}
 	};
 
 	const stopScreenshotting = () => {
@@ -96,6 +136,23 @@
 		}
 	};
 
+	const runMatcher = async () => {
+		if (!selectedSource) return;
+
+		matchLoading = true;
+		matchError = null;
+		try {
+			const result = await matchSource(selectedSource.name, screenshotLang);
+			matchResult = result.match;
+			diagnosticsEnabled = result.diagnosticsEnabled;
+			matchImageData = `data:${result.imageMime};base64,${result.imageData}`;
+		} catch (err) {
+			matchError = err instanceof Error ? err.message : 'failed to match source';
+		} finally {
+			matchLoading = false;
+		}
+	};
+
 	const addTestNotification = () => {
 		notificationTestCount += 1;
 		addNotificationFlag({
@@ -105,6 +162,19 @@
 			tone: 'info'
 		});
 	};
+
+	const formatSeconds = (value: number | null | undefined) => {
+		if (value == null || value < 0) return 'none';
+		const minutes = Math.floor(value / 60);
+		const seconds = value % 60;
+		return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+	};
+
+	const screenLabel = (value: string) =>
+		value
+			.replace(/_/g, ' ')
+			.replace(/([a-z])([A-Z])/g, '$1 $2')
+			.toLowerCase();
 </script>
 
 <div class="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4">
@@ -138,13 +208,52 @@
 
 	<div class="obs-panel flex flex-col gap-4 rounded px-4 py-3">
 		<div class="flex flex-row gap-2">
-			<h2 class="text-xl font-semibold">Available Sources:</h2>
+			<h2 class="text-xl font-semibold">Source</h2>
 			<button class="obs-button obs-button-gold px-2 py-1 text-sm" disabled={sourcesLoading} onclick={getSources}
 				>load sources</button
 			>
+			{#if selectedSource}
+				<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={closeSource}>close source</button>
+			{/if}
 		</div>
 
-		{#if sources.length == 0}
+		{#if selectedSource}
+			<div class="flex flex-col gap-3">
+				<div>
+					<p class="obs-muted text-sm">Selected source</p>
+					<p class="font-mono text-lg">{selectedSource.name}</p>
+					<p class="obs-dim font-mono text-xs">{selectedSource.id}</p>
+				</div>
+
+				{#if knownVideoSourceIds.includes(selectedSource.id)}
+					<div class="flex flex-wrap gap-2">
+						{#if !screenshottingSource}
+							<button class="obs-button px-2 py-1 text-sm" onclick={getScreenshot(selectedSource.name)}
+								>get screenshot</button
+							>
+						{/if}
+
+						{#if screenshottingSource === selectedSource.name}
+							<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={stopScreenshotting}
+								>stop screenshotting</button
+							>
+						{:else}
+							<button
+								class="obs-button obs-button-gold px-2 py-1 text-sm"
+								disabled={!!screenshottingSource}
+								onclick={startScreenshotting(selectedSource.name)}>start screenshotting</button
+							>
+						{/if}
+
+						<button class="obs-button px-2 py-1 text-sm" disabled={matchLoading} onclick={runMatcher}>
+							{matchLoading ? 'matching…' : 'match screenshot'}
+						</button>
+					</div>
+				{:else}
+					<p class="obs-dim font-mono">(not a video source)</p>
+				{/if}
+			</div>
+		{:else if sources.length == 0}
 			<p class="obs-dim">No sources, click "load sources" to fetch them from OBS.</p>
 		{:else}
 			<ul class="grid grid-cols-[max-content_1fr] items-center gap-x-4 gap-y-3">
@@ -154,23 +263,7 @@
 
 						<div class="flex flex-wrap gap-2">
 							{#if knownVideoSourceIds.includes(source.id)}
-								{#if !screenshottingSource}
-									<button class="obs-button px-2 py-1 text-sm" onclick={getScreenshot(source.name)}
-										>get screenshot</button
-									>
-								{/if}
-
-								{#if screenshottingSource === source.name}
-									<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={stopScreenshotting}
-										>stop screenshotting</button
-									>
-								{:else}
-									<button
-										class="obs-button obs-button-gold px-2 py-1 text-sm"
-										disabled={!!screenshottingSource}
-										onclick={startScreenshotting(source.name)}>start screenshotting</button
-									>
-								{/if}
+								<button class="obs-button px-2 py-1 text-sm" onclick={() => selectSource(source)}>choose source</button>
 							{:else}
 								<span class="obs-dim font-mono">(not a video source)</span>
 							{/if}
@@ -181,12 +274,70 @@
 		{/if}
 	</div>
 
+	{#if screenshotError}
+		<p class="obs-alert-error rounded px-4 py-3 font-mono text-sm">{screenshotError}</p>
+	{/if}
+
+	{#if matchError}
+		<p class="obs-alert-error rounded px-4 py-3 font-mono text-sm">{matchError}</p>
+	{/if}
+
+	{#if matchResult}
+		<div class="obs-panel flex w-full flex-col gap-4 rounded p-4">
+			<div class="flex flex-row items-center gap-2">
+				<h2 class="text-xl font-semibold">Level Match</h2>
+				<button class="obs-button obs-button-danger px-2 py-1 font-mono text-sm" onclick={clearMatchResult}
+					>close</button
+				>
+			</div>
+
+			<div class="grid gap-4 lg:grid-cols-[minmax(18rem,24rem)_1fr]">
+				{#if matchImageData}
+					<img src={matchImageData} alt="Annotated OBS match" class="obs-preview max-w-full rounded" />
+				{/if}
+
+				<div class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
+					<span class="obs-muted">screen</span>
+					<span class="font-mono">{screenLabel(matchResult.screen)}</span>
+					<span class="obs-muted">mission</span>
+					<span class="font-mono">{matchResult.mission}</span>
+					<span class="obs-muted">part</span>
+					<span class="font-mono">{matchResult.part}</span>
+					<span class="obs-muted">difficulty</span>
+					<span class="font-mono">{matchResult.difficulty}</span>
+					<span class="obs-muted">detected lang</span>
+					<span class="font-mono">{matchResult.detected_lang ?? 'none'}</span>
+					<span class="obs-muted">runtime</span>
+					<span class="font-mono">{matchResult.runtime_ms.toFixed(2)} ms</span>
+					<span class="obs-muted">regions</span>
+					<span class="font-mono">{matchResult.match_regions?.length ?? 0}</span>
+					<span class="obs-muted">diagnostics</span>
+					<span class="font-mono">{diagnosticsEnabled ? 'enabled' : 'disabled'}</span>
+
+					{#if matchResult.times}
+						<span class="obs-muted">time</span>
+						<span class="font-mono">{formatSeconds(matchResult.times.time)}</span>
+						<span class="obs-muted">target</span>
+						<span class="font-mono">{formatSeconds(matchResult.times.target_time)}</span>
+						<span class="obs-muted">best</span>
+						<span class="font-mono">{formatSeconds(matchResult.times.best_time)}</span>
+					{/if}
+
+					{#if matchResult.raw_times?.length}
+						<span class="obs-muted">raw times</span>
+						<span class="font-mono">{matchResult.raw_times.map(formatSeconds).join(', ')}</span>
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
+
 	{#if imageData}
 		<div class="obs-panel flex w-full flex-col gap-4 rounded p-4">
 			<div class="flex flex-row items-center gap-2">
 				<h2 class="text-xl font-semibold">Screenshot:</h2>
 				{#if !screenshottingSource}
-					<button class="obs-button obs-button-danger px-2 py-1 font-mono text-sm" onclick={() => (imageData = null)}>
+					<button class="obs-button obs-button-danger px-2 py-1 font-mono text-sm" onclick={clearImageData}>
 						close
 					</button>
 				{/if}
