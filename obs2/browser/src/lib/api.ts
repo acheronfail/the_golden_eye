@@ -22,8 +22,7 @@ export const wsUrl = (path: string): string => {
 
 /**
  * URL for a single-frame screenshot of the given OBS source, usable directly as
- * an `<img src>`. `lang` only influences the backend's (logged) match attempt,
- * not the returned image, so any valid language works when capturing a preview.
+ * an `<img src>`.
  */
 export const screenshotUrl = (source: string): string =>
 	apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(source)}`);
@@ -361,7 +360,7 @@ export type AppSocketEvent =
 	| { type: 'sources'; sources: ObsSource[] }
 	| ({ type: 'match' } & LevelMatch)
 	| { type: 'recordingState'; status: RecordingStatus | null }
-	| { type: 'languageMismatch'; configuredLang: 'en' | 'jp'; detectedLang: 'en' | 'jp' }
+	| { type: 'languageDetected'; lang: 'en' | 'jp' }
 	| ({ type: 'recordingSavePending' } & RecordingSavePending)
 	| ({ type: 'recordingSaved' } & RecordingSaved)
 	| { type: 'monitorStopped'; reason: MonitorStoppedReason };
@@ -376,8 +375,8 @@ export interface AppSocketHandlers {
 	onMatch?: (match: LevelMatch) => void;
 	/** The recorder's per-run state changed, or returned to idle (`null`). */
 	onRecordingState?: (status: RecordingStatus | null) => void;
-	/** The active source appears to use a different ROM language than selected. */
-	onLanguageMismatch?: (configuredLang: 'en' | 'jp', detectedLang: 'en' | 'jp') => void;
+	/** The active source showed a ROM language marker. */
+	onLanguageDetected?: (lang: 'en' | 'jp') => void;
 	/** A run's clip save was scheduled after the post-run padding. */
 	onRecordingSavePending?: (pending: RecordingSavePending) => void;
 	/** A run's clip was saved out of the replay buffer and trimmed. */
@@ -440,8 +439,8 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 			case 'recordingState':
 				handlers.onRecordingState?.(msg.status);
 				break;
-			case 'languageMismatch':
-				handlers.onLanguageMismatch?.(msg.configuredLang, msg.detectedLang);
+			case 'languageDetected':
+				handlers.onLanguageDetected?.(msg.lang);
 				break;
 			case 'recordingSavePending':
 				handlers.onRecordingSavePending?.(msg);
@@ -458,15 +457,15 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 	return socket;
 };
 
-/** Current monitor status reported by the backend. `sourceName`/`lang` are only
- * present when `enabled` is true. `recordingState` is the backend-retained
+/** Current monitor status reported by the backend. `sourceName` is only present
+ * when `enabled` is true. `recordingState` is the backend-retained
  * recorder phase, or `null` when no run phase is active. Mirrors the Rust
  * `MonitorStatus`. */
 export type MonitorStatus =
 	| { enabled: false; recordingState?: null }
-	| { enabled: true; sourceName: string; lang: string; recordingState: RecordingStatus | null };
+	| { enabled: true; sourceName: string; recordingState: RecordingStatus | null };
 
-/** Fetch whether a monitor is running, and if so for which source/language.
+/** Fetch whether a monitor is running, and if so for which source.
  * Throws on a non-OK response. */
 export const getMonitorStatus = async (): Promise<MonitorStatus> => {
 	const res = await fetch(apiUrl('/api/v1/monitor/status'));
@@ -476,11 +475,11 @@ export const getMonitorStatus = async (): Promise<MonitorStatus> => {
 
 /** Start monitoring the given source. Recording options are read by the backend
  * from the persisted settings store. Throws on a non-OK response. */
-export const startMonitor = async (sourceName: string, lang: string): Promise<void> => {
+export const startMonitor = async (sourceName: string): Promise<void> => {
 	const res = await fetch(apiUrl('/api/v1/monitor/start'), {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ sourceName, lang })
+		body: JSON.stringify({ sourceName })
 	});
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 };

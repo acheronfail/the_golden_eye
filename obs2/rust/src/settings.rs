@@ -30,7 +30,6 @@ pub const DEFAULT_FAILED_OUTPUT_DIR_NAME: &str = "failed";
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub stop_replay_buffer_when_monitor_stopped: bool,
-    pub developer_lang: String,
     pub completed_output_path: String,
     pub save_failed_runs: bool,
     pub failed_output_path: String,
@@ -49,7 +48,6 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             stop_replay_buffer_when_monitor_stopped: false,
-            developer_lang: "en".to_owned(),
             completed_output_path: String::new(),
             save_failed_runs: true,
             failed_output_path: String::new(),
@@ -78,7 +76,6 @@ impl AppSettings {
                 object.get("stopReplayBufferWhenMonitorStopped"),
                 default.stop_replay_buffer_when_monitor_stopped,
             ),
-            developer_lang: developer_lang(object.get("developerLang"), &default.developer_lang),
             completed_output_path: string_field(object.get("completedOutputPath"), &default.completed_output_path),
             save_failed_runs: bool_field(object.get("saveFailedRuns"), default.save_failed_runs),
             failed_output_path: string_field(object.get("failedOutputPath"), &default.failed_output_path),
@@ -259,13 +256,6 @@ fn write_settings(path: &Path, settings: &AppSettings) -> anyhow::Result<()> {
     std::fs::write(path, bytes).with_context(|| format!("writing settings file {}", path.display()))
 }
 
-fn developer_lang(value: Option<&Value>, fallback: &str) -> String {
-    match value.and_then(Value::as_str) {
-        Some(lang @ ("en" | "jp")) => lang.to_owned(),
-        _ => fallback.to_owned(),
-    }
-}
-
 fn string_field(value: Option<&Value>, fallback: &str) -> String {
     value.and_then(Value::as_str).unwrap_or(fallback).to_owned()
 }
@@ -400,7 +390,6 @@ mod tests {
     #[test]
     fn json_value_is_normalized_field_by_field() {
         let settings = AppSettings::from_json_value(json!({
-            "developerLang": "jp",
             "stopReplayBufferWhenMonitorStopped": true,
             "completedOutputPath": "/tmp/completed",
             "saveFailedRuns": false,
@@ -416,7 +405,6 @@ mod tests {
             "streamingStoppedMessageTemplate": "Stopped {broadcast_url}"
         }));
 
-        assert_eq!(settings.developer_lang, "jp");
         assert!(settings.stop_replay_buffer_when_monitor_stopped);
         assert_eq!(settings.completed_output_path, "/tmp/completed");
         assert!(!settings.save_failed_runs);
@@ -458,7 +446,6 @@ mod tests {
 
         let saved = store
             .replace(AppSettings::from_json_value(json!({
-                "developerLang": "jp",
                 "stopReplayBufferWhenMonitorStopped": true,
                 "completedOutputPath": "/runs",
                 "saveFailedRuns": true,

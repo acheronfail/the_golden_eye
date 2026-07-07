@@ -2,7 +2,6 @@
 	import { apiUrl } from '$lib/api';
 	import { triggerKiaDeathOverlay } from '$lib/monitor.svelte';
 	import { addNotificationFlag } from '$lib/notifications.svelte';
-	import { settings } from '$lib/settings.svelte';
 
 	const knownVideoSourceIds = [
 		'screen_capture',
@@ -20,12 +19,13 @@
 	let startScreenIndex = $state(0);
 	let failedScreenIndex = $state(0);
 	let notificationTestCount = 0;
+	let screenshotLang = $state<'en' | 'jp'>('en');
 
 	let allStartScreenNames = $derived.by(() => {
 		const values: string[] = [];
 		for (let i = 1; i <= 20; i++) {
 			for (const d of ['Agent', 'Secret Agent', '00 Agent']) {
-				values.push(`${settings.developerLang} - start - ${i} - ${d}`);
+				values.push(`${screenshotLang} - start - ${i} - ${d}`);
 			}
 		}
 
@@ -37,7 +37,7 @@
 		for (let i = 1; i <= 20; i++) {
 			for (const d of ['Agent', 'Secret Agent', '00 Agent']) {
 				for (const s of ['complete', 'failed', 'abort', 'kia']) {
-					values.push(`${settings.developerLang} - ${s} - ${i} - ${d}`);
+					values.push(`${screenshotLang} - ${s} - ${i} - ${d}`);
 				}
 			}
 		}
@@ -49,7 +49,7 @@
 		const values: string[] = [];
 		for (let i = 1; i <= 20; i++) {
 			for (const d of ['Agent', 'Secret Agent', '00 Agent']) {
-				values.push(`${settings.developerLang} - stats - ${i} - ${d} - TIMES_HERE`);
+				values.push(`${screenshotLang} - stats - ${i} - ${d} - TIMES_HERE`);
 			}
 		}
 
@@ -126,11 +126,11 @@
 		<h2 id="developer-language-heading" class="mb-2 font-semibold">Language</h2>
 		<div class="flex flex-col gap-1 pl-4">
 			<label class="flex items-center gap-2">
-				<input class="obs-checkbox" type="radio" name="lang" value="en" bind:group={settings.developerLang} />
+				<input class="obs-checkbox" type="radio" name="lang" value="en" bind:group={screenshotLang} />
 				English
 			</label>
 			<label class="flex items-center gap-2">
-				<input class="obs-checkbox" type="radio" name="lang" value="jp" bind:group={settings.developerLang} />
+				<input class="obs-checkbox" type="radio" name="lang" value="jp" bind:group={screenshotLang} />
 				Japanese
 			</label>
 		</div>

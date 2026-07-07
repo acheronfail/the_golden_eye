@@ -38,7 +38,10 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
         tracing::error!("CV template directory is not set");
         return Err((StatusCode::INTERNAL_SERVER_ERROR, "CV template directory is not set").into());
     };
-    let matcher = crate::cv::CvMatcher::new(&params.lang, &template_dir).unwrap();
+    let matcher = crate::cv::CvMatcher::new(&params.lang, &template_dir).map_err(|err| {
+        tracing::error!("failed to init matcher: {err}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher")
+    })?;
     timer.lap("matcher init");
 
     // Render the source into a BGRA buffer owned by the C side.

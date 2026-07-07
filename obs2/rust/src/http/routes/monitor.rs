@@ -13,6 +13,8 @@ use tokio::sync::{broadcast, watch};
 use crate::cv::{CaptureRegion, CvMatcher, LevelMatch};
 use crate::http::{AppState, MonitorEvent, MonitorStoppedReason, RecordingStatus};
 
+const DEFAULT_MONITOR_LANGUAGE: &str = "jp";
+
 /// A running monitor. OBS pushes captured frames into `mailbox` from its render
 /// callback (keyed by the leaked `producer` pointer); the worker `thread`
 /// consumes and matches them. Stopping unregisters the callback, closes the
@@ -21,12 +23,9 @@ pub struct MonitorHandle {
     mailbox: Arc<FrameMailbox>,
     producer: ProducerPtr,
     thread: JoinHandle<()>,
-    /// The source name and active language this monitor uses, retained so
-    /// `/api/v1/monitor/status` can report what is currently being monitored.
-    /// The language may change when the matcher auto-corrects a detected ROM
-    /// language mismatch.
+    /// The source name this monitor uses, retained so `/api/v1/monitor/status`
+    /// can report what is currently being monitored.
     source_name: String,
-    lang: Arc<Mutex<String>>,
 }
 
 /// The leaked `ProducerCtx` pointer, made `Send` so the handle can move to the
@@ -244,8 +243,6 @@ unsafe extern "C" fn ge_frame_callback(param: *mut c_void, _cx: u32, _cy: u32) {
 pub struct StartParams {
     /// Name of the OBS source to monitor, as reported by `/api/v1/sources`.
     source_name: String,
-    /// Language of the templates to match against (e.g. `en`, `jp`).
-    lang: String,
 }
 
 /// Source of frames for the monitor loop. OBS captures in production; tests
@@ -354,59 +351,61 @@ impl MonitorSession {
     }
 }
 
-fn switch_language_if_mismatched(
+fn handle_detected_language(
     info: &LevelMatch,
     session: &mut MonitorSession,
     active_lang: &mut String,
-    monitor_lang: &Arc<Mutex<String>>,
+    language_notified: &mut bool,
     event_tx: &broadcast::Sender<MonitorEvent>,
     make_session: impl FnOnce(&str) -> anyhow::Result<MonitorSession>,
 ) -> bool {
-    let Some(detected_lang) =
-        info.detected_lang.as_deref().filter(|detected| *detected != active_lang.as_str()).map(str::to_owned)
-    else {
+    let Some(detected_lang) = info.detected_lang.as_deref().map(str::to_owned) else {
         return false;
     };
 
-    let previous_lang = active_lang.clone();
-    tracing::warn!(
-        configured_lang = %previous_lang,
-        detected_lang,
-        "detected ROM/template language mismatch; switching monitor language"
-    );
-    match make_session(&detected_lang) {
-        Ok(next_session) => {
-            *session = next_session;
-            *active_lang = detected_lang;
-            *monitor_lang.lock().unwrap_or_else(|p| p.into_inner()) = active_lang.clone();
-            let _ = event_tx.send(MonitorEvent::LanguageMismatch {
-                configured_lang: previous_lang,
-                detected_lang: active_lang.clone(),
-            });
-            true
+    let mut switched = false;
+    if detected_lang != *active_lang {
+        tracing::info!(
+            active_lang = %active_lang,
+            detected_lang,
+            "detected ROM language; switching monitor templates"
+        );
+        match make_session(&detected_lang) {
+            Ok(next_session) => {
+                *session = next_session;
+                *active_lang = detected_lang.clone();
+                switched = true;
+            }
+            Err(err) => {
+                tracing::error!(detected_lang, "failed to switch monitor language after detection: {err}");
+                return false;
+            }
         }
-        Err(err) => {
-            tracing::error!(detected_lang, "failed to switch monitor language after mismatch: {err}");
-            false
-        }
+    } else {
+        tracing::info!(detected_lang, "detected ROM language");
     }
+
+    if !*language_notified {
+        *language_notified = true;
+        let _ = event_tx.send(MonitorEvent::LanguageDetected { lang: active_lang.clone() });
+    }
+
+    switched
 }
 
-/// Current monitor status. `enabled` is always present; the source/language are
-/// only included while a monitor is running (omitted from the JSON otherwise).
+/// Current monitor status. `enabled` is always present; the source is only
+/// included while a monitor is running (omitted from the JSON otherwise).
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MonitorStatus {
     enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    lang: Option<String>,
     recording_state: Option<RecordingStatus>,
 }
 
 /// Reports whether a monitor is currently running, and if so which source and
-/// language it was started with -- so the frontend can restore its state on load.
+/// recorder state it has -- so the frontend can restore its state on load.
 #[axum::debug_handler]
 pub async fn handle_status(State(state): State<AppState>) -> Json<MonitorStatus> {
     let guard = state.monitor.lock().unwrap_or_else(|p| p.into_inner());
@@ -414,10 +413,9 @@ pub async fn handle_status(State(state): State<AppState>) -> Json<MonitorStatus>
         Some(handle) => MonitorStatus {
             enabled: true,
             source_name: Some(handle.source_name.clone()),
-            lang: Some(handle.lang.lock().unwrap_or_else(|p| p.into_inner()).clone()),
             recording_state: state.recording_state.current(),
         },
-        None => MonitorStatus { enabled: false, source_name: None, lang: None, recording_state: None },
+        None => MonitorStatus { enabled: false, source_name: None, recording_state: None },
     };
     Json(status)
 }
@@ -427,7 +425,6 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // Keep the original strings for the status endpoint; `source_name` is also
     // converted to a CString below for the C capture bridge.
     let status_source_name = params.source_name.clone();
-    let lang = params.lang.clone();
     let recording_options = state.settings.get_recording_options();
     let source_name =
         CString::new(params.source_name).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
@@ -446,7 +443,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // Build the session (and its fresh, empty scale cache) up front so any
     // configuration error surfaces as a failed request rather than a thread that
     // silently exits.
-    let session = MonitorSession::from_env(&params.lang).map_err(|err| {
+    let session = MonitorSession::from_env(DEFAULT_MONITOR_LANGUAGE).map_err(|err| {
         tracing::error!("failed to start monitor: {err}");
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher")
     })?;
@@ -498,13 +495,12 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let event_tx = state.event_tx.clone();
     let recording_state = state.recording_state.clone();
     let recording_source_name = status_source_name.clone();
-    let recording_lang = lang.clone();
-    let monitor_lang = Arc::new(Mutex::new(lang.clone()));
-    let worker_monitor_lang = monitor_lang.clone();
+    let recording_lang = DEFAULT_MONITOR_LANGUAGE.to_owned();
     let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
         let mut source = ObsSource { mailbox: worker_mailbox, region };
         let mut session = session;
         let mut active_lang = recording_lang.clone();
+        let mut language_notified = false;
         let mut last: Option<LevelMatch> = None;
         // Drives the replay-buffer save/trim as the session progresses. Fed
         // every matched frame (not just state changes) so its save timer is
@@ -525,11 +521,11 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             match result {
                 Ok(info) => {
                     tracing::debug!(?info);
-                    if switch_language_if_mismatched(
+                    if handle_detected_language(
                         &info,
                         &mut session,
                         &mut active_lang,
-                        &worker_monitor_lang,
+                        &mut language_notified,
                         &event_tx,
                         MonitorSession::from_env,
                     ) {
@@ -564,13 +560,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         }
     };
 
-    *guard = Some(MonitorHandle {
-        mailbox,
-        producer: ProducerPtr(producer),
-        thread,
-        source_name: status_source_name,
-        lang: monitor_lang,
-    });
+    *guard = Some(MonitorHandle { mailbox, producer: ProducerPtr(producer), thread, source_name: status_source_name });
     tracing::info!("monitor started");
 
     Ok(StatusCode::OK)
@@ -956,10 +946,10 @@ mod tests {
     }
 
     #[test]
-    fn language_mismatch_switches_active_monitor_language() {
+    fn detected_language_switches_active_monitor_language_and_notifies_once() {
         let mut session = MonitorSession::new("en", TEMPLATES_DIR).expect("session");
         let mut active_lang = "en".to_owned();
-        let monitor_lang = Arc::new(Mutex::new(active_lang.clone()));
+        let mut language_notified = false;
         let (event_tx, mut event_rx) = broadcast::channel(8);
 
         let (start_b, start_w, start_h) = load_bgra("screenshots-emu/jp - start - 01 - Agent.png");
@@ -967,25 +957,21 @@ mod tests {
         assert_eq!(mismatch.detected_lang.as_deref(), Some("jp"));
         assert_eq!(mismatch.screen, crate::cv::Screen::Unknown);
 
-        let switched = switch_language_if_mismatched(
+        let switched = handle_detected_language(
             &mismatch,
             &mut session,
             &mut active_lang,
-            &monitor_lang,
+            &mut language_notified,
             &event_tx,
             |lang| MonitorSession::new(lang, TEMPLATES_DIR),
         );
 
         assert!(switched, "mismatch should switch the active matcher");
         assert_eq!(active_lang, "jp");
-        assert_eq!(&*monitor_lang.lock().unwrap_or_else(|p| p.into_inner()), "jp");
+        assert!(language_notified);
 
-        let event = event_rx.try_recv().expect("language mismatch event");
-        assert!(matches!(
-            event,
-            MonitorEvent::LanguageMismatch { configured_lang, detected_lang }
-                if configured_lang == "en" && detected_lang == "jp"
-        ));
+        let event = event_rx.try_recv().expect("language detected event");
+        assert!(matches!(event, MonitorEvent::LanguageDetected { lang } if lang == "jp"));
 
         let (stats_b, stats_w, stats_h) = load_bgra("screenshots-emu/jp - stats - 01 - Agent - 0137_0137.png");
         let stats = session.match_frame(&stats_b, stats_w, stats_h).expect("jp stats after switch");
@@ -994,6 +980,44 @@ mod tests {
         assert_eq!(stats.part, 1);
         assert_eq!(stats.difficulty, 0);
         assert_eq!(stats.times, times(97, None, Some(97)));
+
+        let repeated = handle_detected_language(
+            &mismatch,
+            &mut session,
+            &mut active_lang,
+            &mut language_notified,
+            &event_tx,
+            |lang| MonitorSession::new(lang, TEMPLATES_DIR),
+        );
+        assert!(!repeated, "already-active detected language should not switch again");
+        assert!(matches!(event_rx.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn detected_language_notifies_when_already_active() {
+        let mut session = MonitorSession::new("en", TEMPLATES_DIR).expect("session");
+        let mut active_lang = "en".to_owned();
+        let mut language_notified = false;
+        let (event_tx, mut event_rx) = broadcast::channel(8);
+
+        let (start_b, start_w, start_h) = load_bgra("screenshots-emu/en - start - 01 - Agent.png");
+        let detected = session.match_frame(&start_b, start_w, start_h).expect("detected match");
+        assert_eq!(detected.detected_lang.as_deref(), Some("en"));
+
+        let switched = handle_detected_language(
+            &detected,
+            &mut session,
+            &mut active_lang,
+            &mut language_notified,
+            &event_tx,
+            |lang| MonitorSession::new(lang, TEMPLATES_DIR),
+        );
+
+        assert!(!switched, "already-active detected language should not switch");
+        assert_eq!(active_lang, "en");
+        assert!(language_notified);
+        let event = event_rx.try_recv().expect("language detected event");
+        assert!(matches!(event, MonitorEvent::LanguageDetected { lang } if lang == "en"));
     }
 
     #[test]
