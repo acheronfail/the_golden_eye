@@ -46,6 +46,7 @@ configure_file(
 set(GE_PLUGIN_VERSION_FILE "${CMAKE_CURRENT_BINARY_DIR}/VERSION")
 
 option(GE_REUSE_HOST_BUILD_INPUTS "Reuse browser and Rust artifacts from an earlier host build" OFF)
+option(GE_RUST_PACKAGE_PROFILE "Build Rust with the size-optimized packaging cargo profile" OFF)
 
 # Build logic lives in focused modules under cmake/ to keep this file readable.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")

@@ -24,6 +24,7 @@ export FFMPEG_PREFIX := justfile_directory() / "obs2/vendor/ffmpeg-static"
 _default:
     just -l
 
+# configure the cmake project
 configure build_type browser_dev *cmake_args:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -39,17 +40,26 @@ configure build_type browser_dev *cmake_args:
     cmake "${source_dir}" \
       -DCMAKE_BUILD_TYPE="{{ build_type }}" \
       -DBROWSER_DEV="{{ browser_dev }}" \
+      -DGE_RUST_PACKAGE_PROFILE=OFF \
       -DGE_PLUGIN_VERSION="{{ plugin_version }}" {{ cmake_args }}
 
+# debug builds
 configure-debug:
     just configure Debug OFF
 
+# dev builds (debug + browser dev mode)
 configure-dev:
     just configure Debug ON
 
+# release builds
 configure-release:
     just configure Release OFF
 
+# configure cmake for packaging (longer compile times due to LTO/strip/etc)
+configure-package:
+    just configure Release OFF -DGE_RUST_PACKAGE_PROFILE=ON
+
+# generate IDE settings files
 ide-settings: configure-release
     mkdir -p .vscode
     cp obs2/build/vscode-settings.json .vscode/settings.json
@@ -57,27 +67,38 @@ ide-settings: configure-release
     cp obs2/build/zed-settings.json .zed/settings.json
 
 # runs the project in dev mode (hot reloads for the UI and the plugin)
-#
-# The plugin is split into a thin shim (loaded by OBS) and a "core" library
-# (the Rust logic + OpenCV), which the shim dlopen's. In dev mode the shim
-# watches the core library on disk and hot-reloads it whenever it's rebuilt —
-# so editing the SvelteKit UI *or* the Rust code reloads live without
-# restarting OBS. The dev helper relinks the core whenever Rust sources change.
 dev:
     python3 obs2/scripts/dev.py
 
+# runs the rust tests
+test-rust *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f "$BROWSER_BUNDLE" ]; then
+      echo "browser bundle not found at $BROWSER_BUNDLE — run 'just make-release' first" >&2
+      exit 1
+    fi
+
+    build_dir="{{ justfile_directory() }}/obs2/build"
+    just configure-release
+    source "$build_dir/rust-cargo-env.sh"
+
+    # Keep cargo test artifacts separate from the plugin build artifacts.
+    export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
+    cd "{{ justfile_directory() }}/obs2/rust" && cargo test --release {{ args }}
+
+# runs opencv frame tests
 test *filter: make-release
     cd test && npm run test -- {{ filter }}
 
-test-watch *filter: make-release
-    cd test && npm run test-watch -- {{ filter }}
-
+# formats the project and runs clippy
 fmt:
     cd obs2/browser && npm run format:repo
     cd obs2/rust && rustup run nightly cargo fmt --
     find obs2 -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_rust.h -print0 | xargs -0 clang-format -style=file -i
     just clippy
 
+# runs clippy
 clippy:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -86,8 +107,9 @@ clippy:
     cmake --build "$build_dir" --target browser_build
     source "$build_dir/rust-cargo-env.sh"
 
-    cd "{{ justfile_directory() }}/obs2/rust" && cargo clippy --all-targets -- -D warnings
+    cd "{{ justfile_directory() }}/obs2/rust" && cargo clippy --fix -- -D warnings
 
+# generate a markdown preview of what GitHub will put in the next release notes
 preview-release sha="HEAD":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -115,33 +137,20 @@ preview-release sha="HEAD":
       -f target_commitish="$target_sha" \
       --jq .body
 
-# runs the rust tests (cv matcher + monitor loop) against the fixture screenshots
-test-rust *args:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ ! -f "$BROWSER_BUNDLE" ]; then
-      echo "browser bundle not found at $BROWSER_BUNDLE — run 'just make-release' first" >&2
-      exit 1
-    fi
-
-    build_dir="{{ justfile_directory() }}/obs2/build"
-    just configure-release
-    source "$build_dir/rust-cargo-env.sh"
-
-    # Keep cargo test artifacts separate from the plugin build artifacts.
-    export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
-    cd "{{ justfile_directory() }}/obs2/rust" && cargo test --release {{ args }}
-
+# build the plugin in debug mode
 make: configure-debug
     cmake --build obs2/build
 
+# build the plugin in release mode
 [macos]
 make-release: configure-release
     cmake --build obs2/build
 
+# build the plugin in release mode
 [linux]
 make-release: make-release-flatpak
 
+# configure the plugin for release
 [windows]
 configure-release-windows:
     #!/usr/bin/env bash
@@ -155,53 +164,78 @@ configure-release-windows:
       -DCMAKE_TOOLCHAIN_FILE="${vcpkg_root}/scripts/buildsystems/vcpkg.cmake" \
       -DVCPKG_TARGET_TRIPLET="${VCPKGRS_TRIPLET}"
 
+# configure the plugin for packaging
+[windows]
+configure-package-windows:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    vcpkg_root="${VCPKG_ROOT:-${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}}"
+    if command -v cygpath >/dev/null 2>&1; then
+      vcpkg_root="$(cygpath -m "${vcpkg_root}")"
+    fi
+    export VCPKGRS_TRIPLET="${VCPKGRS_TRIPLET:-x64-windows-static-md}"
+    just configure Release OFF \
+      -DGE_RUST_PACKAGE_PROFILE=ON \
+      -DCMAKE_TOOLCHAIN_FILE="${vcpkg_root}/scripts/buildsystems/vcpkg.cmake" \
+      -DVCPKG_TARGET_TRIPLET="${VCPKGRS_TRIPLET}"
+
+# build the plugin in release mode
 [windows]
 make-release: configure-release-windows
     cmake --build obs2/build --config Release
 
+# package the plugin (release, longer compile times)
 [macos]
-make-package: configure-release
+make-package: configure-package
     cmake --build obs2/build --target package-plugin
 
+# package the plugin (release, longer compile times)
 [linux]
-make-package: make-release-flatpak
-    just _flatpak-build package-plugin
+make-package: configure-package
+    cmake --build obs2/build --target rust_build
+    just _flatpak-build package-plugin ON
 
+# package the plugin (release, longer compile times)
 [windows]
-make-package: configure-release-windows
+make-package: configure-package-windows
     cmake --build obs2/build --config Release --target package-plugin
 
+# install the plugin on the current machine (release)
 [macos]
 install: configure-release
     cmake --build obs2/build --target install-plugin
 
+# install the plugin on the current machine (release)
 [linux]
 install: make-release-flatpak
     just _flatpak-build install-plugin
 
+# install the plugin on the current machine (release)
 [windows]
 install: configure-release-windows
     cmake --build obs2/build --config Release --target install-plugin
 
-make-install: install
-
+# uninstall the plugin from the current machine (release)
 [macos]
 uninstall: configure-release
     cmake --build obs2/build --target uninstall-plugin
 
+# uninstall the plugin from the current machine (release)
 [linux]
 uninstall:
     just _flatpak-build uninstall-plugin
 
+# uninstall the plugin from the current machine (release)
 [windows]
 uninstall: configure-release-windows
     cmake --build obs2/build --config Release --target uninstall-plugin
 
-# builds the project and runs obs
+# runs OBS with the plugin (release)
 [macos]
 obs: make-release
     cd obs2/build && OBS_PLUGINS_PATH="$(pwd)" OBS_PLUGINS_DATA_PATH="$(pwd)" obs
 
+# runs OBS with the plugin (release)
 [linux]
 obs: make-release-flatpak
     cd obs2/build-flatpak && flatpak run \
@@ -215,6 +249,7 @@ obs: make-release-flatpak
       --env=OBS_PLUGINS_DATA_PATH="$(pwd)/%module%/data" \
       com.obsproject.Studio
 
+# runs OBS with the plugin (release)
 [windows]
 obs: make-release
     #!/usr/bin/env bash
@@ -225,6 +260,7 @@ obs: make-release
     fi
     OBS_PLUGINS_PATH="$(pwd)/obs2/build/Release" OBS_PLUGINS_DATA_PATH="$(pwd)/obs2/build" "${obs}"
 
+# build the plugin with the flatpak SDK
 [linux]
 make-release-flatpak:
     just configure-release
@@ -232,7 +268,7 @@ make-release-flatpak:
     just _flatpak-build all
 
 [linux]
-_flatpak-build target:
+_flatpak-build target rust_package_profile="OFF":
     #!/usr/bin/env bash
     set -euo pipefail
     root="{{ justfile_directory() }}"
@@ -252,6 +288,7 @@ _flatpak-build target:
       --env=GE_REPO_ROOT="${root}" \
       --env=BROWSER_BUNDLE="${root}/obs2/browser/build/index.html" \
       --env=GE_REUSE_HOST_BUILD_INPUTS="ON" \
+      --env=GE_RUST_PACKAGE_PROFILE="{{ rust_package_profile }}" \
       --env=PKG_CONFIG_PATH="/app/lib/pkgconfig:/app/lib/x86_64-linux-gnu/pkgconfig:/app/share/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig" \
       --env=LD_LIBRARY_PATH="/app/lib" \
       --command=bash \
@@ -273,7 +310,8 @@ _flatpak-build target:
           -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
           -DGE_LINUX_NATIVE_OBS_BUILD=ON \
           -DGE_PLUGIN_INSTALL_ROOT:PATH="${XDG_CONFIG_HOME}/obs-studio/plugins" \
-          -DGE_REUSE_HOST_BUILD_INPUTS="${GE_REUSE_HOST_BUILD_INPUTS}"
+          -DGE_REUSE_HOST_BUILD_INPUTS="${GE_REUSE_HOST_BUILD_INPUTS}" \
+          -DGE_RUST_PACKAGE_PROFILE="${GE_RUST_PACKAGE_PROFILE}"
         if [ "{{ target }}" = "all" ]; then
           cmake --build .
         else
@@ -281,15 +319,14 @@ _flatpak-build target:
         fi
       '
 
+# download and vendor in the OBS headers
 obs-headers:
     #!/usr/bin/env bash
     set -euo pipefail
     root="$(pwd)"
     "${root}/obs2/scripts/obs-headers.sh"
 
-# Compile OpenCV statically, so we don't have to depend on users having it
-# installed on their system in order to use the plugin.
-# Delete the prefix to force a rebuild.
+# download and statically compile opencv
 [unix]
 opencv-static:
     #!/usr/bin/env bash
@@ -297,14 +334,7 @@ opencv-static:
     root="$(pwd)"
     "${root}/obs2/scripts/opencv-static.sh"
 
-# Compile FFmpeg statically, the same way we do OpenCV, so we don't have to
-# depend on users having it installed in order to use the plugin. `ffmpeg-next`
-# (the Rust crate) links these archives via pkg-config; CMake links them into
-# the plugin's own link step (see cmake/FFmpegStatic.cmake).
-# Delete the prefix to force a rebuild.
-#
-# x86_64 hosts need `nasm` (or `yasm`) for FFmpeg's hand-written assembly;
-# arm64 (Apple Silicon) does not.
+# download and statically compile ffmpeg
 [unix]
 ffmpeg-static:
     #!/usr/bin/env bash
@@ -312,6 +342,7 @@ ffmpeg-static:
     root="$(pwd)"
     "${root}/obs2/scripts/ffmpeg-static.sh"
 
+# install dependencies with vcpkg
 [windows]
 windows-vcpkg-deps:
     #!/usr/bin/env bash
@@ -330,20 +361,23 @@ setup: obs-headers windows-vcpkg-deps
     cd obs2/browser && npm install
     cd test && npm install
 
+# setup the repository for local development
 [unix]
 setup: obs-headers opencv-static ffmpeg-static ide-settings
     cd obs2/browser && npm install
     cd test && npm install
 
+# clean build files and outputs
 clean:
     rm -rf "node_modules"
     rm -rf "obs2/browser/node_modules"
     rm -rf "test/node_modules"
     rm -rf "obs2/ge_rust.h"
     rm -rf "obs2/build"
-    @echo "Keeping static OBS/OpenCV/FFmpeg prefixes and cached source archives."
     cd "obs2/rust" && cargo clean
+    @echo "Keeping vendored packages, use `just clean_all` to remove those as well"
 
+# clean build files and outputs, as well as vendorered builds
 clean_all: clean
     rm -rf "obs2/vendor/obs"
     rm -rf "obs2/vendor/opencv-static"

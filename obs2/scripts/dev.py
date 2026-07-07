@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+# The plugin is split into a thin shim (loaded by OBS) and a "core" library
+# (the Rust logic + OpenCV), which the shim dlopen's. In dev mode the shim
+# watches the core library on disk and hot-reloads it whenever it's rebuilt —
+# so editing the SvelteKit UI *or* the Rust code reloads live without
+# restarting OBS. The dev helper relinks the core whenever Rust sources change.
+
 from __future__ import annotations
 
 import errno
