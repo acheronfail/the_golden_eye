@@ -246,6 +246,8 @@ export interface LevelMatch {
 	mission: number;
 	part: number;
 	difficulty: number;
+	/** ROM language detected from language-specific static UI, when visible. */
+	detected_lang?: 'en' | 'jp';
 	/** The stats-screen times split into run / target / best. `null` on any
 	 * screen with no timed rows (start, report screens, gameplay). `target_time`
 	 * is set only when the level was completed on the difficulty its target is
@@ -359,6 +361,7 @@ export type AppSocketEvent =
 	| { type: 'sources'; sources: ObsSource[] }
 	| ({ type: 'match' } & LevelMatch)
 	| { type: 'recordingState'; status: RecordingStatus | null }
+	| { type: 'languageMismatch'; configuredLang: 'en' | 'jp'; detectedLang: 'en' | 'jp' }
 	| ({ type: 'recordingSavePending' } & RecordingSavePending)
 	| ({ type: 'recordingSaved' } & RecordingSaved)
 	| { type: 'monitorStopped'; reason: MonitorStoppedReason };
@@ -373,6 +376,8 @@ export interface AppSocketHandlers {
 	onMatch?: (match: LevelMatch) => void;
 	/** The recorder's per-run state changed, or returned to idle (`null`). */
 	onRecordingState?: (status: RecordingStatus | null) => void;
+	/** The active source appears to use a different ROM language than selected. */
+	onLanguageMismatch?: (configuredLang: 'en' | 'jp', detectedLang: 'en' | 'jp') => void;
 	/** A run's clip save was scheduled after the post-run padding. */
 	onRecordingSavePending?: (pending: RecordingSavePending) => void;
 	/** A run's clip was saved out of the replay buffer and trimmed. */
@@ -434,6 +439,9 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 				break;
 			case 'recordingState':
 				handlers.onRecordingState?.(msg.status);
+				break;
+			case 'languageMismatch':
+				handlers.onLanguageMismatch?.(msg.configuredLang, msg.detectedLang);
 				break;
 			case 'recordingSavePending':
 				handlers.onRecordingSavePending?.(msg);

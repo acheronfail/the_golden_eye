@@ -1,6 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as cp from "node:child_process";
+import * as path from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import chalk from "chalk";
 import stripAnsi from "strip-ansi";
 import { getScreenshots } from "./screenshots.ts";
@@ -21,6 +23,7 @@ const execCommand = async (command: string) => {
 };
 
 const screenshots = await getScreenshots();
+const testRoot = path.dirname(fileURLToPath(import.meta.url));
 
 interface CheckResult {
   value: any;
@@ -37,6 +40,7 @@ const formatCheckResult = (result: CheckResult | undefined): string => {
 
 interface TestResult {
   lang?: CheckResult;
+  detectedLang?: CheckResult;
   screen?: CheckResult;
   level?: CheckResult;
   difficulty?: CheckResult;
@@ -55,8 +59,34 @@ interface FailedCheck {
 
 const RUNTIME_TARGET_MS = 16;
 
-const lengthName = Math.max(...screenshots.map((s) => s.tag.length + ": ".length + s.name.length), "Test".length);
+const languageMismatchCases = [
+  {
+    name: "language mismatch: English start with Japanese templates",
+    filePath: "screenshots-emu/en - start - 01 - Agent.png",
+    configuredLang: "jp",
+    detectedLang: "en",
+  },
+  {
+    name: "language mismatch: Japanese start with English templates",
+    filePath: "screenshots-emu/jp - start - 01 - Agent.png",
+    configuredLang: "en",
+    detectedLang: "jp",
+  },
+  {
+    name: "language mismatch: English blackbar start with Japanese templates",
+    filePath: "screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png",
+    configuredLang: "jp",
+    detectedLang: "en",
+  },
+];
+
+const lengthName = Math.max(
+  ...screenshots.map((s) => s.tag.length + ": ".length + s.name.length),
+  ...languageMismatchCases.map((c) => c.name.length),
+  "Test".length,
+);
 const lengthLang = 6; // " Lang "
+const lengthDetected = 10; // " Detected "
 const lengthScreen = 9; // " 007opts "
 const lengthLevel = 11; // " Surface 2 "
 const lengthDifficulty = 12; // " Difficulty "
@@ -65,13 +95,14 @@ const lengthRuntime = 10; // " 1234.56 ms "
 const lengthWidth =
   lengthName +
   lengthLang +
+  lengthDetected +
   lengthScreen +
   lengthLevel +
   lengthDifficulty +
   lengthTimes +
   lengthRuntime +
-  14 /* padding */ +
-  6; /* separators */
+  16 /* padding */ +
+  7; /* separators */
 
 const padText = (text: string, width: number, align: "left" | "center" | "right" = "center"): string => {
   const padding = Math.max(0, width - stripAnsi(text).length);
@@ -136,6 +167,7 @@ for (const runner of runners) {
           [
             h("Test", lengthName),
             h("Lang", lengthLang),
+            h("Detected", lengthDetected),
             h("Screen", lengthScreen),
             h("Level", lengthLevel),
             h("Difficulty", lengthDifficulty),
@@ -234,6 +266,7 @@ for (const runner of runners) {
     {
       const name = padText(chalk.white(screenshot.tag + ": " + screenshot.name), lengthName, "left");
       const lang = padText(formatCheckResult(testResult.lang), lengthLang);
+      const detectedLang = padText(formatCheckResult(testResult.detectedLang), lengthDetected);
       const screen = padText(formatCheckResult(testResult.screen), lengthScreen);
       const level = padText(formatCheckResult(testResult.level), lengthLevel);
       const difficulty = padText(formatCheckResult(testResult.difficulty), lengthDifficulty);
@@ -243,9 +276,14 @@ for (const runner of runners) {
         (testResult.runTimeUnderTarget === false ? chalk.yellow : chalk.white)(runTimeText),
         lengthRuntime,
       );
-      console.log(chalk.grey(`│ ${name} │ ${lang} │ ${screen} │ ${level} │ ${difficulty} │ ${times} │ ${execTime} │`));
+      console.log(
+        chalk.grey(
+          `│ ${name} │ ${lang} │ ${detectedLang} │ ${screen} │ ${level} │ ${difficulty} │ ${times} │ ${execTime} │`,
+        ),
+      );
       const correctnessChecks = [
         testResult.lang,
+        testResult.detectedLang,
         testResult.screen,
         testResult.level,
         testResult.difficulty,
@@ -256,6 +294,7 @@ for (const runner of runners) {
       // Only add failing tests to the results.
       const failedCorrectnessChecks = [
         ["lang", testResult.lang],
+        ["detectedLang", testResult.detectedLang],
         ["screen", testResult.screen],
         ["level", testResult.level],
         ["difficulty", testResult.difficulty],
@@ -282,6 +321,85 @@ for (const runner of runners) {
             expected: result.expected,
           });
         }
+      }
+    }
+  }
+
+  for (const mismatch of languageMismatchCases) {
+    const filePath = path.join(testRoot, mismatch.filePath);
+    const screenshotResult: Screenshot = { name: mismatch.name, results: [] };
+
+    if (filterRe ? filterRe.exec(filePath) === null : false) {
+      results[runner.name].skippedTests++;
+      continue;
+    }
+
+    results[runner.name].totalTests++;
+
+    const { stdout } = await execCommand(runner.command(filePath, mismatch.configuredLang));
+    const result = JSON.parse(stdout);
+    const testResult: TestResult = { runTime: result.runtime_ms };
+
+    testResult.lang = {
+      value: result.lang,
+      pass: result.lang === mismatch.configuredLang,
+      expected: mismatch.configuredLang,
+    };
+    testResult.detectedLang = {
+      value: result.detected_lang,
+      pass: result.detected_lang === mismatch.detectedLang,
+      expected: mismatch.detectedLang,
+    };
+    testResult.screen = {
+      value: result.screen,
+      pass: result.screen === "unknown",
+      expected: "unknown",
+    };
+    testResult.times = {
+      value: result.raw_times,
+      pass: Array.isArray(result.raw_times) && result.raw_times.length === 0 && result.times === null,
+      expected: [],
+    };
+    results[runner.name].totalChecks += 4;
+
+    const name = padText(chalk.white(mismatch.name), lengthName, "left");
+    const lang = padText(formatCheckResult(testResult.lang), lengthLang);
+    const detectedLang = padText(formatCheckResult(testResult.detectedLang), lengthDetected);
+    const screen = padText(formatCheckResult(testResult.screen), lengthScreen);
+    const level = padText(formatCheckResult(testResult.level), lengthLevel);
+    const difficulty = padText(formatCheckResult(testResult.difficulty), lengthDifficulty);
+    const times = padText(formatCheckResult(testResult.times), lengthTimes);
+    const execTime = padText(chalk.white(testResult.runTime.toFixed(2) + " ms"), lengthRuntime);
+    console.log(
+      chalk.grey(
+        `│ ${name} │ ${lang} │ ${detectedLang} │ ${screen} │ ${level} │ ${difficulty} │ ${times} │ ${execTime} │`,
+      ),
+    );
+
+    const correctnessChecks = [testResult.lang, testResult.detectedLang, testResult.screen, testResult.times];
+    results[runner.name].passedChecks += correctnessChecks.filter((r) => r?.pass).length;
+
+    const failedCorrectnessChecks = [
+      ["lang", testResult.lang],
+      ["detectedLang", testResult.detectedLang],
+      ["screen", testResult.screen],
+      ["times", testResult.times],
+    ].filter((entry): entry is [string, CheckResult] => {
+      const [, result] = entry;
+      return typeof result === "object" && result?.pass === false;
+    });
+
+    if (failedCorrectnessChecks.length > 0) {
+      results[runner.name].results.push(screenshotResult);
+      screenshotResult.results.push(testResult);
+      for (const [check, result] of failedCorrectnessChecks) {
+        failedChecks.push({
+          runner: runner.name,
+          test: screenshotResult.name,
+          check,
+          value: result.value,
+          expected: result.expected,
+        });
       }
     }
   }

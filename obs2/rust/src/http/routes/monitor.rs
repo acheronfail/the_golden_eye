@@ -21,10 +21,12 @@ pub struct MonitorHandle {
     mailbox: Arc<FrameMailbox>,
     producer: ProducerPtr,
     thread: JoinHandle<()>,
-    /// The source name and language this monitor was started with, retained so
+    /// The source name and active language this monitor uses, retained so
     /// `/api/v1/monitor/status` can report what is currently being monitored.
+    /// The language may change when the matcher auto-corrects a detected ROM
+    /// language mismatch.
     source_name: String,
-    lang: String,
+    lang: Arc<Mutex<String>>,
 }
 
 /// The leaked `ProducerCtx` pointer, made `Send` so the handle can move to the
@@ -334,10 +336,9 @@ impl MonitorSession {
         self.matcher.match_level_from_bgra_bytes(bytes, width, height)
     }
 
-    /// Hot loop: take each frame `source` yields, match it, and pass the result
-    /// to `on_result`. The source blocks until a frame is available, so there is
-    /// no polling; it returns `None` when exhausted (test fixtures) or closed
-    /// (the OBS mailbox on stop), which ends the loop.
+    /// Hot loop used by tests: take each frame `source` yields, match it, and
+    /// pass the result to `on_result`.
+    #[cfg(test)]
     pub fn run<S, F>(&self, source: &mut S, mut on_result: F)
     where
         S: FrameSource,
@@ -349,6 +350,44 @@ impl MonitorSession {
             // un-stretched on the GPU at capture time.
             source.set_capture_region(self.matcher.capture_region());
             on_result(result);
+        }
+    }
+}
+
+fn switch_language_if_mismatched(
+    info: &LevelMatch,
+    session: &mut MonitorSession,
+    active_lang: &mut String,
+    monitor_lang: &Arc<Mutex<String>>,
+    event_tx: &broadcast::Sender<MonitorEvent>,
+    make_session: impl FnOnce(&str) -> anyhow::Result<MonitorSession>,
+) -> bool {
+    let Some(detected_lang) =
+        info.detected_lang.as_deref().filter(|detected| *detected != active_lang.as_str()).map(str::to_owned)
+    else {
+        return false;
+    };
+
+    let previous_lang = active_lang.clone();
+    tracing::warn!(
+        configured_lang = %previous_lang,
+        detected_lang,
+        "detected ROM/template language mismatch; switching monitor language"
+    );
+    match make_session(&detected_lang) {
+        Ok(next_session) => {
+            *session = next_session;
+            *active_lang = detected_lang;
+            *monitor_lang.lock().unwrap_or_else(|p| p.into_inner()) = active_lang.clone();
+            let _ = event_tx.send(MonitorEvent::LanguageMismatch {
+                configured_lang: previous_lang,
+                detected_lang: active_lang.clone(),
+            });
+            true
+        }
+        Err(err) => {
+            tracing::error!(detected_lang, "failed to switch monitor language after mismatch: {err}");
+            false
         }
     }
 }
@@ -375,7 +414,7 @@ pub async fn handle_status(State(state): State<AppState>) -> Json<MonitorStatus>
         Some(handle) => MonitorStatus {
             enabled: true,
             source_name: Some(handle.source_name.clone()),
-            lang: Some(handle.lang.clone()),
+            lang: Some(handle.lang.lock().unwrap_or_else(|p| p.into_inner()).clone()),
             recording_state: state.recording_state.current(),
         },
         None => MonitorStatus { enabled: false, source_name: None, lang: None, recording_state: None },
@@ -460,35 +499,58 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let recording_state = state.recording_state.clone();
     let recording_source_name = status_source_name.clone();
     let recording_lang = lang.clone();
+    let monitor_lang = Arc::new(Mutex::new(lang.clone()));
+    let worker_monitor_lang = monitor_lang.clone();
     let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
         let mut source = ObsSource { mailbox: worker_mailbox, region };
+        let mut session = session;
+        let mut active_lang = recording_lang.clone();
         let mut last: Option<LevelMatch> = None;
         // Drives the replay-buffer save/trim as the session progresses. Fed
         // every matched frame (not just state changes) so its save timer is
         // polled each tick.
         let mut recording = crate::recording::RecordingState::new(
-            event_tx,
+            event_tx.clone(),
             recording_state,
             recording_options,
             recording_source_name,
             recording_lang,
         );
-        session.run(&mut source, |result| match result {
-            Ok(info) => {
-                tracing::debug!(?info);
-                recording.on_frame(std::time::Instant::now(), &info);
-                let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&info));
-                if changed {
-                    tracing::info!(?info);
-                    last = Some(info.clone());
-                    // Ignore send errors: with no subscribers there is no
-                    // receiver, but `watch` still retains the value for the
-                    // next client to connect.
-                    let _ = match_tx.send(Some(info));
+        while let Some(result) = source.capture(|bytes, w, h| session.match_frame(bytes, w, h)) {
+            // Once the matcher has calibrated this source's aspect, hand the
+            // transform to the capture layer so subsequent frames are cropped +
+            // un-stretched on the GPU at capture time.
+            source.set_capture_region(session.matcher.capture_region());
+
+            match result {
+                Ok(info) => {
+                    tracing::debug!(?info);
+                    if switch_language_if_mismatched(
+                        &info,
+                        &mut session,
+                        &mut active_lang,
+                        &worker_monitor_lang,
+                        &event_tx,
+                        MonitorSession::from_env,
+                    ) {
+                        recording.set_rom_language(active_lang.clone());
+                        last = None;
+                    }
+
+                    recording.on_frame(std::time::Instant::now(), &info);
+                    let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&info));
+                    if changed {
+                        tracing::info!(?info);
+                        last = Some(info.clone());
+                        // Ignore send errors: with no subscribers there is no
+                        // receiver, but `watch` still retains the value for the
+                        // next client to connect.
+                        let _ = match_tx.send(Some(info));
+                    }
                 }
+                Err(e) => tracing::error!("err: {}", e.message),
             }
-            Err(e) => tracing::error!("err: {}", e.message),
-        });
+        }
         tracing::info!("monitor loop exiting");
     });
     let thread = match thread {
@@ -502,8 +564,13 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         }
     };
 
-    *guard =
-        Some(MonitorHandle { mailbox, producer: ProducerPtr(producer), thread, source_name: status_source_name, lang });
+    *guard = Some(MonitorHandle {
+        mailbox,
+        producer: ProducerPtr(producer),
+        thread,
+        source_name: status_source_name,
+        lang: monitor_lang,
+    });
     tracing::info!("monitor started");
 
     Ok(StatusCode::OK)
@@ -867,6 +934,66 @@ mod tests {
             let session = MonitorSession::new(case.lang, TEMPLATES_DIR).expect("session");
             assert_case(&session, case);
         }
+    }
+
+    #[test]
+    fn start_screen_language_mismatch_is_detected_and_rejected() {
+        let cases = [
+            ("jp", "en", "screenshots-emu/en - start - 01 - Agent.png"),
+            ("en", "jp", "screenshots-emu/jp - start - 01 - Agent.png"),
+            ("jp", "en", "screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png"),
+        ];
+
+        for (configured, detected, file) in cases {
+            let session = MonitorSession::new(configured, TEMPLATES_DIR).expect("session");
+            let (bytes, w, h) = load_bgra(file);
+            let m = session.match_frame(&bytes, w, h).expect("match");
+            assert_eq!(m.detected_lang.as_deref(), Some(detected), "{file} detected language");
+            assert_eq!(m.screen, crate::cv::Screen::Unknown, "{file} screen");
+            assert_eq!(m.raw_times, Vec::<i32>::new(), "{file} raw times");
+            assert_eq!(m.times, None, "{file} times");
+        }
+    }
+
+    #[test]
+    fn language_mismatch_switches_active_monitor_language() {
+        let mut session = MonitorSession::new("en", TEMPLATES_DIR).expect("session");
+        let mut active_lang = "en".to_owned();
+        let monitor_lang = Arc::new(Mutex::new(active_lang.clone()));
+        let (event_tx, mut event_rx) = broadcast::channel(8);
+
+        let (start_b, start_w, start_h) = load_bgra("screenshots-emu/jp - start - 01 - Agent.png");
+        let mismatch = session.match_frame(&start_b, start_w, start_h).expect("mismatch match");
+        assert_eq!(mismatch.detected_lang.as_deref(), Some("jp"));
+        assert_eq!(mismatch.screen, crate::cv::Screen::Unknown);
+
+        let switched = switch_language_if_mismatched(
+            &mismatch,
+            &mut session,
+            &mut active_lang,
+            &monitor_lang,
+            &event_tx,
+            |lang| MonitorSession::new(lang, TEMPLATES_DIR),
+        );
+
+        assert!(switched, "mismatch should switch the active matcher");
+        assert_eq!(active_lang, "jp");
+        assert_eq!(&*monitor_lang.lock().unwrap_or_else(|p| p.into_inner()), "jp");
+
+        let event = event_rx.try_recv().expect("language mismatch event");
+        assert!(matches!(
+            event,
+            MonitorEvent::LanguageMismatch { configured_lang, detected_lang }
+                if configured_lang == "en" && detected_lang == "jp"
+        ));
+
+        let (stats_b, stats_w, stats_h) = load_bgra("screenshots-emu/jp - stats - 01 - Agent - 0137_0137.png");
+        let stats = session.match_frame(&stats_b, stats_w, stats_h).expect("jp stats after switch");
+        assert_eq!(stats.screen, crate::cv::Screen::Stats);
+        assert_eq!(stats.mission, 1);
+        assert_eq!(stats.part, 1);
+        assert_eq!(stats.difficulty, 0);
+        assert_eq!(stats.times, times(97, None, Some(97)));
     }
 
     #[test]

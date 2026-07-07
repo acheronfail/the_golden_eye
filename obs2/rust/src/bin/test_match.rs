@@ -76,6 +76,7 @@ fn run() -> Result<i32> {
             "mission": result.mission,
             "part": result.part,
             "difficulty": result.difficulty,
+            "detected_lang": result.detected_lang,
             "times": result.times,
             "raw_times": result.raw_times,
             "runtime_ms": result.runtime_ms,

@@ -109,6 +109,13 @@
 		}
 	});
 
+	$effect(() => {
+		if (!monitor.status?.enabled) return;
+		if (monitor.status.sourceName === params.sourceName && monitor.status.lang !== params.lang) {
+			goto(`/source/${encodeURIComponent(monitor.status.sourceName)}/${monitor.status.lang}`);
+		}
+	});
+
 	// Guards against a double start: the window Space handler and the OptionList
 	// button's own keyboard activation can both fire for one keypress.
 	const startMonitor = async () => {

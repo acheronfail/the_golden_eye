@@ -394,6 +394,8 @@ struct PendingSave {
     status: RunStatus,
     /// Wall-clock time when the run ending was detected.
     completed_at: SystemTime,
+    /// ROM/template language active when this save was scheduled.
+    rom_language: String,
     /// The stats-screen match, kept for naming the output clip.
     stats: Option<LevelMatch>,
 }
@@ -543,6 +545,12 @@ impl RecordingState {
         self.recording_state.set(status);
     }
 
+    /// Update the ROM/template language attached to future clip metadata. Used
+    /// when monitor language auto-correction detects the other ROM language.
+    pub fn set_rom_language(&mut self, rom_language: String) {
+        self.rom_language = rom_language;
+    }
+
     /// Schedule the replay-buffer save for a finished run, ending the active
     /// run's report tracking. `stats` names the clip -- the stats-screen match
     /// on the normal path, or the report-screen match when the stats screen was
@@ -582,6 +590,7 @@ impl RecordingState {
             finish_at: now,
             status,
             completed_at: SystemTime::now(),
+            rom_language: self.rom_language.clone(),
             stats,
         });
         self.status = None;
@@ -609,7 +618,7 @@ impl RecordingState {
                 stats: pending.stats,
                 options: self.options.clone(),
                 source_name: self.source_name.clone(),
-                rom_language: self.rom_language.clone(),
+                rom_language: pending.rom_language,
                 event_tx: self.event_tx.clone(),
                 recording_state: self.recording_state.clone(),
             })
@@ -1343,6 +1352,7 @@ mod tests {
             mission: 5,
             part: 1,
             difficulty: 2,
+            detected_lang: None,
             times: Some(Times { time: 123, target_time: Some(100), best_time: Some(130) }),
             raw_times: vec![123, 100, 130],
             runtime_ms: 0.0,
@@ -1355,6 +1365,7 @@ mod tests {
             mission: 1,
             part: 2,
             difficulty: 1,
+            detected_lang: None,
             times: None,
             raw_times: Vec::new(),
             runtime_ms: 0.0,
@@ -1367,6 +1378,7 @@ mod tests {
             mission: -1,
             part: -1,
             difficulty: 99,
+            detected_lang: None,
             times: Some(Times { time: -5, target_time: None, best_time: None }),
             raw_times: vec![-5],
             runtime_ms: 0.0,

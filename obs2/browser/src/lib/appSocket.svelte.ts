@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 import { connectAppSocket } from './api';
 import {
+	applyLanguageMismatch,
 	applyMonitorMatch,
 	applyMonitorStopped,
 	applyRecordingSaved,
@@ -36,6 +37,7 @@ const connect = (): void => {
 		onSources: setObsSources,
 		onMatch: applyMonitorMatch,
 		onRecordingState: applyRecordingState,
+		onLanguageMismatch: applyLanguageMismatch,
 		onRecordingSavePending: applyRecordingSavePending,
 		onRecordingSaved: applyRecordingSaved,
 		onMonitorStopped: (reason) => {
