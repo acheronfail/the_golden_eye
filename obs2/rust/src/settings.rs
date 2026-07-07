@@ -13,6 +13,7 @@ use serde_json::Value;
 
 use crate::recording::{
     DEFAULT_CLIP_FILENAME_TEMPLATE,
+    DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
     DEFAULT_POST_RUN_PADDING_SECS,
     DEFAULT_PRE_RUN_PADDING_SECS,
     RecordingOptions,
@@ -52,7 +53,7 @@ impl Default for AppSettings {
             save_failed_runs: true,
             failed_output_path: String::new(),
             failed_run_limit: 0,
-            minimum_failed_run_length_secs: 0.0,
+            minimum_failed_run_length_secs: DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
             pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
             post_run_padding_secs: DEFAULT_POST_RUN_PADDING_SECS,
@@ -382,8 +383,13 @@ mod tests {
     #[test]
     fn default_settings_use_five_second_pre_run_padding() {
         assert_eq!(AppSettings::default().pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
+        assert_eq!(AppSettings::default().minimum_failed_run_length_secs, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS);
         assert!(!AppSettings::default().stop_replay_buffer_when_monitor_stopped);
         assert_eq!(AppSettings::from_json_value(json!({})).pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
+        assert_eq!(
+            AppSettings::from_json_value(json!({})).minimum_failed_run_length_secs,
+            DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS
+        );
         assert!(!AppSettings::from_json_value(json!({})).stop_replay_buffer_when_monitor_stopped);
     }
 

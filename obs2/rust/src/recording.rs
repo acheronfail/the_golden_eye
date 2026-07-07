@@ -29,6 +29,7 @@ use crate::{ffmpeg, ge};
 pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level} - {time} - {difficulty} - {status}";
 pub const DEFAULT_PRE_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
+pub const DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS: f64 = 10.0;
 const PRE_RUN_MATCH_BUFFER_SECS: f64 = 0.5;
 
 /// How long to wait for OBS to finish writing the saved replay file before
@@ -77,7 +78,7 @@ impl Default for RecordingOptions {
             save_failed_runs: true,
             failed_output_path: String::new(),
             failed_run_limit: 0,
-            minimum_failed_run_length_secs: 0.0,
+            minimum_failed_run_length_secs: DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
             pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
             post_run_padding_secs: DEFAULT_POST_RUN_PADDING_SECS,
@@ -1410,6 +1411,7 @@ mod tests {
     fn pre_run_padding_defaults_to_five_and_adds_match_buffer() {
         let default = RecordingOptions::default();
         assert_eq!(default.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
+        assert_eq!(default.minimum_failed_run_length_secs, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS);
         assert_eq!(default.pre_run_padding_secs(), DEFAULT_PRE_RUN_PADDING_SECS + PRE_RUN_MATCH_BUFFER_SECS);
 
         let zero = RecordingOptions { pre_run_padding_secs: 0.0, ..RecordingOptions::default() };
