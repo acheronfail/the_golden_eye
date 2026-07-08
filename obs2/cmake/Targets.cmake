@@ -109,6 +109,11 @@ if(APPLE AND GE_OBS_DYNAMIC_LOOKUP)
 endif()
 
 if(APPLE)
+  if(GE_RUST_PACKAGE_PROFILE)
+    target_link_options(${CORE_NAME} PRIVATE
+        "LINKER:-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_core.macos.exports"
+    )
+  endif()
   # Rust's stdlib (embedded in the staticlib) references these system
   # frameworks on macOS. find_library resolves them to full paths so the
   # linker can locate them regardless of SDK layout.
@@ -140,13 +145,19 @@ elseif(WIN32)
       ws2_32
   )
 else()
+  set(GE_LINUX_CORE_LINK_OPTIONS "LINKER:--as-needed")
+  if(GE_RUST_PACKAGE_PROFILE)
+    list(APPEND GE_LINUX_CORE_LINK_OPTIONS
+        "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/golden_core.linux.version"
+    )
+  endif()
   # On Linux, the C++ shim from opencv-rust needs libstdc++.
   target_link_libraries(${CORE_NAME} PRIVATE stdc++)
   # Drop NEEDED entries for shared libraries whose symbols are never actually
   # referenced.  Static-archive dependency lists from OpenCV/FFmpeg pkg-config
   # can pull in transitive shared libs (libva, libva-drm, …) that aren't
   # present in constrained environments like the OBS Flatpak sandbox.
-  target_link_options(${CORE_NAME} PRIVATE "LINKER:--as-needed")
+  target_link_options(${CORE_NAME} PRIVATE ${GE_LINUX_CORE_LINK_OPTIONS})
 endif()
 
 #

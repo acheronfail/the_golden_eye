@@ -1,0 +1,8 @@
+{
+  global:
+    ge_core_load;
+    ge_core_post_load;
+    ge_core_unload;
+  local:
+    *;
+};

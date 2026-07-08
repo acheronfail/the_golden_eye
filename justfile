@@ -187,17 +187,20 @@ make-release: configure-release-windows
 # package the plugin (release, longer compile times)
 [macos]
 make-package: configure-package
+    cmake -E rm -rf obs2/build/package
     cmake --build obs2/build --target package-plugin
 
 # package the plugin (release, longer compile times)
 [linux]
 make-package: configure-package
+    cmake -E rm -rf obs2/build-flatpak/package
     cmake --build obs2/build --target rust_build
     just _flatpak-build package-plugin ON
 
 # package the plugin (release, longer compile times)
 [windows]
 make-package: configure-package-windows
+    cmake -E rm -rf obs2/build/package
     cmake --build obs2/build --config Release --target package-plugin
 
 # install the plugin on the current machine (release)
@@ -235,6 +238,11 @@ uninstall: configure-release-windows
 obs: make-release
     cd obs2/build && OBS_PLUGINS_PATH="$(pwd)" OBS_PLUGINS_DATA_PATH="$(pwd)" obs
 
+# runs OBS with the staged package build
+[macos]
+obs-packaged: make-package
+    cd obs2/build/package/* && OBS_PLUGINS_PATH="$(pwd)" OBS_PLUGINS_DATA_PATH="$(pwd)" obs
+
 # runs OBS with the plugin (release)
 [linux]
 obs: make-release-flatpak
@@ -247,6 +255,21 @@ obs: make-release-flatpak
       --env=LD_LIBRARY_PATH="/app/lib" \
       --env=OBS_PLUGINS_PATH="$(pwd)/%module%/bin/64bit" \
       --env=OBS_PLUGINS_DATA_PATH="$(pwd)/%module%/data" \
+      com.obsproject.Studio
+
+# runs OBS with the staged package build
+[linux]
+obs-packaged: make-package
+    cd obs2/build-flatpak/package/*/the_golden_eye && \
+    flatpak run \
+      --device=dri \
+      --filesystem="$(pwd):ro" \
+      --socket=session-bus \
+      --talk-name=org.freedesktop.secrets \
+      --talk-name=org.freedesktop.portal.Desktop \
+      --env=LD_LIBRARY_PATH="/app/lib" \
+      --env=OBS_PLUGINS_PATH="$(pwd)/bin/64bit" \
+      --env=OBS_PLUGINS_DATA_PATH="$(pwd)/data" \
       com.obsproject.Studio
 
 # runs OBS with the plugin (release)
