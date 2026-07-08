@@ -398,7 +398,7 @@ clean:
     rm -rf "obs2/ge_rust.h"
     rm -rf "obs2/build"
     cd "obs2/rust" && cargo clean
-    @echo "Keeping vendored packages, use `just clean_all` to remove those as well"
+    @echo "Keeping vendored packages, use 'just clean_all' to remove those as well"
 
 # clean build files and outputs, as well as vendorered builds
 clean_all: clean
