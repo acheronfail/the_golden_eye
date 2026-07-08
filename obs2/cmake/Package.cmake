@@ -31,6 +31,17 @@ set(GE_PACKAGE_STAGE "${GE_PACKAGE_WORK_DIR}/${GE_PACKAGE_BASENAME}")
 set(GE_PACKAGE_DIST_DIR "${CMAKE_CURRENT_BINARY_DIR}/dist")
 set(GE_PACKAGE_ZIP "${GE_PACKAGE_DIST_DIR}/${GE_PACKAGE_BASENAME}.zip")
 
+set(GE_PACKAGE_STRIP_ENABLED OFF)
+set(GE_PACKAGE_STRIP_ARGS "")
+if(GE_RUST_PACKAGE_PROFILE AND CMAKE_STRIP)
+  set(GE_PACKAGE_STRIP_ENABLED ON)
+  if(APPLE)
+    set(GE_PACKAGE_STRIP_ARGS -x)
+  elseif(UNIX AND NOT WIN32)
+    set(GE_PACKAGE_STRIP_ARGS --strip-unneeded)
+  endif()
+endif()
+
 if(NOT DEFINED GE_PLUGIN_INSTALL_ROOT)
   if(APPLE)
     if(NOT DEFINED ENV{HOME})
@@ -73,6 +84,18 @@ if(APPLE)
               "${GE_PLUGIN_VERSION_FILE}"
               "${GE_PACKAGE_ENTRY_PATH}/VERSION"
       COMMAND ${CMAKE_COMMAND} -E rm -f "${GE_PACKAGE_ENTRY_PATH}/Contents/Resources/cv_templates/.stamp"
+      COMMAND ${CMAKE_COMMAND}
+              "-DGE_STRIP_ENABLED=${GE_PACKAGE_STRIP_ENABLED}"
+              "-DGE_STRIP_TOOL=${CMAKE_STRIP}"
+              "-DGE_STRIP_ARGS=${GE_PACKAGE_STRIP_ARGS}"
+              "-DGE_STRIP_FILE=${GE_PACKAGE_ENTRY_PATH}/Contents/MacOS/$<TARGET_FILE_NAME:${CORE_NAME}>"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/strip-if-enabled.cmake"
+      COMMAND ${CMAKE_COMMAND}
+              "-DGE_STRIP_ENABLED=${GE_PACKAGE_STRIP_ENABLED}"
+              "-DGE_STRIP_TOOL=${CMAKE_STRIP}"
+              "-DGE_STRIP_ARGS=${GE_PACKAGE_STRIP_ARGS}"
+              "-DGE_STRIP_FILE=${GE_PACKAGE_ENTRY_PATH}/Contents/MacOS/$<TARGET_FILE_NAME:${PLUGIN_NAME}>"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/strip-if-enabled.cmake"
       COMMENT "Staging ${GE_PACKAGE_BASENAME}"
       VERBATIM
   )
@@ -93,6 +116,18 @@ else()
       COMMAND ${CMAKE_COMMAND} -E copy_directory "${GE_BUNDLED_TEMPLATE_DIR}" "${GE_PACKAGE_DATA_DIR}/cv_templates"
       COMMAND ${CMAKE_COMMAND} -E copy "${GE_PLUGIN_VERSION_FILE}" "${GE_PACKAGE_ENTRY_PATH}/VERSION"
       COMMAND ${CMAKE_COMMAND} -E rm -f "${GE_PACKAGE_DATA_DIR}/cv_templates/.stamp"
+      COMMAND ${CMAKE_COMMAND}
+              "-DGE_STRIP_ENABLED=${GE_PACKAGE_STRIP_ENABLED}"
+              "-DGE_STRIP_TOOL=${CMAKE_STRIP}"
+              "-DGE_STRIP_ARGS=${GE_PACKAGE_STRIP_ARGS}"
+              "-DGE_STRIP_FILE=${GE_PACKAGE_BIN_DIR}/$<TARGET_FILE_NAME:${CORE_NAME}>"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/strip-if-enabled.cmake"
+      COMMAND ${CMAKE_COMMAND}
+              "-DGE_STRIP_ENABLED=${GE_PACKAGE_STRIP_ENABLED}"
+              "-DGE_STRIP_TOOL=${CMAKE_STRIP}"
+              "-DGE_STRIP_ARGS=${GE_PACKAGE_STRIP_ARGS}"
+              "-DGE_STRIP_FILE=${GE_PACKAGE_BIN_DIR}/$<TARGET_FILE_NAME:${PLUGIN_NAME}>"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/strip-if-enabled.cmake"
       COMMENT "Staging ${GE_PACKAGE_BASENAME}"
       VERBATIM
   )
