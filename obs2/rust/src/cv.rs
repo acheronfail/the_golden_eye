@@ -517,6 +517,24 @@ impl LevelMatch {
     }
 }
 
+fn screen_requires_overlay_markers(screen: Screen) -> bool {
+    matches!(screen, Screen::Start | Screen::Stats | Screen::Complete | Screen::Failed | Screen::Abort | Screen::Kia)
+}
+
+fn has_overlay_markers(result: &LevelMatch) -> bool {
+    result.mission >= 0 && result.part >= 0 && result.difficulty >= 0
+}
+
+fn reject_untrusted_screen(result: &mut LevelMatch) {
+    let missing_required_markers = screen_requires_overlay_markers(result.screen) && !has_overlay_markers(result);
+    let stats_without_times = result.screen == Screen::Stats && result.raw_times.is_empty();
+    if missing_required_markers || stats_without_times {
+        result.screen = Screen::Unknown;
+        result.times = None;
+        result.raw_times.clear();
+    }
+}
+
 // Loads "<dir>/<lang>-<name>.png" as a single-channel (grayscale) template.
 // Returns an empty Mat when the file is missing or unreadable.
 fn load_template(dir: &str, lang: &str, name: &str) -> Result<Mat> {
@@ -1964,20 +1982,16 @@ impl CvMatcher {
             self.push_work_region(&mut match_regions, &mapper, format!("time {}", format_seconds(t.seconds)), t.colon);
         }
         let times: Vec<i32> = found_times.into_iter().map(|t| t.seconds).collect();
-        if screen == Screen::Stats && times.is_empty() {
-            result.screen = Screen::Unknown;
-        }
         result.times = ge::Times::classify(result.mission, result.part, result.difficulty, &times);
         result.raw_times = times;
         timer.lap("time assembly");
 
         // Learn the scale from this fully-resolved overlay (slow path only) so
         // subsequent frames at the same resolution fast-path the scale search.
-        // Require both labels found, so a partial/ambiguous match never poisons
-        // the cache with a wrong scale.
+        // Require every header marker, so a partial/ambiguous match never
+        // poisons the cache with a wrong scale.
         if hint.is_none()
-            && result.mission >= 0
-            && result.part >= 0
+            && has_overlay_markers(&result)
             && let Ok(mut cache) = self.scale_cache.lock()
         {
             *cache = Some(ScaleCache {
@@ -1993,9 +2007,89 @@ impl CvMatcher {
             );
         }
 
+        reject_untrusted_screen(&mut result);
+
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
         result.match_regions = match_regions;
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn level_match(screen: Screen, mission: i32, part: i32, difficulty: i32, raw_times: Vec<i32>) -> LevelMatch {
+        LevelMatch {
+            screen,
+            mission,
+            part,
+            difficulty,
+            detected_lang: None,
+            times: ge::Times::classify(mission, part, difficulty, &raw_times),
+            raw_times,
+            match_regions: Vec::new(),
+            runtime_ms: 0.0,
+        }
+    }
+
+    #[test]
+    fn overlay_screens_with_complete_markers_remain_trusted() {
+        let cases = [
+            (Screen::Start, Vec::new()),
+            (Screen::Stats, vec![62]),
+            (Screen::Complete, Vec::new()),
+            (Screen::Failed, Vec::new()),
+            (Screen::Abort, Vec::new()),
+            (Screen::Kia, Vec::new()),
+        ];
+
+        for (screen, raw_times) in cases {
+            let mut result = level_match(screen, 1, 1, ge::AGENT, raw_times);
+
+            reject_untrusted_screen(&mut result);
+
+            assert_eq!(result.screen, screen, "{screen:?} should remain trusted with all markers");
+        }
+    }
+
+    #[test]
+    fn overlay_screens_are_rejected_when_any_required_marker_is_missing() {
+        let screens = [Screen::Start, Screen::Stats, Screen::Complete, Screen::Failed, Screen::Abort, Screen::Kia];
+        let marker_cases = [(-1, 1, ge::AGENT), (1, -1, ge::AGENT), (1, 1, -1)];
+
+        for screen in screens {
+            for (mission, part, difficulty) in marker_cases {
+                let raw_times = if screen == Screen::Stats { vec![62] } else { Vec::new() };
+                let mut result = level_match(screen, mission, part, difficulty, raw_times);
+
+                reject_untrusted_screen(&mut result);
+
+                assert_eq!(result.screen, Screen::Unknown, "{screen:?} should reject incomplete markers");
+                assert_eq!(result.raw_times, Vec::<i32>::new());
+                assert_eq!(result.times, None);
+            }
+        }
+    }
+
+    #[test]
+    fn stats_screen_is_rejected_without_a_readable_run_time() {
+        let mut result = level_match(Screen::Stats, 1, 1, ge::AGENT, Vec::new());
+
+        reject_untrusted_screen(&mut result);
+
+        assert_eq!(result.screen, Screen::Unknown);
+    }
+
+    #[test]
+    fn non_overlay_screens_do_not_require_header_markers() {
+        for screen in [Screen::Opts007, Screen::Select, Screen::Levels, Screen::Unknown] {
+            let mut result = level_match(screen, -1, -1, -1, Vec::new());
+
+            reject_untrusted_screen(&mut result);
+
+            assert_eq!(result.screen, screen, "{screen:?} should not require mission/part/difficulty markers");
+        }
     }
 }
