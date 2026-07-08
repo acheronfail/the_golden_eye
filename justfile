@@ -9,8 +9,13 @@ release_tag_regex='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A
   if printf '%s\n' "$tag" | grep -Eq "$release_tag_regex"; then
     printf '%s' "${tag#v}"
   else
+    base_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --match 'v[0-9]*.[0-9]*.[0-9]*-*' 2>/dev/null || true)"
+    base_version="${base_tag#v}"
+    if [ -z "$base_version" ]; then
+      base_version="0.0.0"
+    fi
     sha="$(git rev-parse --short HEAD 2>/dev/null || printf unknown)"
-    printf '0.0.0-dev+%s' "$sha"
+    printf '%s-dev+%s' "$base_version" "$sha"
   fi
 `
 plugin_version := env_var_or_default("GE_PLUGIN_VERSION", git_plugin_version)
