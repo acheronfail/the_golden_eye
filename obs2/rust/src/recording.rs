@@ -12,6 +12,7 @@
 //! the end of that saved file.
 
 use std::ffi::{CStr, c_char};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -853,6 +854,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
         rom_language: &job.rom_language,
     }) {
         Ok(saved) => {
+            remove_replay_file_after_trim(&path, &saved.path);
             // Ignore send errors: with no WebSocket clients there are no
             // subscribers, but the save still succeeded.
             let _ = job.event_tx.send(MonitorEvent::RecordingSaved(saved));
@@ -935,6 +937,23 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
         failed,
         stats: req.stats,
     })
+}
+
+fn remove_replay_file_after_trim(replay_path: &str, saved_path: &str) {
+    let replay = Path::new(replay_path);
+    let saved = Path::new(saved_path);
+    if replay == saved {
+        tracing::warn!(path = %replay.display(), "not deleting replay buffer file because it is also the saved clip");
+        return;
+    }
+
+    match fs::remove_file(replay) {
+        Ok(()) => tracing::info!(path = %replay.display(), "deleted replay buffer source file after trimming"),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            tracing::debug!(path = %replay.display(), "replay buffer source file was already gone after trimming");
+        }
+        Err(err) => tracing::warn!(path = %replay.display(), "failed to delete replay buffer source file: {err}"),
+    }
 }
 
 fn clip_metadata(
@@ -1923,6 +1942,31 @@ mod tests {
         assert!(failed_path.is_file());
         assert!(!complete_saved.failed);
         assert!(failed_saved.failed);
+    }
+
+    #[test]
+    fn remove_replay_file_after_trim_deletes_replay_and_keeps_saved_clip() {
+        let dir = TestDir::new("remove-replay");
+        let replay = dir.join("obs replay.mov");
+        let saved = dir.join("trimmed clip.mov");
+        write_file(&replay);
+        write_file(&saved);
+
+        remove_replay_file_after_trim(&replay.to_string_lossy(), &saved.to_string_lossy());
+
+        assert!(!replay.exists());
+        assert!(saved.exists());
+    }
+
+    #[test]
+    fn remove_replay_file_after_trim_skips_when_paths_match() {
+        let dir = TestDir::new("remove-replay-same-path");
+        let saved = dir.join("clip.mov");
+        write_file(&saved);
+
+        remove_replay_file_after_trim(&saved.to_string_lossy(), &saved.to_string_lossy());
+
+        assert!(saved.exists());
     }
 
     #[test]
