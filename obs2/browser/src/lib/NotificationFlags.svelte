@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { dismissNotificationFlag, notifications, type NotificationTone } from './notifications.svelte';
 
 	const toneClass = (tone: NotificationTone): string => {
@@ -13,6 +14,10 @@
 			default:
 				return 'obs-notification-info';
 		}
+	};
+
+	const activate = (flag: { href?: string }): void => {
+		if (flag.href) void goto(flag.href);
 	};
 </script>
 
@@ -30,15 +35,31 @@
 				role="status"
 			>
 				<div class="flex min-w-0 items-start gap-3">
-					<div class="min-w-0 flex-1">
-						<p class="text-xs tracking-widest uppercase">{flag.title}</p>
-						{#if flag.detail}
-							<p class="obs-muted mt-1 text-xs break-all">{flag.detail}</p>
-						{/if}
-						{#if flag.meta}
-							<p class="obs-dim mt-1 text-xs">{flag.meta}</p>
-						{/if}
-					</div>
+					{#if flag.href}
+						<button
+							type="button"
+							class="min-w-0 flex-1 border-0 bg-transparent p-0 text-left font-mono text-inherit"
+							onclick={() => activate(flag)}
+						>
+							<p class="text-xs tracking-widest uppercase">{flag.title}</p>
+							{#if flag.detail}
+								<p class="obs-muted mt-1 text-xs break-all">{flag.detail}</p>
+							{/if}
+							{#if flag.meta}
+								<p class="obs-dim mt-1 text-xs">{flag.meta}</p>
+							{/if}
+						</button>
+					{:else}
+						<div class="min-w-0 flex-1">
+							<p class="text-xs tracking-widest uppercase">{flag.title}</p>
+							{#if flag.detail}
+								<p class="obs-muted mt-1 text-xs break-all">{flag.detail}</p>
+							{/if}
+							{#if flag.meta}
+								<p class="obs-dim mt-1 text-xs">{flag.meta}</p>
+							{/if}
+						</div>
+					{/if}
 					<button
 						type="button"
 						class="obs-text-button shrink-0 px-1.5 py-0.5 text-xs"

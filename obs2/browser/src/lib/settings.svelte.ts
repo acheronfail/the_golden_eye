@@ -1,6 +1,12 @@
 import { browser } from '$app/environment';
 import { z } from 'zod';
-import { getSettings, putSettings } from './api';
+import {
+	getSettingsStatus,
+	putSettings,
+	resetSettingsToDefaults,
+	revealSettingsConfig,
+	type SettingsStatus
+} from './api';
 
 export const DEFAULT_CLIP_FILENAME_TEMPLATE = '{level} - {time} - {difficulty} - {status}';
 export const DEFAULT_PRE_RUN_PADDING_SECS = 5;
@@ -95,6 +101,8 @@ export const settings = new (class {
 	loading = $state(false);
 	saving = $state(false);
 	saveError = $state<string | null>(null);
+	configPath = $state('');
+	fileError = $state<string | null>(null);
 	lastSavedState = $state(initialSavedState);
 
 	private loadPromise: Promise<void> | null = null;
@@ -163,6 +171,7 @@ export const settings = new (class {
 	);
 
 	dirty = $derived(this.savedState !== this.lastSavedState);
+	canEdit = $derived(this.loaded && this.fileError === null);
 
 	async load(): Promise<void> {
 		if (!browser) return;
@@ -172,9 +181,13 @@ export const settings = new (class {
 		this.saveError = null;
 		this.loadPromise = (async () => {
 			try {
-				const remote = parseSettings(await getSettings());
+				const status = await getSettingsStatus();
+				const remote = parseSettings(status.settings);
 
-				if (this.dirty) {
+				this.configPath = status.configPath;
+				this.fileError = status.fileError ?? null;
+
+				if (this.dirty && this.fileError === null) {
 					this.loaded = true;
 					await this.saveNow();
 				} else {
@@ -203,6 +216,7 @@ export const settings = new (class {
 	async saveNow(): Promise<void> {
 		if (!browser) return;
 		if (!this.loaded) await this.load();
+		if (this.fileError !== null) return;
 		if (!this.dirty) return;
 
 		if (this.savePromise) {
@@ -222,6 +236,7 @@ export const settings = new (class {
 			try {
 				const saved = parseSettings(await putSettings(snapshot));
 				const savedState = serializeSettings(saved);
+				this.fileError = null;
 
 				if (this.savedState === snapshotState) {
 					this.apply(saved);
@@ -245,6 +260,37 @@ export const settings = new (class {
 			this.saveQueued = false;
 			if (this.dirty) await this.saveNow();
 		}
+	}
+
+	applyReloaded(next: Settings, configPath: string): void {
+		this.configPath = configPath;
+		this.fileError = null;
+		this.apply(parseSettings(next));
+		this.lastSavedState = this.savedState;
+		this.loaded = true;
+		this.saveError = null;
+	}
+
+	applyInvalid(error: string, configPath: string): void {
+		this.configPath = configPath;
+		this.fileError = error;
+		this.loaded = true;
+	}
+
+	async resetToDefaults(): Promise<void> {
+		const reset = parseSettings(await resetSettingsToDefaults());
+		this.apply(reset);
+		this.lastSavedState = this.savedState;
+		this.fileError = null;
+		this.loaded = true;
+		this.saveError = null;
+	}
+
+	async revealConfigFile(): Promise<void> {
+		await revealSettingsConfig();
+		const status: SettingsStatus = await getSettingsStatus();
+		this.configPath = status.configPath;
+		this.fileError = status.fileError ?? null;
 	}
 
 	private snapshot(): Settings {

@@ -99,6 +99,18 @@ pub enum MonitorEvent {
     RecordingSaved(RecordingSaved),
     /// Monitoring stopped, either from a user request or an external OBS event.
     MonitorStopped { reason: MonitorStoppedReason },
+    /// The settings JSON file changed on disk and was reloaded successfully.
+    SettingsReloaded {
+        #[serde(rename = "configPath")]
+        config_path: String,
+        settings: crate::settings::AppSettings,
+    },
+    /// The settings JSON file changed on disk but could not be parsed or read.
+    SettingsInvalid {
+        #[serde(rename = "configPath")]
+        config_path: String,
+        error: String,
+    },
 }
 
 /// Why the backend stopped an active monitor. Serialized as a plain string
@@ -360,6 +372,9 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         .route("/api/v1/monitor/status", get(routes::monitor::handle_status))
         .route("/api/v1/monitor/ws", get(routes::monitor::handle_ws))
         .route("/api/v1/settings", get(routes::settings::handle_get).put(routes::settings::handle_put))
+        .route("/api/v1/settings/status", get(routes::settings::handle_status))
+        .route("/api/v1/settings/reset", post(routes::settings::handle_reset))
+        .route("/api/v1/settings/reveal", post(routes::settings::handle_reveal))
         .route("/api/v1/folders/pick", post(routes::folders::handle_pick))
         .route("/api/v1/folders/validate", post(routes::folders::handle_validate))
         .route(
