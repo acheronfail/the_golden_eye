@@ -188,6 +188,19 @@ export const getSettings = async (): Promise<Settings> => {
 	return res.json();
 };
 
+export interface SettingsStatus {
+	settings: Settings;
+	configPath: string;
+	fileError?: string | null;
+}
+
+/** Fetch settings plus the on-disk config status. Throws on a non-OK response. */
+export const getSettingsStatus = async (): Promise<SettingsStatus> => {
+	const res = await fetch(apiUrl('/api/v1/settings/status'));
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
 /** Persist the complete settings object through the Rust backend. */
 export const putSettings = async (settings: Settings): Promise<Settings> => {
 	const res = await fetch(apiUrl('/api/v1/settings'), {
@@ -197,6 +210,17 @@ export const putSettings = async (settings: Settings): Promise<Settings> => {
 	});
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 	return res.json();
+};
+
+export const resetSettingsToDefaults = async (): Promise<Settings> => {
+	const res = await fetch(apiUrl('/api/v1/settings/reset'), { method: 'POST' });
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
+export const revealSettingsConfig = async (): Promise<void> => {
+	const res = await fetch(apiUrl('/api/v1/settings/reveal'), { method: 'POST' });
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 };
 
 export interface FolderPickResult {
@@ -388,7 +412,9 @@ export type AppSocketEvent =
 	| { type: 'languageDetected'; lang: 'en' | 'jp' }
 	| ({ type: 'recordingSavePending' } & RecordingSavePending)
 	| ({ type: 'recordingSaved' } & RecordingSaved)
-	| { type: 'monitorStopped'; reason: MonitorStoppedReason };
+	| { type: 'monitorStopped'; reason: MonitorStoppedReason }
+	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
+	| { type: 'settingsInvalid'; configPath: string; error: string };
 
 /** Handlers for the messages the app WebSocket can push. All are optional;
  * provide only the ones you care about. */
@@ -408,6 +434,10 @@ export interface AppSocketHandlers {
 	onRecordingSaved?: (saved: RecordingSaved) => void;
 	/** Monitoring stopped in the backend. */
 	onMonitorStopped?: (reason: MonitorStoppedReason) => void;
+	/** Settings JSON was reloaded from disk. */
+	onSettingsReloaded?: (settings: Settings, configPath: string) => void;
+	/** Settings JSON changed but is invalid. */
+	onSettingsInvalid?: (error: string, configPath: string) => void;
 	/** Fires when the socket closes. */
 	onClose?: () => void;
 }
@@ -475,6 +505,12 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 				break;
 			case 'monitorStopped':
 				handlers.onMonitorStopped?.(msg.reason);
+				break;
+			case 'settingsReloaded':
+				handlers.onSettingsReloaded?.(msg.settings, msg.configPath);
+				break;
+			case 'settingsInvalid':
+				handlers.onSettingsInvalid?.(msg.error, msg.configPath);
 				break;
 		}
 	};

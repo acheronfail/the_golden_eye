@@ -26,7 +26,7 @@ use tracing_subscriber::fmt::FmtContext;
 use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
 use tracing_subscriber::registry::LookupSpan;
 
-use crate::settings::SettingsStore;
+use crate::settings::{SettingsReload, SettingsStore};
 
 pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
 
@@ -191,11 +191,34 @@ pub extern "C" fn ge_rust_start() {
             tracing::error!("http server exited with error: {error}");
         }
     });
+    runtime.spawn(watch_settings_file(state.clone()));
 
     tracing::info!("server started");
 
     let runtime_handle = runtime.handle().clone();
     *guard = Some(ServerHandle { runtime, runtime_handle, shutdown: shutdown_tx, state });
+}
+
+async fn watch_settings_file(state: AppState) {
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        interval.tick().await;
+        match state.settings.reload_from_disk_if_changed() {
+            SettingsReload::Unchanged => {}
+            SettingsReload::Reloaded(settings) => {
+                let _ = state.event_tx.send(MonitorEvent::SettingsReloaded {
+                    config_path: state.settings.path().to_string_lossy().into_owned(),
+                    settings,
+                });
+            }
+            SettingsReload::Invalid(error) => {
+                let _ = state.event_tx.send(MonitorEvent::SettingsInvalid {
+                    config_path: state.settings.path().to_string_lossy().into_owned(),
+                    error,
+                });
+            }
+        }
+    }
 }
 
 /// Stop the HTTP server and tear down its runtime. Calling this while the

@@ -8,12 +8,20 @@ import {
 	applyRecordingSavePending,
 	applyRecordingState
 } from './monitor.svelte';
+import {
+	addNotificationFlag,
+	dismissNotificationFlag,
+	dismissNotificationFlagsByKey,
+	replaceNotificationFlag
+} from './notifications.svelte';
 import { refreshReplayBuffer } from './replayBuffer.svelte';
+import { settings } from './settings.svelte';
 import { setObsSources } from './sources.svelte';
 
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let stopped = true;
+let settingsErrorNotificationId: number | null = null;
 
 const clearReconnectTimer = (): void => {
 	if (reconnectTimer !== null) {
@@ -43,6 +51,35 @@ const connect = (): void => {
 		onMonitorStopped: (reason) => {
 			applyMonitorStopped(reason);
 			void refreshReplayBuffer();
+		},
+		onSettingsReloaded: (nextSettings, configPath) => {
+			settings.applyReloaded(nextSettings, configPath);
+			dismissNotificationFlagsByKey('settings-config-error');
+			if (settingsErrorNotificationId !== null) {
+				dismissNotificationFlag(settingsErrorNotificationId);
+				settingsErrorNotificationId = null;
+			}
+			addNotificationFlag({
+				title: 'Config reloaded',
+				detail: configPath,
+				tone: 'success'
+			});
+		},
+		onSettingsInvalid: (error, configPath) => {
+			settings.applyInvalid(error, configPath);
+			const notification = {
+				key: 'settings-config-error',
+				title: 'Config file invalid',
+				detail: error,
+				meta: 'Click to open options.',
+				tone: 'error' as const,
+				sticky: true,
+				href: '/options'
+			};
+			if (settingsErrorNotificationId !== null && replaceNotificationFlag(settingsErrorNotificationId, notification)) {
+				return;
+			}
+			settingsErrorNotificationId = addNotificationFlag(notification).id;
 		},
 		onClose: () => {
 			if (socket === nextSocket) socket = null;

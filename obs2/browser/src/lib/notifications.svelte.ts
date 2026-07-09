@@ -2,11 +2,13 @@ export type NotificationTone = 'success' | 'info' | 'warning' | 'error';
 
 export interface NotificationFlag {
 	id: number;
+	key?: string;
 	title: string;
 	detail?: string;
 	meta?: string;
 	tone: NotificationTone;
 	timeoutMs?: number;
+	href?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -38,30 +40,36 @@ export const dismissNotificationFlag = (id: number): void => {
 };
 
 interface NotificationFlagOptions {
+	key?: string;
 	title: string;
 	detail?: string;
 	meta?: string;
 	tone?: NotificationTone;
 	timeoutMs?: number;
 	sticky?: boolean;
+	href?: string;
 }
 
 export const addNotificationFlag = (options: {
+	key?: string;
 	title: string;
 	detail?: string;
 	meta?: string;
 	tone?: NotificationTone;
 	timeoutMs?: number;
 	sticky?: boolean;
+	href?: string;
 }): NotificationFlag => {
 	const timeoutMs = options.sticky ? undefined : (options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 	const flag: NotificationFlag = {
 		id: nextId++,
+		key: options.key,
 		title: options.title,
 		detail: options.detail,
 		meta: options.meta,
 		tone: options.tone ?? 'info',
-		timeoutMs
+		timeoutMs,
+		href: options.href
 	};
 
 	notifications.flags = [...notifications.flags, flag];
@@ -84,15 +92,23 @@ export const replaceNotificationFlag = (id: number, options: NotificationFlagOpt
 	const timeoutMs = options.sticky ? undefined : (options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 	const flag: NotificationFlag = {
 		id,
+		key: options.key,
 		title: options.title,
 		detail: options.detail,
 		meta: options.meta,
 		tone: options.tone ?? 'info',
-		timeoutMs
+		timeoutMs,
+		href: options.href
 	};
 
 	notifications.flags = notifications.flags.map((item) => (item.id === id ? flag : item));
 	scheduleNotificationTimeout(flag);
 
 	return flag;
+};
+
+export const dismissNotificationFlagsByKey = (key: string): void => {
+	for (const flag of notifications.flags) {
+		if (flag.key === key) dismissNotificationFlag(flag.id);
+	}
 };

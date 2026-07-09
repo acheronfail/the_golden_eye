@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { pickFolder, validateFolder, type FolderValidation } from '$lib/api';
+	import { dismissNotificationFlagsByKey } from '$lib/notifications.svelte';
 	import { replayBuffer } from '$lib/replayBuffer.svelte';
 	import {
 		DEFAULT_CLIP_FILENAME_TEMPLATE,
@@ -23,10 +24,13 @@
 	];
 
 	const tabFromUrl = (value: string | null): OptionsTab =>
-		value === 'general' || value === 'notifications' ? value : 'recording';
+		value === 'recording' || value === 'notifications' ? value : 'general';
 
 	let activeTab = $derived(tabFromUrl(page.url.searchParams.get('tab')));
 	let pickingPath: PathKind | null = $state(null);
+	let revealingConfigFile = $state(false);
+	let resettingConfigFile = $state(false);
+	let configActionError = $state<string | null>(null);
 	let completedPathValidating = $state(false);
 	let failedPathValidating = $state(false);
 	let completedValidation: FolderValidation | null = $state(null);
@@ -37,7 +41,7 @@
 
 	const selectTab = (tab: OptionsTab) => {
 		const url = new URL(page.url);
-		if (tab === 'recording') {
+		if (tab === 'general') {
 			url.searchParams.delete('tab');
 		} else {
 			url.searchParams.set('tab', tab);
@@ -53,16 +57,18 @@
 		selectTab((event.currentTarget as HTMLSelectElement).value as OptionsTab);
 	};
 
-	const panelClass = 'obs-panel rounded px-4 py-4';
+	const panelClass = 'obs-panel grid gap-3 rounded px-4 py-4';
+	const dangerPanelClass =
+		'grid gap-3 rounded border border-[var(--obs-danger)] bg-[color-mix(in_srgb,var(--obs-danger)_14%,transparent)] px-4 py-4';
 	const labelClass = 'text-sm font-semibold';
-	const hintClass = 'obs-dim mt-1 font-mono text-xs';
-	const inputClass = 'obs-input mt-2 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-50';
+	const hintClass = 'obs-dim font-mono text-xs';
+	const inputClass = 'obs-input font-mono text-sm disabled:cursor-not-allowed disabled:opacity-50';
 	const textareaClass = `${inputClass} min-h-24 resize-y`;
 	const pathButtonClass =
 		'obs-button px-3 py-1.5 text-xs whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50';
-	const pathStatusClass = 'mt-2 text-xs text-[var(--obs-success)]';
-	const pathPendingClass = 'obs-dim mt-2 break-all font-mono text-xs';
-	const pathErrorClass = 'mt-2 break-words text-xs text-[var(--obs-danger)]';
+	const pathStatusClass = 'text-xs text-[var(--obs-success)]';
+	const pathPendingClass = 'obs-dim break-all font-mono text-xs';
+	const pathErrorClass = 'break-words text-xs text-[var(--obs-danger)]';
 	const templateTokenClass = 'obs-token cursor-help break-all rounded px-1.5 py-1 font-mono text-xs';
 	const clipTemplateTokens = [
 		{
@@ -281,17 +287,67 @@
 		setOutputPath(kind, '');
 		clearPathValidation(kind);
 	};
+
+	const showConfigFile = async () => {
+		revealingConfigFile = true;
+		configActionError = null;
+		try {
+			await settings.revealConfigFile();
+		} catch (err) {
+			configActionError = errorMessage(err);
+		} finally {
+			revealingConfigFile = false;
+		}
+	};
+
+	const resetConfigFile = async () => {
+		resettingConfigFile = true;
+		configActionError = null;
+		try {
+			await settings.resetToDefaults();
+			dismissNotificationFlagsByKey('settings-config-error');
+		} catch (err) {
+			configActionError = errorMessage(err);
+		} finally {
+			resettingConfigFile = false;
+		}
+	};
 </script>
 
 <svelte:head>
 	<title>Options</title>
 </svelte:head>
 
-<main class="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
-	<h1 class="obs-heading text-2xl font-semibold">Options</h1>
-	<p class="obs-subtitle mt-2 mb-8 text-sm">Settings are saved automatically.</p>
+<main class="mx-auto grid w-full max-w-2xl gap-5 px-4 py-8 sm:px-6 sm:py-12">
+	<div class="grid gap-2">
+		<h1 class="obs-heading text-2xl font-semibold">Options</h1>
+		<p class="obs-subtitle text-sm">Settings are saved automatically.</p>
+	</div>
 
-	<div class="mb-5 flex items-center gap-3">
+	{#if settings.fileError}
+		<section class={dangerPanelClass}>
+			<div class="flex flex-wrap items-start justify-between gap-3">
+				<div class="grid min-w-0 flex-1 gap-3">
+					<h2 class="text-sm font-semibold text-(--obs-danger)">Config file error</h2>
+					{#if settings.configPath}
+						<p class="obs-dim font-mono text-xs break-all">{settings.configPath}</p>
+					{/if}
+					<pre
+						class="text(--obs-danger) max-h-52 overflow-auto font-mono text-xs wrap-break-word whitespace-pre-wrap">{settings.fileError}</pre>
+				</div>
+				<button type="button" class={pathButtonClass} disabled={resettingConfigFile} onclick={resetConfigFile}>
+					{resettingConfigFile ? 'Resetting...' : 'Reset to defaults'}
+				</button>
+			</div>
+			<p class={hintClass}>Options are disabled until the JSON file is fixed or reset.</p>
+		</section>
+	{/if}
+
+	{#if configActionError}
+		<p class="text-xs text-(--obs-danger)">{configActionError}</p>
+	{/if}
+
+	<div class="flex items-center gap-3">
 		<label for="options-section" class="obs-dim shrink-0 font-mono text-xs tracking-wide uppercase">Section</label>
 		<select
 			id="options-section"
@@ -305,7 +361,7 @@
 		</select>
 	</div>
 
-	<fieldset disabled={!settings.loaded} class="m-0 flex flex-col gap-4 border-0 p-0">
+	<fieldset disabled={!settings.canEdit} class="flex flex-col gap-4 border-0 p-0">
 		{#if activeTab === 'general'}
 			<section class={panelClass}>
 				<label class="flex items-center gap-3">
@@ -338,7 +394,7 @@
 					</p>
 				{/if}
 				<p class={hintClass}>Available tokens</p>
-				<div class="mt-2 flex flex-wrap gap-2">
+				<div class="flex flex-wrap gap-2">
 					{#each clipTemplateTokens as token}
 						<code
 							class={templateTokenClass}
@@ -401,8 +457,8 @@
 				</label>
 
 				{#if settings.saveFailedRuns}
-					<div class="mt-5 grid gap-5">
-						<div>
+					<div class="grid gap-5">
+						<div class="grid gap-3">
 							<div class="flex flex-wrap items-center justify-between gap-3">
 								<label class={labelClass} for="failed-output-path">Failed run clips</label>
 								<div class="flex flex-wrap justify-end gap-2">
@@ -442,7 +498,7 @@
 						</div>
 
 						<div class="grid gap-5 sm:grid-cols-2">
-							<div>
+							<div class="grid gap-2">
 								<label class={labelClass} for="failed-run-limit">How many failed runs to keep</label>
 								<input
 									id="failed-run-limit"
@@ -458,7 +514,7 @@
 								</p>
 							</div>
 
-							<div>
+							<div class="grid gap-2">
 								<label class={labelClass} for="minimum-failed-run-length">Minimum failed run length (seconds)</label>
 								<input
 									id="minimum-failed-run-length"
@@ -481,8 +537,8 @@
 
 			<section class={panelClass}>
 				<h2 class={labelClass}>Trim timing</h2>
-				<div class="mt-4 grid gap-5 sm:grid-cols-2">
-					<div>
+				<div class="grid gap-5 sm:grid-cols-2">
+					<div class="grid gap-2">
 						<label class={labelClass} for="pre-run-padding">Pre-run padding (seconds)</label>
 						<input
 							id="pre-run-padding"
@@ -496,7 +552,7 @@
 						<p class={hintClass}>How much footage to keep before the start screen is detected.</p>
 					</div>
 
-					<div>
+					<div class="grid gap-2">
 						<label class={labelClass} for="post-run-padding">Post-run padding (seconds)</label>
 						<input
 							id="post-run-padding"
@@ -548,7 +604,7 @@
 						class={textareaClass}
 					></textarea>
 					<p class={hintClass}>Available tokens</p>
-					<div class="mt-2 flex flex-wrap gap-2">
+					<div class="flex flex-wrap gap-2">
 						{#each notificationTemplateTokens as token}
 							<code
 								class={templateTokenClass}
@@ -571,7 +627,7 @@
 						class={textareaClass}
 					></textarea>
 					<p class={hintClass}>Available tokens</p>
-					<div class="mt-2 flex flex-wrap gap-2">
+					<div class="flex flex-wrap gap-2">
 						{#each notificationTemplateTokens as token}
 							<code
 								class={templateTokenClass}
@@ -586,4 +642,22 @@
 			{/if}
 		{/if}
 	</fieldset>
+
+	{#if activeTab === 'general'}
+		<section class={panelClass}>
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<div class="grid min-w-0 gap-1">
+					<h2 class={labelClass}>Configuration file</h2>
+					{#if settings.configPath}
+						<p class="obs-dim font-mono text-xs break-all">{settings.configPath}</p>
+					{:else}
+						<p class={hintClass}>Open the settings JSON file in the system file explorer.</p>
+					{/if}
+				</div>
+				<button type="button" class={pathButtonClass} disabled={revealingConfigFile} onclick={showConfigFile}>
+					{revealingConfigFile ? 'Opening...' : 'show config file'}
+				</button>
+			</div>
+		</section>
+	{/if}
 </main>

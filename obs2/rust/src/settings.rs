@@ -4,6 +4,8 @@
 //! JSON file is intentionally owned by Rust so OBS-triggered workflows can
 //! read the same configuration even when no browser tab is open.
 
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -163,7 +165,29 @@ pub struct NotificationOptions {
 /// only for short clones/replacements; disk IO happens outside the lock.
 pub struct SettingsStore {
     path: PathBuf,
-    settings: Mutex<AppSettings>,
+    state: Mutex<SettingsState>,
+}
+
+#[derive(Debug, Clone)]
+struct SettingsState {
+    settings: AppSettings,
+    file_error: Option<String>,
+    file_bytes: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsStatus {
+    pub settings: AppSettings,
+    pub config_path: String,
+    pub file_error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum SettingsReload {
+    Unchanged,
+    Reloaded(AppSettings),
+    Invalid(String),
 }
 
 impl SettingsStore {
@@ -172,27 +196,97 @@ impl SettingsStore {
     }
 
     pub fn load_from_path(path: PathBuf) -> Self {
-        let settings = if path.exists() {
-            match read_settings(&path) {
-                Ok(settings) => {
-                    tracing::info!(path = %path.display(), "loaded settings");
-                    settings
-                }
-                Err(err) => {
-                    tracing::warn!(path = %path.display(), "using default settings: {err:#}");
-                    AppSettings::default()
-                }
+        let (settings, file_error, file_bytes) = match read_settings_file(&path) {
+            Ok(Some((settings, bytes))) => {
+                tracing::info!(path = %path.display(), "loaded settings");
+                (settings, None, Some(bytes))
             }
-        } else {
-            tracing::info!(path = %path.display(), "settings file not found; using defaults");
-            AppSettings::default()
+            Ok(None) => {
+                tracing::info!(path = %path.display(), "settings file not found; using defaults");
+                (AppSettings::default(), None, None)
+            }
+            Err(err) => {
+                tracing::warn!(path = %path.display(), "using default settings: {err:#}");
+                (AppSettings::default(), Some(format!("{err:#}")), read_settings_bytes(&path).ok().flatten())
+            }
         };
 
-        SettingsStore { path, settings: Mutex::new(settings) }
+        SettingsStore { path, state: Mutex::new(SettingsState { settings, file_error, file_bytes }) }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn status(&self) -> SettingsStatus {
+        let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        SettingsStatus {
+            settings: apply_runtime_output_path_defaults(state.settings.clone()),
+            config_path: self.path.to_string_lossy().into_owned(),
+            file_error: state.file_error.clone(),
+        }
+    }
+
+    pub fn reload_from_disk_if_changed(&self) -> SettingsReload {
+        let disk_bytes = match read_settings_bytes(&self.path) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                let message = format!("{err:#}");
+                let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+                if state.file_error.as_deref() == Some(&message) {
+                    return SettingsReload::Unchanged;
+                }
+                state.file_error = Some(message.clone());
+                return SettingsReload::Invalid(message);
+            }
+        };
+
+        {
+            let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            if state.file_bytes == disk_bytes {
+                return SettingsReload::Unchanged;
+            }
+        }
+
+        match parse_settings_bytes(&self.path, disk_bytes.as_deref()) {
+            Ok(settings) => {
+                let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+                state.settings = settings.clone();
+                state.file_error = None;
+                state.file_bytes = disk_bytes;
+                tracing::info!(path = %self.path.display(), "reloaded settings");
+                SettingsReload::Reloaded(apply_runtime_output_path_defaults(settings))
+            }
+            Err(err) => {
+                let message = format!("{err:#}");
+                let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+                state.file_error = Some(message.clone());
+                state.file_bytes = disk_bytes;
+                tracing::warn!(path = %self.path.display(), "settings file is invalid: {err:#}");
+                SettingsReload::Invalid(message)
+            }
+        }
+    }
+
+    pub fn ensure_file_exists(&self) -> anyhow::Result<()> {
+        if self.path.exists() {
+            return Ok(());
+        }
+
+        let settings = self.get();
+        let bytes = write_settings(&self.path, &settings)?;
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.file_bytes = Some(bytes);
+        state.file_error = None;
+        Ok(())
+    }
+
+    pub fn reset_to_defaults(&self) -> anyhow::Result<AppSettings> {
+        self.replace(apply_runtime_output_path_defaults(AppSettings::default()))
     }
 
     pub fn get(&self) -> AppSettings {
-        self.settings.lock().unwrap_or_else(|p| p.into_inner()).clone()
+        self.state.lock().unwrap_or_else(|p| p.into_inner()).settings.clone()
     }
 
     pub fn get_effective(&self) -> AppSettings {
@@ -208,18 +302,53 @@ impl SettingsStore {
     }
 
     pub fn set_from_json_value_with_runtime_defaults(&self, value: Value) -> anyhow::Result<AppSettings> {
+        if let Some(error) = self.state.lock().unwrap_or_else(|p| p.into_inner()).file_error.clone() {
+            anyhow::bail!("settings file is invalid; fix it or reset to defaults before saving: {error}");
+        }
+
         let settings = apply_runtime_output_path_defaults(AppSettings::from_json_value(value));
         self.replace(settings)
     }
 
     fn replace(&self, settings: AppSettings) -> anyhow::Result<AppSettings> {
-        write_settings(&self.path, &settings)?;
+        let bytes = write_settings(&self.path, &settings)?;
 
-        let mut guard = self.settings.lock().unwrap_or_else(|p| p.into_inner());
-        *guard = settings.clone();
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.settings = settings.clone();
+        state.file_error = None;
+        state.file_bytes = Some(bytes);
         tracing::info!(path = %self.path.display(), "saved settings");
 
         Ok(settings)
+    }
+}
+
+fn read_settings_file(path: &Path) -> anyhow::Result<Option<(AppSettings, Vec<u8>)>> {
+    match read_settings_bytes(path)? {
+        Some(bytes) => {
+            let settings = parse_settings_bytes(path, Some(&bytes))?;
+            Ok(Some((settings, bytes)))
+        }
+        None => Ok(None),
+    }
+}
+
+fn read_settings_bytes(path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err).with_context(|| format!("reading settings file {}", path.display())),
+    }
+}
+
+fn parse_settings_bytes(path: &Path, bytes: Option<&[u8]>) -> anyhow::Result<AppSettings> {
+    match bytes {
+        Some(bytes) => {
+            let value: Value =
+                serde_json::from_slice(bytes).with_context(|| format!("parsing settings file {}", path.display()))?;
+            Ok(AppSettings::from_json_value(value))
+        }
+        None => Ok(AppSettings::default()),
     }
 }
 
@@ -241,20 +370,14 @@ pub fn default_failed_output_path(completed_output_path: &str) -> Option<String>
     }
 }
 
-fn read_settings(path: &Path) -> anyhow::Result<AppSettings> {
-    let bytes = std::fs::read(path).with_context(|| format!("reading settings file {}", path.display()))?;
-    let value: Value =
-        serde_json::from_slice(&bytes).with_context(|| format!("parsing settings file {}", path.display()))?;
-    Ok(AppSettings::from_json_value(value))
-}
-
-fn write_settings(path: &Path, settings: &AppSettings) -> anyhow::Result<()> {
+fn write_settings(path: &Path, settings: &AppSettings) -> anyhow::Result<Vec<u8>> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("creating settings directory {}", parent.display()))?;
     }
 
     let bytes = serde_json::to_vec_pretty(settings).context("serializing settings")?;
-    std::fs::write(path, bytes).with_context(|| format!("writing settings file {}", path.display()))
+    std::fs::write(path, &bytes).with_context(|| format!("writing settings file {}", path.display()))?;
+    Ok(bytes)
 }
 
 fn string_field(value: Option<&Value>, fallback: &str) -> String {
