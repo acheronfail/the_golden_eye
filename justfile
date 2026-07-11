@@ -90,7 +90,7 @@ test-rust *args:
 
     # Keep cargo test artifacts separate from the plugin build artifacts.
     export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
-    cd "{{ justfile_directory() }}/obs2/rust" && cargo test --release {{ args }}
+    cd "{{ justfile_directory() }}/obs2/rust" && node ../scripts/github-rust-test-summary.mjs "Rust Test Report" cargo test --release {{ args }}
 
 # runs the backend against the controllable Rust OBS host (no OBS process)
 test-integration *args:
@@ -103,7 +103,7 @@ test-integration *args:
     source "$build_dir/rust-cargo-env.sh"
     export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/integration"
     cd "{{ justfile_directory() }}/obs2/rust"
-    cargo test --release --tests -- --ignored --test-threads=1 {{ args }}
+    node ../scripts/github-rust-test-summary.mjs "Rust Integration Test Report" cargo test --release --tests -- --ignored --test-threads=1 {{ args }}
 
 # runs browser unit/component tests
 test-browser *args:

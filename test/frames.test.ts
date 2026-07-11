@@ -150,6 +150,54 @@ function printConfigHints(testCount: number) {
   console.log(chalk.gray("Tune with GE_CV_TEST_JOBS=N and an optional regex filter argument."));
 }
 
+function escapeMarkdownTableCell(value: unknown): string {
+  return String(value).replace(/\|/g, "\\|").replace(/\n/g, "<br>");
+}
+
+async function appendGithubSummary() {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) {
+    return;
+  }
+
+  const rows = Object.entries(results).map(([runnerName, runnerResults]) => {
+    const failedChecks = runnerResults.totalChecks - runnerResults.passedChecks;
+    const status = failedChecks === 0 ? "Passed" : "Failed";
+    return `| ${escapeMarkdownTableCell(runnerName)} | ${status} | ${runnerResults.totalTests} | ${runnerResults.skippedTests} | ${runnerResults.passedChecks} | ${failedChecks} | ${runnerResults.totalChecks} |`;
+  });
+
+  const lines = [
+    "## Frame Regression Test Report",
+    "",
+    "| Runner | Status | Tests | Skipped | Passed checks | Failed checks | Total checks |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+    ...rows,
+  ];
+
+  if (failedChecks.length > 0) {
+    lines.push(
+      "",
+      "<details>",
+      "<summary>Failed checks</summary>",
+      "",
+      "| Runner | Test | Check | Expected | Got |",
+      "| --- | --- | --- | --- | --- |",
+    );
+    for (const failure of failedChecks.slice(0, 50)) {
+      lines.push(
+        `| ${escapeMarkdownTableCell(failure.runner)} | ${escapeMarkdownTableCell(failure.test)} | ${escapeMarkdownTableCell(failure.check)} | \`${escapeMarkdownTableCell(JSON.stringify(failure.expected))}\` | \`${escapeMarkdownTableCell(JSON.stringify(failure.value))}\` |`,
+      );
+    }
+    if (failedChecks.length > 50) {
+      lines.push(`| ...and ${failedChecks.length - 50} more |  |  |  |  |`);
+    }
+    lines.push("", "</details>");
+  }
+
+  lines.push("");
+  await fs.appendFile(summaryPath, `${lines.join("\n")}\n`, "utf-8");
+}
+
 async function evaluateScreenshotTest(runner: Runner, screenshot: ScreenshotInfo): Promise<EvaluatedTest> {
   const { stdout } = await execCommand(runner.command(screenshot.filePath, screenshot.lang));
   const result = JSON.parse(stdout);
@@ -299,6 +347,7 @@ for (const runner of runners) {
 
 await fs.writeFile("test_results.json", JSON.stringify({ results }, null, 2), "utf-8");
 console.log(chalk.blue(`Test results written to ${chalk.cyan.bold("test_results.json")}`));
+await appendGithubSummary();
 
 if (failedChecks.length > 0) {
   console.log();
