@@ -11,7 +11,7 @@
 // This is a Rust port of obs2/test_match.cpp + obs2/cv_wrapper.cpp, using the
 // `opencv` crate instead of binding to OpenCV directly.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
 use opencv::core::{self, Mat, Rect, Size, ToInputArray};
@@ -868,7 +868,7 @@ fn find_mission_from_colons(
     // colon afterwards. Each work item returns its own best candidate so the
     // final reduction reproduces the serial "highest-scoring digit wins".
     let work: Vec<(usize, usize)> = (0..colons.len()).flat_map(|c| (1..=9).map(move |v| (c, v))).collect();
-    let partials: Vec<Result<Option<FoundMission>>> = par_map(work.len(), |k| {
+    let search_digit = |k: usize| {
         let (ci, v) = work[k];
         let colon = colons[ci];
         let x0 = (colon.x - band_pad_x).max(0);
@@ -908,7 +908,16 @@ fn find_mission_from_colons(
             }
         }
         Ok(best)
-    });
+    };
+    // Once the mission location is cached this region is only a few glyphs
+    // wide. Spawning one OS thread per digit costs more than the tiny template
+    // searches themselves, so keep that warm path serial; retain parallelism
+    // for the much larger cold header scan.
+    let partials: Vec<Result<Option<FoundMission>>> = if label_region.total() < 10_000 {
+        (0..work.len()).map(search_digit).collect()
+    } else {
+        par_map(work.len(), search_digit)
+    };
 
     let mut best = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1, colon: None, digit: None };
     for p in partials {
@@ -922,11 +931,7 @@ fn find_mission_from_colons(
     Ok(best)
 }
 
-fn find_times_band(
-    frame: &(impl MatTraitConst + ToInputArray),
-    colon_tmpl: &Mat,
-    digit_tmpls: &[Mat],
-) -> Result<Vec<FoundTime>> {
+fn find_times_band(frame: &Mat, colon_tmpl: &Mat, digit_tmpls: &[Mat]) -> Result<Vec<FoundTime>> {
     if colon_tmpl.empty() || digit_tmpls.len() < 10 {
         return Ok(Vec::new());
     }
@@ -968,25 +973,36 @@ fn find_times_band(
 
     let band_pad_x = digit_w * 3;
     let band_pad_y = digit_h;
-    let mut digits = Vec::new();
-    for colon in &colons {
+    // Each colon anchors an independent, tiny digit search. Stats screens can
+    // produce many plausible colon peaks from label punctuation and textured
+    // backgrounds (the blurriest fixtures yield ~20), so doing all ten digit
+    // templates around every anchor serially dominated the entire matcher.
+    // Spread anchors across the spare cores and combine their detections before
+    // the unchanged global suppression/geometry checks below.
+    let digit_buckets: Vec<Result<Vec<Detection>>> = par_map(colons.len(), |i| {
+        let colon = colons[i];
         let x0 = (colon.x - band_pad_x).max(0);
         let y0 = (colon.y - band_pad_y).max(0);
         let x1 = (colon.x + colon_w + band_pad_x).min(frame.cols());
         let y1 = (colon.y + colon_h + band_pad_y).min(frame.rows());
         if x1 <= x0 || y1 <= y0 {
-            continue;
+            return Ok(Vec::new());
         }
         let roi = frame.roi(Rect::new(x0, y0, x1 - x0, y1 - y0))?;
+        let mut digits = Vec::new();
         for (v, tmpl) in digit_tmpls.iter().enumerate().take(10) {
-            let mut bucket = Vec::new();
-            collect_detections(&roi, tmpl, GLYPH_THRESHOLD, v as i32, &mut bucket)?;
-            for mut d in bucket {
+            let start = digits.len();
+            collect_detections(&roi, tmpl, GLYPH_THRESHOLD, v as i32, &mut digits)?;
+            for d in &mut digits[start..] {
                 d.x += x0;
                 d.y += y0;
-                digits.push(d);
             }
         }
+        Ok(digits)
+    });
+    let mut digits = Vec::new();
+    for bucket in digit_buckets {
+        digits.extend(bucket?);
     }
     // Suppress with a wider neighbourhood (0.7 of a digit cell) than the colon
     // pass uses: two adjacent glyphs blur together into a phantom "8" centred in
@@ -1119,6 +1135,16 @@ struct ScaleCache {
     // the digit in a tight box around it instead of scanning the header band.
     mission_cx: i32,
     mission_cy: i32,
+}
+
+// Colon and digit templates resized for one exact scale. These glyphs are used
+// by the mission reader and (on stats screens) the time reader on every frame;
+// resizing and Gaussian-blurring all eleven twice per frame is pure repeated
+// work. Arc lets the hot path borrow a cached set without holding the cache lock
+// while OpenCV matches it.
+struct ScaledGlyphs {
+    colon: Mat,
+    digits: Vec<Mat>,
 }
 
 // The aspect correction learned for a source resolution: the horizontal window
@@ -1275,6 +1301,9 @@ pub struct CvMatcher {
     // Aspect correction learned from the first frame that shows a manilla
     // folder; reused for every later frame at the same source resolution.
     aspect_cache: Mutex<Option<AspectCalibration>>,
+    // Lazily populated because cold scale recovery may try several scales, but
+    // a live source normally settles on one work scale and one native scale.
+    glyph_cache: Mutex<Vec<(u64, Arc<ScaledGlyphs>)>>,
 }
 
 impl CvMatcher {
@@ -1344,6 +1373,7 @@ impl CvMatcher {
             levels,
             scale_cache: Mutex::new(None),
             aspect_cache: Mutex::new(None),
+            glyph_cache: Mutex::new(Vec::new()),
         })
     }
 
@@ -1358,6 +1388,23 @@ impl CvMatcher {
 
     pub fn diagnostics_enabled(&self) -> bool {
         self.diagnostics
+    }
+
+    fn scaled_glyphs(&self, scale: f64) -> Result<Arc<ScaledGlyphs>> {
+        let key = scale.to_bits();
+        let mut cache = self.glyph_cache.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((_, glyphs)) = cache.iter().find(|(cached_key, _)| *cached_key == key) {
+            return Ok(Arc::clone(glyphs));
+        }
+
+        let colon = scaled(&self.colon, scale)?;
+        let mut digits = Vec::with_capacity(10);
+        for digit in &self.digits {
+            digits.push(scaled(digit, scale)?);
+        }
+        let glyphs = Arc::new(ScaledGlyphs { colon, digits });
+        cache.push((key, Arc::clone(&glyphs)));
+        Ok(glyphs)
     }
 
     fn push_work_region(
@@ -1469,12 +1516,8 @@ impl CvMatcher {
         // inside `find_mission_from_colons`, which fans the per-digit searches of
         // the one scale that runs across the cores.
         for &scale in scales {
-            let colon_tmpl = scaled(&self.colon, scale)?;
-            let mut digit_tmpls = Vec::with_capacity(10);
-            for v in 0..=9 {
-                digit_tmpls.push(scaled(&self.digits[v], scale)?);
-            }
-            let f = find_mission_from_colons(&region, &colon_tmpl, &digit_tmpls)?;
+            let glyphs = self.scaled_glyphs(scale)?;
+            let f = find_mission_from_colons(&region, &glyphs.colon, &glyphs.digits)?;
             dbg_cv!(
                 "[mission] scale={scale:.3} m={} score={:.3} cx={} cy={}",
                 f.mission,
@@ -1831,10 +1874,14 @@ impl CvMatcher {
         let mission_rect = match hint {
             Some(c) if c.mission_cx >= 0 => {
                 let ch = (self.colon.rows() as f64 * c.mission_scale).round().max(1.0) as i32;
-                let x0 = (c.mission_cx - ch * 6).max(0);
-                let y0 = (c.mission_cy - ch * 2).max(0);
-                let x1 = (c.mission_cx + ch * 2).min(gray.cols());
-                let y1 = (c.mission_cy + ch * 2).min(gray.rows());
+                // The cached point is the colon centre. One colon-height on
+                // either side vertically absorbs capture jitter without also
+                // admitting the difficulty/part rows; two heights to the left
+                // cover the single mission digit with ample spacing.
+                let x0 = (c.mission_cx - ch * 2).max(0);
+                let y0 = (c.mission_cy - ch).max(0);
+                let x1 = (c.mission_cx + ch).min(gray.cols());
+                let y1 = (c.mission_cy + ch).min(gray.rows());
                 Rect::new(x0, y0, (x1 - x0).max(1), (y1 - y0).max(1))
             }
             _ => header_box(),
@@ -1949,14 +1996,10 @@ impl CvMatcher {
         timer.lap("difficulty label");
 
         // Locate the digit and colon glyphs at the same scale.
-        let colon_tmpl = scaled(&self.colon, global_scale)?;
-        let mut digit_tmpls = Vec::with_capacity(10);
-        let mut digit_width_sum = 0;
-        for v in 0..=9 {
-            let t = scaled(&self.digits[v], global_scale)?;
-            digit_width_sum += t.cols();
-            digit_tmpls.push(t);
-        }
+        let glyphs = self.scaled_glyphs(global_scale)?;
+        let colon_tmpl = &glyphs.colon;
+        let digit_tmpls = &glyphs.digits;
+        let digit_width_sum: i32 = digit_tmpls.iter().map(|t| t.cols()).sum();
         timer.lap("load glyph templates");
 
         // Identify the overlay screen from its banner / status value. Only the
@@ -1976,7 +2019,7 @@ impl CvMatcher {
         let found_times: Vec<FoundTime> = if screen != Screen::Stats || colon_tmpl.empty() || digit_width_sum == 0 {
             Vec::new()
         } else {
-            find_times_band(&frame, &colon_tmpl, &digit_tmpls)?
+            find_times_band(&frame, colon_tmpl, digit_tmpls)?
         };
         for t in &found_times {
             self.push_work_region(&mut match_regions, &mapper, format!("time {}", format_seconds(t.seconds)), t.colon);
