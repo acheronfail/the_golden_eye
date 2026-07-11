@@ -1,67 +1,29 @@
-import * as fs from "node:fs/promises";
 import * as cp from "node:child_process";
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import chalk from "chalk";
-import stripAnsi from "strip-ansi";
-import { getScreenshots, type ScreenshotInfo } from "./screenshots.ts";
-import { getLevel } from "./levels.ts";
+import ora from "ora";
 import { abbrDifficulty, NumberDifficultyMap, type Difficulty } from "./difficulty.ts";
+import { getLevel } from "./levels.ts";
 import { runners, type Runner } from "./runners.ts";
+import { getScreenshots, type ScreenshotInfo } from "./screenshots.ts";
 
 const [filter] = process.argv.slice(2);
 const filterRe = filter?.trim() ? new RegExp(filter) : null;
-const defaultJobs = Math.max(1, (os.availableParallelism?.() ?? os.cpus().length) / 2);
-const testJobs = (() => {
-  const raw = process.env.GE_CV_TEST_JOBS?.trim();
-  if (!raw) {
-    return defaultJobs;
-  }
-
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) {
-    throw new Error(`GE_CV_TEST_JOBS must be a positive integer, got ${JSON.stringify(raw)}`);
-  }
-
-  return parsed;
-})();
-
-const execCommand = async (command: string) => {
-  try {
-    return await promisify(cp.exec)(command);
-  } catch (error) {
-    console.error(chalk.red(`[cmd]: ${error instanceof Error ? error.message : String(error)}`));
-    throw error;
-  }
-};
-
 const screenshots = await getScreenshots();
 const testRoot = path.dirname(fileURLToPath(import.meta.url));
+const testJobs = parsePositiveIntEnv(
+  "GE_CV_TEST_JOBS",
+  Math.max(1, Math.floor((os.availableParallelism?.() ?? os.cpus().length) / 2)),
+);
 
 interface CheckResult {
   value: any;
   expected: any;
   pass: boolean;
-}
-
-const formatCheckResult = (result: CheckResult | undefined): string => {
-  if (!result) {
-    return chalk.grey("-");
-  }
-  return result.pass ? chalk.green(result.value) : chalk.red(result.value);
-};
-
-interface TestResult {
-  lang?: CheckResult;
-  detectedLang?: CheckResult;
-  screen?: CheckResult;
-  level?: CheckResult;
-  difficulty?: CheckResult;
-  times?: CheckResult;
-  runTime: number;
-  runTimeUnderTarget?: boolean;
 }
 
 interface FailedCheck {
@@ -74,40 +36,8 @@ interface FailedCheck {
 
 interface EvaluatedTest {
   name: string;
-  testResult: TestResult;
-  totalChecks: number;
-  passedChecks: number;
-  failedCorrectnessChecks: [string, CheckResult][];
-  runtimeUnderTarget: number;
-  runtimeTargetTotal: number;
+  checks: Record<string, CheckResult | undefined>;
 }
-
-const RUNTIME_TARGET_MS = 16;
-
-const mapConcurrent = async <T, R>(
-  items: readonly T[],
-  limit: number,
-  mapper: (item: T, index: number) => Promise<R>,
-): Promise<R[]> => {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  const workerCount = Math.min(Math.max(1, limit), Math.max(1, items.length));
-
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (true) {
-        const index = nextIndex++;
-        if (index >= items.length) {
-          return;
-        }
-
-        results[index] = await mapper(items[index], index);
-      }
-    }),
-  );
-
-  return results;
-};
 
 const languageMismatchCases = [
   {
@@ -131,63 +61,112 @@ const languageMismatchCases = [
 ];
 
 type LanguageMismatchCase = (typeof languageMismatchCases)[number];
+type TestCase =
+  | { kind: "screenshot"; screenshot: ScreenshotInfo }
+  | { kind: "language-mismatch"; mismatch: LanguageMismatchCase };
 
-const getFailedCorrectnessChecks = (checks: [string, CheckResult | undefined][]): [string, CheckResult][] =>
-  checks.filter((entry): entry is [string, CheckResult] => {
-    const [, result] = entry;
-    return typeof result === "object" && result?.pass === false;
-  });
-
-const countPassedChecks = (checks: (CheckResult | undefined)[]): number => checks.filter((r) => r?.pass).length;
-
-const evaluateScreenshotTest = async (runner: Runner, screenshot: ScreenshotInfo): Promise<EvaluatedTest> => {
-  const { stdout } = await execCommand(runner.command(screenshot.filePath, screenshot.lang));
-
-  const result = JSON.parse(stdout);
-  const testResult: TestResult = { runTime: result.runtime_ms };
-  let totalChecks = 0;
-  let runtimeUnderTarget = 0;
-  let runtimeTargetTotal = 0;
-
-  testResult.lang = { value: result.lang, pass: result.lang === screenshot.lang, expected: screenshot.lang };
-  totalChecks += 1;
-
-  if (screenshot.screen === "detail") {
-    testResult.screen = {
-      value: result.screen,
-      pass: result.screen !== "stats",
-      expected: "anything except 'detail'",
-    };
-    totalChecks += 1;
-  } else {
-    testResult.screen = {
-      value: result.screen,
-      pass: result.screen === screenshot.screen,
-      expected: screenshot.screen,
-    };
-    totalChecks += 1;
+function parsePositiveIntEnv(name: string, defaultValue: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return defaultValue;
   }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    throw new Error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
+  }
+  return parsed;
+}
+
+async function execCommand(command: string) {
+  try {
+    return await promisify(cp.exec)(command);
+  } catch (error) {
+    console.error(chalk.red(`[cmd]: ${error instanceof Error ? error.message : String(error)}`));
+    throw error;
+  }
+}
+
+async function mapConcurrent<T, R>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, limit), Math.max(1, items.length));
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= items.length) {
+          return;
+        }
+        results[index] = await mapper(items[index], index);
+      }
+    }),
+  );
+
+  return results;
+}
+
+const check = (value: any, expected: any, pass: boolean): CheckResult => ({ value, expected, pass });
+
+function passed(checks: Record<string, CheckResult | undefined>): number {
+  return Object.values(checks).filter((result) => result?.pass).length;
+}
+
+function failedEntries(checks: Record<string, CheckResult | undefined>): [string, CheckResult][] {
+  return Object.entries(checks).filter((entry): entry is [string, CheckResult] => entry[1]?.pass === false);
+}
+
+function tableValue(result: CheckResult | undefined): any {
+  return result ? result.value : "-";
+}
+
+function tableRows(evaluated: readonly EvaluatedTest[]): Record<string, Record<string, any>> {
+  return Object.fromEntries(
+    evaluated.map(({ name, checks }) => [
+      name,
+      {
+        Lang: tableValue(checks.lang),
+        Detected: tableValue(checks.detectedLang),
+        Screen: tableValue(checks.screen),
+        Level: tableValue(checks.level),
+        Difficulty: tableValue(checks.difficulty),
+        Times: tableValue(checks.times),
+      },
+    ]),
+  );
+}
+
+function progressText(completed: number, total: number, runner: Runner, jobs: number): string {
+  return `Running ${completed}/${total} tests for ${chalk.cyan.bold(runner.name)} with up to ${jobs} jobs`;
+}
+
+async function evaluateScreenshotTest(runner: Runner, screenshot: ScreenshotInfo): Promise<EvaluatedTest> {
+  const { stdout } = await execCommand(runner.command(screenshot.filePath, screenshot.lang));
+  const result = JSON.parse(stdout);
+  const checks: Record<string, CheckResult | undefined> = {};
+
+  checks.lang = check(result.lang, screenshot.lang, result.lang === screenshot.lang);
+  checks.screen =
+    screenshot.screen === "detail"
+      ? check(result.screen, "anything except 'detail'", result.screen !== "stats")
+      : check(result.screen, screenshot.screen, result.screen === screenshot.screen);
 
   if (["stats", "start", "complete", "failed", "abort", "kia"].includes(screenshot.screen)) {
     const resultLevel = getLevel(result.mission, result.part);
-    testResult.level = { value: resultLevel, pass: resultLevel === screenshot.level, expected: screenshot.level };
-    totalChecks += 1;
-
-    let resultDifficulty: Difficulty | undefined;
-    resultDifficulty = NumberDifficultyMap.get(result.difficulty);
-    testResult.difficulty = {
-      value: abbrDifficulty(resultDifficulty),
-      pass: resultDifficulty === screenshot.difficulty,
-      expected: abbrDifficulty(screenshot.difficulty),
-    };
-    totalChecks += 1;
+    const resultDifficulty: Difficulty | undefined = NumberDifficultyMap.get(result.difficulty);
+    checks.level = check(resultLevel, screenshot.level, resultLevel === screenshot.level);
+    checks.difficulty = check(
+      abbrDifficulty(resultDifficulty),
+      abbrDifficulty(screenshot.difficulty),
+      resultDifficulty === screenshot.difficulty,
+    );
   }
 
-  // `result.times` is the classified `{ time, target_time, best_time }` object,
-  // whereas `result.raw_times` is the unclassified top-to-bottom list the
-  // matcher read off the overlay. The tests validate digit reading, so they
-  // compare `raw_times` against the times the screenshot filename encodes --
-  // classification is verified separately by the Rust unit tests.
   if (screenshot.screen === "stats") {
     const [timesStr] = screenshot.extra;
     const times = timesStr.split("_").map((digits) => {
@@ -195,211 +174,47 @@ const evaluateScreenshotTest = async (runner: Runner, screenshot: ScreenshotInfo
       const ss = digits.slice(2, 4);
       return parseInt(mm, 10) * 60 + parseInt(ss, 10);
     });
-
-    testResult.times = {
-      value: result.raw_times,
-      pass: JSON.stringify(result.raw_times) === JSON.stringify(times),
-      expected: times,
-    };
-    totalChecks += 1;
+    checks.times = check(result.raw_times, times, JSON.stringify(result.raw_times) === JSON.stringify(times));
   } else {
-    testResult.times = {
-      value: result.raw_times,
-      pass: Array.isArray(result.raw_times) && result.raw_times.length === 0,
-      expected: [],
-    };
-    if (screenshot.tag !== "emu" && screenshot.tag !== "rt4kce") {
-      testResult.runTimeUnderTarget = result.runtime_ms < RUNTIME_TARGET_MS;
-      runtimeTargetTotal += 1;
-      if (testResult.runTimeUnderTarget) {
-        runtimeUnderTarget += 1;
-      }
-    }
-    totalChecks += 1;
+    checks.times = check(result.raw_times, [], Array.isArray(result.raw_times) && result.raw_times.length === 0);
   }
 
-  const correctnessChecks = [
-    testResult.lang,
-    testResult.detectedLang,
-    testResult.screen,
-    testResult.level,
-    testResult.difficulty,
-    testResult.times,
-  ];
+  return { name: `${screenshot.tag}: ${screenshot.name}`, checks };
+}
 
-  return {
-    name: screenshot.tag + ": " + screenshot.name,
-    testResult,
-    totalChecks,
-    passedChecks: countPassedChecks(correctnessChecks),
-    failedCorrectnessChecks: getFailedCorrectnessChecks([
-      ["lang", testResult.lang],
-      ["detectedLang", testResult.detectedLang],
-      ["screen", testResult.screen],
-      ["level", testResult.level],
-      ["difficulty", testResult.difficulty],
-      ["times", testResult.times],
-    ]),
-    runtimeUnderTarget,
-    runtimeTargetTotal,
-  };
-};
-
-const evaluateLanguageMismatchTest = async (runner: Runner, mismatch: LanguageMismatchCase): Promise<EvaluatedTest> => {
+async function evaluateLanguageMismatchTest(runner: Runner, mismatch: LanguageMismatchCase): Promise<EvaluatedTest> {
   const filePath = path.join(testRoot, mismatch.filePath);
   const { stdout } = await execCommand(runner.command(filePath, mismatch.configuredLang));
   const result = JSON.parse(stdout);
-  const testResult: TestResult = { runTime: result.runtime_ms };
-
-  testResult.lang = {
-    value: result.lang,
-    pass: result.lang === mismatch.configuredLang,
-    expected: mismatch.configuredLang,
-  };
-  testResult.detectedLang = {
-    value: result.detected_lang,
-    pass: result.detected_lang === mismatch.detectedLang,
-    expected: mismatch.detectedLang,
-  };
-  testResult.screen = {
-    value: result.screen,
-    pass: result.screen === "unknown",
-    expected: "unknown",
-  };
-  testResult.times = {
-    value: result.raw_times,
-    pass: Array.isArray(result.raw_times) && result.raw_times.length === 0 && result.times === null,
-    expected: [],
-  };
-
-  const correctnessChecks = [testResult.lang, testResult.detectedLang, testResult.screen, testResult.times];
 
   return {
     name: mismatch.name,
-    testResult,
-    totalChecks: 4,
-    passedChecks: countPassedChecks(correctnessChecks),
-    failedCorrectnessChecks: getFailedCorrectnessChecks([
-      ["lang", testResult.lang],
-      ["detectedLang", testResult.detectedLang],
-      ["screen", testResult.screen],
-      ["times", testResult.times],
-    ]),
-    runtimeUnderTarget: 0,
-    runtimeTargetTotal: 0,
+    checks: {
+      lang: check(result.lang, mismatch.configuredLang, result.lang === mismatch.configuredLang),
+      detectedLang: check(result.detected_lang, mismatch.detectedLang, result.detected_lang === mismatch.detectedLang),
+      screen: check(result.screen, "unknown", result.screen === "unknown"),
+      times: check(
+        result.raw_times,
+        [],
+        Array.isArray(result.raw_times) && result.raw_times.length === 0 && result.times === null,
+      ),
+    },
   };
-};
-
-const printTestRow = (nameText: string, testResult: TestResult) => {
-  const name = padText(chalk.white(nameText), lengthName, "left");
-  const lang = padText(formatCheckResult(testResult.lang), lengthLang);
-  const detectedLang = padText(formatCheckResult(testResult.detectedLang), lengthDetected);
-  const screen = padText(formatCheckResult(testResult.screen), lengthScreen);
-  const level = padText(formatCheckResult(testResult.level), lengthLevel);
-  const difficulty = padText(formatCheckResult(testResult.difficulty), lengthDifficulty);
-  const times = padText(formatCheckResult(testResult.times), lengthTimes);
-  const runTimeText = testResult.runTime.toFixed(2) + " ms";
-  const execTime = padText(
-    (testResult.runTimeUnderTarget === false ? chalk.yellow : chalk.white)(runTimeText),
-    lengthRuntime,
-  );
-  console.log(
-    chalk.grey(
-      `│ ${name} │ ${lang} │ ${detectedLang} │ ${screen} │ ${level} │ ${difficulty} │ ${times} │ ${execTime} │`,
-    ),
-  );
-};
-
-const recordEvaluatedTest = (runner: Runner, evaluated: EvaluatedTest) => {
-  results[runner.name].totalTests++;
-  results[runner.name].totalChecks += evaluated.totalChecks;
-  results[runner.name].passedChecks += evaluated.passedChecks;
-  results[runner.name].runtimeUnderTarget += evaluated.runtimeUnderTarget;
-  results[runner.name].runtimeTargetTotal += evaluated.runtimeTargetTotal;
-
-  if (evaluated.failedCorrectnessChecks.length === 0) {
-    return;
-  }
-
-  const screenshotResult: Screenshot = { name: evaluated.name, results: [evaluated.testResult] };
-  results[runner.name].results.push(screenshotResult);
-  for (const [check, result] of evaluated.failedCorrectnessChecks) {
-    failedChecks.push({
-      runner: runner.name,
-      test: screenshotResult.name,
-      check,
-      value: result.value,
-      expected: result.expected,
-    });
-  }
-};
-
-const lengthName = Math.max(
-  ...screenshots.map((s) => s.tag.length + ": ".length + s.name.length),
-  ...languageMismatchCases.map((c) => c.name.length),
-  "Test".length,
-);
-const lengthLang = 6; // " Lang "
-const lengthDetected = 10; // " Detected "
-const lengthScreen = 9; // " 007opts "
-const lengthLevel = 11; // " Surface 2 "
-const lengthDifficulty = 12; // " Difficulty "
-const lengthTimes = 13; // " SSS,SSS,SSS "
-const lengthRuntime = 10; // " 1234.56 ms "
-const lengthWidth =
-  lengthName +
-  lengthLang +
-  lengthDetected +
-  lengthScreen +
-  lengthLevel +
-  lengthDifficulty +
-  lengthTimes +
-  lengthRuntime +
-  16 /* padding */ +
-  7; /* separators */
-
-const padText = (text: string, width: number, align: "left" | "center" | "right" = "center"): string => {
-  const padding = Math.max(0, width - stripAnsi(text).length);
-
-  if (align === "left") {
-    return text + " ".repeat(padding);
-  } else if (align === "right") {
-    return " ".repeat(padding) + text;
-  } else {
-    // center
-    const padStart = Math.floor(padding / 2);
-    const padEnd = padding - padStart;
-    return " ".repeat(padStart) + text + " ".repeat(padEnd);
-  }
-};
-
-interface Screenshot {
-  name: string;
-  results: TestResult[];
 }
+
 const results: Record<
   string,
   {
-    results: Screenshot[];
+    results: { name: string; results: Record<string, CheckResult | undefined>[] }[];
     totalTests: number;
     totalChecks: number;
     passedChecks: number;
     skippedTests: number;
-    runtimeUnderTarget: number;
-    runtimeTargetTotal: number;
   }
 > = {};
 const failedChecks: FailedCheck[] = [];
+
 for (const runner of runners) {
-  results[runner.name] = {
-    totalChecks: 0,
-    totalTests: 0,
-    passedChecks: 0,
-    skippedTests: 0,
-    runtimeUnderTarget: 0,
-    runtimeTargetTotal: 0,
-    results: [],
-  };
   const screenshotCases = screenshots.filter((screenshot) =>
     filterRe ? filterRe.exec(screenshot.filePath) !== null : true,
   );
@@ -407,83 +222,71 @@ for (const runner of runners) {
     const filePath = path.join(testRoot, mismatch.filePath);
     return filterRe ? filterRe.exec(filePath) !== null : true;
   });
-  results[runner.name].skippedTests += screenshots.length - screenshotCases.length;
-  results[runner.name].skippedTests += languageMismatchCases.length - mismatchCases.length;
-
   const activeJobs = Math.min(testJobs, Math.max(1, screenshotCases.length + mismatchCases.length));
-  console.log(chalk.blue(`Running tests for ${chalk.cyan.bold(runner.name)}...`));
+  const testCases: TestCase[] = [
+    ...screenshotCases.map((screenshot) => ({ kind: "screenshot" as const, screenshot })),
+    ...mismatchCases.map((mismatch) => ({ kind: "language-mismatch" as const, mismatch })),
+  ];
+
+  let completedTests = 0;
+  const spinner = ora(chalk.blue(progressText(completedTests, testCases.length, runner, activeJobs))).start();
+  let evaluated: EvaluatedTest[];
+  try {
+    evaluated = await mapConcurrent(testCases, testJobs, async (testCase) => {
+      const result =
+        testCase.kind === "screenshot"
+          ? await evaluateScreenshotTest(runner, testCase.screenshot)
+          : await evaluateLanguageMismatchTest(runner, testCase.mismatch);
+      completedTests += 1;
+      spinner.text = chalk.blue(progressText(completedTests, testCases.length, runner, activeJobs));
+      return result;
+    });
+    spinner.succeed(
+      chalk.blue(`Finished ${completedTests}/${testCases.length} tests for ${chalk.cyan.bold(runner.name)}`),
+    );
+  } catch (error) {
+    spinner.fail(chalk.red(`Failed after ${completedTests}/${testCases.length} tests for ${runner.name}`));
+    throw error;
+  }
+
+  console.table(tableRows(evaluated));
+
+  const runnerResults = {
+    totalChecks: 0,
+    totalTests: evaluated.length,
+    passedChecks: 0,
+    skippedTests: screenshots.length + languageMismatchCases.length - evaluated.length,
+    results: [] as { name: string; results: Record<string, CheckResult | undefined>[] }[],
+  };
+
+  for (const test of evaluated) {
+    const failures = failedEntries(test.checks);
+    runnerResults.totalChecks += Object.values(test.checks).filter(Boolean).length;
+    runnerResults.passedChecks += passed(test.checks);
+
+    if (failures.length > 0) {
+      runnerResults.results.push({ name: test.name, results: [test.checks] });
+      for (const [checkName, result] of failures) {
+        failedChecks.push({
+          runner: runner.name,
+          test: test.name,
+          check: checkName,
+          value: result.value,
+          expected: result.expected,
+        });
+      }
+    }
+  }
+
+  results[runner.name] = runnerResults;
+  const pct = runnerResults.totalChecks === 0 ? 100 : (runnerResults.passedChecks / runnerResults.totalChecks) * 100;
+  const pctStr = (pct === 100 ? chalk.green : chalk.red)(`${pct.toFixed(2)}%`);
   console.log(
-    chalk.blue(`Running ${screenshotCases.length + mismatchCases.length} tests with up to ${activeJobs} jobs...`),
+    chalk.blue(
+      `Passed ${chalk.green.bold(runnerResults.passedChecks)} out of ${chalk.bold(runnerResults.totalChecks)} checks: ${pctStr}`,
+    ),
   );
-
-  // ┌─────────────────────────┐
-  // │      Sample table       │
-  // ├───────┬─────┬───────────┤
-  // │ Name  │ Age │ Eye color │
-  // ├───────┼─────┼───────────┤
-  // │ John  │  23 │   green   │
-  // │ Mary  │  16 │   brown   │
-  // │ Rita  │  47 │   blue    │
-  // │ Peter │   8 │   brown   │
-  // └───────┴─────┴───────────┘
-  {
-    console.log(chalk.grey(`┌${"─".repeat(lengthWidth)}┐`));
-    const h = (text: string, w: number = 0) => chalk.white.bold(padText(text, w));
-    console.log(
-      chalk.grey(
-        "│ " +
-          [
-            h("Test", lengthName),
-            h("Lang", lengthLang),
-            h("Detected", lengthDetected),
-            h("Screen", lengthScreen),
-            h("Level", lengthLevel),
-            h("Difficulty", lengthDifficulty),
-            h("Times", lengthTimes),
-            h("Runtime", lengthRuntime),
-          ].join(" │ ") +
-          ` │`,
-      ),
-    );
-  }
-
-  const screenshotEvaluations = await mapConcurrent(screenshotCases, testJobs, (screenshot) =>
-    evaluateScreenshotTest(runner, screenshot),
-  );
-  for (const evaluated of screenshotEvaluations) {
-    printTestRow(evaluated.name, evaluated.testResult);
-    recordEvaluatedTest(runner, evaluated);
-  }
-
-  const mismatchEvaluations = await mapConcurrent(mismatchCases, testJobs, (mismatch) =>
-    evaluateLanguageMismatchTest(runner, mismatch),
-  );
-  for (const evaluated of mismatchEvaluations) {
-    printTestRow(evaluated.name, evaluated.testResult);
-    recordEvaluatedTest(runner, evaluated);
-  }
-
-  console.log(chalk.grey(`└${"─".repeat(lengthWidth)}┘`));
-  // log the % of all passed tests
-  {
-    const passed = chalk.green.bold(results[runner.name].passedChecks);
-    const total = chalk.bold(results[runner.name].totalChecks);
-    const pct = (results[runner.name].passedChecks / results[runner.name].totalChecks) * 100;
-    const pctStr = (pct === 100 ? chalk.green : chalk.red)(`${pct.toFixed(2)}%`);
-    console.log(chalk.blue(`Passed ${passed} out of ${total} checks: ${pctStr}`));
-    console.log(
-      chalk.blue(`Total tests run: ${results[runner.name].totalTests} (skipped: ${results[runner.name].skippedTests})`),
-    );
-    const runtimeTotal = results[runner.name].runtimeTargetTotal;
-    const runtimePassed = results[runner.name].runtimeUnderTarget;
-    const runtimePct = runtimeTotal === 0 ? 100 : (runtimePassed / runtimeTotal) * 100;
-    console.log(
-      chalk.blue(
-        `Runtime under ${RUNTIME_TARGET_MS} ms: ${chalk.bold(runtimePassed)} out of ${chalk.bold(runtimeTotal)} (${runtimePct.toFixed(2)}%)`,
-      ),
-    );
-  }
-
+  console.log(chalk.blue(`Total tests run: ${runnerResults.totalTests} (skipped: ${runnerResults.skippedTests})`));
   console.log();
 }
 

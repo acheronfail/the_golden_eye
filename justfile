@@ -100,6 +100,10 @@ test-browser *args:
 test-cv *filter: make-release
     cd test && npm run test -- {{ filter }}
 
+# runs one benchmark per unique cv frame scenario; set GE_CV_BENCH_SAMPLES=N or GE_CV_BENCH_WARMUPS=N to tune it
+bench-cv *filter: make-release
+    cd test && npm run bench -- {{ filter }}
+
 # runs opencv frame tests
 test:
     just test-browser

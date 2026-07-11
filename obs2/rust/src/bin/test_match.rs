@@ -6,6 +6,24 @@ use opencv::prelude::*;
 use opencv::{Result, imgcodecs, imgproc};
 use serde_json::json;
 
+fn env_usize(name: &str, default: usize) -> usize {
+    env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+fn result_json(result: &ge_rust::cv::LevelMatch) -> serde_json::Value {
+    json!({
+        "screen": result.screen.as_str(),
+        "mission": result.mission,
+        "part": result.part,
+        "difficulty": result.difficulty,
+        "detected_lang": result.detected_lang,
+        "times": result.times,
+        "raw_times": result.raw_times,
+        "match_regions": result.match_regions,
+        "runtime_ms": result.runtime_ms,
+    })
+}
+
 fn run() -> Result<i32> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
@@ -45,7 +63,10 @@ fn run() -> Result<i32> {
     // from the first frame to the rest is visible.
     if let Ok(n) = env::var("GE_CV_BENCH") {
         let runs: usize = n.parse().unwrap_or(5);
+        let target_warmups = env_usize("GE_CV_BENCH_WARMUPS", 0);
+        let json_output = matches!(env::var("GE_CV_BENCH_JSON").as_deref(), Ok("1" | "true" | "TRUE" | "yes" | "YES"));
         let matcher = ge_rust::cv::CvMatcher::new(lang, templates_dir)?;
+        let mut cache_warm = Vec::new();
         // GE_CV_BENCH_WARM=path primes the scale cache with one overlay frame
         // first, so the benched frame is matched as it would be mid-session.
         if let Ok(warm) = env::var("GE_CV_BENCH_WARM") {
@@ -53,14 +74,50 @@ fn run() -> Result<i32> {
             let mut wbgra = Mat::default();
             imgproc::cvt_color_def(&wbgr, &mut wbgra, imgproc::COLOR_BGR2BGRA)?;
             let r = matcher.match_level_from_bgra_frame(&wbgra)?;
-            eprintln!("[bench] warm: {:.2} ms (mission={} part={})", r.runtime_ms, r.mission, r.part);
+            cache_warm.push(result_json(&r));
+            if !json_output {
+                eprintln!("[bench] warm: {:.2} ms (mission={} part={})", r.runtime_ms, r.mission, r.part);
+            }
         }
+
+        let mut warmups = Vec::with_capacity(target_warmups);
+        for i in 0..target_warmups {
+            let r = matcher.match_level_from_bgra_frame(&bgra)?;
+            if !json_output {
+                eprintln!(
+                    "[bench] warmup {i}: {:.2} ms (mission={} part={} diff={})",
+                    r.runtime_ms, r.mission, r.part, r.difficulty
+                );
+            }
+            warmups.push(result_json(&r));
+        }
+
+        let mut samples = Vec::with_capacity(runs);
         for i in 0..runs {
             let r = matcher.match_level_from_bgra_frame(&bgra)?;
-            eprintln!(
-                "[bench] run {i}: {:.2} ms (mission={} part={} diff={})",
-                r.runtime_ms, r.mission, r.part, r.difficulty
+            if !json_output {
+                eprintln!(
+                    "[bench] run {i}: {:.2} ms (mission={} part={} diff={})",
+                    r.runtime_ms, r.mission, r.part, r.difficulty
+                );
+            }
+            samples.push(result_json(&r));
+        }
+
+        if json_output {
+            println!(
+                "{}",
+                json!({
+                    "opencv": core::get_version_string()?,
+                    "image": { "path": image_path, "width": bgra.cols(), "height": bgra.rows() },
+                    "lang": lang,
+                    "templates_dir": templates_dir,
+                    "cache_warm": cache_warm,
+                    "warmups": warmups,
+                    "samples": samples,
+                })
             );
+            return Ok(0);
         }
     }
 
