@@ -64,6 +64,16 @@ void ge_obs_collect_source_names(char *buffer, size_t buffer_size) {
   }
 }
 
+double ge_obs_video_fps(void) {
+  struct obs_video_info ovi;
+  if (obs_get_video_info(&ovi) && ovi.fps_den != 0) {
+    return (double)ovi.fps_num / (double)ovi.fps_den;
+  }
+
+  double active_fps = obs_get_active_fps();
+  return active_fps > 0.0 ? active_fps : 0.0;
+}
+
 static const char *ge_replay_buffer_config_section(config_t *config) {
   /* The replay-buffer toggle lives in a different section depending on the
    * output mode: "Advanced" reads AdvOut.RecRB, everything else (Simple) reads

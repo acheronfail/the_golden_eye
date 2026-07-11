@@ -374,6 +374,18 @@
 				</label>
 				<p class={hintClass}>Stops OBS's replay buffer after monitoring is turned off.</p>
 			</section>
+
+			<section class={panelClass}>
+				<label class="flex items-center gap-3">
+					<input
+						type="checkbox"
+						bind:checked={settings.showMonitorFps}
+						class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
+					/>
+					<span class={labelClass}>Show monitor FPS</span>
+				</label>
+				<p class={hintClass}>Shows monitor throughput while monitoring is active.</p>
+			</section>
 		{:else if activeTab === 'recording'}
 			<section class={panelClass}>
 				<label class={labelClass} for="clip-filename-template">Clip filename template</label>

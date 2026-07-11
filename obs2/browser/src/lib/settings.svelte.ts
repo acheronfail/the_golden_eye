@@ -19,6 +19,7 @@ const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{fa
 
 const SettingsSchema = z.object({
 	stopReplayBufferWhenMonitorStopped: z.boolean().catch(false),
+	showMonitorFps: z.boolean().catch(false),
 	completedOutputPath: z.string().catch(''),
 	saveFailedRuns: z.boolean().catch(true),
 	failedOutputPath: z.string().catch(''),
@@ -114,6 +115,7 @@ export const settings = new (class {
 	//
 
 	stopReplayBufferWhenMonitorStopped = $state(initialSettings.stopReplayBufferWhenMonitorStopped);
+	showMonitorFps = $state(initialSettings.showMonitorFps);
 
 	//
 	// Recording
@@ -155,6 +157,7 @@ export const settings = new (class {
 	savedState = $derived(
 		JSON.stringify({
 			stopReplayBufferWhenMonitorStopped: this.stopReplayBufferWhenMonitorStopped,
+			showMonitorFps: this.showMonitorFps,
 			completedOutputPath: this.completedOutputPath,
 			saveFailedRuns: this.saveFailedRuns,
 			failedOutputPath: this.failedOutputPath,
@@ -299,6 +302,7 @@ export const settings = new (class {
 
 	private apply(next: Settings): void {
 		this.stopReplayBufferWhenMonitorStopped = next.stopReplayBufferWhenMonitorStopped;
+		this.showMonitorFps = next.showMonitorFps;
 		this.completedOutputPath = next.completedOutputPath;
 		this.saveFailedRuns = next.saveFailedRuns;
 		this.failedOutputPath = next.failedOutputPath;
