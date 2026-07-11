@@ -1394,6 +1394,12 @@ mod tests {
         }
     }
 
+    fn default_clip_path_for_surface_2(completed_at: SystemTime) -> PathBuf {
+        PathBuf::from("Surface 2")
+            .join("00 Agent")
+            .join(format!("02-03 - {}", sanitize_path_component(&format_iso_local(completed_at))))
+    }
+
     fn match_with_unreadable_header() -> LevelMatch {
         LevelMatch {
             screen: Screen::Stats,
@@ -2094,10 +2100,7 @@ mod tests {
         assert!(name.contains("02-03"));
         assert!(name.ends_with("-kia"));
 
-        assert_eq!(
-            clip_relative_path("replay", RunStatus::Complete, UNIX_EPOCH, None, "..."),
-            PathBuf::from("unknown -  -  - complete"),
-        );
+        assert_eq!(clip_relative_path("replay", RunStatus::Complete, UNIX_EPOCH, None, "..."), PathBuf::from("clip"),);
     }
 
     #[test]
@@ -2106,11 +2109,11 @@ mod tests {
 
         assert_eq!(
             clip_relative_path("replay", RunStatus::Complete, UNIX_EPOCH, Some(&m), "../{level}"),
-            PathBuf::from("Surface 2 - 02-03 - 00 Agent - complete"),
+            default_clip_path_for_surface_2(UNIX_EPOCH),
         );
         assert_eq!(
             clip_relative_path("replay", RunStatus::Complete, UNIX_EPOCH, Some(&m), "{level}/../{time}"),
-            PathBuf::from("Surface 2 - 02-03 - 00 Agent - complete"),
+            default_clip_path_for_surface_2(UNIX_EPOCH),
         );
         assert_eq!(
             clip_relative_path(
@@ -2120,7 +2123,7 @@ mod tests {
                 Some(&m),
                 if std::path::MAIN_SEPARATOR == '/' { "{level}\\{time}" } else { "{level}/{time}" },
             ),
-            PathBuf::from("Surface 2 - 02-03 - 00 Agent - complete"),
+            default_clip_path_for_surface_2(UNIX_EPOCH),
         );
     }
 
