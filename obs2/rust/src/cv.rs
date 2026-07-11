@@ -325,7 +325,27 @@ fn first_last_above(mask: &Mat, dim: i32, frac: f64) -> Result<(i32, i32)> {
 // dark elements (the briefing photo, the stats text) don't shrink the box. The
 // frame is downscaled first -- the aspect is scale-invariant and this only runs
 // once per resolution, so working small keeps the cold-frame calibration cheap.
-fn detect_folder_aspect(bgra_frame: &impl ToInputArray, w: i32, h: i32) -> Result<Option<f64>> {
+#[derive(Clone, Copy)]
+struct FolderDetection {
+    aspect: f64,
+    rect: Rect,
+}
+
+fn scale_detected_folder_rect(extent: Rect, src: Size, detect: Size) -> Rect {
+    let (src_w, src_h) = (src.width, src.height);
+    let (detect_w, detect_h) = (detect.width, detect.height);
+    let x0 = extent.x;
+    let y0 = extent.y;
+    let x1 = extent.x + extent.width - 1;
+    let y1 = extent.y + extent.height - 1;
+    let x = ((x0 as f64 * src_w as f64 / detect_w as f64).floor() as i32).clamp(0, src_w.saturating_sub(1));
+    let y = ((y0 as f64 * src_h as f64 / detect_h as f64).floor() as i32).clamp(0, src_h.saturating_sub(1));
+    let x2 = (((x1 + 1) as f64 * src_w as f64 / detect_w as f64).ceil() as i32).clamp(x + 1, src_w);
+    let y2 = (((y1 + 1) as f64 * src_h as f64 / detect_h as f64).ceil() as i32).clamp(y + 1, src_h);
+    Rect::new(x, y, x2 - x, y2 - y)
+}
+
+fn detect_folder_aspect(bgra_frame: &impl ToInputArray, w: i32, h: i32) -> Result<Option<FolderDetection>> {
     if w <= 0 || h <= 0 {
         return Ok(None);
     }
@@ -370,8 +390,11 @@ fn detect_folder_aspect(bgra_frame: &impl ToInputArray, w: i32, h: i32) -> Resul
     if fw < dw as f64 * FOLDER_MIN_FRAC || fh < dh as f64 * FOLDER_MIN_FRAC {
         return Ok(None);
     }
-    dbg_cv!("[folder] box {fw}x{fh} on {dw}x{dh} aspect={:.3}", fw / fh);
-    Ok(Some(fw / fh))
+    let aspect = fw / fh;
+    let rect =
+        scale_detected_folder_rect(Rect::new(x0, y0, x1 - x0 + 1, y1 - y0 + 1), Size::new(w, h), Size::new(dw, dh));
+    dbg_cv!("[folder] box {fw}x{fh} on {dw}x{dh} aspect={aspect:.3}");
+    Ok(Some(FolderDetection { aspect, rect }))
 }
 
 // Templates are authored from a pixel-sharp emulator, but most real sources
@@ -449,7 +472,11 @@ fn template_annotation(region: &MatchRegion) -> AnnotationRect {
     }
 }
 
-fn annotation_sets(match_regions: &[MatchRegion], search_regions: Vec<AnnotationRect>) -> Vec<AnnotationSet> {
+fn annotation_sets(
+    match_regions: &[MatchRegion],
+    search_regions: Vec<AnnotationRect>,
+    folder_region: Option<AnnotationRect>,
+) -> Vec<AnnotationSet> {
     let mut sets = Vec::new();
     if !match_regions.is_empty() {
         sets.push(AnnotationSet {
@@ -463,6 +490,13 @@ fn annotation_sets(match_regions: &[MatchRegion], search_regions: Vec<Annotation
             id: "search_rois".to_owned(),
             label: "Search ROIs".to_owned(),
             annotations: search_regions,
+        });
+    }
+    if let Some(folder_region) = folder_region {
+        sets.push(AnnotationSet {
+            id: "folder_dimensions".to_owned(),
+            label: "Folder dimensions".to_owned(),
+            annotations: vec![folder_region],
         });
     }
     sets
@@ -1224,6 +1258,8 @@ struct AspectCalibration {
     crop_w: i32,
     // Width to resize the kept window to; the height is left unchanged.
     target_w: i32,
+    // Source-frame rectangle of the manilla folder measured during calibration.
+    folder_rect: Option<Rect>,
 }
 
 // The learned aspect correction expressed as a source-relative capture
@@ -1246,7 +1282,7 @@ pub struct CaptureRegion {
 impl AspectCalibration {
     // A calibration that leaves the frame untouched (already 4:3 / pillarboxed).
     fn identity(src_w: i32, src_h: i32) -> Self {
-        AspectCalibration { src_w, src_h, crop_x: 0, crop_w: src_w, target_w: src_w }
+        AspectCalibration { src_w, src_h, crop_x: 0, crop_w: src_w, target_w: src_w, folder_rect: None }
     }
 
     // As a source-relative capture transform. Horizontal crop only -- the
@@ -1549,6 +1585,21 @@ impl CvMatcher {
         });
     }
 
+    fn folder_annotation(&self, calib: AspectCalibration) -> Option<AnnotationRect> {
+        if !self.diagnostics {
+            return None;
+        }
+        let rect = calib.folder_rect?;
+        Some(AnnotationRect {
+            label: "detected manilla folder".to_owned(),
+            x: rect.x,
+            y: rect.y,
+            w: rect.width,
+            h: rect.height,
+            score: None,
+        })
+    }
+
     // Returns `gray` corrected to 4:3 when the source is a stretched 4:3 picture,
     // or unchanged otherwise. The correction is learned once per source
     // resolution (the "calibration" step) and cached: on the first frame at a
@@ -1568,29 +1619,31 @@ impl CvMatcher {
 
         // Cold: measure the folder to decide whether this resolution is
         // stretched. The colour test needs the original (non-grayscale) frame.
-        let Some(folder_aspect) = detect_folder_aspect(bgra_frame, w, h)? else {
+        let Some(folder) = detect_folder_aspect(bgra_frame, w, h)? else {
             // No folder on this frame -- can't calibrate yet. Match it as-is and
             // leave the cache empty so a later menu frame can calibrate.
             let calib = AspectCalibration::identity(w, h);
             return Ok((gray.try_clone()?, calib));
         };
 
-        let calib = if folder_aspect > FOLDER_STRETCH_ASPECT {
+        let mut calib = if folder.aspect > FOLDER_STRETCH_ASPECT {
             // Stretched: the picture is 4:3 squeezed wide. Trim any dark side
             // bars, then squish the remaining content back to a 4:3 width.
             let (left, right) = content_h_extent(gray, BAR_BRIGHTNESS)?;
             let crop_w = (right - left + 1).max(1);
             let target_w = (((h as f64) * TARGET_ASPECT).round() as i32).max(1);
             dbg_cv!(
-                "[calibrate] {w}x{h} folder_aspect={folder_aspect:.3} stretched -> crop {left}+{crop_w} squish to {target_w}"
+                "[calibrate] {w}x{h} folder_aspect={:.3} stretched -> crop {left}+{crop_w} squish to {target_w}",
+                folder.aspect
             );
-            AspectCalibration { src_w: w, src_h: h, crop_x: left, crop_w, target_w }
+            AspectCalibration { src_w: w, src_h: h, crop_x: left, crop_w, target_w, folder_rect: None }
         } else {
             // Folder is correctly proportioned (clean 4:3 or pillarboxed): no
             // correction. Cache identity so later frames skip the measurement.
-            dbg_cv!("[calibrate] {w}x{h} folder_aspect={folder_aspect:.3} not stretched");
+            dbg_cv!("[calibrate] {w}x{h} folder_aspect={:.3} not stretched", folder.aspect);
             AspectCalibration::identity(w, h)
         };
+        calib.folder_rect = Some(folder.rect);
 
         if let Ok(mut cache) = self.aspect_cache.lock() {
             *cache = Some(calib);
@@ -1844,6 +1897,7 @@ impl CvMatcher {
         // Calibrated once per resolution off the manilla folder; a no-op on
         // clean 4:3 grabs and on 4:3 content pillarboxed in 16:9.
         let (gray, calib) = self.calibrate_aspect(bgra_frame, &gray)?;
+        let folder_region = self.folder_annotation(calib);
 
         // Template matching cost grows with frame area, so a native 1080p (or
         // larger) capture is ~5x more expensive than a 480p composite grab for
@@ -1952,7 +2006,7 @@ impl CvMatcher {
             dbg_cv!("[gate] no header; levels_score={levels_score:.3} => {:?}", result.screen);
             timer.lap("levels detect");
             result.match_regions = match_regions;
-            result.annotation_sets = annotation_sets(&result.match_regions, search_regions);
+            result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region);
             result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
             return Ok(result);
         }
@@ -1969,7 +2023,7 @@ impl CvMatcher {
             if detected_lang != self.lang {
                 dbg_cv!("[language] configured={} detected={detected_lang}; rejecting wrong-language frame", self.lang);
                 result.match_regions = match_regions;
-                result.annotation_sets = annotation_sets(&result.match_regions, search_regions);
+                result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region);
                 result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
                 return Ok(result);
             }
@@ -2262,7 +2316,7 @@ impl CvMatcher {
 
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
         result.match_regions = match_regions;
-        result.annotation_sets = annotation_sets(&result.match_regions, search_regions);
+        result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region);
 
         Ok(result)
     }
