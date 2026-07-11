@@ -386,6 +386,18 @@
 				</label>
 				<p class={hintClass}>Shows monitor throughput while monitoring is active.</p>
 			</section>
+
+			<section class={panelClass}>
+				<label class="flex items-center gap-3">
+					<input
+						type="checkbox"
+						bind:checked={settings.showDeveloperSettings}
+						class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
+					/>
+					<span class={labelClass}>Show developer settings</span>
+				</label>
+				<p class={hintClass}>Shows the Developer link in the header.</p>
+			</section>
 		{:else if activeTab === 'recording'}
 			<section class={panelClass}>
 				<label class={labelClass} for="clip-filename-template">Clip filename template</label>

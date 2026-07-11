@@ -399,6 +399,10 @@ impl MatchRect {
     fn offset(self, dx: i32, dy: i32) -> Self {
         MatchRect { x: self.x + dx, y: self.y + dy, ..self }
     }
+
+    fn from_rect(rect: Rect) -> Self {
+        MatchRect { x: rect.x, y: rect.y, w: rect.width, h: rect.height, score: 0.0 }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -409,6 +413,54 @@ pub struct MatchRegion {
     pub w: i32,
     pub h: i32,
     pub score: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AnnotationRect {
+    pub label: String,
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AnnotationSet {
+    pub id: String,
+    pub label: String,
+    pub annotations: Vec<AnnotationRect>,
+}
+
+fn template_annotation(region: &MatchRegion) -> AnnotationRect {
+    AnnotationRect {
+        label: region.label.clone(),
+        x: region.x,
+        y: region.y,
+        w: region.w,
+        h: region.h,
+        score: Some(region.score),
+    }
+}
+
+fn annotation_sets(match_regions: &[MatchRegion], search_regions: Vec<AnnotationRect>) -> Vec<AnnotationSet> {
+    let mut sets = Vec::new();
+    if !match_regions.is_empty() {
+        sets.push(AnnotationSet {
+            id: "template_matches".to_owned(),
+            label: "Template matches".to_owned(),
+            annotations: match_regions.iter().map(template_annotation).collect(),
+        });
+    }
+    if !search_regions.is_empty() {
+        sets.push(AnnotationSet {
+            id: "search_rois".to_owned(),
+            label: "Search ROIs".to_owned(),
+            annotations: search_regions,
+        });
+    }
+    sets
 }
 
 // A time recovered from the screen, kept with its position so the final array
@@ -497,9 +549,13 @@ pub struct LevelMatch {
     /// the classified `times` instead.
     pub raw_times: Vec<i32>,
     /// Optional template-match rectangles for developer tooling. These are
-    /// empty in release builds and unless diagnostics are explicitly enabled.
+    /// empty unless annotation diagnostics are explicitly enabled.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub match_regions: Vec<MatchRegion>,
+    /// Developer-only annotation sets. The normal monitor path leaves this
+    /// empty so no annotation collection work is done per frame.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub annotation_sets: Vec<AnnotationSet>,
     pub runtime_ms: f64,
 }
 
@@ -1269,6 +1325,15 @@ impl RegionMapper {
     }
 }
 
+fn fractional_rect(cols: i32, rows: i32, region: (f64, f64, f64, f64)) -> Rect {
+    let (rx, ry, rw, rh) = region;
+    let x0 = (cols as f64 * rx) as i32;
+    let y0 = (rows as f64 * ry) as i32;
+    let w = ((cols as f64 * rw) as i32).min(cols - x0).max(1);
+    let h = ((rows as f64 * rh) as i32).min(rows - y0).max(1);
+    Rect::new(x0, y0, w, h)
+}
+
 pub struct CvMatcher {
     lang: String,
     diagnostics: bool,
@@ -1378,11 +1443,11 @@ impl CvMatcher {
     }
 
     pub fn diagnostics_available() -> bool {
-        cfg!(any(debug_assertions, feature = "dev"))
+        true
     }
 
     pub fn with_diagnostics(mut self, enabled: bool) -> Self {
-        self.diagnostics = enabled && Self::diagnostics_available();
+        self.diagnostics = enabled;
         self
     }
 
@@ -1422,6 +1487,27 @@ impl CvMatcher {
         out.push(region);
     }
 
+    fn push_work_search_region(
+        &self,
+        out: &mut Vec<AnnotationRect>,
+        mapper: &RegionMapper,
+        label: impl Into<String>,
+        rect: Rect,
+    ) {
+        if !self.diagnostics {
+            return;
+        }
+        let region = mapper.work_to_source(MatchRect::from_rect(rect));
+        out.push(AnnotationRect {
+            label: label.into(),
+            x: region.x,
+            y: region.y,
+            w: region.w,
+            h: region.h,
+            score: None,
+        });
+    }
+
     fn push_corrected_region(
         &self,
         out: &mut Vec<MatchRegion>,
@@ -1435,6 +1521,27 @@ impl CvMatcher {
         let mut region = mapper.corrected_to_source(rect);
         region.label = label.into();
         out.push(region);
+    }
+
+    fn push_corrected_search_region(
+        &self,
+        out: &mut Vec<AnnotationRect>,
+        mapper: &RegionMapper,
+        label: impl Into<String>,
+        rect: Rect,
+    ) {
+        if !self.diagnostics {
+            return;
+        }
+        let region = mapper.corrected_to_source(MatchRect::from_rect(rect));
+        out.push(AnnotationRect {
+            label: label.into(),
+            x: region.x,
+            y: region.y,
+            w: region.w,
+            h: region.h,
+            score: None,
+        });
     }
 
     // Returns `gray` corrected to 4:3 when the source is a stretched 4:3 picture,
@@ -1713,9 +1820,11 @@ impl CvMatcher {
             times: None,
             raw_times: Vec::new(),
             match_regions: Vec::new(),
+            annotation_sets: Vec::new(),
             runtime_ms: 0.0,
         };
         let mut match_regions = Vec::new();
+        let mut search_regions = Vec::new();
         let mut timer = PhaseTimer::new();
 
         // Convert the BGRA frame to grayscale once; every template is matched
@@ -1780,6 +1889,16 @@ impl CvMatcher {
             TIME_GATE_COLON_THRESHOLD,
             (HEADER_REGION_X, HEADER_REGION_Y, HEADER_REGION_W, HEADER_REGION_H),
         )?;
+        self.push_work_search_region(
+            &mut search_regions,
+            &mapper,
+            "header colon gate",
+            fractional_rect(
+                frame.cols(),
+                frame.rows(),
+                (HEADER_REGION_X, HEADER_REGION_Y, HEADER_REGION_W, HEADER_REGION_H),
+            ),
+        );
         let has_header = header.count >= 2 && header.peak >= TIME_GATE_STRONG_COLON;
         if self.diagnostics {
             for (i, r) in header_colon_regions(&frame, &self.colon, header.scale, TIME_GATE_COLON_THRESHOLD)?
@@ -1811,6 +1930,12 @@ impl CvMatcher {
             // so dropping it from a full ladder sweep to a single scale keeps the
             // matcher cheap on every non-overlay frame. A cold session (no hint)
             // still sweeps the full ladder via `gate_scales == scales`.
+            self.push_work_search_region(
+                &mut search_regions,
+                &mapper,
+                "levels divider search",
+                fractional_rect(frame.cols(), frame.rows(), LEVELS_REGION),
+            );
             let levels_match = self.detect_levels(&frame, &gate_scales)?;
             let levels_score = levels_match.map_or(-1.0, |m| m.score);
             if let Some(r) = levels_match.filter(|m| m.score >= LEVELS_THRESHOLD) {
@@ -1820,16 +1945,24 @@ impl CvMatcher {
             dbg_cv!("[gate] no header; levels_score={levels_score:.3} => {:?}", result.screen);
             timer.lap("levels detect");
             result.match_regions = match_regions;
+            result.annotation_sets = annotation_sets(&result.match_regions, search_regions);
             result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
             return Ok(result);
         }
 
+        self.push_work_search_region(
+            &mut search_regions,
+            &mapper,
+            "language start tab search",
+            Rect::new(0, 0, frame.cols(), frame.rows()),
+        );
         if let Some((detected_lang, rect)) = self.detect_start_language(&frame, header.scale)? {
             result.detected_lang = Some(detected_lang.to_owned());
             self.push_work_region(&mut match_regions, &mapper, format!("language {detected_lang} start tab"), rect);
             if detected_lang != self.lang {
                 dbg_cv!("[language] configured={} detected={detected_lang}; rejecting wrong-language frame", self.lang);
                 result.match_regions = match_regions;
+                result.annotation_sets = annotation_sets(&result.match_regions, search_regions);
                 result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
                 return Ok(result);
             }
@@ -1844,6 +1977,17 @@ impl CvMatcher {
             (frame.cols() as f64 * LABEL_REGION_W) as i32,
             (frame.rows() as f64 * LABEL_REGION_H) as i32,
         ))?;
+        self.push_work_search_region(
+            &mut search_regions,
+            &mapper,
+            "mission/part/difficulty label search",
+            Rect::new(
+                0,
+                0,
+                (frame.cols() as f64 * LABEL_REGION_W) as i32,
+                (frame.rows() as f64 * LABEL_REGION_H) as i32,
+            ),
+        );
 
         // Read the mission number on the NATIVE-resolution frame: anchor on ':'
         // and take the strongest single digit immediately to its left. The
@@ -1886,6 +2030,7 @@ impl CvMatcher {
             }
             _ => header_box(),
         };
+        self.push_corrected_search_region(&mut search_regions, &mapper, "mission digit search", mission_rect);
 
         let (mut found, mut mission_scale) = self.read_mission(&gray, mission_rect, &mission_scales)?;
         let mut mission_rect = mission_rect;
@@ -1893,6 +2038,7 @@ impl CvMatcher {
         // header band at the cached scale before giving up.
         if found.mission < 0 && hint.is_some() {
             mission_rect = header_box();
+            self.push_corrected_search_region(&mut search_regions, &mapper, "mission digit retry search", mission_rect);
             let (f, s) = self.read_mission(&gray, mission_rect, &mission_scales)?;
             found = f;
             mission_scale = s;
@@ -1929,6 +2075,16 @@ impl CvMatcher {
 
         let mut part_rect = None;
         result.part = if mission_cy >= 0 && colon_h > 0 {
+            let y0 = (mission_cy + pad).clamp(0, label_region.rows());
+            let y1 = (mission_cy + colon_h * 3).clamp(0, label_region.rows());
+            if y1 - y0 >= 2 {
+                self.push_work_search_region(
+                    &mut search_regions,
+                    &mapper,
+                    "part label band",
+                    Rect::new(0, y0, label_region.cols(), y1 - y0),
+                );
+            }
             let part = best_label_in_band_match(
                 &label_region,
                 &self.parts,
@@ -1949,6 +2105,12 @@ impl CvMatcher {
         // Fall back to a full-region scale sweep when the anchored band misses,
         // which also recovers the true scale on off-scale captures.
         if result.part < 0 {
+            self.push_work_search_region(
+                &mut search_regions,
+                &mapper,
+                "part label fallback search",
+                Rect::new(0, 0, label_region.cols(), label_region.rows()),
+            );
             let (part, part_scale, rect) =
                 best_label_match_over_scales(&label_region, &self.parts, &scales, LABEL_THRESHOLD)?;
             if part >= 0 {
@@ -1966,6 +2128,16 @@ impl CvMatcher {
         let colon_h = (self.colon.rows() as f64 * global_scale).round() as i32;
         let mut difficulty_rect = None;
         let mut difficulty_label = if mission_cy >= 0 && colon_h > 0 {
+            let y0 = (mission_cy - colon_h * 3).clamp(0, label_region.rows());
+            let y1 = (mission_cy - pad).clamp(0, label_region.rows());
+            if y1 - y0 >= 2 {
+                self.push_work_search_region(
+                    &mut search_regions,
+                    &mapper,
+                    "difficulty label band",
+                    Rect::new(0, y0, label_region.cols(), y1 - y0),
+                );
+            }
             let difficulty = best_label_in_band_match(
                 &label_region,
                 &self.diffs,
@@ -1983,11 +2155,18 @@ impl CvMatcher {
         } else {
             -1
         };
-        if difficulty_label < 0
-            && let Some((difficulty, r)) = best_label_match(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD)?
-        {
-            difficulty_label = difficulty;
-            difficulty_rect = Some(r);
+        if difficulty_label < 0 {
+            self.push_work_search_region(
+                &mut search_regions,
+                &mapper,
+                "difficulty label fallback search",
+                Rect::new(0, 0, label_region.cols(), label_region.rows()),
+            );
+            if let Some((difficulty, r)) = best_label_match(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD)?
+            {
+                difficulty_label = difficulty;
+                difficulty_rect = Some(r);
+            }
         }
         result.difficulty = if difficulty_label >= 0 { difficulty_label.saturating_sub(1) } else { -1 };
         if let Some(r) = difficulty_rect {
@@ -2007,6 +2186,18 @@ impl CvMatcher {
         // search be skipped on every other screen (start lists objectives, the
         // report screens list per-objective results, etc.), which would
         // otherwise be mis-read as times.
+        self.push_work_search_region(
+            &mut search_regions,
+            &mapper,
+            "screen banner search",
+            fractional_rect(frame.cols(), frame.rows(), SCREEN_BANNER_REGION),
+        );
+        self.push_work_search_region(
+            &mut search_regions,
+            &mapper,
+            "screen status search",
+            fractional_rect(frame.cols(), frame.rows(), SCREEN_STATUS_REGION),
+        );
         let (screen, screen_rect) = self.classify_screen(&frame, global_scale)?;
         result.screen = screen;
         if let Some(r) = screen_rect {
@@ -2019,6 +2210,16 @@ impl CvMatcher {
         let found_times: Vec<FoundTime> = if screen != Screen::Stats || colon_tmpl.empty() || digit_width_sum == 0 {
             Vec::new()
         } else {
+            self.push_work_search_region(
+                &mut search_regions,
+                &mapper,
+                "time colon search",
+                fractional_rect(
+                    frame.cols(),
+                    frame.rows(),
+                    (COLON_REGION_X, COLON_REGION_Y, COLON_REGION_W, COLON_REGION_H),
+                ),
+            );
             find_times_band(&frame, colon_tmpl, digit_tmpls)?
         };
         for t in &found_times {
@@ -2054,6 +2255,7 @@ impl CvMatcher {
 
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
         result.match_regions = match_regions;
+        result.annotation_sets = annotation_sets(&result.match_regions, search_regions);
 
         Ok(result)
     }
@@ -2073,6 +2275,7 @@ mod tests {
             times: ge::Times::classify(mission, part, difficulty, &raw_times),
             raw_times,
             match_regions: Vec::new(),
+            annotation_sets: Vec::new(),
             runtime_ms: 0.0,
         }
     }

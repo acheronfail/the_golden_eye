@@ -1,6 +1,5 @@
 mod browser_dock;
 pub mod cv;
-pub mod cv_annotate;
 mod ffi;
 mod ffmpeg;
 pub mod ge;

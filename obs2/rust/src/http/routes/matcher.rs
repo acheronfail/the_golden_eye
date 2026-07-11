@@ -4,8 +4,6 @@ use axum::Json;
 use axum::extract::Query;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::{Deserialize, Serialize};
 
 use crate::cv::LevelMatch;
@@ -17,19 +15,21 @@ pub struct Params {
     source: String,
     /// Language of the templates to match against (e.g. `en`, `jp`).
     lang: String,
+    /// Whether to include developer annotation sets in the match result.
+    #[serde(default)]
+    annotations: bool,
 }
 
 #[derive(Serialize)]
 pub struct MatchResponse {
     #[serde(rename = "match")]
     level_match: LevelMatch,
-    /// The annotated captured frame, PNG-encoded and base64-encoded.
-    #[serde(rename = "imageData")]
-    image_data: String,
-    #[serde(rename = "imageMime")]
-    image_mime: &'static str,
-    #[serde(rename = "diagnosticsEnabled")]
-    diagnostics_enabled: bool,
+    #[serde(rename = "annotationsEnabled")]
+    annotations_enabled: bool,
+    #[serde(rename = "frameWidth")]
+    frame_width: u32,
+    #[serde(rename = "frameHeight")]
+    frame_height: u32,
 }
 
 pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> {
@@ -45,8 +45,8 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
         tracing::error!("failed to init matcher: {err}");
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher")
     })?;
-    let matcher = matcher.with_diagnostics(true);
-    let diagnostics_enabled = matcher.diagnostics_enabled();
+    let matcher = matcher.with_diagnostics(params.annotations);
+    let annotations_enabled = matcher.diagnostics_enabled();
     timer.lap("matcher init");
 
     // Render the source into a BGRA buffer owned by the C side.
@@ -72,17 +72,5 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to match level")
     })?;
 
-    let bytes =
-        crate::cv_annotate::annotated_png_from_bgra(&frame_bytes, width, height, &level_match).map_err(|err| {
-            tracing::error!("failed to encode annotated match image: {err}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "failed to encode annotated match image")
-        })?;
-    timer.lap("annotated image");
-
-    Ok(Json(MatchResponse {
-        level_match,
-        image_data: BASE64.encode(bytes),
-        image_mime: "image/png",
-        diagnostics_enabled,
-    }))
+    Ok(Json(MatchResponse { level_match, annotations_enabled, frame_width: width, frame_height: height }))
 }
