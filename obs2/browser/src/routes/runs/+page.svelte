@@ -429,10 +429,10 @@
 				aria-controls="runs-filter-controls"
 				onclick={() => (filtersCollapsed = !filtersCollapsed)}
 			>
+				<span aria-hidden="true">{filtersCollapsed ? 'show' : 'hide'}</span>
 				<span class="min-w-0 truncate">
 					filters{activeFilterLabels.length ? ` (${activeFilterLabels.length})` : ''}
 				</span>
-				<span aria-hidden="true">{filtersCollapsed ? 'show' : 'hide'}</span>
 			</button>
 
 			<button
