@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { apiUrl, matchSource, type AnnotationRect, type AnnotationSet, type LevelMatch } from '$lib/api';
+	import {
+		apiUrl,
+		matchSource,
+		setMonitorMatcherAnnotations,
+		type AnnotationRect,
+		type AnnotationSet,
+		type LevelMatch
+	} from '$lib/api';
 	import { triggerKiaDeathOverlay } from '$lib/monitor.svelte';
 	import { addNotificationFlag } from '$lib/notifications.svelte';
 
@@ -31,6 +38,7 @@
 	let failedScreenIndex = $state(0);
 	let notificationTestCount = 0;
 	let screenshotLang = $state<'en' | 'jp'>('en');
+	let annotationUpdateAbort: AbortController | null = null;
 
 	let allStartScreenNames = $derived.by(() => {
 		const values: string[] = [];
@@ -165,6 +173,19 @@
 			matchLoading = false;
 		}
 	};
+
+	const updateMonitorAnnotations = (enabled: boolean) => {
+		annotationUpdateAbort?.abort();
+		annotationUpdateAbort = new AbortController();
+		void setMonitorMatcherAnnotations(enabled, { signal: annotationUpdateAbort.signal }).catch((err) => {
+			if (err instanceof DOMException && err.name === 'AbortError') return;
+			console.warn('Failed to update monitor annotation diagnostics', err);
+		});
+	};
+
+	$effect(() => {
+		updateMonitorAnnotations(annotationMode);
+	});
 
 	const addTestNotification = () => {
 		notificationTestCount += 1;

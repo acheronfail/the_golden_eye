@@ -1,12 +1,14 @@
 use std::ffi::CString;
+use std::sync::atomic::Ordering;
 
 use axum::Json;
-use axum::extract::Query;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::cv::LevelMatch;
+use crate::http::AppState;
 use crate::timer::PhaseTimer;
 
 #[derive(Deserialize)]
@@ -30,6 +32,25 @@ pub struct MatchResponse {
     frame_width: u32,
     #[serde(rename = "frameHeight")]
     frame_height: u32,
+}
+
+#[derive(Deserialize)]
+pub struct AnnotationParams {
+    annotations: bool,
+}
+
+#[derive(Serialize)]
+pub struct AnnotationResponse {
+    #[serde(rename = "annotationsEnabled")]
+    annotations_enabled: bool,
+}
+
+pub async fn handle_annotations(
+    State(state): State<AppState>,
+    Json(params): Json<AnnotationParams>,
+) -> Json<AnnotationResponse> {
+    state.monitor_annotations_enabled.store(params.annotations, Ordering::Release);
+    Json(AnnotationResponse { annotations_enabled: params.annotations })
 }
 
 pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> {

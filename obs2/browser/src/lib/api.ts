@@ -341,6 +341,22 @@ export const matchSource = async (
 	return res.json();
 };
 
+export const setMonitorMatcherAnnotations = async (
+	annotations: boolean,
+	options: { signal?: AbortSignal; keepalive?: boolean } = {}
+): Promise<boolean> => {
+	const res = await fetch(apiUrl('/api/v1/match/annotations'), {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ annotations }),
+		signal: options.signal,
+		keepalive: options.keepalive
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	const data = (await res.json()) as { annotationsEnabled: boolean };
+	return data.annotationsEnabled;
+};
+
 /** Details of a clip the backend saved out of the replay buffer at the end of a
  * run. Mirrors the Rust `RecordingSaved`. */
 export interface RecordingSaved {

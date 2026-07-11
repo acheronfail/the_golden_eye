@@ -1492,6 +1492,10 @@ impl CvMatcher {
         self
     }
 
+    pub fn set_diagnostics(&mut self, enabled: bool) {
+        self.diagnostics = enabled;
+    }
+
     pub fn diagnostics_enabled(&self) -> bool {
         self.diagnostics
     }
