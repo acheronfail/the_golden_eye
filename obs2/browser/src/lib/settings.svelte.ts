@@ -8,7 +8,7 @@ import {
 	type SettingsStatus
 } from './api';
 
-export const DEFAULT_CLIP_FILENAME_TEMPLATE = '{level} - {time} - {difficulty} - {status}';
+export const DEFAULT_CLIP_FILENAME_TEMPLATE = '{level}/{difficulty}/{time} - {timestamp_local}';
 export const DEFAULT_PRE_RUN_PADDING_SECS = 5;
 export const DEFAULT_POST_RUN_PADDING_SECS = 5;
 export const DEFAULT_MIN_FAILED_RUN_LEN_SECS = 10;
