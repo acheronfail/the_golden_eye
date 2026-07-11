@@ -88,8 +88,11 @@ test-rust *args:
     just configure-release
     source "$build_dir/rust-cargo-env.sh"
 
-    # Keep cargo test artifacts separate from the plugin build artifacts.
-    export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
+    # Share Cargo's release target by default so builds, tests, and packaging
+    # reuse the same incremental artifacts. Opt into isolation only when needed.
+    if [ "${GE_ISOLATE_CARGO_TEST_TARGETS:-}" = "1" ]; then
+      export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
+    fi
     cd "{{ justfile_directory() }}/obs2/rust" && node ../scripts/github-rust-test-summary.mjs "Rust Test Report" cargo test --release {{ args }}
 
 # runs the backend against the controllable Rust OBS host (no OBS process)
@@ -101,7 +104,11 @@ test-integration *args:
     just configure-release
     cmake --build "$build_dir" --target browser_build
     source "$build_dir/rust-cargo-env.sh"
-    export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/integration"
+    # Share Cargo's release target by default so builds, tests, and packaging
+    # reuse the same incremental artifacts. Opt into isolation only when needed.
+    if [ "${GE_ISOLATE_CARGO_TEST_TARGETS:-}" = "1" ]; then
+      export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/integration"
+    fi
     cd "{{ justfile_directory() }}/obs2/rust"
     node ../scripts/github-rust-test-summary.mjs "Rust Integration Test Report" cargo test --release --tests -- --ignored --test-threads=1 {{ args }}
 
@@ -216,22 +223,41 @@ configure-package-windows:
 make-release: configure-release-windows
     cmake --build obs2/build --config Release
 
-# package the plugin (release, longer compile times)
+# package the plugin with the slower Rust dist profile
 [macos]
-make-package: configure-package
+make-package-dist: configure-package
     cmake -E rm -rf obs2/build/package
     cmake --build obs2/build --target package-plugin
 
-# package the plugin (release, longer compile times)
+# package the plugin with the normal Rust release profile
+[macos]
+make-package: configure-release
+    cmake -E rm -rf obs2/build/package
+    cmake --build obs2/build --target package-plugin
+
+# package the plugin with the slower Rust dist profile
 [linux]
-make-package: configure-package
+make-package-dist: configure-package
     cmake -E rm -rf obs2/build-flatpak/package
     cmake --build obs2/build --target rust_build
     just _flatpak-build package-plugin ON
 
-# package the plugin (release, longer compile times)
+# package the plugin with the normal Rust release profile
+[linux]
+make-package: configure-release
+    cmake -E rm -rf obs2/build-flatpak/package
+    cmake --build obs2/build --target rust_build
+    just _flatpak-build package-plugin OFF
+
+# package the plugin with the slower Rust dist profile
 [windows]
-make-package: configure-package-windows
+make-package-dist: configure-package-windows
+    cmake -E rm -rf obs2/build/package
+    cmake --build obs2/build --config Release --target package-plugin
+
+# package the plugin with the normal Rust release profile
+[windows]
+make-package: configure-release-windows
     cmake -E rm -rf obs2/build/package
     cmake --build obs2/build --config Release --target package-plugin
 

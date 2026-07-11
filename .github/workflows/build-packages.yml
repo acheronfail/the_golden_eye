@@ -8,6 +8,11 @@ on:
         required: false
         type: number
         default: 1
+      package-profile:
+        description: Build packages with the slower size-optimized Rust distribution profile.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -111,7 +116,7 @@ jobs:
         run: just test-integration
 
       - name: Build Linux package
-        run: just make-package
+        run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
 
       - name: Upload Linux package
         uses: actions/upload-artifact@v7
@@ -176,7 +181,7 @@ jobs:
         run: just setup
 
       - name: Build macOS package
-        run: just make-package
+        run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
 
       - name: Upload macOS package
         uses: actions/upload-artifact@v7
@@ -298,7 +303,7 @@ jobs:
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
           call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
-          bash -c "just make-package"
+          bash -c "just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}"
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v7
