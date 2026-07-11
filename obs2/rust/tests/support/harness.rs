@@ -1,8 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use ffmpeg_next::format::Pixel;
+use ffmpeg_next::frame::Video;
+use ffmpeg_next::software::scaling::context::Context as ScalingContext;
+use ffmpeg_next::software::scaling::flag::Flags as ScalingFlags;
+use ffmpeg_next::{codec, format, media};
 use opencv::prelude::*;
 use opencv::{imgcodecs, imgproc};
 use serde_json::{Value, json};
@@ -26,6 +30,11 @@ impl Harness {
         let temp = test_dir();
         let replay_dir = temp.join("replays");
         let fixture = root.join("test/clips/replay-buffer-60s.mp4");
+        assert!(
+            fixture.is_file(),
+            "replay fixture is missing at {}; regenerate it with test/clips/generate_replay_fixture.sh",
+            fixture.display()
+        );
 
         // Each integration test is its own Cargo test binary, with exactly one
         // test, so changing HOME before the backend creates threads is safe and
@@ -154,32 +163,93 @@ pub fn probe_duration(path: &Path) -> f64 {
 }
 
 fn try_probe_duration(path: &Path) -> Option<f64> {
-    let output = Command::new("ffprobe")
-        .args(["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1"])
-        .arg(path)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8(output.stdout).ok()?.trim().parse().ok()
+    ffmpeg_next::init().ok()?;
+    let input = format::input(path).ok()?;
+    Some(input.duration() as f64 / 1_000_000.0)
 }
 
 /// Decode the six little-endian barcode boxes burned into the replay fixture.
 pub fn visual_second(path: &Path, offset: f64) -> u8 {
-    let output = Command::new("ffmpeg")
-        .args(["-hide_banner", "-loglevel", "error", "-ss", &format!("{offset:.3}"), "-i"])
-        .arg(path)
-        .args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"])
-        .output()
-        .expect("ffmpeg must be installed for integration tests");
-    assert!(output.status.success(), "ffmpeg failed: {}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(output.stdout.len(), 640 * 360);
+    let frame = decode_rgb_frame_at(path, offset)
+        .unwrap_or_else(|| panic!("linked FFmpeg could not decode {} at {offset:.3}s", path.display()));
+    assert_eq!((frame.width, frame.height), (640, 360));
     (0..6).fold(0, |value, bit| {
         let x = 104 + bit * 72 + 28;
-        let pixel = output.stdout[325 * 640 + x];
+        let pixel = frame.data[(325 * frame.width as usize + x) * 3];
         value | (u8::from(pixel > 200) << bit)
     })
+}
+
+struct RgbFrame {
+    data: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
+fn decode_rgb_frame_at(path: &Path, offset: f64) -> Option<RgbFrame> {
+    ffmpeg_next::init().ok()?;
+    let mut input = format::input(path).ok()?;
+    let stream = input.streams().best(media::Type::Video)?;
+    let stream_index = stream.index();
+    let time_base = f64::from(stream.time_base());
+    let context = codec::context::Context::from_parameters(stream.parameters()).ok()?;
+    let mut decoder = context.decoder().video().ok()?;
+    let mut scaler = ScalingContext::get(
+        decoder.format(),
+        decoder.width(),
+        decoder.height(),
+        Pixel::RGB24,
+        decoder.width(),
+        decoder.height(),
+        ScalingFlags::POINT,
+    )
+    .ok()?;
+    let mut first_timestamp = None;
+
+    for (packet_stream, packet) in input.packets() {
+        if packet_stream.index() != stream_index {
+            continue;
+        }
+        decoder.send_packet(&packet).ok()?;
+        if let Some(frame) = receive_target_frame(&mut decoder, &mut scaler, time_base, offset, &mut first_timestamp) {
+            return Some(frame);
+        }
+    }
+
+    decoder.send_eof().ok()?;
+    receive_target_frame(&mut decoder, &mut scaler, time_base, offset, &mut first_timestamp)
+}
+
+fn receive_target_frame(
+    decoder: &mut ffmpeg_next::decoder::Video,
+    scaler: &mut ScalingContext,
+    time_base: f64,
+    target_offset: f64,
+    first_timestamp: &mut Option<f64>,
+) -> Option<RgbFrame> {
+    let mut decoded = Video::empty();
+    while decoder.receive_frame(&mut decoded).is_ok() {
+        let timestamp = decoded.timestamp().unwrap_or(0) as f64 * time_base;
+        let start = *first_timestamp.get_or_insert(timestamp);
+        if timestamp - start + 0.000_001 < target_offset {
+            continue;
+        }
+
+        let mut rgb = Video::empty();
+        scaler.run(&decoded, &mut rgb).ok()?;
+        let width = rgb.width();
+        let height = rgb.height();
+        let stride = rgb.stride(0);
+        let source = rgb.data(0);
+        let mut data = vec![0; width as usize * height as usize * 3];
+        for y in 0..height as usize {
+            let source_row = &source[y * stride..][..width as usize * 3];
+            let output_row = &mut data[y * width as usize * 3..][..width as usize * 3];
+            output_row.copy_from_slice(source_row);
+        }
+        return Some(RgbFrame { data, width, height });
+    }
+    None
 }
 
 fn repo_root() -> PathBuf {

@@ -96,11 +96,6 @@ test-rust *args:
 test-integration *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    command -v ffmpeg >/dev/null
-    command -v ffprobe >/dev/null
-    if [ ! -f "{{ justfile_directory() }}/test/clips/replay-buffer-60s.mp4" ]; then
-      "{{ justfile_directory() }}/test/clips/generate_replay_fixture.sh"
-    fi
 
     build_dir="{{ justfile_directory() }}/obs2/build"
     just configure-release
