@@ -27,7 +27,7 @@ use crate::{ffmpeg, ge};
 
 /// Default filename template for trimmed clips. Mirrors the frontend default and
 /// falls back through the unique-name suffixer when multiple runs render alike.
-pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level} - {time} - {difficulty} - {status}";
+pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level}/{difficulty}/{time} - {timestamp_local}";
 pub const DEFAULT_PRE_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS: f64 = 10.0;
