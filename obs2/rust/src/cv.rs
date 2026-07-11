@@ -158,6 +158,11 @@ const SCREEN_STATUS_REGION: (f64, f64, f64, f64) = (0.18, 0.47, 0.48, 0.10);
 // same-shaped banner in the wrong language is misclassified as another screen.
 const LANGUAGE_START_THRESHOLD: f64 = 0.82;
 const LANGUAGE_START_MARGIN: f64 = 0.12;
+// The language marker is the vertical START tab on the right side of the
+// level-start briefing. It is fixed near the top-right of both centered 4:3
+// captures and wider 16:9 captures, so there is no need to search the whole
+// frame.
+const LANGUAGE_START_REGION: (f64, f64, f64, f64) = (0.68, 0.035, 0.30, 0.35);
 // The mission-select grid ("levels" screen) carries none of the header colons
 // the other overlays share, so the entry gate rejects it. It is instead
 // recognized by the distinctive film-strip divider that separates its four
@@ -1684,8 +1689,10 @@ impl CvMatcher {
     }
 
     fn detect_start_language(&self, frame: &Mat, scale: f64) -> Result<Option<(&'static str, MatchRect)>> {
-        let en = best_match(frame, &scaled(&self.language_start_en, scale)?)?;
-        let jp = best_match(frame, &scaled(&self.language_start_jp, scale)?)?;
+        let search_rect = fractional_rect(frame.cols(), frame.rows(), LANGUAGE_START_REGION);
+        let region = frame.roi(search_rect)?.try_clone()?;
+        let en = best_match(&region, &scaled(&self.language_start_en, scale)?)?;
+        let jp = best_match(&region, &scaled(&self.language_start_jp, scale)?)?;
         let en_score = en.map_or(-1.0, |r| r.score);
         let jp_score = jp.map_or(-1.0, |r| r.score);
         dbg_cv!("[language] start en={en_score:.3} jp={jp_score:.3}");
@@ -1693,7 +1700,7 @@ impl CvMatcher {
         let (lang, rect, score, other) =
             if en_score >= jp_score { ("en", en, en_score, jp_score) } else { ("jp", jp, jp_score, en_score) };
         if score >= LANGUAGE_START_THRESHOLD && score - other >= LANGUAGE_START_MARGIN {
-            Ok(rect.map(|r| (lang, r)))
+            Ok(rect.map(|r| (lang, r.offset(search_rect.x, search_rect.y))))
         } else {
             Ok(None)
         }
@@ -1954,7 +1961,7 @@ impl CvMatcher {
             &mut search_regions,
             &mapper,
             "language start tab search",
-            Rect::new(0, 0, frame.cols(), frame.rows()),
+            fractional_rect(frame.cols(), frame.rows(), LANGUAGE_START_REGION),
         );
         if let Some((detected_lang, rect)) = self.detect_start_language(&frame, header.scale)? {
             result.detected_lang = Some(detected_lang.to_owned());
