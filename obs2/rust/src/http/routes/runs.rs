@@ -1,10 +1,9 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::SystemTime;
 
-use anyhow::{Context, anyhow};
+use anyhow::Context;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Query, State};
@@ -24,12 +23,6 @@ const THUMBNAIL_MAX_WIDTH: u32 = 320;
 #[derive(Debug, Deserialize)]
 pub struct RunPathParams {
     path: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunDirectoryParams {
-    kind: RunDirectoryKind,
 }
 
 #[derive(Debug, Deserialize)]
@@ -106,7 +99,7 @@ struct ConfiguredRunDirectory {
 }
 
 #[derive(Debug)]
-enum RunPathError {
+pub(crate) enum RunPathError {
     BadRequest(&'static str),
     Conflict(&'static str),
     Forbidden(&'static str),
@@ -116,7 +109,7 @@ enum RunPathError {
 }
 
 impl RunPathError {
-    fn into_response(self) -> Response {
+    pub(crate) fn into_response(self) -> Response {
         match self {
             RunPathError::BadRequest(message) => (StatusCode::BAD_REQUEST, message).into_response(),
             RunPathError::Conflict(message) => (StatusCode::CONFLICT, message).into_response(),
@@ -256,60 +249,6 @@ pub async fn handle_delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[axum::debug_handler]
-pub async fn handle_reveal(
-    State(state): State<AppState>,
-    Query(params): Query<RunPathParams>,
-) -> Result<impl IntoResponse> {
-    let settings = state.settings.get_effective();
-    let path = authorize_tagged_run_path(&settings, &params.path).map_err(RunPathError::into_response)?;
-
-    tokio::task::spawn_blocking(move || reveal_in_file_browser(&path))
-        .await
-        .map_err(|err| {
-            tracing::error!("run reveal task failed: {err:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "run reveal failed").into_response()
-        })?
-        .map_err(RunPathError::into_response)?;
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-#[axum::debug_handler]
-pub async fn handle_reveal_folder(
-    State(state): State<AppState>,
-    Query(params): Query<RunDirectoryParams>,
-) -> Result<impl IntoResponse> {
-    let settings = state.settings.get_effective();
-    let path = match params.kind {
-        RunDirectoryKind::Completed => configured_dir(&settings.completed_output_path)
-            .ok_or(RunPathError::NotFound("completed run clip folder is not configured")),
-        RunDirectoryKind::Failed => {
-            if !settings.save_failed_runs {
-                Err(RunPathError::NotFound("failed run clip folder is not configured"))
-            } else {
-                configured_dir(&settings.failed_output_path)
-                    .ok_or(RunPathError::NotFound("failed run clip folder is not configured"))
-            }
-        }
-    }
-    .map_err(RunPathError::into_response)?;
-
-    tokio::task::spawn_blocking(move || {
-        ensure_configured_run_directory(&path).map_err(RunPathError::Internal)?;
-        reveal_folder_in_file_browser(&path)
-    })
-    .await
-    .map_err(|err| {
-        tracing::error!("run folder reveal task failed: {err:#}");
-        (StatusCode::INTERNAL_SERVER_ERROR, "run folder reveal failed").into_response()
-    })?
-    .map_err(RunPathError::into_response)?;
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-#[axum::debug_handler]
 pub async fn handle_rename(
     State(state): State<AppState>,
     Json(req): Json<RunRenameRequest>,
@@ -434,7 +373,7 @@ pub fn stream_configured_runs(settings: &AppSettings, mut emit: impl FnMut(RunsS
     let _ = emit(RunsStreamEvent::Done);
 }
 
-fn ensure_configured_run_directory(dir: &Path) -> anyhow::Result<()> {
+pub(crate) fn ensure_configured_run_directory(dir: &Path) -> anyhow::Result<()> {
     match fs::metadata(dir) {
         Ok(metadata) if metadata.is_dir() => Ok(()),
         Ok(_) => anyhow::bail!("configured path is not a directory"),
@@ -558,7 +497,10 @@ pub fn tagged_clip(path: &Path) -> anyhow::Result<Option<RunClip>> {
     }))
 }
 
-fn authorize_tagged_run_path(settings: &AppSettings, raw_path: &str) -> std::result::Result<PathBuf, RunPathError> {
+pub(crate) fn authorize_tagged_run_path(
+    settings: &AppSettings,
+    raw_path: &str,
+) -> std::result::Result<PathBuf, RunPathError> {
     let requested = resolve_path(raw_path.trim());
     if raw_path.trim().is_empty() {
         return Err(RunPathError::BadRequest("path is required"));
@@ -580,6 +522,24 @@ fn authorize_tagged_run_path(settings: &AppSettings, raw_path: &str) -> std::res
         Ok(Some(_)) => Ok(path),
         Ok(None) => Err(RunPathError::Forbidden("run clip was not created by The Golden Eye")),
         Err(err) => Err(RunPathError::Probe(err)),
+    }
+}
+
+pub(crate) fn configured_run_directory_for_kind(
+    settings: &AppSettings,
+    kind: RunDirectoryKind,
+) -> std::result::Result<PathBuf, RunPathError> {
+    match kind {
+        RunDirectoryKind::Completed => configured_dir(&settings.completed_output_path)
+            .ok_or(RunPathError::NotFound("completed run clip folder is not configured")),
+        RunDirectoryKind::Failed => {
+            if !settings.save_failed_runs {
+                Err(RunPathError::NotFound("failed run clip folder is not configured"))
+            } else {
+                configured_dir(&settings.failed_output_path)
+                    .ok_or(RunPathError::NotFound("failed run clip folder is not configured"))
+            }
+        }
     }
 }
 
@@ -724,45 +684,6 @@ fn normalized_run_file_name(path: &Path, raw: &str) -> std::result::Result<Strin
     }
 
     Ok(file_name)
-}
-
-fn reveal_in_file_browser(path: &Path) -> std::result::Result<(), RunPathError> {
-    #[cfg(target_os = "macos")]
-    let status = Command::new("open").arg("-R").arg(path).status();
-
-    #[cfg(target_os = "windows")]
-    let status = Command::new("explorer").arg(format!("/select,{}", path.display())).status();
-
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    let status = {
-        let parent = path.parent().unwrap_or_else(|| Path::new("."));
-        Command::new("xdg-open").arg(parent).status()
-    };
-
-    let status = status.map_err(|err| RunPathError::Internal(err.into()))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(RunPathError::Internal(anyhow!("file browser exited with status {status}")))
-    }
-}
-
-fn reveal_folder_in_file_browser(path: &Path) -> std::result::Result<(), RunPathError> {
-    #[cfg(target_os = "macos")]
-    let status = Command::new("open").arg(path).status();
-
-    #[cfg(target_os = "windows")]
-    let status = Command::new("explorer").arg(path).status();
-
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    let status = Command::new("xdg-open").arg(path).status();
-
-    let status = status.map_err(|err| RunPathError::Internal(err.into()))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(RunPathError::Internal(anyhow!("file browser exited with status {status}")))
-    }
 }
 
 async fn serve_video_file(path: PathBuf, headers: &HeaderMap) -> Result<Response> {
