@@ -91,7 +91,7 @@ jobs:
         run: just make-release
 
       - name: Run frame regression tests
-        run: just test
+        run: just test-cv
 
       - name: Upload frame regression test results
         if: ${{ always() }}
@@ -100,6 +100,9 @@ jobs:
           name: frame-regression-test-results-linux
           path: test/test_results.json
           if-no-files-found: ignore
+
+      - name: Run Browser tests
+        run: just test-browser
 
       - name: Run Rust tests
         run: just test-rust

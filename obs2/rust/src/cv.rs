@@ -1146,7 +1146,7 @@ struct AspectCalibration {
 // future frames in one pass, instead of the matcher redoing it on the CPU every
 // frame. Fractions are resolution-independent, so they apply regardless of the
 // height the capture downscales to.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize)]
 pub struct CaptureRegion {
     pub crop_x: f32,
     pub crop_y: f32,
