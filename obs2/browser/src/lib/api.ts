@@ -300,21 +300,43 @@ export interface LevelMatch {
 		h: number;
 		score: number;
 	}[];
+	annotation_sets?: AnnotationSet[];
 	runtime_ms: number;
+}
+
+export interface AnnotationRect {
+	label: string;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	score?: number;
+}
+
+export interface AnnotationSet {
+	id: string;
+	label: string;
+	annotations: AnnotationRect[];
 }
 
 export interface MatchSourceResponse {
 	match: LevelMatch;
-	imageData: string;
-	imageMime: string;
-	diagnosticsEnabled: boolean;
+	annotationsEnabled: boolean;
+	frameWidth: number;
+	frameHeight: number;
 }
 
-export const matchSource = async (source: string, lang: 'en' | 'jp'): Promise<MatchSourceResponse> => {
-	const res = await fetch(
-		apiUrl(`/api/v1/match?source=${encodeURIComponent(source)}&lang=${encodeURIComponent(lang)}`),
-		{ method: 'POST' }
-	);
+export const matchSource = async (
+	source: string,
+	lang: 'en' | 'jp',
+	options: { annotations?: boolean } = {}
+): Promise<MatchSourceResponse> => {
+	const params = new URLSearchParams({
+		source,
+		lang,
+		annotations: options.annotations ? 'true' : 'false'
+	});
+	const res = await fetch(apiUrl(`/api/v1/match?${params.toString()}`), { method: 'POST' });
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 	return res.json();
 };

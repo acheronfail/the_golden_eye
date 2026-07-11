@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { apiUrl, matchSource, type LevelMatch } from '$lib/api';
+	import { apiUrl, matchSource, type AnnotationRect, type AnnotationSet, type LevelMatch } from '$lib/api';
 	import { triggerKiaDeathOverlay } from '$lib/monitor.svelte';
 	import { addNotificationFlag } from '$lib/notifications.svelte';
 
@@ -20,8 +20,12 @@
 	let matchError = $state<string | null>(null);
 	let matchLoading = $state(false);
 	let matchResult = $state<LevelMatch | null>(null);
-	let matchImageData = $state<string | null>(null);
-	let diagnosticsEnabled = $state(false);
+	let annotationMode = $state(false);
+	let annotationsEnabled = $state(false);
+	let selectedAnnotationSetId = $state<string | null>(null);
+	let hiddenAnnotationIds = $state<string[]>([]);
+	let matchFrameWidth = $state(0);
+	let matchFrameHeight = $state(0);
 	let statsScreenIndex = $state(0);
 	let startScreenIndex = $state(0);
 	let failedScreenIndex = $state(0);
@@ -82,8 +86,11 @@
 	const clearMatchResult = () => {
 		matchResult = null;
 		matchError = null;
-		diagnosticsEnabled = false;
-		matchImageData = null;
+		annotationsEnabled = false;
+		selectedAnnotationSetId = null;
+		hiddenAnnotationIds = [];
+		matchFrameWidth = 0;
+		matchFrameHeight = 0;
 	};
 
 	const getSources = async () => {
@@ -142,10 +149,16 @@
 		matchLoading = true;
 		matchError = null;
 		try {
-			const result = await matchSource(selectedSource.name, screenshotLang);
+			if (annotationMode) {
+				await getScreenshot(selectedSource.name)();
+			}
+			const result = await matchSource(selectedSource.name, screenshotLang, { annotations: annotationMode });
 			matchResult = result.match;
-			diagnosticsEnabled = result.diagnosticsEnabled;
-			matchImageData = `data:${result.imageMime};base64,${result.imageData}`;
+			annotationsEnabled = result.annotationsEnabled;
+			matchFrameWidth = result.frameWidth;
+			matchFrameHeight = result.frameHeight;
+			selectedAnnotationSetId = result.match.annotation_sets?.[0]?.id ?? null;
+			hiddenAnnotationIds = [];
 		} catch (err) {
 			matchError = err instanceof Error ? err.message : 'failed to match source';
 		} finally {
@@ -175,6 +188,239 @@
 			.replace(/_/g, ' ')
 			.replace(/([a-z])([A-Z])/g, '$1 $2')
 			.toLowerCase();
+
+	const annotationColors = [
+		'#22d3ee',
+		'#fbbf24',
+		'#fb7185',
+		'#a78bfa',
+		'#34d399',
+		'#f97316',
+		'#60a5fa',
+		'#f472b6',
+		'#bef264',
+		'#2dd4bf'
+	];
+	const labelPaddingX = 8;
+	const labelPaddingY = 5;
+	const labelLineHeight = 18;
+	const labelCharWidth = 8.3;
+	const labelMaxChars = 28;
+	const labelMargin = 6;
+
+	interface OverlayBox {
+		x: number;
+		y: number;
+		w: number;
+		h: number;
+	}
+
+	interface OverlayPoint {
+		x: number;
+		y: number;
+	}
+
+	interface PlacedAnnotation {
+		index: number;
+		id: string;
+		region: OverlayBox;
+		label: OverlayBox;
+		lines: string[];
+		color: string;
+		fill: string;
+		connectorStart: OverlayPoint;
+		connectorEnd: OverlayPoint;
+	}
+
+	interface AnnotationListItem {
+		id: string;
+		index: number;
+		annotation: AnnotationRect;
+		label: string;
+		color: string;
+		fill: string;
+	}
+
+	let annotationSets = $derived<AnnotationSet[]>(matchResult?.annotation_sets ?? []);
+	let selectedAnnotationSet = $derived<AnnotationSet | null>(
+		annotationSets.find((set) => set.id === selectedAnnotationSetId) ?? annotationSets[0] ?? null
+	);
+
+	const annotationText = (annotation: AnnotationRect) =>
+		annotation.score == null ? annotation.label : `${annotation.label} ${annotation.score.toFixed(2)}`;
+
+	const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+	const annotationColor = (index: number) => annotationColors[index % annotationColors.length];
+
+	const annotationFill = (color: string) => `${color}26`;
+
+	const annotationId = (set: AnnotationSet, index: number) => `${set.id}:${index}`;
+
+	const annotationListItems = (set: AnnotationSet | null): AnnotationListItem[] =>
+		set?.annotations.map((annotation, index) => {
+			const color = annotationColor(index);
+			return {
+				id: annotationId(set, index),
+				index,
+				annotation,
+				label: annotationText(annotation),
+				color,
+				fill: annotationFill(color)
+			};
+		}) ?? [];
+
+	const toggleAnnotation = (id: string) => {
+		hiddenAnnotationIds = hiddenAnnotationIds.includes(id)
+			? hiddenAnnotationIds.filter((item) => item !== id)
+			: [...hiddenAnnotationIds, id];
+	};
+
+	const normalizeRegion = (annotation: AnnotationRect): OverlayBox => {
+		const frameW = Math.max(1, matchFrameWidth);
+		const frameH = Math.max(1, matchFrameHeight);
+		const x = clamp(annotation.x, 0, frameW - 1);
+		const y = clamp(annotation.y, 0, frameH - 1);
+		return {
+			x,
+			y,
+			w: clamp(annotation.w, 1, frameW - x),
+			h: clamp(annotation.h, 1, frameH - y)
+		};
+	};
+
+	const wrapLabel = (text: string): string[] => {
+		const words = text.split(/\s+/).filter(Boolean);
+		const lines: string[] = [];
+		let line = '';
+
+		for (const word of words) {
+			const next = line ? `${line} ${word}` : word;
+			if (next.length <= labelMaxChars) {
+				line = next;
+				continue;
+			}
+			if (line) lines.push(line);
+			if (word.length <= labelMaxChars) {
+				line = word;
+			} else {
+				lines.push(word.slice(0, labelMaxChars - 1));
+				line = word.slice(labelMaxChars - 1);
+			}
+		}
+		if (line) lines.push(line);
+		return lines.length ? lines : [text];
+	};
+
+	const labelSize = (lines: string[]): { w: number; h: number } => ({
+		w: Math.max(56, Math.ceil(Math.max(...lines.map((line) => line.length)) * labelCharWidth + labelPaddingX * 2)),
+		h: Math.ceil(lines.length * labelLineHeight + labelPaddingY * 2)
+	});
+
+	const clampLabel = (box: OverlayBox, frameW: number, frameH: number): OverlayBox => ({
+		...box,
+		x: clamp(box.x, labelMargin, Math.max(labelMargin, frameW - box.w - labelMargin)),
+		y: clamp(box.y, labelMargin, Math.max(labelMargin, frameH - box.h - labelMargin))
+	});
+
+	const boxCenter = (box: OverlayBox): OverlayPoint => ({
+		x: box.x + box.w / 2,
+		y: box.y + box.h / 2
+	});
+
+	const overlapArea = (a: OverlayBox, b: OverlayBox): number => {
+		const x = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+		const y = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+		return x * y;
+	};
+
+	const distanceSquared = (a: OverlayPoint, b: OverlayPoint): number => {
+		const dx = a.x - b.x;
+		const dy = a.y - b.y;
+		return dx * dx + dy * dy;
+	};
+
+	const connectorStart = (label: OverlayBox, target: OverlayPoint): OverlayPoint => ({
+		x: clamp(target.x, label.x, label.x + label.w),
+		y: clamp(target.y, label.y, label.y + label.h)
+	});
+
+	const labelCandidates = (region: OverlayBox, label: { w: number; h: number }, frameW: number, frameH: number) => {
+		const center = boxCenter(region);
+		const candidates: OverlayBox[] = [];
+		const offsets = [10, 34, 66, 104, 146];
+
+		for (const offset of offsets) {
+			candidates.push({ x: center.x - label.w / 2, y: region.y - label.h - offset, w: label.w, h: label.h });
+			candidates.push({ x: center.x - label.w / 2, y: region.y + region.h + offset, w: label.w, h: label.h });
+			candidates.push({ x: region.x + region.w + offset, y: center.y - label.h / 2, w: label.w, h: label.h });
+			candidates.push({ x: region.x - label.w - offset, y: center.y - label.h / 2, w: label.w, h: label.h });
+			candidates.push({ x: region.x + region.w + offset, y: region.y - label.h - offset, w: label.w, h: label.h });
+			candidates.push({ x: region.x - label.w - offset, y: region.y - label.h - offset, w: label.w, h: label.h });
+			candidates.push({ x: region.x + region.w + offset, y: region.y + region.h + offset, w: label.w, h: label.h });
+			candidates.push({ x: region.x - label.w - offset, y: region.y + region.h + offset, w: label.w, h: label.h });
+		}
+
+		const laneYStep = label.h + 5;
+		const laneXs = [labelMargin, frameW - label.w - labelMargin, frameW / 2 - label.w / 2];
+		for (const x of laneXs) {
+			for (let y = labelMargin; y <= frameH - label.h - labelMargin; y += laneYStep) {
+				candidates.push({ x, y, w: label.w, h: label.h });
+			}
+		}
+
+		return candidates.map((candidate) => clampLabel(candidate, frameW, frameH));
+	};
+
+	const placeAnnotations = (items: AnnotationListItem[]): PlacedAnnotation[] => {
+		if (matchFrameWidth <= 0 || matchFrameHeight <= 0) return [];
+
+		const frameW = matchFrameWidth;
+		const frameH = matchFrameHeight;
+		const regions = items.map((item) => normalizeRegion(item.annotation));
+		const occupied: OverlayBox[] = [];
+
+		return items.map((item, itemIndex) => {
+			const { index, id, label: labelText, color, fill } = item;
+			const region = regions[itemIndex];
+			const lines = wrapLabel(labelText);
+			const size = labelSize(lines);
+			const target = boxCenter(region);
+			const label = labelCandidates(region, size, frameW, frameH)
+				.map((candidate) => {
+					const labelOverlap = occupied.reduce((sum, box) => sum + overlapArea(candidate, box), 0);
+					const regionOverlap = regions.reduce((sum, box) => sum + overlapArea(candidate, box), 0);
+					return {
+						box: candidate,
+						score:
+							labelOverlap * 100_000 +
+							overlapArea(candidate, region) * 1_000 +
+							regionOverlap * 25 +
+							distanceSquared(boxCenter(candidate), target)
+					};
+				})
+				.sort((a, b) => a.score - b.score)[0].box;
+
+			occupied.push(label);
+			return {
+				index,
+				id,
+				region,
+				label,
+				lines,
+				color,
+				fill: annotationFill(color),
+				connectorStart: connectorStart(label, target),
+				connectorEnd: target
+			};
+		});
+	};
+
+	let annotationItems = $derived<AnnotationListItem[]>(annotationListItems(selectedAnnotationSet));
+	let visibleAnnotationItems = $derived<AnnotationListItem[]>(
+		annotationItems.filter((item) => !hiddenAnnotationIds.includes(item.id))
+	);
+	let placedAnnotations = $derived<PlacedAnnotation[]>(placeAnnotations(visibleAnnotationItems));
 </script>
 
 <div class="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4">
@@ -204,6 +450,14 @@
 				Japanese
 			</label>
 		</div>
+	</fieldset>
+
+	<fieldset class="obs-panel rounded px-4 py-3" aria-labelledby="developer-annotation-heading">
+		<h2 id="developer-annotation-heading" class="mb-2 font-semibold">Annotation Mode</h2>
+		<label class="flex items-center gap-2 pl-4">
+			<input class="obs-checkbox" type="checkbox" bind:checked={annotationMode} />
+			<span>Include matcher annotations</span>
+		</label>
 	</fieldset>
 
 	<div class="obs-panel flex flex-col gap-4 rounded px-4 py-3">
@@ -291,8 +545,126 @@
 			</div>
 
 			<div class="grid gap-4 lg:grid-cols-[minmax(18rem,24rem)_1fr]">
-				{#if matchImageData}
-					<img src={matchImageData} alt="Annotated OBS match" class="obs-preview max-w-full rounded" />
+				{#if annotationsEnabled && imageData && selectedAnnotationSet && matchFrameWidth > 0 && matchFrameHeight > 0}
+					<div class="flex min-w-0 flex-col gap-2">
+						<label class="grid gap-1 text-sm sm:max-w-72">
+							<span class="obs-muted">Annotation set</span>
+							<select
+								class="obs-select w-full text-sm"
+								value={selectedAnnotationSet.id}
+								onchange={(event) => (selectedAnnotationSetId = (event.currentTarget as HTMLSelectElement).value)}
+							>
+								{#each annotationSets as set}
+									<option value={set.id}>{set.label}</option>
+								{/each}
+							</select>
+						</label>
+						<div class="grid gap-2 text-sm">
+							<div class="flex items-center justify-between gap-3">
+								<span class="obs-muted">Visible annotations</span>
+								<span class="obs-dim font-mono text-xs">{visibleAnnotationItems.length}/{annotationItems.length}</span>
+							</div>
+							<div class="grid max-h-36 gap-1 overflow-auto pr-1 sm:grid-cols-2">
+								{#each annotationItems as item}
+									<label class="flex min-w-0 items-center gap-2 rounded px-1 py-0.5">
+										<input
+											type="checkbox"
+											class="obs-checkbox shrink-0"
+											checked={!hiddenAnnotationIds.includes(item.id)}
+											onchange={() => toggleAnnotation(item.id)}
+										/>
+										<span
+											class="h-3 w-3 shrink-0 rounded-sm border"
+											style={`border-color:${item.color};background:${item.fill}`}
+										></span>
+										<span class="truncate font-mono text-xs" title={item.label}>{item.label}</span>
+									</label>
+								{/each}
+							</div>
+						</div>
+						<div class="obs-preview relative max-w-full overflow-hidden rounded">
+							<img src={imageData} alt="OBS match source" class="block w-full" />
+							<svg
+								class="pointer-events-none absolute inset-0 h-full w-full"
+								viewBox={`0 0 ${matchFrameWidth} ${matchFrameHeight}`}
+								preserveAspectRatio="none"
+								aria-hidden="true"
+							>
+								<defs>
+									{#each placedAnnotations as item}
+										<marker
+											id={`annotation-arrow-${item.index}`}
+											viewBox="0 0 10 10"
+											refX="9"
+											refY="5"
+											markerWidth="3"
+											markerHeight="3"
+											orient="auto-start-reverse"
+										>
+											<path d="M 0 0 L 10 5 L 0 10 z" fill={item.color} />
+										</marker>
+									{/each}
+								</defs>
+
+								{#each placedAnnotations as item}
+									<rect
+										x={item.region.x}
+										y={item.region.y}
+										width={item.region.w}
+										height={item.region.h}
+										fill={item.fill}
+										stroke={item.color}
+										stroke-width="3"
+										vector-effect="non-scaling-stroke"
+									/>
+									<line
+										x1={item.connectorStart.x}
+										y1={item.connectorStart.y}
+										x2={item.connectorEnd.x}
+										y2={item.connectorEnd.y}
+										stroke={item.color}
+										stroke-width="2"
+										vector-effect="non-scaling-stroke"
+										marker-end={`url(#annotation-arrow-${item.index})`}
+									/>
+								{/each}
+
+								{#each placedAnnotations as item}
+									<g>
+										<rect
+											x={item.label.x}
+											y={item.label.y}
+											width={item.label.w}
+											height={item.label.h}
+											rx="3"
+											fill="rgba(0,0,0,0.82)"
+											stroke={item.color}
+											stroke-width="2"
+											vector-effect="non-scaling-stroke"
+										/>
+										<text
+											x={item.label.x + labelPaddingX}
+											y={item.label.y + labelPaddingY + 13}
+											fill="white"
+											font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+											font-size="14"
+											font-weight="700"
+										>
+											{#each item.lines as line, lineIndex}
+												<tspan
+													x={item.label.x + labelPaddingX}
+													dy={lineIndex === 0 ? 0 : labelLineHeight}
+													fill={lineIndex === 0 ? item.color : 'white'}
+												>
+													{line}
+												</tspan>
+											{/each}
+										</text>
+									</g>
+								{/each}
+							</svg>
+						</div>
+					</div>
 				{/if}
 
 				<div class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
@@ -310,14 +682,11 @@
 					<span class="font-mono">{matchResult.runtime_ms.toFixed(2)} ms</span>
 					<span class="obs-muted">regions</span>
 					<span class="font-mono">{matchResult.match_regions?.length ?? 0}</span>
-					<span class="obs-muted">diagnostics</span>
-					{#if diagnosticsEnabled}
+					<span class="obs-muted">annotations</span>
+					{#if annotationsEnabled}
 						<span class="font-mono">enabled</span>
 					{:else}
-						<span
-							class="cursor-help font-mono text-(--obs-danger) uppercase"
-							title="re-run the backend in debug mode to enable annotation support">disabled</span
-						>
+						<span class="font-mono">disabled</span>
 					{/if}
 
 					{#if matchResult.times}

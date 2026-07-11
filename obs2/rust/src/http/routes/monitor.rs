@@ -1,4 +1,6 @@
+use std::env;
 use std::ffi::{CString, c_void};
+use std::str::FromStr;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -15,7 +17,7 @@ use crate::cv::{CaptureRegion, CvMatcher, LevelMatch};
 use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason, RecordingStatus};
 
 const DEFAULT_MONITOR_LANGUAGE: &str = "jp";
-const MONITOR_FPS_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
+const MONITOR_FPS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
 
 /// A running monitor. OBS pushes captured frames into `mailbox` from its render
 /// callback (keyed by the leaked `producer` pointer); the worker `thread`
@@ -47,6 +49,9 @@ struct Frame {
     buf: FrameBuf,
     width: u32,
     height: u32,
+    captured_at: Option<Instant>,
+    capture_ms: Option<f64>,
+    dropped_frames_total: u64,
 }
 
 // SAFETY: a `Frame` owns its buffer exclusively and never aliases the raw
@@ -104,6 +109,8 @@ struct FrameMailbox {
 struct MailboxState {
     /// Buffered frames, oldest at the front. Capped at `FrameMailbox::capacity`.
     frames: std::collections::VecDeque<Frame>,
+    /// Total number of frames dropped because the producer outran the consumer.
+    dropped_frames: u64,
     /// Set on stop: wakes a blocked consumer and makes `push` drop new frames.
     closed: bool,
 }
@@ -115,6 +122,7 @@ impl FrameMailbox {
             capacity,
             state: Mutex::new(MailboxState {
                 frames: std::collections::VecDeque::with_capacity(capacity),
+                dropped_frames: 0,
                 closed: false,
             }),
             available: Condvar::new(),
@@ -124,14 +132,16 @@ impl FrameMailbox {
     /// Producer: append `frame` to the buffer. When the buffer is full the oldest
     /// frame is dropped (and freed) to make room -- newest always wins. A no-op
     /// once closed.
-    fn push(&self, frame: Frame) {
+    fn push(&self, mut frame: Frame) {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         if state.closed {
             return; // `frame` is dropped here -> its buffer is freed.
         }
         if state.frames.len() == self.capacity {
             state.frames.pop_front(); // drop the oldest unconsumed frame -> freed.
+            state.dropped_frames += 1;
         }
+        frame.dropped_frames_total = state.dropped_frames;
         state.frames.push_back(frame);
         drop(state);
         self.available.notify_one();
@@ -171,6 +181,7 @@ struct ProducerCtx {
     name: CString,
     region: Arc<Mutex<Option<CaptureRegion>>>,
     mailbox: Arc<FrameMailbox>,
+    timing_enabled: bool,
 }
 
 // SAFETY: see MonitorHandle -- the box is created on the start thread and
@@ -218,6 +229,7 @@ unsafe extern "C" fn ge_frame_callback(param: *mut c_void, _cx: u32, _cy: u32) {
 
     let mut width: u32 = 0;
     let mut height: u32 = 0;
+    let capture_started = producer.timing_enabled.then(Instant::now);
     // We're already on the graphics thread inside a graphics context, so the
     // obs_enter_graphics nested inside this call is a no-op ref-bump, not a
     // re-lock (OBS tracks the context per thread) -- no deadlock.
@@ -236,8 +248,28 @@ unsafe extern "C" fn ge_frame_callback(param: *mut c_void, _cx: u32, _cy: u32) {
     if frame.is_null() {
         return;
     }
+    let (captured_at, capture_ms) = if let Some(capture_started) = capture_started {
+        let captured_at = Instant::now();
+        (Some(captured_at), Some(captured_at.duration_since(capture_started).as_secs_f64() * 1000.0))
+    } else {
+        (None, None)
+    };
     let len = (width * height * 4) as usize;
-    producer.mailbox.push(Frame { buf: FrameBuf::CMalloc { ptr: frame, len }, width, height });
+    producer.mailbox.push(Frame {
+        buf: FrameBuf::CMalloc { ptr: frame, len },
+        width,
+        height,
+        captured_at,
+        capture_ms,
+        dropped_frames_total: 0,
+    });
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CapturedFrameStats {
+    capture_ms: f64,
+    mailbox_wait_ms: f64,
+    dropped_frames_total: u64,
 }
 
 #[derive(Deserialize)]
@@ -247,10 +279,9 @@ pub struct StartParams {
     source_name: String,
 }
 
-/// Source of frames for the monitor loop. OBS captures in production; tests
-/// drive the same loop from decoded fixture images. The frame bytes are only
-/// borrowed for the duration of `use_frame`, so the source can free or reuse the
-/// backing buffer immediately afterwards (the OBS source frees its C buffer).
+/// Source of frames for fixture-backed monitor-loop tests. The live OBS source
+/// uses `ObsSource::capture_with_stats` so production can carry timing metadata.
+#[cfg(test)]
 pub trait FrameSource {
     /// Acquire the next BGRA frame and hand it to `use_frame`. Returns the
     /// closure's value, or `None` when no frame is available right now.
@@ -277,18 +308,7 @@ struct ObsSource {
     region: Arc<Mutex<Option<CaptureRegion>>>,
 }
 
-impl FrameSource for ObsSource {
-    fn capture<F, R>(&mut self, use_frame: F) -> Option<R>
-    where
-        F: FnOnce(&[u8], u32, u32) -> R,
-    {
-        // Block until the producer pushes the next frame, or the mailbox is
-        // closed on stop (returns `None`, ending the run loop). The frame is
-        // dropped at the end of this scope, freeing its C buffer.
-        let frame = self.mailbox.recv()?;
-        Some(use_frame(frame.buf.as_slice(), frame.width, frame.height))
-    }
-
+impl ObsSource {
     fn set_capture_region(&mut self, region: Option<CaptureRegion>) {
         // Latch the first transform learned and keep it (see the field comment);
         // the producer callback reads this to crop/un-stretch future captures.
@@ -298,6 +318,111 @@ impl FrameSource for ObsSource {
         {
             tracing::info!(?r, "calibrated capture region; cropping/un-stretching on the GPU");
             *guard = Some(r);
+        }
+    }
+
+    fn capture_with_stats<F, R>(&mut self, use_frame: F) -> Option<(R, Option<CapturedFrameStats>)>
+    where
+        F: FnOnce(&[u8], u32, u32) -> R,
+    {
+        let frame = self.mailbox.recv()?;
+        let stats = match (frame.captured_at, frame.capture_ms) {
+            (Some(captured_at), Some(capture_ms)) => Some(CapturedFrameStats {
+                capture_ms,
+                mailbox_wait_ms: captured_at.elapsed().as_secs_f64() * 1000.0,
+                dropped_frames_total: frame.dropped_frames_total,
+            }),
+            _ => None,
+        };
+        let result = use_frame(frame.buf.as_slice(), frame.width, frame.height);
+        Some((result, stats))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MonitorTimingMode {
+    Off,
+    Slow,
+    Verbose,
+}
+
+impl MonitorTimingMode {
+    fn from_env() -> Self {
+        match env::var("GE_MONITOR_TIMING") {
+            Ok(value) if matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "slow") => Self::Slow,
+            Ok(value) if value.eq_ignore_ascii_case("verbose") => Self::Verbose,
+            _ => Self::Off,
+        }
+    }
+}
+
+struct MonitorTiming {
+    mode: MonitorTimingMode,
+    slow_ms: f64,
+    last_dropped_frames_total: u64,
+}
+
+impl MonitorTiming {
+    fn new(source_fps: f64, mode: MonitorTimingMode) -> Self {
+        let frame_ms = if source_fps > 0.0 { 1000.0 / source_fps } else { 16.67 };
+        let slow_ms = env::var("GE_MONITOR_SLOW_MS")
+            .ok()
+            .and_then(|value| f64::from_str(&value).ok())
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .unwrap_or((frame_ms * 2.0).max(40.0));
+
+        Self { mode, slow_ms, last_dropped_frames_total: 0 }
+    }
+
+    fn enabled(&self) -> bool {
+        self.mode != MonitorTimingMode::Off
+    }
+
+    fn observe(
+        &mut self,
+        stats: Option<CapturedFrameStats>,
+        match_ms: Option<f64>,
+        cv_runtime_ms: Option<f64>,
+        source_fps: f64,
+    ) {
+        if self.mode == MonitorTimingMode::Off {
+            return;
+        }
+        let (Some(stats), Some(match_ms)) = (stats, match_ms) else {
+            return;
+        };
+
+        let dropped_frames = stats.dropped_frames_total.saturating_sub(self.last_dropped_frames_total);
+        self.last_dropped_frames_total = stats.dropped_frames_total;
+        let total_ms = stats.capture_ms + stats.mailbox_wait_ms + match_ms;
+        let slow = total_ms >= self.slow_ms || dropped_frames > 0;
+
+        if slow {
+            tracing::warn!(
+                capture_ms = stats.capture_ms,
+                mailbox_wait_ms = stats.mailbox_wait_ms,
+                match_ms,
+                cv_runtime_ms,
+                total_ms,
+                dropped_frames,
+                dropped_frames_total = stats.dropped_frames_total,
+                source_fps,
+                slow_threshold_ms = self.slow_ms,
+                "monitor frame timing"
+            );
+        } else if self.mode == MonitorTimingMode::Verbose {
+            tracing::info!(
+                capture_ms = stats.capture_ms,
+                mailbox_wait_ms = stats.mailbox_wait_ms,
+                match_ms,
+                cv_runtime_ms,
+                total_ms,
+                dropped_frames,
+                dropped_frames_total = stats.dropped_frames_total,
+                source_fps,
+                slow_threshold_ms = self.slow_ms,
+                "monitor frame timing"
+            );
         }
     }
 }
@@ -469,6 +594,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // raise it to retain a short backlog.
     let mailbox = Arc::new(FrameMailbox::new(FRAME_BUFFER_CAPACITY));
     let region = Arc::new(Mutex::new(None));
+    let monitor_timing_mode = MonitorTimingMode::from_env();
 
     // Producer state handed to OBS as the render-callback param. Boxed and leaked
     // to a raw pointer for the monitor's lifetime; reclaimed (and the capture
@@ -478,6 +604,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         name: source_name,
         region: region.clone(),
         mailbox: mailbox.clone(),
+        timing_enabled: monitor_timing_mode != MonitorTimingMode::Off,
     }));
 
     // From here on OBS pushes a captured frame into the mailbox once per rendered
@@ -505,8 +632,11 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         let mut active_lang = recording_lang.clone();
         let mut language_notified = false;
         let mut last: Option<LevelMatch> = None;
-        let mut fps_sample_started = Instant::now();
-        let mut fps_sample_frames = 0u32;
+        let mut last_fps_emit = Instant::now();
+        let mut last_frame_completed: Option<Instant> = None;
+        let mut slowest_frame_fps: Option<f64> = None;
+        let mut monitor_timing = MonitorTiming::new(source_fps, monitor_timing_mode);
+        let timing_enabled = monitor_timing.enabled();
         // Drives the replay-buffer save/trim as the session progresses. Fed
         // every matched frame (not just state changes) so its save timer is
         // polled each tick.
@@ -517,15 +647,32 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             recording_source_name,
             recording_lang,
         );
-        while let Some(result) = source.capture(|bytes, w, h| session.match_frame(bytes, w, h)) {
-            fps_sample_frames += 1;
+        while let Some(((result, match_ms), stats)) = source.capture_with_stats(|bytes, w, h| {
+            if timing_enabled {
+                let match_started = Instant::now();
+                let result = session.match_frame(bytes, w, h);
+                let match_ms = match_started.elapsed().as_secs_f64() * 1000.0;
+                (result, Some(match_ms))
+            } else {
+                (session.match_frame(bytes, w, h), None)
+            }
+        }) {
             let now = Instant::now();
-            let sample_elapsed = now.duration_since(fps_sample_started);
-            if sample_elapsed >= MONITOR_FPS_SAMPLE_INTERVAL {
-                let processed_fps = f64::from(fps_sample_frames) / sample_elapsed.as_secs_f64();
-                let _ = event_tx.send(MonitorEvent::MonitorFps(MonitorFps { processed_fps, source_fps }));
-                fps_sample_started = now;
-                fps_sample_frames = 0;
+            if let Some(previous) = last_frame_completed {
+                let frame_elapsed = now.duration_since(previous).as_secs_f64();
+                if frame_elapsed > 0.0 {
+                    let frame_fps = 1.0 / frame_elapsed;
+                    slowest_frame_fps = Some(slowest_frame_fps.map_or(frame_fps, |fps| fps.min(frame_fps)));
+                }
+            }
+            last_frame_completed = Some(now);
+
+            if now.duration_since(last_fps_emit) >= MONITOR_FPS_EMIT_INTERVAL {
+                if let Some(processed_fps) = slowest_frame_fps {
+                    let _ = event_tx.send(MonitorEvent::MonitorFps(MonitorFps { processed_fps, source_fps }));
+                }
+                last_fps_emit = now;
+                slowest_frame_fps = None;
             }
 
             // Once the matcher has calibrated this source's aspect, hand the
@@ -535,6 +682,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
 
             match result {
                 Ok(info) => {
+                    monitor_timing.observe(stats, match_ms, Some(info.runtime_ms), source_fps);
                     tracing::debug!(?info);
                     if handle_detected_language(
                         &info,
@@ -559,7 +707,10 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                         let _ = match_tx.send(Some(info));
                     }
                 }
-                Err(e) => tracing::error!("err: {}", e.message),
+                Err(e) => {
+                    monitor_timing.observe(stats, match_ms, None, source_fps);
+                    tracing::error!("err: {}", e.message);
+                }
             }
         }
         tracing::info!("monitor loop exiting");
@@ -1085,7 +1236,14 @@ mod tests {
     }
 
     fn owned_frame(tag: u8, width: u32) -> Frame {
-        Frame { buf: FrameBuf::Owned(vec![tag]), width, height: 1 }
+        Frame {
+            buf: FrameBuf::Owned(vec![tag]),
+            width,
+            height: 1,
+            captured_at: None,
+            capture_ms: None,
+            dropped_frames_total: 0,
+        }
     }
 
     #[test]

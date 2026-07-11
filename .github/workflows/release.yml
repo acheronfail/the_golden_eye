@@ -19,6 +19,7 @@ jobs:
     uses: ./.github/workflows/build-packages.yml
     with:
       fetch-depth: 0
+      package-profile: true
 
   release:
     name: GitHub Release

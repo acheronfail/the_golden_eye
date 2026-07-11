@@ -1,7 +1,7 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
-	import { IS_DEV, settings, VERSION } from '$lib';
+	import { settings, VERSION } from '$lib';
 	import { monitor, monitorHref, monitorPhaseStyle, refreshMonitor } from '$lib/monitor.svelte';
 	import { startAppSocket, stopAppSocket } from '$lib/appSocket.svelte';
 	import KiaDeathOverlay from '$lib/KiaDeathOverlay.svelte';
@@ -166,12 +166,12 @@
 	const menuLinkClass = menuLinkCommon;
 	const menuLinkActiveClass = `${menuLinkCommon} obs-menu-link-active`;
 
-	const links = [
+	const links = $derived([
 		{ href: '/', label: 'Monitor' },
 		{ href: '/runs', label: 'Runs' },
 		{ href: '/options', label: 'Options' },
-		...(IS_DEV ? [{ href: '/developer', label: 'Developer' }] : [])
-	];
+		...(settings.showDeveloperSettings ? [{ href: '/developer', label: 'Developer' }] : [])
+	]);
 
 	const pluginVersion = VERSION;
 	const activeMonitorHref = $derived(monitorHref(monitor.status));

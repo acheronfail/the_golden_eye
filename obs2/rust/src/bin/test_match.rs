@@ -72,6 +72,7 @@ fn result_json(result: &ge_rust::cv::LevelMatch) -> serde_json::Value {
         "times": result.times,
         "raw_times": result.raw_times,
         "match_regions": result.match_regions,
+        "annotation_sets": result.annotation_sets,
         "runtime_ms": result.runtime_ms,
     })
 }
@@ -195,9 +196,6 @@ fn run() -> Result<i32> {
     }
 
     let matcher = ge_rust::cv::CvMatcher::new(lang, templates_dir)?.with_diagnostics(diagnostics);
-    if diagnostics && !matcher.diagnostics_enabled() {
-        eprintln!("[test_match] GE_CV_DIAGNOSTICS requested, but diagnostics are unavailable in this build");
-    }
     let result = matcher.match_level_from_bgra_frame(&bgra)?;
 
     println!(
@@ -215,6 +213,7 @@ fn run() -> Result<i32> {
             "times": result.times,
             "raw_times": result.raw_times,
             "match_regions": result.match_regions,
+            "annotation_sets": result.annotation_sets,
             "runtime_ms": result.runtime_ms,
         })
     );

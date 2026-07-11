@@ -63,6 +63,7 @@ vi.mock('$lib/api', async (importOriginal) => {
 const defaultSettings: Settings = {
 	stopReplayBufferWhenMonitorStopped: false,
 	showMonitorFps: false,
+	showDeveloperSettings: false,
 	completedOutputPath: '',
 	saveFailedRuns: true,
 	failedOutputPath: '',
@@ -134,6 +135,19 @@ describe('/options', () => {
 
 		await waitFor(() =>
 			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ showMonitorFps: true }))
+		);
+	});
+
+	it('saves the developer settings visibility option', async () => {
+		const user = userEvent.setup();
+		render(OptionsPageHarness);
+
+		const checkbox = await screen.findByRole('checkbox', { name: /Show developer settings/i });
+		await waitFor(() => expect(checkbox).toBeEnabled());
+		await user.click(checkbox);
+
+		await waitFor(() =>
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ showDeveloperSettings: true }))
 		);
 	});
 });

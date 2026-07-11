@@ -11,7 +11,7 @@
 // This is a Rust port of obs2/test_match.cpp + obs2/cv_wrapper.cpp, using the
 // `opencv` crate instead of binding to OpenCV directly.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
 use opencv::core::{self, Mat, Rect, Size, ToInputArray};
@@ -158,6 +158,11 @@ const SCREEN_STATUS_REGION: (f64, f64, f64, f64) = (0.18, 0.47, 0.48, 0.10);
 // same-shaped banner in the wrong language is misclassified as another screen.
 const LANGUAGE_START_THRESHOLD: f64 = 0.82;
 const LANGUAGE_START_MARGIN: f64 = 0.12;
+// The language marker is the vertical START tab on the right side of the
+// level-start briefing. It is fixed near the top-right of both centered 4:3
+// captures and wider 16:9 captures, so there is no need to search the whole
+// frame.
+const LANGUAGE_START_REGION: (f64, f64, f64, f64) = (0.68, 0.035, 0.30, 0.35);
 // The mission-select grid ("levels" screen) carries none of the header colons
 // the other overlays share, so the entry gate rejects it. It is instead
 // recognized by the distinctive film-strip divider that separates its four
@@ -320,7 +325,27 @@ fn first_last_above(mask: &Mat, dim: i32, frac: f64) -> Result<(i32, i32)> {
 // dark elements (the briefing photo, the stats text) don't shrink the box. The
 // frame is downscaled first -- the aspect is scale-invariant and this only runs
 // once per resolution, so working small keeps the cold-frame calibration cheap.
-fn detect_folder_aspect(bgra_frame: &impl ToInputArray, w: i32, h: i32) -> Result<Option<f64>> {
+#[derive(Clone, Copy)]
+struct FolderDetection {
+    aspect: f64,
+    rect: Rect,
+}
+
+fn scale_detected_folder_rect(extent: Rect, src: Size, detect: Size) -> Rect {
+    let (src_w, src_h) = (src.width, src.height);
+    let (detect_w, detect_h) = (detect.width, detect.height);
+    let x0 = extent.x;
+    let y0 = extent.y;
+    let x1 = extent.x + extent.width - 1;
+    let y1 = extent.y + extent.height - 1;
+    let x = ((x0 as f64 * src_w as f64 / detect_w as f64).floor() as i32).clamp(0, src_w.saturating_sub(1));
+    let y = ((y0 as f64 * src_h as f64 / detect_h as f64).floor() as i32).clamp(0, src_h.saturating_sub(1));
+    let x2 = (((x1 + 1) as f64 * src_w as f64 / detect_w as f64).ceil() as i32).clamp(x + 1, src_w);
+    let y2 = (((y1 + 1) as f64 * src_h as f64 / detect_h as f64).ceil() as i32).clamp(y + 1, src_h);
+    Rect::new(x, y, x2 - x, y2 - y)
+}
+
+fn detect_folder_aspect(bgra_frame: &impl ToInputArray, w: i32, h: i32) -> Result<Option<FolderDetection>> {
     if w <= 0 || h <= 0 {
         return Ok(None);
     }
@@ -365,8 +390,11 @@ fn detect_folder_aspect(bgra_frame: &impl ToInputArray, w: i32, h: i32) -> Resul
     if fw < dw as f64 * FOLDER_MIN_FRAC || fh < dh as f64 * FOLDER_MIN_FRAC {
         return Ok(None);
     }
-    dbg_cv!("[folder] box {fw}x{fh} on {dw}x{dh} aspect={:.3}", fw / fh);
-    Ok(Some(fw / fh))
+    let aspect = fw / fh;
+    let rect =
+        scale_detected_folder_rect(Rect::new(x0, y0, x1 - x0 + 1, y1 - y0 + 1), Size::new(w, h), Size::new(dw, dh));
+    dbg_cv!("[folder] box {fw}x{fh} on {dw}x{dh} aspect={aspect:.3}");
+    Ok(Some(FolderDetection { aspect, rect }))
 }
 
 // Templates are authored from a pixel-sharp emulator, but most real sources
@@ -399,6 +427,10 @@ impl MatchRect {
     fn offset(self, dx: i32, dy: i32) -> Self {
         MatchRect { x: self.x + dx, y: self.y + dy, ..self }
     }
+
+    fn from_rect(rect: Rect) -> Self {
+        MatchRect { x: rect.x, y: rect.y, w: rect.width, h: rect.height, score: 0.0 }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -409,6 +441,65 @@ pub struct MatchRegion {
     pub w: i32,
     pub h: i32,
     pub score: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AnnotationRect {
+    pub label: String,
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AnnotationSet {
+    pub id: String,
+    pub label: String,
+    pub annotations: Vec<AnnotationRect>,
+}
+
+fn template_annotation(region: &MatchRegion) -> AnnotationRect {
+    AnnotationRect {
+        label: region.label.clone(),
+        x: region.x,
+        y: region.y,
+        w: region.w,
+        h: region.h,
+        score: Some(region.score),
+    }
+}
+
+fn annotation_sets(
+    match_regions: &[MatchRegion],
+    search_regions: Vec<AnnotationRect>,
+    folder_region: Option<AnnotationRect>,
+) -> Vec<AnnotationSet> {
+    let mut sets = Vec::new();
+    if !match_regions.is_empty() {
+        sets.push(AnnotationSet {
+            id: "template_matches".to_owned(),
+            label: "Template matches".to_owned(),
+            annotations: match_regions.iter().map(template_annotation).collect(),
+        });
+    }
+    if !search_regions.is_empty() {
+        sets.push(AnnotationSet {
+            id: "search_rois".to_owned(),
+            label: "Search ROIs".to_owned(),
+            annotations: search_regions,
+        });
+    }
+    if let Some(folder_region) = folder_region {
+        sets.push(AnnotationSet {
+            id: "folder_dimensions".to_owned(),
+            label: "Folder dimensions".to_owned(),
+            annotations: vec![folder_region],
+        });
+    }
+    sets
 }
 
 // A time recovered from the screen, kept with its position so the final array
@@ -497,9 +588,13 @@ pub struct LevelMatch {
     /// the classified `times` instead.
     pub raw_times: Vec<i32>,
     /// Optional template-match rectangles for developer tooling. These are
-    /// empty in release builds and unless diagnostics are explicitly enabled.
+    /// empty unless annotation diagnostics are explicitly enabled.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub match_regions: Vec<MatchRegion>,
+    /// Developer-only annotation sets. The normal monitor path leaves this
+    /// empty so no annotation collection work is done per frame.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub annotation_sets: Vec<AnnotationSet>,
     pub runtime_ms: f64,
 }
 
@@ -868,7 +963,7 @@ fn find_mission_from_colons(
     // colon afterwards. Each work item returns its own best candidate so the
     // final reduction reproduces the serial "highest-scoring digit wins".
     let work: Vec<(usize, usize)> = (0..colons.len()).flat_map(|c| (1..=9).map(move |v| (c, v))).collect();
-    let partials: Vec<Result<Option<FoundMission>>> = par_map(work.len(), |k| {
+    let search_digit = |k: usize| {
         let (ci, v) = work[k];
         let colon = colons[ci];
         let x0 = (colon.x - band_pad_x).max(0);
@@ -908,7 +1003,16 @@ fn find_mission_from_colons(
             }
         }
         Ok(best)
-    });
+    };
+    // Once the mission location is cached this region is only a few glyphs
+    // wide. Spawning one OS thread per digit costs more than the tiny template
+    // searches themselves, so keep that warm path serial; retain parallelism
+    // for the much larger cold header scan.
+    let partials: Vec<Result<Option<FoundMission>>> = if label_region.total() < 10_000 {
+        (0..work.len()).map(search_digit).collect()
+    } else {
+        par_map(work.len(), search_digit)
+    };
 
     let mut best = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1, colon: None, digit: None };
     for p in partials {
@@ -922,11 +1026,7 @@ fn find_mission_from_colons(
     Ok(best)
 }
 
-fn find_times_band(
-    frame: &(impl MatTraitConst + ToInputArray),
-    colon_tmpl: &Mat,
-    digit_tmpls: &[Mat],
-) -> Result<Vec<FoundTime>> {
+fn find_times_band(frame: &Mat, colon_tmpl: &Mat, digit_tmpls: &[Mat]) -> Result<Vec<FoundTime>> {
     if colon_tmpl.empty() || digit_tmpls.len() < 10 {
         return Ok(Vec::new());
     }
@@ -968,25 +1068,36 @@ fn find_times_band(
 
     let band_pad_x = digit_w * 3;
     let band_pad_y = digit_h;
-    let mut digits = Vec::new();
-    for colon in &colons {
+    // Each colon anchors an independent, tiny digit search. Stats screens can
+    // produce many plausible colon peaks from label punctuation and textured
+    // backgrounds (the blurriest fixtures yield ~20), so doing all ten digit
+    // templates around every anchor serially dominated the entire matcher.
+    // Spread anchors across the spare cores and combine their detections before
+    // the unchanged global suppression/geometry checks below.
+    let digit_buckets: Vec<Result<Vec<Detection>>> = par_map(colons.len(), |i| {
+        let colon = colons[i];
         let x0 = (colon.x - band_pad_x).max(0);
         let y0 = (colon.y - band_pad_y).max(0);
         let x1 = (colon.x + colon_w + band_pad_x).min(frame.cols());
         let y1 = (colon.y + colon_h + band_pad_y).min(frame.rows());
         if x1 <= x0 || y1 <= y0 {
-            continue;
+            return Ok(Vec::new());
         }
         let roi = frame.roi(Rect::new(x0, y0, x1 - x0, y1 - y0))?;
+        let mut digits = Vec::new();
         for (v, tmpl) in digit_tmpls.iter().enumerate().take(10) {
-            let mut bucket = Vec::new();
-            collect_detections(&roi, tmpl, GLYPH_THRESHOLD, v as i32, &mut bucket)?;
-            for mut d in bucket {
+            let start = digits.len();
+            collect_detections(&roi, tmpl, GLYPH_THRESHOLD, v as i32, &mut digits)?;
+            for d in &mut digits[start..] {
                 d.x += x0;
                 d.y += y0;
-                digits.push(d);
             }
         }
+        Ok(digits)
+    });
+    let mut digits = Vec::new();
+    for bucket in digit_buckets {
+        digits.extend(bucket?);
     }
     // Suppress with a wider neighbourhood (0.7 of a digit cell) than the colon
     // pass uses: two adjacent glyphs blur together into a phantom "8" centred in
@@ -1121,6 +1232,16 @@ struct ScaleCache {
     mission_cy: i32,
 }
 
+// Colon and digit templates resized for one exact scale. These glyphs are used
+// by the mission reader and (on stats screens) the time reader on every frame;
+// resizing and Gaussian-blurring all eleven twice per frame is pure repeated
+// work. Arc lets the hot path borrow a cached set without holding the cache lock
+// while OpenCV matches it.
+struct ScaledGlyphs {
+    colon: Mat,
+    digits: Vec<Mat>,
+}
+
 // The aspect correction learned for a source resolution: the horizontal window
 // of the frame that holds the 4:3 picture, and the width that window is resized
 // to (height is never touched -- the converters that stretch only ever stretch
@@ -1137,6 +1258,8 @@ struct AspectCalibration {
     crop_w: i32,
     // Width to resize the kept window to; the height is left unchanged.
     target_w: i32,
+    // Source-frame rectangle of the manilla folder measured during calibration.
+    folder_rect: Option<Rect>,
 }
 
 // The learned aspect correction expressed as a source-relative capture
@@ -1159,7 +1282,7 @@ pub struct CaptureRegion {
 impl AspectCalibration {
     // A calibration that leaves the frame untouched (already 4:3 / pillarboxed).
     fn identity(src_w: i32, src_h: i32) -> Self {
-        AspectCalibration { src_w, src_h, crop_x: 0, crop_w: src_w, target_w: src_w }
+        AspectCalibration { src_w, src_h, crop_x: 0, crop_w: src_w, target_w: src_w, folder_rect: None }
     }
 
     // As a source-relative capture transform. Horizontal crop only -- the
@@ -1243,6 +1366,15 @@ impl RegionMapper {
     }
 }
 
+fn fractional_rect(cols: i32, rows: i32, region: (f64, f64, f64, f64)) -> Rect {
+    let (rx, ry, rw, rh) = region;
+    let x0 = (cols as f64 * rx) as i32;
+    let y0 = (rows as f64 * ry) as i32;
+    let w = ((cols as f64 * rw) as i32).min(cols - x0).max(1);
+    let h = ((rows as f64 * rh) as i32).min(rows - y0).max(1);
+    Rect::new(x0, y0, w, h)
+}
+
 pub struct CvMatcher {
     lang: String,
     diagnostics: bool,
@@ -1275,6 +1407,9 @@ pub struct CvMatcher {
     // Aspect correction learned from the first frame that shows a manilla
     // folder; reused for every later frame at the same source resolution.
     aspect_cache: Mutex<Option<AspectCalibration>>,
+    // Lazily populated because cold scale recovery may try several scales, but
+    // a live source normally settles on one work scale and one native scale.
+    glyph_cache: Mutex<Vec<(u64, Arc<ScaledGlyphs>)>>,
 }
 
 impl CvMatcher {
@@ -1344,20 +1479,38 @@ impl CvMatcher {
             levels,
             scale_cache: Mutex::new(None),
             aspect_cache: Mutex::new(None),
+            glyph_cache: Mutex::new(Vec::new()),
         })
     }
 
     pub fn diagnostics_available() -> bool {
-        cfg!(any(debug_assertions, feature = "dev"))
+        true
     }
 
     pub fn with_diagnostics(mut self, enabled: bool) -> Self {
-        self.diagnostics = enabled && Self::diagnostics_available();
+        self.diagnostics = enabled;
         self
     }
 
     pub fn diagnostics_enabled(&self) -> bool {
         self.diagnostics
+    }
+
+    fn scaled_glyphs(&self, scale: f64) -> Result<Arc<ScaledGlyphs>> {
+        let key = scale.to_bits();
+        let mut cache = self.glyph_cache.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((_, glyphs)) = cache.iter().find(|(cached_key, _)| *cached_key == key) {
+            return Ok(Arc::clone(glyphs));
+        }
+
+        let colon = scaled(&self.colon, scale)?;
+        let mut digits = Vec::with_capacity(10);
+        for digit in &self.digits {
+            digits.push(scaled(digit, scale)?);
+        }
+        let glyphs = Arc::new(ScaledGlyphs { colon, digits });
+        cache.push((key, Arc::clone(&glyphs)));
+        Ok(glyphs)
     }
 
     fn push_work_region(
@@ -1375,6 +1528,27 @@ impl CvMatcher {
         out.push(region);
     }
 
+    fn push_work_search_region(
+        &self,
+        out: &mut Vec<AnnotationRect>,
+        mapper: &RegionMapper,
+        label: impl Into<String>,
+        rect: Rect,
+    ) {
+        if !self.diagnostics {
+            return;
+        }
+        let region = mapper.work_to_source(MatchRect::from_rect(rect));
+        out.push(AnnotationRect {
+            label: label.into(),
+            x: region.x,
+            y: region.y,
+            w: region.w,
+            h: region.h,
+            score: None,
+        });
+    }
+
     fn push_corrected_region(
         &self,
         out: &mut Vec<MatchRegion>,
@@ -1388,6 +1562,42 @@ impl CvMatcher {
         let mut region = mapper.corrected_to_source(rect);
         region.label = label.into();
         out.push(region);
+    }
+
+    fn push_corrected_search_region(
+        &self,
+        out: &mut Vec<AnnotationRect>,
+        mapper: &RegionMapper,
+        label: impl Into<String>,
+        rect: Rect,
+    ) {
+        if !self.diagnostics {
+            return;
+        }
+        let region = mapper.corrected_to_source(MatchRect::from_rect(rect));
+        out.push(AnnotationRect {
+            label: label.into(),
+            x: region.x,
+            y: region.y,
+            w: region.w,
+            h: region.h,
+            score: None,
+        });
+    }
+
+    fn folder_annotation(&self, calib: AspectCalibration) -> Option<AnnotationRect> {
+        if !self.diagnostics {
+            return None;
+        }
+        let rect = calib.folder_rect?;
+        Some(AnnotationRect {
+            label: "detected manilla folder".to_owned(),
+            x: rect.x,
+            y: rect.y,
+            w: rect.width,
+            h: rect.height,
+            score: None,
+        })
     }
 
     // Returns `gray` corrected to 4:3 when the source is a stretched 4:3 picture,
@@ -1409,29 +1619,31 @@ impl CvMatcher {
 
         // Cold: measure the folder to decide whether this resolution is
         // stretched. The colour test needs the original (non-grayscale) frame.
-        let Some(folder_aspect) = detect_folder_aspect(bgra_frame, w, h)? else {
+        let Some(folder) = detect_folder_aspect(bgra_frame, w, h)? else {
             // No folder on this frame -- can't calibrate yet. Match it as-is and
             // leave the cache empty so a later menu frame can calibrate.
             let calib = AspectCalibration::identity(w, h);
             return Ok((gray.try_clone()?, calib));
         };
 
-        let calib = if folder_aspect > FOLDER_STRETCH_ASPECT {
+        let mut calib = if folder.aspect > FOLDER_STRETCH_ASPECT {
             // Stretched: the picture is 4:3 squeezed wide. Trim any dark side
             // bars, then squish the remaining content back to a 4:3 width.
             let (left, right) = content_h_extent(gray, BAR_BRIGHTNESS)?;
             let crop_w = (right - left + 1).max(1);
             let target_w = (((h as f64) * TARGET_ASPECT).round() as i32).max(1);
             dbg_cv!(
-                "[calibrate] {w}x{h} folder_aspect={folder_aspect:.3} stretched -> crop {left}+{crop_w} squish to {target_w}"
+                "[calibrate] {w}x{h} folder_aspect={:.3} stretched -> crop {left}+{crop_w} squish to {target_w}",
+                folder.aspect
             );
-            AspectCalibration { src_w: w, src_h: h, crop_x: left, crop_w, target_w }
+            AspectCalibration { src_w: w, src_h: h, crop_x: left, crop_w, target_w, folder_rect: None }
         } else {
             // Folder is correctly proportioned (clean 4:3 or pillarboxed): no
             // correction. Cache identity so later frames skip the measurement.
-            dbg_cv!("[calibrate] {w}x{h} folder_aspect={folder_aspect:.3} not stretched");
+            dbg_cv!("[calibrate] {w}x{h} folder_aspect={:.3} not stretched", folder.aspect);
             AspectCalibration::identity(w, h)
         };
+        calib.folder_rect = Some(folder.rect);
 
         if let Ok(mut cache) = self.aspect_cache.lock() {
             *cache = Some(calib);
@@ -1469,12 +1681,8 @@ impl CvMatcher {
         // inside `find_mission_from_colons`, which fans the per-digit searches of
         // the one scale that runs across the cores.
         for &scale in scales {
-            let colon_tmpl = scaled(&self.colon, scale)?;
-            let mut digit_tmpls = Vec::with_capacity(10);
-            for v in 0..=9 {
-                digit_tmpls.push(scaled(&self.digits[v], scale)?);
-            }
-            let f = find_mission_from_colons(&region, &colon_tmpl, &digit_tmpls)?;
+            let glyphs = self.scaled_glyphs(scale)?;
+            let f = find_mission_from_colons(&region, &glyphs.colon, &glyphs.digits)?;
             dbg_cv!(
                 "[mission] scale={scale:.3} m={} score={:.3} cx={} cy={}",
                 f.mission,
@@ -1534,8 +1742,10 @@ impl CvMatcher {
     }
 
     fn detect_start_language(&self, frame: &Mat, scale: f64) -> Result<Option<(&'static str, MatchRect)>> {
-        let en = best_match(frame, &scaled(&self.language_start_en, scale)?)?;
-        let jp = best_match(frame, &scaled(&self.language_start_jp, scale)?)?;
+        let search_rect = fractional_rect(frame.cols(), frame.rows(), LANGUAGE_START_REGION);
+        let region = frame.roi(search_rect)?.try_clone()?;
+        let en = best_match(&region, &scaled(&self.language_start_en, scale)?)?;
+        let jp = best_match(&region, &scaled(&self.language_start_jp, scale)?)?;
         let en_score = en.map_or(-1.0, |r| r.score);
         let jp_score = jp.map_or(-1.0, |r| r.score);
         dbg_cv!("[language] start en={en_score:.3} jp={jp_score:.3}");
@@ -1543,7 +1753,7 @@ impl CvMatcher {
         let (lang, rect, score, other) =
             if en_score >= jp_score { ("en", en, en_score, jp_score) } else { ("jp", jp, jp_score, en_score) };
         if score >= LANGUAGE_START_THRESHOLD && score - other >= LANGUAGE_START_MARGIN {
-            Ok(rect.map(|r| (lang, r)))
+            Ok(rect.map(|r| (lang, r.offset(search_rect.x, search_rect.y))))
         } else {
             Ok(None)
         }
@@ -1670,9 +1880,11 @@ impl CvMatcher {
             times: None,
             raw_times: Vec::new(),
             match_regions: Vec::new(),
+            annotation_sets: Vec::new(),
             runtime_ms: 0.0,
         };
         let mut match_regions = Vec::new();
+        let mut search_regions = Vec::new();
         let mut timer = PhaseTimer::new();
 
         // Convert the BGRA frame to grayscale once; every template is matched
@@ -1685,6 +1897,7 @@ impl CvMatcher {
         // Calibrated once per resolution off the manilla folder; a no-op on
         // clean 4:3 grabs and on 4:3 content pillarboxed in 16:9.
         let (gray, calib) = self.calibrate_aspect(bgra_frame, &gray)?;
+        let folder_region = self.folder_annotation(calib);
 
         // Template matching cost grows with frame area, so a native 1080p (or
         // larger) capture is ~5x more expensive than a 480p composite grab for
@@ -1737,6 +1950,16 @@ impl CvMatcher {
             TIME_GATE_COLON_THRESHOLD,
             (HEADER_REGION_X, HEADER_REGION_Y, HEADER_REGION_W, HEADER_REGION_H),
         )?;
+        self.push_work_search_region(
+            &mut search_regions,
+            &mapper,
+            "header colon gate",
+            fractional_rect(
+                frame.cols(),
+                frame.rows(),
+                (HEADER_REGION_X, HEADER_REGION_Y, HEADER_REGION_W, HEADER_REGION_H),
+            ),
+        );
         let has_header = header.count >= 2 && header.peak >= TIME_GATE_STRONG_COLON;
         if self.diagnostics {
             for (i, r) in header_colon_regions(&frame, &self.colon, header.scale, TIME_GATE_COLON_THRESHOLD)?
@@ -1768,6 +1991,12 @@ impl CvMatcher {
             // so dropping it from a full ladder sweep to a single scale keeps the
             // matcher cheap on every non-overlay frame. A cold session (no hint)
             // still sweeps the full ladder via `gate_scales == scales`.
+            self.push_work_search_region(
+                &mut search_regions,
+                &mapper,
+                "levels divider search",
+                fractional_rect(frame.cols(), frame.rows(), LEVELS_REGION),
+            );
             let levels_match = self.detect_levels(&frame, &gate_scales)?;
             let levels_score = levels_match.map_or(-1.0, |m| m.score);
             if let Some(r) = levels_match.filter(|m| m.score >= LEVELS_THRESHOLD) {
@@ -1777,16 +2006,24 @@ impl CvMatcher {
             dbg_cv!("[gate] no header; levels_score={levels_score:.3} => {:?}", result.screen);
             timer.lap("levels detect");
             result.match_regions = match_regions;
+            result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region);
             result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
             return Ok(result);
         }
 
+        self.push_work_search_region(
+            &mut search_regions,
+            &mapper,
+            "language start tab search",
+            fractional_rect(frame.cols(), frame.rows(), LANGUAGE_START_REGION),
+        );
         if let Some((detected_lang, rect)) = self.detect_start_language(&frame, header.scale)? {
             result.detected_lang = Some(detected_lang.to_owned());
             self.push_work_region(&mut match_regions, &mapper, format!("language {detected_lang} start tab"), rect);
             if detected_lang != self.lang {
                 dbg_cv!("[language] configured={} detected={detected_lang}; rejecting wrong-language frame", self.lang);
                 result.match_regions = match_regions;
+                result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region);
                 result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
                 return Ok(result);
             }
@@ -1801,6 +2038,17 @@ impl CvMatcher {
             (frame.cols() as f64 * LABEL_REGION_W) as i32,
             (frame.rows() as f64 * LABEL_REGION_H) as i32,
         ))?;
+        self.push_work_search_region(
+            &mut search_regions,
+            &mapper,
+            "mission/part/difficulty label search",
+            Rect::new(
+                0,
+                0,
+                (frame.cols() as f64 * LABEL_REGION_W) as i32,
+                (frame.rows() as f64 * LABEL_REGION_H) as i32,
+            ),
+        );
 
         // Read the mission number on the NATIVE-resolution frame: anchor on ':'
         // and take the strongest single digit immediately to its left. The
@@ -1831,14 +2079,19 @@ impl CvMatcher {
         let mission_rect = match hint {
             Some(c) if c.mission_cx >= 0 => {
                 let ch = (self.colon.rows() as f64 * c.mission_scale).round().max(1.0) as i32;
-                let x0 = (c.mission_cx - ch * 6).max(0);
-                let y0 = (c.mission_cy - ch * 2).max(0);
-                let x1 = (c.mission_cx + ch * 2).min(gray.cols());
-                let y1 = (c.mission_cy + ch * 2).min(gray.rows());
+                // The cached point is the colon centre. One colon-height on
+                // either side vertically absorbs capture jitter without also
+                // admitting the difficulty/part rows; two heights to the left
+                // cover the single mission digit with ample spacing.
+                let x0 = (c.mission_cx - ch * 2).max(0);
+                let y0 = (c.mission_cy - ch).max(0);
+                let x1 = (c.mission_cx + ch).min(gray.cols());
+                let y1 = (c.mission_cy + ch).min(gray.rows());
                 Rect::new(x0, y0, (x1 - x0).max(1), (y1 - y0).max(1))
             }
             _ => header_box(),
         };
+        self.push_corrected_search_region(&mut search_regions, &mapper, "mission digit search", mission_rect);
 
         let (mut found, mut mission_scale) = self.read_mission(&gray, mission_rect, &mission_scales)?;
         let mut mission_rect = mission_rect;
@@ -1846,6 +2099,7 @@ impl CvMatcher {
         // header band at the cached scale before giving up.
         if found.mission < 0 && hint.is_some() {
             mission_rect = header_box();
+            self.push_corrected_search_region(&mut search_regions, &mapper, "mission digit retry search", mission_rect);
             let (f, s) = self.read_mission(&gray, mission_rect, &mission_scales)?;
             found = f;
             mission_scale = s;
@@ -1882,6 +2136,16 @@ impl CvMatcher {
 
         let mut part_rect = None;
         result.part = if mission_cy >= 0 && colon_h > 0 {
+            let y0 = (mission_cy + pad).clamp(0, label_region.rows());
+            let y1 = (mission_cy + colon_h * 3).clamp(0, label_region.rows());
+            if y1 - y0 >= 2 {
+                self.push_work_search_region(
+                    &mut search_regions,
+                    &mapper,
+                    "part label band",
+                    Rect::new(0, y0, label_region.cols(), y1 - y0),
+                );
+            }
             let part = best_label_in_band_match(
                 &label_region,
                 &self.parts,
@@ -1902,6 +2166,12 @@ impl CvMatcher {
         // Fall back to a full-region scale sweep when the anchored band misses,
         // which also recovers the true scale on off-scale captures.
         if result.part < 0 {
+            self.push_work_search_region(
+                &mut search_regions,
+                &mapper,
+                "part label fallback search",
+                Rect::new(0, 0, label_region.cols(), label_region.rows()),
+            );
             let (part, part_scale, rect) =
                 best_label_match_over_scales(&label_region, &self.parts, &scales, LABEL_THRESHOLD)?;
             if part >= 0 {
@@ -1919,6 +2189,16 @@ impl CvMatcher {
         let colon_h = (self.colon.rows() as f64 * global_scale).round() as i32;
         let mut difficulty_rect = None;
         let mut difficulty_label = if mission_cy >= 0 && colon_h > 0 {
+            let y0 = (mission_cy - colon_h * 3).clamp(0, label_region.rows());
+            let y1 = (mission_cy - pad).clamp(0, label_region.rows());
+            if y1 - y0 >= 2 {
+                self.push_work_search_region(
+                    &mut search_regions,
+                    &mapper,
+                    "difficulty label band",
+                    Rect::new(0, y0, label_region.cols(), y1 - y0),
+                );
+            }
             let difficulty = best_label_in_band_match(
                 &label_region,
                 &self.diffs,
@@ -1936,11 +2216,18 @@ impl CvMatcher {
         } else {
             -1
         };
-        if difficulty_label < 0
-            && let Some((difficulty, r)) = best_label_match(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD)?
-        {
-            difficulty_label = difficulty;
-            difficulty_rect = Some(r);
+        if difficulty_label < 0 {
+            self.push_work_search_region(
+                &mut search_regions,
+                &mapper,
+                "difficulty label fallback search",
+                Rect::new(0, 0, label_region.cols(), label_region.rows()),
+            );
+            if let Some((difficulty, r)) = best_label_match(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD)?
+            {
+                difficulty_label = difficulty;
+                difficulty_rect = Some(r);
+            }
         }
         result.difficulty = if difficulty_label >= 0 { difficulty_label.saturating_sub(1) } else { -1 };
         if let Some(r) = difficulty_rect {
@@ -1949,14 +2236,10 @@ impl CvMatcher {
         timer.lap("difficulty label");
 
         // Locate the digit and colon glyphs at the same scale.
-        let colon_tmpl = scaled(&self.colon, global_scale)?;
-        let mut digit_tmpls = Vec::with_capacity(10);
-        let mut digit_width_sum = 0;
-        for v in 0..=9 {
-            let t = scaled(&self.digits[v], global_scale)?;
-            digit_width_sum += t.cols();
-            digit_tmpls.push(t);
-        }
+        let glyphs = self.scaled_glyphs(global_scale)?;
+        let colon_tmpl = &glyphs.colon;
+        let digit_tmpls = &glyphs.digits;
+        let digit_width_sum: i32 = digit_tmpls.iter().map(|t| t.cols()).sum();
         timer.lap("load glyph templates");
 
         // Identify the overlay screen from its banner / status value. Only the
@@ -1964,6 +2247,18 @@ impl CvMatcher {
         // search be skipped on every other screen (start lists objectives, the
         // report screens list per-objective results, etc.), which would
         // otherwise be mis-read as times.
+        self.push_work_search_region(
+            &mut search_regions,
+            &mapper,
+            "screen banner search",
+            fractional_rect(frame.cols(), frame.rows(), SCREEN_BANNER_REGION),
+        );
+        self.push_work_search_region(
+            &mut search_regions,
+            &mapper,
+            "screen status search",
+            fractional_rect(frame.cols(), frame.rows(), SCREEN_STATUS_REGION),
+        );
         let (screen, screen_rect) = self.classify_screen(&frame, global_scale)?;
         result.screen = screen;
         if let Some(r) = screen_rect {
@@ -1976,7 +2271,17 @@ impl CvMatcher {
         let found_times: Vec<FoundTime> = if screen != Screen::Stats || colon_tmpl.empty() || digit_width_sum == 0 {
             Vec::new()
         } else {
-            find_times_band(&frame, &colon_tmpl, &digit_tmpls)?
+            self.push_work_search_region(
+                &mut search_regions,
+                &mapper,
+                "time colon search",
+                fractional_rect(
+                    frame.cols(),
+                    frame.rows(),
+                    (COLON_REGION_X, COLON_REGION_Y, COLON_REGION_W, COLON_REGION_H),
+                ),
+            );
+            find_times_band(&frame, colon_tmpl, digit_tmpls)?
         };
         for t in &found_times {
             self.push_work_region(&mut match_regions, &mapper, format!("time {}", format_seconds(t.seconds)), t.colon);
@@ -2011,6 +2316,7 @@ impl CvMatcher {
 
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
         result.match_regions = match_regions;
+        result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region);
 
         Ok(result)
     }
@@ -2030,6 +2336,7 @@ mod tests {
             times: ge::Times::classify(mission, part, difficulty, &raw_times),
             raw_times,
             match_regions: Vec::new(),
+            annotation_sets: Vec::new(),
             runtime_ms: 0.0,
         }
     }
