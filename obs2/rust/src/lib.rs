@@ -14,6 +14,7 @@ use std::ffi::CStr;
 use std::fmt;
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 
@@ -100,6 +101,11 @@ struct ServerHandle {
 /// Global handle to the running server. `None` when the server is stopped.
 static SERVER: Mutex<Option<ServerHandle>> = Mutex::new(None);
 static LOGGING_INIT: Once = Once::new();
+/// Whether OBS began its current replay-buffer stop while a monitor was still
+/// active. Intentional monitor shutdown removes the monitor before requesting
+/// the stop; an unexpected OBS stop does not. Snapshotting at STOPPING avoids a
+/// stale STOPPED event racing with and tearing down a replacement monitor.
+static REPLAY_STOP_SHOULD_STOP_MONITOR: AtomicBool = AtomicBool::new(false);
 
 struct TheGoldenEyeLogFormat;
 
@@ -346,6 +352,11 @@ pub extern "C" fn ge_replay_buffer_started() {
 /// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPING`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_stopping() {
+    let monitor_active = {
+        let guard = SERVER.lock().unwrap_or_else(|p| p.into_inner());
+        guard.as_ref().is_some_and(|handle| handle.state.monitor.lock().unwrap_or_else(|p| p.into_inner()).is_some())
+    };
+    REPLAY_STOP_SHOULD_STOP_MONITOR.store(monitor_active, Ordering::Release);
     recording::on_replay_buffer_stopping();
 }
 
@@ -354,6 +365,10 @@ pub extern "C" fn ge_replay_buffer_stopping() {
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_stopped() {
     recording::on_replay_buffer_stopped();
+
+    if !REPLAY_STOP_SHOULD_STOP_MONITOR.swap(false, Ordering::AcqRel) {
+        return;
+    }
 
     let (runtime_handle, state) = {
         let guard = match SERVER.lock() {

@@ -92,6 +92,24 @@ test-rust *args:
     export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
     cd "{{ justfile_directory() }}/obs2/rust" && cargo test --release {{ args }}
 
+# runs the backend against the controllable Rust OBS host (no OBS process)
+test-integration *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v ffmpeg >/dev/null
+    command -v ffprobe >/dev/null
+    if [ ! -f "{{ justfile_directory() }}/test/clips/replay-buffer-60s.mp4" ]; then
+      "{{ justfile_directory() }}/test/clips/generate_replay_fixture.sh"
+    fi
+
+    build_dir="{{ justfile_directory() }}/obs2/build"
+    just configure-release
+    cmake --build "$build_dir" --target browser_build
+    source "$build_dir/rust-cargo-env.sh"
+    export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/integration"
+    cd "{{ justfile_directory() }}/obs2/rust"
+    cargo test --release --tests -- --ignored --test-threads=1 {{ args }}
+
 # runs browser unit/component tests
 test-browser *args:
     cd obs2/browser && npm run test:unit -- --run {{ args }}
