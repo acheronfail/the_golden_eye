@@ -64,6 +64,7 @@ const defaultSettings: Settings = {
 	stopReplayBufferWhenMonitorStopped: false,
 	showMonitorFps: false,
 	showDeveloperSettings: false,
+	welcomeModalShown: true,
 	completedOutputPath: '',
 	saveFailedRuns: true,
 	failedOutputPath: '',
@@ -148,6 +149,25 @@ describe('/options', () => {
 
 		await waitFor(() =>
 			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ showDeveloperSettings: true }))
+		);
+	});
+
+	it('shows and persists the first-run welcome acknowledgement', async () => {
+		const user = userEvent.setup();
+		mocks.api.getSettingsStatus.mockResolvedValue({
+			settings: { ...defaultSettings, welcomeModalShown: false },
+			configPath: '/tmp/the-golden-eye/settings.json',
+			fileError: null
+		});
+
+		render(OptionsPageHarness);
+
+		const dialog = await screen.findByRole('dialog', { name: /Welcome to The Golden Eye/i });
+		await user.click(screen.getByRole('button', { name: /I understand/i }));
+
+		await waitFor(() => expect(dialog).not.toBeInTheDocument());
+		await waitFor(() =>
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ welcomeModalShown: true }))
 		);
 	});
 });
