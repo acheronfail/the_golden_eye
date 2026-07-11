@@ -13,6 +13,7 @@ const [filter] = process.argv.slice(2);
 const filterRe = filter?.trim() ? new RegExp(filter) : null;
 const samplesPerScenario = parsePositiveIntEnv("GE_CV_BENCH_SAMPLES", 25);
 const targetWarmups = parsePositiveIntEnv("GE_CV_BENCH_WARMUPS", 5);
+const captureMode = process.env.GE_CV_BENCH_CAPTURE?.trim() || "obs";
 const screenshots = (await getScreenshots()).sort((a, b) => a.filePath.localeCompare(b.filePath));
 
 interface Scenario {
@@ -28,6 +29,18 @@ interface BenchmarkPayload {
   samples: any[];
   opencv: string;
   image: { path: string; width: number; height: number };
+  bench_image: { width: number; height: number };
+  bench_capture: {
+    mode: string;
+    work_height: number;
+    capture_region: null | {
+      crop_x: number;
+      crop_y: number;
+      crop_w: number;
+      crop_h: number;
+      out_aspect: number;
+    };
+  };
 }
 
 function parsePositiveIntEnv(name: string, defaultValue: number): number {
@@ -164,10 +177,24 @@ function progressText(completed: number, total: number, runner: Runner): string 
   return `Running ${completed}/${total} benchmark scenarios for ${chalk.cyan.bold(runner.name)}`;
 }
 
+function printConfigHints(scenarioCount: number) {
+  console.log(
+    chalk.blue(
+      `Benchmarking ${scenarioCount} scenarios with ${samplesPerScenario} samples, ${targetWarmups} warmups, ${captureMode} capture mode.`,
+    ),
+  );
+  console.log(
+    chalk.gray(
+      "Tune with GE_CV_BENCH_SAMPLES=N, GE_CV_BENCH_WARMUPS=N, GE_CV_BENCH_CAPTURE=obs|fixture, and an optional regex filter argument.",
+    ),
+  );
+}
+
 async function runMatcherBenchmark(runner: Runner, scenario: Scenario): Promise<BenchmarkPayload> {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     GE_CV_BENCH: String(samplesPerScenario),
+    GE_CV_BENCH_CAPTURE: captureMode,
     GE_CV_BENCH_JSON: "1",
     GE_CV_BENCH_WARMUPS: String(targetWarmups),
   };
@@ -180,6 +207,8 @@ async function runMatcherBenchmark(runner: Runner, scenario: Scenario): Promise<
 }
 
 const scenarios = buildScenarios();
+printConfigHints(scenarios.length);
+
 const results: Record<string, { scenarios: any[] }> = {};
 for (const runner of runners) {
   const payloads: BenchmarkPayload[] = [];
@@ -237,6 +266,8 @@ for (const runner of runners) {
       stats,
       opencv: payload.opencv,
       image: payload.image,
+      bench_image: payload.bench_image,
+      bench_capture: payload.bench_capture,
     };
   });
 
@@ -253,6 +284,7 @@ await fs.writeFile(
         grouping: ["screenshot folder", "lang", "screen"],
         samples_per_scenario: samplesPerScenario,
         target_warmups_per_scenario: targetWarmups,
+        bench_capture_mode: captureMode,
         available_parallelism: os.availableParallelism?.() ?? os.cpus().length,
         cache_warm_strategy:
           "Use the target frame when it is an overlay; otherwise use a same-folder/lang overlay frame to prime aspect and scale caches.",

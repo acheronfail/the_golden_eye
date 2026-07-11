@@ -145,6 +145,11 @@ function progressText(completed: number, total: number, runner: Runner, jobs: nu
   return `Running ${completed}/${total} tests for ${chalk.cyan.bold(runner.name)} with up to ${jobs} jobs`;
 }
 
+function printConfigHints(testCount: number) {
+  console.log(chalk.blue(`Running ${testCount} CV tests with up to ${testJobs} jobs.`));
+  console.log(chalk.gray("Tune with GE_CV_TEST_JOBS=N and an optional regex filter argument."));
+}
+
 async function evaluateScreenshotTest(runner: Runner, screenshot: ScreenshotInfo): Promise<EvaluatedTest> {
   const { stdout } = await execCommand(runner.command(screenshot.filePath, screenshot.lang));
   const result = JSON.parse(stdout);
@@ -214,14 +219,16 @@ const results: Record<
 > = {};
 const failedChecks: FailedCheck[] = [];
 
+const screenshotCases = screenshots.filter((screenshot) =>
+  filterRe ? filterRe.exec(screenshot.filePath) !== null : true,
+);
+const mismatchCases = languageMismatchCases.filter((mismatch) => {
+  const filePath = path.join(testRoot, mismatch.filePath);
+  return filterRe ? filterRe.exec(filePath) !== null : true;
+});
+printConfigHints(screenshotCases.length + mismatchCases.length);
+
 for (const runner of runners) {
-  const screenshotCases = screenshots.filter((screenshot) =>
-    filterRe ? filterRe.exec(screenshot.filePath) !== null : true,
-  );
-  const mismatchCases = languageMismatchCases.filter((mismatch) => {
-    const filePath = path.join(testRoot, mismatch.filePath);
-    return filterRe ? filterRe.exec(filePath) !== null : true;
-  });
   const activeJobs = Math.min(testJobs, Math.max(1, screenshotCases.length + mismatchCases.length));
   const testCases: TestCase[] = [
     ...screenshotCases.map((screenshot) => ({ kind: "screenshot" as const, screenshot })),

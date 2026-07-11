@@ -96,11 +96,11 @@ test-rust *args:
 test-browser *args:
     cd obs2/browser && npm run test:unit -- --run {{ args }}
 
-# runs opencv frame tests; set GE_CV_TEST_JOBS=N to override the default parallelism
+# runs opencv frame tests
 test-cv *filter: make-release
     cd test && npm run test -- {{ filter }}
 
-# runs one benchmark per unique cv frame scenario; set GE_CV_BENCH_SAMPLES=N or GE_CV_BENCH_WARMUPS=N to tune it
+# runs one benchmark per unique cv frame scenario
 bench-cv *filter: make-release
     cd test && npm run bench -- {{ filter }}
 
