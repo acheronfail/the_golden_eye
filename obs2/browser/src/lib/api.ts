@@ -131,15 +131,24 @@ export const deleteRun = async (path: string): Promise<void> => {
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 };
 
-export const revealRun = async (path: string): Promise<void> => {
-	const res = await fetch(apiUrl(`/api/v1/runs/reveal?path=${encodeURIComponent(path)}`), { method: 'POST' });
+type FileRevealRequest =
+	| { target: 'run'; path: string }
+	| { target: 'runFolder'; kind: RunDirectoryScan['kind'] }
+	| { target: 'settingsConfig' };
+
+export const revealFile = async (request: FileRevealRequest): Promise<void> => {
+	const res = await fetch(apiUrl('/api/v1/files/reveal'), {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(request)
+	});
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 };
 
-export const revealRunFolder = async (kind: RunDirectoryScan['kind']): Promise<void> => {
-	const res = await fetch(apiUrl(`/api/v1/runs/reveal-folder?kind=${encodeURIComponent(kind)}`), { method: 'POST' });
-	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
-};
+export const revealRun = async (path: string): Promise<void> => revealFile({ target: 'run', path });
+
+export const revealRunFolder = async (kind: RunDirectoryScan['kind']): Promise<void> =>
+	revealFile({ target: 'runFolder', kind });
 
 export const renameRun = async (path: string, fileName: string): Promise<RunClip> => {
 	const res = await fetch(apiUrl('/api/v1/runs/rename'), {
@@ -223,10 +232,7 @@ export const resetSettingsToDefaults = async (): Promise<Settings> => {
 	return res.json();
 };
 
-export const revealSettingsConfig = async (): Promise<void> => {
-	const res = await fetch(apiUrl('/api/v1/settings/reveal'), { method: 'POST' });
-	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
-};
+export const revealSettingsConfig = async (): Promise<void> => revealFile({ target: 'settingsConfig' });
 
 export interface FolderPickResult {
 	cancelled: boolean;

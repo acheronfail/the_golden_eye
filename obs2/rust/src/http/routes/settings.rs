@@ -1,6 +1,3 @@
-use std::path::Path;
-use std::process::Command;
-
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -49,43 +46,4 @@ pub async fn handle_reset(State(state): State<AppState>) -> Result<impl IntoResp
             Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to reset settings").into())
         }
     }
-}
-
-#[axum::debug_handler]
-pub async fn handle_reveal(State(state): State<AppState>) -> Result<impl IntoResponse> {
-    let path = state.settings.path().to_path_buf();
-    state.settings.ensure_file_exists().map_err(|err| {
-        tracing::error!("failed to create settings file before reveal: {err:#}");
-        (StatusCode::INTERNAL_SERVER_ERROR, "failed to create settings file").into_response()
-    })?;
-
-    tokio::task::spawn_blocking(move || reveal_in_file_browser(&path))
-        .await
-        .map_err(|err| {
-            tracing::error!("settings reveal task failed: {err:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "settings reveal failed").into_response()
-        })?
-        .map_err(|err| {
-            tracing::error!("settings reveal failed: {err:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "settings reveal failed").into_response()
-        })?;
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-fn reveal_in_file_browser(path: &Path) -> anyhow::Result<()> {
-    #[cfg(target_os = "macos")]
-    let status = Command::new("open").arg("-R").arg(path).status();
-
-    #[cfg(target_os = "windows")]
-    let status = Command::new("explorer").arg(format!("/select,{}", path.display())).status();
-
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    let status = match path.parent() {
-        Some(parent) => Command::new("xdg-open").arg(parent).status(),
-        None => Command::new("xdg-open").arg(path).status(),
-    };
-
-    let status = status?;
-    if status.success() { Ok(()) } else { anyhow::bail!("file browser exited with status {status}") }
 }
