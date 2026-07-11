@@ -93,8 +93,8 @@ pub enum MonitorEvent {
     /// The source showed a ROM language-specific marker. The monitor uses this
     /// to keep its active matcher and recording metadata aligned automatically.
     LanguageDetected { lang: String },
-    /// Periodic monitor throughput telemetry. `processed_fps` is the number of
-    /// frames the matcher completed during the latest sample window;
+    /// Periodic monitor throughput telemetry. `processed_fps` is the slowest
+    /// completed-frame cadence observed since the last telemetry push;
     /// `source_fps` is the OBS video cadence driving capture callbacks.
     MonitorFps(MonitorFps),
     /// A run's clip save was scheduled and will fire after the post-run padding.

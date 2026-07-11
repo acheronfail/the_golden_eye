@@ -15,7 +15,7 @@ use crate::cv::{CaptureRegion, CvMatcher, LevelMatch};
 use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason, RecordingStatus};
 
 const DEFAULT_MONITOR_LANGUAGE: &str = "jp";
-const MONITOR_FPS_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
+const MONITOR_FPS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
 
 /// A running monitor. OBS pushes captured frames into `mailbox` from its render
 /// callback (keyed by the leaked `producer` pointer); the worker `thread`
@@ -505,8 +505,9 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         let mut active_lang = recording_lang.clone();
         let mut language_notified = false;
         let mut last: Option<LevelMatch> = None;
-        let mut fps_sample_started = Instant::now();
-        let mut fps_sample_frames = 0u32;
+        let mut last_fps_emit = Instant::now();
+        let mut last_frame_completed: Option<Instant> = None;
+        let mut slowest_frame_fps: Option<f64> = None;
         // Drives the replay-buffer save/trim as the session progresses. Fed
         // every matched frame (not just state changes) so its save timer is
         // polled each tick.
@@ -518,14 +519,22 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             recording_lang,
         );
         while let Some(result) = source.capture(|bytes, w, h| session.match_frame(bytes, w, h)) {
-            fps_sample_frames += 1;
             let now = Instant::now();
-            let sample_elapsed = now.duration_since(fps_sample_started);
-            if sample_elapsed >= MONITOR_FPS_SAMPLE_INTERVAL {
-                let processed_fps = f64::from(fps_sample_frames) / sample_elapsed.as_secs_f64();
-                let _ = event_tx.send(MonitorEvent::MonitorFps(MonitorFps { processed_fps, source_fps }));
-                fps_sample_started = now;
-                fps_sample_frames = 0;
+            if let Some(previous) = last_frame_completed {
+                let frame_elapsed = now.duration_since(previous).as_secs_f64();
+                if frame_elapsed > 0.0 {
+                    let frame_fps = 1.0 / frame_elapsed;
+                    slowest_frame_fps = Some(slowest_frame_fps.map_or(frame_fps, |fps| fps.min(frame_fps)));
+                }
+            }
+            last_frame_completed = Some(now);
+
+            if now.duration_since(last_fps_emit) >= MONITOR_FPS_EMIT_INTERVAL {
+                if let Some(processed_fps) = slowest_frame_fps {
+                    let _ = event_tx.send(MonitorEvent::MonitorFps(MonitorFps { processed_fps, source_fps }));
+                }
+                last_fps_emit = now;
+                slowest_frame_fps = None;
             }
 
             // Once the matcher has calibrated this source's aspect, hand the
