@@ -279,10 +279,9 @@ pub struct StartParams {
     source_name: String,
 }
 
-/// Source of frames for the monitor loop. OBS captures in production; tests
-/// drive the same loop from decoded fixture images. The frame bytes are only
-/// borrowed for the duration of `use_frame`, so the source can free or reuse the
-/// backing buffer immediately afterwards (the OBS source frees its C buffer).
+/// Source of frames for fixture-backed monitor-loop tests. The live OBS source
+/// uses `ObsSource::capture_with_stats` so production can carry timing metadata.
+#[cfg(test)]
 pub trait FrameSource {
     /// Acquire the next BGRA frame and hand it to `use_frame`. Returns the
     /// closure's value, or `None` when no frame is available right now.
@@ -309,18 +308,7 @@ struct ObsSource {
     region: Arc<Mutex<Option<CaptureRegion>>>,
 }
 
-impl FrameSource for ObsSource {
-    fn capture<F, R>(&mut self, use_frame: F) -> Option<R>
-    where
-        F: FnOnce(&[u8], u32, u32) -> R,
-    {
-        // Block until the producer pushes the next frame, or the mailbox is
-        // closed on stop (returns `None`, ending the run loop). The frame is
-        // dropped at the end of this scope, freeing its C buffer.
-        let frame = self.mailbox.recv()?;
-        Some(use_frame(frame.buf.as_slice(), frame.width, frame.height))
-    }
-
+impl ObsSource {
     fn set_capture_region(&mut self, region: Option<CaptureRegion>) {
         // Latch the first transform learned and keep it (see the field comment);
         // the producer callback reads this to crop/un-stretch future captures.
@@ -332,9 +320,7 @@ impl FrameSource for ObsSource {
             *guard = Some(r);
         }
     }
-}
 
-impl ObsSource {
     fn capture_with_stats<F, R>(&mut self, use_frame: F) -> Option<(R, Option<CapturedFrameStats>)>
     where
         F: FnOnce(&[u8], u32, u32) -> R,
