@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 import { connectAppSocket } from './api';
 import {
 	applyLanguageDetected,
+	applyMonitorFps,
 	applyMonitorMatch,
 	applyMonitorStopped,
 	applyRecordingSaved,
@@ -46,6 +47,7 @@ const connect = (): void => {
 		onMatch: applyMonitorMatch,
 		onRecordingState: applyRecordingState,
 		onLanguageDetected: applyLanguageDetected,
+		onMonitorFps: applyMonitorFps,
 		onRecordingSavePending: applyRecordingSavePending,
 		onRecordingSaved: applyRecordingSaved,
 		onMonitorStopped: (reason) => {

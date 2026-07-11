@@ -1,6 +1,7 @@
 import {
 	getMonitorStatus,
 	type LevelMatch,
+	type MonitorFps,
 	type MonitorStatus,
 	type MonitorStoppedReason,
 	type RecordingSavePending,
@@ -114,12 +115,14 @@ export const monitor = $state<{
 	status: MonitorStatus | null;
 	loaded: boolean;
 	match: LevelMatch | null;
+	fps: MonitorFps | null;
 	recordingState: RecordingStatus | null;
 	kiaEffectId: number;
 }>({
 	status: null,
 	loaded: false,
 	match: null,
+	fps: null,
 	recordingState: null,
 	kiaEffectId: 0
 });
@@ -131,6 +134,7 @@ export const monitorHref = (status: MonitorStatus | null = monitor.status): stri
 
 const clearRunState = () => {
 	monitor.match = null;
+	monitor.fps = null;
 	monitor.recordingState = null;
 };
 
@@ -206,6 +210,10 @@ export const applyLanguageDetected = (lang: 'en' | 'jp'): void => {
 		if (replaced) return;
 	}
 	languageDetectedNotificationId = addNotificationFlag(notification).id;
+};
+
+export const applyMonitorFps = (fps: MonitorFps): void => {
+	monitor.fps = fps;
 };
 
 export const triggerKiaDeathOverlay = (): void => {

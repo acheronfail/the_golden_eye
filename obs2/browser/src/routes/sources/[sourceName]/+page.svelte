@@ -49,6 +49,16 @@
 				: (currentMatch?.screen ?? '...')
 	);
 	const showDetail = $derived(waitingForObs || detail.trim().toLowerCase() !== 'unknown');
+	const monitorFpsText = $derived(
+		monitor.fps
+			? monitor.fps.sourceFps > 0
+				? `${monitor.fps.processedFps.toFixed(1)} / ${monitor.fps.sourceFps.toFixed(1)} FPS`
+				: `${monitor.fps.processedFps.toFixed(1)} FPS`
+			: null
+	);
+	const monitorFpsLagging = $derived(
+		Boolean(monitor.fps && monitor.fps.sourceFps > 0 && monitor.fps.processedFps + 0.5 < monitor.fps.sourceFps)
+	);
 
 	const formatTime = (secs: number): string => {
 		const m = Math.floor(secs / 60);
@@ -196,6 +206,17 @@
 			<p class="obs-subtitle mt-2 text-xs whitespace-nowrap">
 				{waitingForObs ? 'OBS is finishing the replay buffer transition' : 'press escape or space to stop monitoring'}
 			</p>
+		</div>
+	{/if}
+
+	{#if monitoring && settings.showMonitorFps && monitorFpsText}
+		<div
+			class="absolute right-6 bottom-6 z-20 font-mono text-xs whitespace-nowrap tabular-nums {monitorFpsLagging
+				? 'text-(--obs-danger)'
+				: 'obs-dim'}"
+			aria-label={monitorFpsLagging ? 'Monitor FPS is below OBS FPS' : 'Monitor FPS'}
+		>
+			{monitorFpsText}
 		</div>
 	{/if}
 

@@ -93,6 +93,10 @@ pub enum MonitorEvent {
     /// The source showed a ROM language-specific marker. The monitor uses this
     /// to keep its active matcher and recording metadata aligned automatically.
     LanguageDetected { lang: String },
+    /// Periodic monitor throughput telemetry. `processed_fps` is the number of
+    /// frames the matcher completed during the latest sample window;
+    /// `source_fps` is the OBS video cadence driving capture callbacks.
+    MonitorFps(MonitorFps),
     /// A run's clip save was scheduled and will fire after the post-run padding.
     RecordingSavePending(RecordingSavePending),
     /// A run's clip was saved out of the replay buffer and trimmed.
@@ -122,6 +126,15 @@ pub enum MonitorStoppedReason {
     UserStopped,
     /// OBS reported that its replay buffer stopped while monitoring was active.
     ReplayBufferStopped,
+}
+
+/// Monitor throughput sampled by the worker thread and pushed to the frontend
+/// while monitoring is active.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorFps {
+    pub processed_fps: f64,
+    pub source_fps: f64,
 }
 
 /// A transition in the recorder's per-run state, broadcast so the SPA can
@@ -454,6 +467,17 @@ mod tests {
 
         assert_eq!(json["type"], "languageDetected");
         assert_eq!(json["lang"], "en");
+    }
+
+    #[test]
+    fn monitor_fps_event_uses_frontend_field_names() {
+        let event = MonitorEvent::MonitorFps(MonitorFps { processed_fps: 59.5, source_fps: 60.0 });
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "monitorFps");
+        assert_eq!(json["processedFps"], 59.5);
+        assert_eq!(json["sourceFps"], 60.0);
+        assert!(json.get("processed_fps").is_none());
     }
 
     #[test]

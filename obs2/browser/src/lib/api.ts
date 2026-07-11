@@ -412,6 +412,11 @@ export type RecordingStatus =
 /** Why the backend stopped monitoring. Mirrors the Rust `MonitorStoppedReason`. */
 export type MonitorStoppedReason = 'userStopped' | 'replayBufferStopped';
 
+export interface MonitorFps {
+	processedFps: number;
+	sourceFps: number;
+}
+
 /** A message pushed over the app WebSocket. Mirrors the Rust `MonitorEvent`,
  * which is serialized internally tagged by `type`, so each variant is its
  * payload plus a discriminating `type` field. */
@@ -421,6 +426,7 @@ export type AppSocketEvent =
 	| ({ type: 'match' } & LevelMatch)
 	| { type: 'recordingState'; status: RecordingStatus | null }
 	| { type: 'languageDetected'; lang: 'en' | 'jp' }
+	| ({ type: 'monitorFps' } & MonitorFps)
 	| ({ type: 'recordingSavePending' } & RecordingSavePending)
 	| ({ type: 'recordingSaved' } & RecordingSaved)
 	| { type: 'monitorStopped'; reason: MonitorStoppedReason }
@@ -439,6 +445,8 @@ export interface AppSocketHandlers {
 	onRecordingState?: (status: RecordingStatus | null) => void;
 	/** The active source showed a ROM language marker. */
 	onLanguageDetected?: (lang: 'en' | 'jp') => void;
+	/** Periodic monitor throughput telemetry while a monitor is active. */
+	onMonitorFps?: (fps: MonitorFps) => void;
 	/** A run's clip save was scheduled after the post-run padding. */
 	onRecordingSavePending?: (pending: RecordingSavePending) => void;
 	/** A run's clip was saved out of the replay buffer and trimmed. */
@@ -507,6 +515,9 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 				break;
 			case 'languageDetected':
 				handlers.onLanguageDetected?.(msg.lang);
+				break;
+			case 'monitorFps':
+				handlers.onMonitorFps?.(msg);
 				break;
 			case 'recordingSavePending':
 				handlers.onRecordingSavePending?.(msg);

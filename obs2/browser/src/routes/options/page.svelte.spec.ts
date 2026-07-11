@@ -62,6 +62,7 @@ vi.mock('$lib/api', async (importOriginal) => {
 
 const defaultSettings: Settings = {
 	stopReplayBufferWhenMonitorStopped: false,
+	showMonitorFps: false,
 	completedOutputPath: '',
 	saveFailedRuns: true,
 	failedOutputPath: '',
@@ -120,6 +121,19 @@ describe('/options', () => {
 			expect(mocks.api.putSettings).toHaveBeenCalledWith(
 				expect.objectContaining({ stopReplayBufferWhenMonitorStopped: true })
 			)
+		);
+	});
+
+	it('saves the monitor FPS display option', async () => {
+		const user = userEvent.setup();
+		render(OptionsPageHarness);
+
+		const checkbox = await screen.findByRole('checkbox', { name: /Show monitor FPS/i });
+		await waitFor(() => expect(checkbox).toBeEnabled());
+		await user.click(checkbox);
+
+		await waitFor(() =>
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ showMonitorFps: true }))
 		);
 	});
 });

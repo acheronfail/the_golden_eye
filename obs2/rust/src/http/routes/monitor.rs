@@ -1,6 +1,7 @@
 use std::ffi::{CString, c_void};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use axum::Json;
 use axum::extract::State;
@@ -11,9 +12,10 @@ use serde::Deserialize;
 use tokio::sync::{broadcast, watch};
 
 use crate::cv::{CaptureRegion, CvMatcher, LevelMatch};
-use crate::http::{AppState, MonitorEvent, MonitorStoppedReason, RecordingStatus};
+use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason, RecordingStatus};
 
 const DEFAULT_MONITOR_LANGUAGE: &str = "jp";
+const MONITOR_FPS_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// A running monitor. OBS pushes captured frames into `mailbox` from its render
 /// callback (keyed by the leaked `producer` pointer); the worker `thread`
@@ -496,12 +498,15 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let recording_state = state.recording_state.clone();
     let recording_source_name = status_source_name.clone();
     let recording_lang = DEFAULT_MONITOR_LANGUAGE.to_owned();
+    let source_fps = unsafe { crate::ffi::ge_obs_video_fps() };
     let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
         let mut source = ObsSource { mailbox: worker_mailbox, region };
         let mut session = session;
         let mut active_lang = recording_lang.clone();
         let mut language_notified = false;
         let mut last: Option<LevelMatch> = None;
+        let mut fps_sample_started = Instant::now();
+        let mut fps_sample_frames = 0u32;
         // Drives the replay-buffer save/trim as the session progresses. Fed
         // every matched frame (not just state changes) so its save timer is
         // polled each tick.
@@ -513,6 +518,16 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             recording_lang,
         );
         while let Some(result) = source.capture(|bytes, w, h| session.match_frame(bytes, w, h)) {
+            fps_sample_frames += 1;
+            let now = Instant::now();
+            let sample_elapsed = now.duration_since(fps_sample_started);
+            if sample_elapsed >= MONITOR_FPS_SAMPLE_INTERVAL {
+                let processed_fps = f64::from(fps_sample_frames) / sample_elapsed.as_secs_f64();
+                let _ = event_tx.send(MonitorEvent::MonitorFps(MonitorFps { processed_fps, source_fps }));
+                fps_sample_started = now;
+                fps_sample_frames = 0;
+            }
+
             // Once the matcher has calibrated this source's aspect, hand the
             // transform to the capture layer so subsequent frames are cropped +
             // un-stretched on the GPU at capture time.
@@ -533,7 +548,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                         last = None;
                     }
 
-                    recording.on_frame(std::time::Instant::now(), &info);
+                    recording.on_frame(now, &info);
                     let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&info));
                     if changed {
                         tracing::info!(?info);
