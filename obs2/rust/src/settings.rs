@@ -35,6 +35,7 @@ pub struct AppSettings {
     pub stop_replay_buffer_when_monitor_stopped: bool,
     pub show_monitor_fps: bool,
     pub show_developer_settings: bool,
+    pub welcome_modal_shown: bool,
     pub completed_output_path: String,
     pub save_failed_runs: bool,
     pub failed_output_path: String,
@@ -55,6 +56,7 @@ impl Default for AppSettings {
             stop_replay_buffer_when_monitor_stopped: false,
             show_monitor_fps: false,
             show_developer_settings: false,
+            welcome_modal_shown: false,
             completed_output_path: String::new(),
             save_failed_runs: true,
             failed_output_path: String::new(),
@@ -85,6 +87,7 @@ impl AppSettings {
             ),
             show_monitor_fps: bool_field(object.get("showMonitorFps"), default.show_monitor_fps),
             show_developer_settings: bool_field(object.get("showDeveloperSettings"), default.show_developer_settings),
+            welcome_modal_shown: bool_field(object.get("welcomeModalShown"), default.welcome_modal_shown),
             completed_output_path: string_field(object.get("completedOutputPath"), &default.completed_output_path),
             save_failed_runs: bool_field(object.get("saveFailedRuns"), default.save_failed_runs),
             failed_output_path: string_field(object.get("failedOutputPath"), &default.failed_output_path),
@@ -516,6 +519,7 @@ mod tests {
         assert!(!AppSettings::default().stop_replay_buffer_when_monitor_stopped);
         assert!(!AppSettings::default().show_monitor_fps);
         assert!(!AppSettings::default().show_developer_settings);
+        assert!(!AppSettings::default().welcome_modal_shown);
         assert_eq!(AppSettings::from_json_value(json!({})).pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
         assert_eq!(
             AppSettings::from_json_value(json!({})).minimum_failed_run_length_secs,
@@ -524,6 +528,7 @@ mod tests {
         assert!(!AppSettings::from_json_value(json!({})).stop_replay_buffer_when_monitor_stopped);
         assert!(!AppSettings::from_json_value(json!({})).show_monitor_fps);
         assert!(!AppSettings::from_json_value(json!({})).show_developer_settings);
+        assert!(!AppSettings::from_json_value(json!({})).welcome_modal_shown);
     }
 
     #[test]
@@ -532,6 +537,7 @@ mod tests {
             "stopReplayBufferWhenMonitorStopped": true,
             "showMonitorFps": true,
             "showDeveloperSettings": true,
+            "welcomeModalShown": true,
             "completedOutputPath": "/tmp/completed",
             "saveFailedRuns": false,
             "failedOutputPath": "/tmp/failed",
@@ -549,6 +555,7 @@ mod tests {
         assert!(settings.stop_replay_buffer_when_monitor_stopped);
         assert!(settings.show_monitor_fps);
         assert!(settings.show_developer_settings);
+        assert!(settings.welcome_modal_shown);
         assert_eq!(settings.completed_output_path, "/tmp/completed");
         assert!(!settings.save_failed_runs);
         assert_eq!(settings.failed_output_path, "/tmp/failed");
@@ -592,6 +599,7 @@ mod tests {
                 "stopReplayBufferWhenMonitorStopped": true,
                 "showMonitorFps": true,
                 "showDeveloperSettings": true,
+                "welcomeModalShown": true,
                 "completedOutputPath": "/runs",
                 "saveFailedRuns": true,
                 "failedOutputPath": "/fails",
@@ -611,6 +619,7 @@ mod tests {
         assert!(saved.stop_replay_buffer_when_monitor_stopped);
         assert!(saved.show_monitor_fps);
         assert!(saved.show_developer_settings);
+        assert!(saved.welcome_modal_shown);
         assert!(path.exists());
 
         let reloaded = SettingsStore::load_from_path(path).get();

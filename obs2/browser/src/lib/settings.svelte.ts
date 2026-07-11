@@ -21,6 +21,7 @@ const SettingsSchema = z.object({
 	stopReplayBufferWhenMonitorStopped: z.boolean().catch(false),
 	showMonitorFps: z.boolean().catch(false),
 	showDeveloperSettings: z.boolean().catch(false),
+	welcomeModalShown: z.boolean().catch(false),
 	completedOutputPath: z.string().catch(''),
 	saveFailedRuns: z.boolean().catch(true),
 	failedOutputPath: z.string().catch(''),
@@ -118,6 +119,7 @@ export const settings = new (class {
 	stopReplayBufferWhenMonitorStopped = $state(initialSettings.stopReplayBufferWhenMonitorStopped);
 	showMonitorFps = $state(initialSettings.showMonitorFps);
 	showDeveloperSettings = $state(initialSettings.showDeveloperSettings);
+	welcomeModalShown = $state(initialSettings.welcomeModalShown);
 
 	//
 	// Recording
@@ -161,6 +163,7 @@ export const settings = new (class {
 			stopReplayBufferWhenMonitorStopped: this.stopReplayBufferWhenMonitorStopped,
 			showMonitorFps: this.showMonitorFps,
 			showDeveloperSettings: this.showDeveloperSettings,
+			welcomeModalShown: this.welcomeModalShown,
 			completedOutputPath: this.completedOutputPath,
 			saveFailedRuns: this.saveFailedRuns,
 			failedOutputPath: this.failedOutputPath,
@@ -307,6 +310,7 @@ export const settings = new (class {
 		this.stopReplayBufferWhenMonitorStopped = next.stopReplayBufferWhenMonitorStopped;
 		this.showMonitorFps = next.showMonitorFps;
 		this.showDeveloperSettings = next.showDeveloperSettings;
+		this.welcomeModalShown = next.welcomeModalShown;
 		this.completedOutputPath = next.completedOutputPath;
 		this.saveFailedRuns = next.saveFailedRuns;
 		this.failedOutputPath = next.failedOutputPath;
