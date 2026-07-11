@@ -107,6 +107,9 @@ jobs:
       - name: Run Rust tests
         run: just test-rust
 
+      - name: Run Integration tests
+        run: just test-integration
+
       - name: Build Linux package
         run: just make-package
 
