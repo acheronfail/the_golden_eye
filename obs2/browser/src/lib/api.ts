@@ -136,6 +136,11 @@ export const revealRun = async (path: string): Promise<void> => {
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 };
 
+export const revealRunFolder = async (kind: RunDirectoryScan['kind']): Promise<void> => {
+	const res = await fetch(apiUrl(`/api/v1/runs/reveal-folder?kind=${encodeURIComponent(kind)}`), { method: 'POST' });
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+};
+
 export const renameRun = async (path: string, fileName: string): Promise<RunClip> => {
 	const res = await fetch(apiUrl('/api/v1/runs/rename'), {
 		method: 'POST',

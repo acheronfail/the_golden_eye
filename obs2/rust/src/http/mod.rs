@@ -385,6 +385,7 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         )
         .route("/api/v1/runs/stream", get(routes::runs::handle_stream))
         .route("/api/v1/runs/reveal", post(routes::runs::handle_reveal))
+        .route("/api/v1/runs/reveal-folder", post(routes::runs::handle_reveal_folder))
         .route("/api/v1/runs/rename", post(routes::runs::handle_rename))
         .route("/api/v1/runs/thumbnail", get(routes::runs::handle_thumbnail))
         .route("/api/v1/runs/video", get(routes::runs::handle_video))

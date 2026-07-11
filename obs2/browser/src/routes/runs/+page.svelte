@@ -2,6 +2,7 @@
 	import {
 		deleteRun,
 		renameRun,
+		revealRunFolder,
 		revealRun,
 		runThumbnailUrl,
 		runVideoUrl,
@@ -12,7 +13,22 @@
 		type RunDirectoryScan,
 		type RunsResponse
 	} from '$lib/api';
-	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
+	import { settings } from '$lib/settings.svelte';
+	import {
+		DIFFICULTY_OPTIONS,
+		EMPTY_RUN_FILTERS,
+		LANGUAGE_OPTIONS,
+		LEVEL_OPTIONS,
+		STATUS_OPTIONS,
+		hasActiveRunFilters,
+		isCompleted,
+		isRunPreviewVisible,
+		levelLabel,
+		romLanguageLabel,
+		statusLabel,
+		visibleRunClips,
+		type RunFilters
+	} from '$lib/runsView';
 	import { onDestroy, onMount } from 'svelte';
 
 	let runs = $state<RunsResponse | null>(null);
@@ -23,60 +39,42 @@
 	let modalError = $state<string | null>(null);
 	let modalBusy = $state<string | null>(null);
 	let fileBrowserLabel = $state('show in file browser');
+	let folderBrowserLabel = $state('show clips folder');
+	let folderRevealBusy = $state(false);
+	let folderChooserOpen = $state(false);
 	let previewVersion = $state(0);
+	let previewPath = $state<string | null>(null);
+	let search = $state('');
+	let levelFilter = $state('');
+	let difficultyFilter = $state('');
+	let statusFilter = $state('');
+	let languageFilter = $state('');
+	let minTimeFilter = $state('');
+	let maxTimeFilter = $state('');
+	let filtersCollapsed = $state(false);
 	let reloadAbort: AbortController | null = null;
 
-	const LANGUAGE_OPTIONS = [
-		{ value: 'en', label: 'en' },
-		{ value: 'jp', label: 'jp' }
-	];
-	const STATUS_OPTIONS = [
-		{ value: 'failed', label: 'failed' },
-		{ value: 'abort', label: 'aborted' },
-		{ value: 'complete', label: 'completed' },
-		{ value: 'kia', label: 'killed in action' }
-	];
-	const DIFFICULTY_OPTIONS = [
-		{ value: 'Agent', label: 'agent' },
-		{ value: 'Secret Agent', label: 'secret agent' },
-		{ value: '00 Agent', label: '00 agent' },
-		{ value: '007', label: '007' }
-	];
-	const LEVEL_OPTIONS = [
-		'Dam',
-		'Facility',
-		'Runway',
-		'Surface 1',
-		'Bunker 1',
-		'Silo',
-		'Frigate',
-		'Surface 2',
-		'Bunker 2',
-		'Statue',
-		'Archives',
-		'Streets',
-		'Depot',
-		'Train',
-		'Jungle',
-		'Control',
-		'Caverns',
-		'Cradle',
-		'Aztec',
-		'Egypt'
-	];
-
+	const currentFilters = $derived<RunFilters>({
+		search,
+		level: levelFilter,
+		difficulty: difficultyFilter,
+		status: statusFilter,
+		language: languageFilter,
+		minTime: minTimeFilter,
+		maxTime: maxTimeFilter
+	});
 	const clips = $derived(runs?.clips ?? []);
 	const clipByPath = $derived(new Map(clips.map((clip) => [clip.path, clip])));
-	const options = $derived<Option[]>(
-		clips.map((clip) => ({
-			title: clip.fileName,
-			detail: runDetail(clip),
-			key: clip.path,
-			tone: isCompleted(clip) ? 'success' : undefined
-		}))
-	);
+	const visibleClips = $derived(visibleRunClips(clips, currentFilters));
 	const directoryErrors = $derived((runs?.directories ?? []).filter((dir) => dir.error));
 	const scannedDirectoryCount = $derived(runs?.directories.length ?? 0);
+	const completedDirectory = $derived((runs?.directories ?? []).find((dir) => dir.kind === 'completed' && dir.exists));
+	const failedDirectory = $derived((runs?.directories ?? []).find((dir) => dir.kind === 'failed' && dir.exists));
+	const revealableDirectories = $derived(
+		[completedDirectory, failedDirectory].filter((dir): dir is RunDirectoryScan => Boolean(dir))
+	);
+	const hasActiveFilters = $derived(hasActiveRunFilters(currentFilters));
+	const activeFilterLabels = $derived(activeRunFilterLabels(currentFilters));
 	let metadataDirty = $derived.by(() => {
 		if (!selected || !metadataDraft) return false;
 		return !sameMetadataDraft(metadataDraft, draftFromClip(selected));
@@ -118,6 +116,7 @@
 
 	onMount(() => {
 		fileBrowserLabel = platformFileBrowserLabel();
+		folderBrowserLabel = platformFolderBrowserLabel();
 		reload();
 	});
 
@@ -125,11 +124,21 @@
 		reloadAbort?.abort();
 	});
 
-	const select = (option: Option) => {
-		selected = clipByPath.get(option.key ?? option.title) ?? null;
-		metadataDraft = selected ? draftFromClip(selected) : null;
+	const select = (clip: RunClip) => {
+		selected = clipByPath.get(clip.path) ?? clip;
+		metadataDraft = draftFromClip(selected);
 		modalError = null;
 		modalBusy = null;
+	};
+
+	const clearFilters = () => {
+		search = EMPTY_RUN_FILTERS.search;
+		levelFilter = EMPTY_RUN_FILTERS.level;
+		difficultyFilter = EMPTY_RUN_FILTERS.difficulty;
+		statusFilter = EMPTY_RUN_FILTERS.status;
+		languageFilter = EMPTY_RUN_FILTERS.language;
+		minTimeFilter = EMPTY_RUN_FILTERS.minTime;
+		maxTimeFilter = EMPTY_RUN_FILTERS.maxTime;
 	};
 
 	const close = () => {
@@ -142,10 +151,6 @@
 	const onkeydown = (event: KeyboardEvent) => {
 		if (selected && event.key === 'Escape') close();
 	};
-
-	function isCompleted(clip: RunClip): boolean {
-		return clip.metadata.status === 'complete' || clip.metadata.status === 'completed';
-	}
 
 	function hasValue(options: { value: string }[], value: string | undefined | null): value is string {
 		return Boolean(value && options.some((option) => option.value === value));
@@ -273,6 +278,33 @@
 		}
 	}
 
+	function openFolderChooser() {
+		if (revealableDirectories.length === 0) return;
+		if (!settings.saveFailedRuns) {
+			void revealRunsFolder('completed');
+			return;
+		}
+		folderChooserOpen = true;
+	}
+
+	function closeFolderChooser() {
+		if (folderRevealBusy) return;
+		folderChooserOpen = false;
+	}
+
+	async function revealRunsFolder(kind: RunDirectoryScan['kind']) {
+		folderRevealBusy = true;
+		error = null;
+		try {
+			await revealRunFolder(kind);
+			folderChooserOpen = false;
+		} catch (err) {
+			error = err instanceof Error ? err.message : String(err);
+		} finally {
+			folderRevealBusy = false;
+		}
+	}
+
 	async function deleteSelectedRun() {
 		if (!selected) return;
 		const confirmed = confirm(`Delete "${selected.fileName}" from disk?\n\nThis cannot be undone.`);
@@ -316,6 +348,13 @@
 		return 'show in file browser';
 	}
 
+	function platformFolderBrowserLabel(): string {
+		const platform = navigator.platform.toLowerCase();
+		if (platform.includes('mac')) return 'show clips in finder';
+		if (platform.includes('win')) return 'show clips in explorer';
+		return 'show clips folder';
+	}
+
 	function runDetail(clip: RunClip): string {
 		const parts = [
 			levelLabel(clip),
@@ -328,37 +367,40 @@
 		return parts.filter(Boolean).join(' | ');
 	}
 
-	function levelLabel(clip: RunClip): string {
-		const level = clip.metadata.level || 'unknown';
-		return clip.metadata.levelNumber ? `${clip.metadata.levelNumber}. ${level}` : level;
-	}
-
-	function romLanguageLabel(lang: string): string | null {
-		switch (lang) {
-			case 'en':
-				return 'EN';
-			case 'jp':
-				return 'JP';
-			case '':
-				return null;
-			default:
-				return `${lang.toUpperCase()}`;
-		}
-	}
-
-	function statusLabel(status: string): string {
-		switch (status) {
+	function statusTone(status: string): string {
+		switch (status === 'completed' ? 'complete' : status) {
 			case 'complete':
-				return 'complete';
+				return 'border-[color-mix(in_srgb,var(--obs-success),var(--obs-border)_35%)] bg-[var(--obs-success-surface)] text-[var(--obs-success)]';
 			case 'failed':
-				return 'failed';
 			case 'abort':
-				return 'aborted';
 			case 'kia':
-				return 'KIA';
+				return 'border-[color-mix(in_srgb,var(--obs-danger),var(--obs-border)_35%)] bg-[var(--obs-danger-surface)] text-[var(--obs-danger)]';
 			default:
-				return status;
+				return 'obs-token';
 		}
+	}
+
+	function runMetaChips(clip: RunClip): { label: string; class: string }[] {
+		const status = statusLabel(clip.metadata.status);
+		return [
+			{ label: levelLabel(clip), class: 'obs-token' },
+			{ label: clip.metadata.time ?? '', class: 'obs-token' },
+			{ label: clip.metadata.difficulty ?? '', class: 'obs-token' },
+			{ label: romLanguageLabel(clip.metadata.romLanguage) ?? '', class: 'obs-token' },
+			{ label: status, class: statusTone(clip.metadata.status) }
+		].filter((chip) => chip.label);
+	}
+
+	function activeRunFilterLabels(filters: RunFilters): string[] {
+		return [
+			filters.search.trim() ? `search: ${filters.search.trim()}` : '',
+			filters.level ? `level: ${filters.level}` : '',
+			filters.difficulty ? `difficulty: ${filters.difficulty}` : '',
+			filters.status ? `status: ${statusLabel(filters.status)}` : '',
+			filters.language ? `language: ${romLanguageLabel(filters.language) ?? filters.language}` : '',
+			filters.minTime ? `min: ${filters.minTime}` : '',
+			filters.maxTime ? `max: ${filters.maxTime}` : ''
+		].filter((label) => label);
 	}
 
 	function formatDate(value: string): string {
@@ -394,6 +436,10 @@
 			{ label: 'Created by', value: clip.metadata.comment }
 		];
 	}
+
+	function directoryPath(directory: RunDirectoryScan | undefined): string {
+		return directory?.path ?? 'Not configured';
+	}
 </script>
 
 <svelte:head>
@@ -402,37 +448,130 @@
 
 <svelte:window {onkeydown} />
 
-{#snippet leading(option: Option)}
-	{@const clip = clipByPath.get(option.key ?? option.title)}
-	{#if clip}
-		<img
-			src="{runThumbnailUrl(clip.path)}&v={previewVersion}"
-			alt="Thumbnail for {clip.fileName}"
-			loading="lazy"
-			onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
-			class="obs-preview aspect-video max-h-32 w-full shrink-0 object-contain sm:h-24 sm:w-auto"
-		/>
-	{/if}
-{/snippet}
-
-<main class="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
-	<div class="mb-8 flex items-start gap-4">
+<main class="mx-auto w-full max-w-3xl px-3 py-4 sm:px-4 sm:py-6">
+	<div class="mb-4 flex items-center gap-3">
 		<div class="min-w-0">
-			<h1 class="obs-heading text-2xl font-semibold">Runs</h1>
-			<p class="obs-subtitle mt-2 text-sm">
-				These are clips that have been created by this plugin and found in the folders configured in Options. If you're
-				not seeing clips you expect, make sure the plugin is configured to save them in the correct folders.
+			<h1 class="obs-heading text-xl font-semibold">Runs</h1>
+			<p class="obs-dim mt-1 font-mono text-xs">
+				{visibleClips.length} of {clips.length}{loading ? ' | scanning...' : ''}
 			</p>
 		</div>
 		<button
 			type="button"
+			onclick={openFolderChooser}
+			disabled={folderRevealBusy || revealableDirectories.length === 0}
+			class="obs-text-button ml-auto shrink-0 px-2 py-1 font-mono text-xs underline-offset-2"
+			title={revealableDirectories.length > 0 ? 'Choose a clips folder to open' : 'Set a clips folder in Options first'}
+		>
+			{folderRevealBusy ? 'opening...' : folderBrowserLabel}
+		</button>
+		<button
+			type="button"
 			onclick={reload}
 			disabled={loading}
-			class="obs-text-button ml-auto shrink-0 px-2 py-1 font-mono text-xs underline-offset-2"
+			class="obs-text-button shrink-0 px-2 py-1 font-mono text-xs underline-offset-2"
 		>
 			{loading ? 'loading...' : 'reload'}
 		</button>
 	</div>
+
+	<form
+		class="obs-panel sticky top-0 z-20 mb-4 grid gap-2 rounded px-3 py-3"
+		onsubmit={(event) => event.preventDefault()}
+	>
+		<div class="flex min-w-0 items-center gap-2">
+			<button
+				type="button"
+				class="obs-text-button flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-1.5 font-mono text-xs"
+				aria-expanded={!filtersCollapsed}
+				aria-controls="runs-filter-controls"
+				onclick={() => (filtersCollapsed = !filtersCollapsed)}
+			>
+				<span aria-hidden="true">{filtersCollapsed ? 'show' : 'hide'}</span>
+				<span class="min-w-0 truncate">
+					filters{activeFilterLabels.length ? ` (${activeFilterLabels.length})` : ''}
+				</span>
+			</button>
+
+			<button
+				type="button"
+				class="obs-text-button shrink-0 px-2 py-1.5 font-mono text-xs"
+				disabled={!hasActiveFilters}
+				onclick={clearFilters}
+			>
+				clear
+			</button>
+		</div>
+
+		<p class="obs-dim min-w-0 truncate font-mono text-xs" title={activeFilterLabels.join(' | ')}>
+			{activeFilterLabels.length ? activeFilterLabels.join(' | ') : 'all runs'}
+		</p>
+
+		{#if !filtersCollapsed}
+			<div id="runs-filter-controls" class="grid gap-2">
+				<label class="sr-only" for="runs-search">Search runs</label>
+				<input
+					id="runs-search"
+					class="obs-input px-3 py-2 font-mono text-sm"
+					type="search"
+					placeholder="search runs"
+					bind:value={search}
+				/>
+				<div class="grid grid-cols-2 gap-2">
+					<label class="sr-only" for="runs-level">Level</label>
+					<select id="runs-level" class="obs-select w-full text-xs" bind:value={levelFilter}>
+						<option value="">all levels</option>
+						{#each LEVEL_OPTIONS as level}
+							<option value={level}>{level}</option>
+						{/each}
+					</select>
+
+					<label class="sr-only" for="runs-difficulty">Difficulty</label>
+					<select id="runs-difficulty" class="obs-select w-full text-xs" bind:value={difficultyFilter}>
+						<option value="">all difficulties</option>
+						{#each DIFFICULTY_OPTIONS as option}
+							<option value={option.value}>{option.label}</option>
+						{/each}
+					</select>
+
+					<label class="sr-only" for="runs-status">Status</label>
+					<select id="runs-status" class="obs-select w-full text-xs" bind:value={statusFilter}>
+						<option value="">all statuses</option>
+						{#each STATUS_OPTIONS as option}
+							<option value={option.value}>{option.label}</option>
+						{/each}
+					</select>
+
+					<label class="sr-only" for="runs-language">Language</label>
+					<select id="runs-language" class="obs-select w-full text-xs" bind:value={languageFilter}>
+						<option value="">all languages</option>
+						{#each LANGUAGE_OPTIONS as option}
+							<option value={option.value}>{option.label}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="grid grid-cols-2 gap-2">
+					<label class="sr-only" for="runs-min-time">Minimum time</label>
+					<input
+						id="runs-min-time"
+						class="obs-input px-2 py-2 font-mono text-xs"
+						inputmode="numeric"
+						placeholder="min time"
+						bind:value={minTimeFilter}
+					/>
+
+					<label class="sr-only" for="runs-max-time">Maximum time</label>
+					<input
+						id="runs-max-time"
+						class="obs-input px-2 py-2 font-mono text-xs"
+						inputmode="numeric"
+						placeholder="max time"
+						bind:value={maxTimeFilter}
+					/>
+				</div>
+			</div>
+		{/if}
+	</form>
 
 	{#if error}
 		<div class="obs-alert-error mb-4 rounded px-4 py-3">
@@ -466,13 +605,128 @@
 			<p class="obs-muted text-sm">No tagged clips found.</p>
 			<p class="obs-dim mt-1 font-mono text-xs">New clips saved by this plugin will appear here.</p>
 		</div>
+	{:else if visibleClips.length === 0}
+		<div class="obs-empty-state rounded px-4 py-6 text-center">
+			<p class="obs-muted text-sm">No runs match the current filters.</p>
+			<button
+				type="button"
+				class="obs-text-button mt-3 px-2 py-1 font-mono text-xs"
+				disabled={!hasActiveFilters}
+				onclick={clearFilters}
+			>
+				clear filters
+			</button>
+		</div>
 	{:else}
 		{#if loading}
 			<p class="obs-dim mb-3 font-mono text-xs">Search still running...</p>
 		{/if}
-		<OptionList {options} onSelect={select} {leading} />
+		<ul class="flex flex-col gap-1.5">
+			{#each visibleClips as clip (clip.path)}
+				<li>
+					<button
+						type="button"
+						class="obs-list-button group relative grid min-h-16 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-3 py-2 text-left transition-colors"
+						class:obs-list-button-success={isCompleted(clip)}
+						onclick={() => select(clip)}
+						onmouseenter={() => (previewPath = clip.path)}
+						onmouseleave={() => {
+							if (previewPath === clip.path) previewPath = null;
+						}}
+						onfocus={() => (previewPath = clip.path)}
+						onblur={() => {
+							if (previewPath === clip.path) previewPath = null;
+						}}
+					>
+						<span class="flex min-w-0 flex-col gap-1">
+							<span class="obs-list-title min-w-0 truncate text-sm font-semibold" title={clip.fileName}>
+								{clip.fileName}
+							</span>
+							<span class="flex min-w-0 flex-wrap gap-1">
+								{#each runMetaChips(clip) as chip}
+									<span class="{chip.class} rounded border px-1.5 py-0.5 font-mono text-[10px] leading-tight">
+										{chip.label}
+									</span>
+								{/each}
+							</span>
+							<span
+								class="obs-list-detail min-w-0 truncate font-mono text-[10px]"
+								title={formatDate(clip.metadata.timestamp)}
+							>
+								{formatDate(clip.metadata.timestamp)}
+							</span>
+						</span>
+						<span
+							class="obs-list-arrow shrink-0 font-mono transition-transform group-hover:translate-x-1"
+							aria-hidden="true"
+						>
+							→
+						</span>
+						{#if isRunPreviewVisible(clip, previewPath)}
+							<img
+								src="{runThumbnailUrl(clip.path)}&v={previewVersion}"
+								alt="Thumbnail for {clip.fileName}"
+								onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
+								class="obs-preview pointer-events-none absolute top-2 right-8 z-30 aspect-video w-[min(13rem,calc(100%-4rem))] object-contain shadow-xl"
+							/>
+						{/if}
+					</button>
+				</li>
+			{/each}
+		</ul>
 	{/if}
 </main>
+
+{#if folderChooserOpen}
+	<div class="obs-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+		<button
+			type="button"
+			aria-label="Close clips folder chooser"
+			class="absolute inset-0 cursor-default"
+			onclick={closeFolderChooser}
+		></button>
+		<dialog
+			open
+			aria-label="Choose clips folder"
+			class="obs-dialog relative z-10 m-0 w-full max-w-sm overflow-hidden rounded p-0"
+		>
+			<header class="obs-dialog-header px-4 py-3">
+				<h2 class="obs-heading text-lg font-semibold">Open clips folder</h2>
+				<p class="obs-dim mt-1 font-mono text-xs">Choose which configured output folder to reveal.</p>
+			</header>
+			<div class="grid gap-3 p-4">
+				<button
+					type="button"
+					class="obs-list-button grid gap-1 rounded px-3 py-3 text-left"
+					disabled={folderRevealBusy || !completedDirectory}
+					onclick={() => revealRunsFolder('completed')}
+				>
+					<span class="obs-list-title text-sm font-semibold">Completed clips</span>
+					<span class="obs-list-detail font-mono text-xs wrap-break-word">{directoryPath(completedDirectory)}</span>
+				</button>
+				<button
+					type="button"
+					class="obs-list-button grid gap-1 rounded px-3 py-3 text-left"
+					disabled={folderRevealBusy || !failedDirectory}
+					onclick={() => revealRunsFolder('failed')}
+				>
+					<span class="obs-list-title text-sm font-semibold">Failed clips</span>
+					<span class="obs-list-detail font-mono text-xs wrap-break-word">{directoryPath(failedDirectory)}</span>
+				</button>
+				<div class="flex justify-end">
+					<button
+						type="button"
+						class="obs-text-button px-2 py-1 font-mono text-xs"
+						disabled={folderRevealBusy}
+						onclick={closeFolderChooser}
+					>
+						close
+					</button>
+				</div>
+			</div>
+		</dialog>
+	</div>
+{/if}
 
 {#if selected}
 	<div class="obs-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
