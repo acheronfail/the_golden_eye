@@ -1,0 +1,125 @@
+import { render, screen, waitFor } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Settings } from '$lib/settings.svelte';
+import OptionsPageHarness from './page.test-harness.svelte';
+import { monitor } from '$lib/monitor.svelte';
+import { replayBuffer } from '$lib/replayBuffer.svelte';
+import { settings } from '$lib/settings.svelte';
+
+const mocks = vi.hoisted(() => {
+	const api = {
+		getMonitorStatus: vi.fn(),
+		getReplayBufferStatus: vi.fn(),
+		getSettingsStatus: vi.fn(),
+		putSettings: vi.fn()
+	};
+	return {
+		afterNavigate: vi.fn((callback: () => unknown) => {
+			queueMicrotask(() => {
+				void callback();
+			});
+		}),
+		api,
+		goto: vi.fn(),
+		page: { url: new URL('http://localhost/options') },
+		startAppSocket: vi.fn(),
+		stopAppSocket: vi.fn()
+	};
+});
+
+vi.mock('$app/environment', () => ({
+	browser: true,
+	building: false,
+	dev: false,
+	version: 'test'
+}));
+
+vi.mock('$app/navigation', () => ({
+	afterNavigate: mocks.afterNavigate,
+	goto: mocks.goto
+}));
+
+vi.mock('$app/state', () => ({
+	page: mocks.page
+}));
+
+vi.mock('$lib/appSocket.svelte', () => ({
+	startAppSocket: mocks.startAppSocket,
+	stopAppSocket: mocks.stopAppSocket
+}));
+
+vi.mock('$lib/api', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/api')>();
+	return {
+		...actual,
+		getMonitorStatus: mocks.api.getMonitorStatus,
+		getReplayBufferStatus: mocks.api.getReplayBufferStatus,
+		getSettingsStatus: mocks.api.getSettingsStatus,
+		putSettings: mocks.api.putSettings
+	};
+});
+
+const defaultSettings: Settings = {
+	stopReplayBufferWhenMonitorStopped: false,
+	completedOutputPath: '',
+	saveFailedRuns: true,
+	failedOutputPath: '',
+	failedRunLimit: 0,
+	minimumFailedRunLengthSecs: 10,
+	clipFilenameTemplate: '{level} - {time} - {difficulty} - {status}',
+	preRunPaddingSecs: 5,
+	postRunPaddingSecs: 5,
+	discordNotificationsEnabled: true,
+	discordWebhookUrl: '',
+	streamingStartedMessageTemplate: 'Bond is now streaming at: {broadcast_url}',
+	streamingStoppedMessageTemplate: 'Bond stopped streaming at: {broadcast_url}'
+};
+
+const availableReplayBuffer = {
+	enabled: true,
+	available: true,
+	active: true,
+	maxSeconds: 1200,
+	outputDirectory: '/captures',
+	defaultCompletedOutputPath: '/captures/Goldeneye',
+	defaultFailedOutputPath: '/captures/Goldeneye/failed'
+};
+
+beforeEach(() => {
+	vi.clearAllMocks();
+	mocks.page.url = new URL('http://localhost/options');
+	replayBuffer.status = availableReplayBuffer;
+	replayBuffer.loaded = true;
+	monitor.status = { enabled: false, recordingState: null };
+	monitor.loaded = true;
+	monitor.match = null;
+	monitor.recordingState = null;
+	settings.applyReloaded(defaultSettings, '/tmp/the-golden-eye/settings.json');
+	settings.loaded = true;
+	mocks.api.getMonitorStatus.mockResolvedValue({ enabled: false, recordingState: null });
+	mocks.api.getReplayBufferStatus.mockResolvedValue(availableReplayBuffer);
+	mocks.api.getSettingsStatus.mockResolvedValue({
+		settings: defaultSettings,
+		configPath: '/tmp/the-golden-eye/settings.json',
+		fileError: null
+	});
+	mocks.api.putSettings.mockImplementation(async (next: Settings) => next);
+});
+
+describe('/options', () => {
+	it('saves to the backend after updating an option', async () => {
+		const user = userEvent.setup();
+		render(OptionsPageHarness);
+
+		const checkbox = await screen.findByRole('checkbox', { name: /Stop replay buffer when monitor stopped/i });
+		await waitFor(() => expect(checkbox).toBeEnabled());
+		await user.click(checkbox);
+
+		await waitFor(() =>
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(
+				expect.objectContaining({ stopReplayBufferWhenMonitorStopped: true })
+			)
+		);
+	});
+});

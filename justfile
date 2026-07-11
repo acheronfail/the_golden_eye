@@ -92,9 +92,19 @@ test-rust *args:
     export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
     cd "{{ justfile_directory() }}/obs2/rust" && cargo test --release {{ args }}
 
+# runs browser unit/component tests
+test-browser *args:
+    cd obs2/browser && npm run test:unit -- --run {{ args }}
+
 # runs opencv frame tests
-test *filter: make-release
+test-cv *filter: make-release
     cd test && npm run test -- {{ filter }}
+
+# runs opencv frame tests
+test:
+    just test-browser
+    just test-rust
+    just test-cv
 
 # formats the project and runs clippy
 fmt:
