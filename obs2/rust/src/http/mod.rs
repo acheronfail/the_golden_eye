@@ -1,6 +1,7 @@
 mod routes;
 
 use std::net::SocketAddr;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -49,6 +50,10 @@ pub struct AppStateInner {
     /// page reload or second browser can see "recording" / "saving" / etc.
     /// immediately, instead of waiting for the next transition.
     pub recording_state: RecordingStateStore,
+    /// Developer-only, in-memory switch that makes the live monitor include
+    /// matcher regions and annotation sets in its debug/info payloads. This is
+    /// intentionally not part of persisted settings.
+    pub monitor_annotations_enabled: AtomicBool,
     /// Latest OBS video-source list, broadcast to browser clients whenever OBS
     /// reports source creation/removal/update/rename. Retained so a page load
     /// receives the current source picker state immediately.
@@ -403,6 +408,7 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         .route("/api/v1/sources", get(routes::sources::handler))
         .route("/api/v1/screenshot", get(routes::screenshot::handler))
         .route("/api/v1/match", post(routes::matcher::handler))
+        .route("/api/v1/match/annotations", post(routes::matcher::handle_annotations))
         .route(OAUTH_CALLBACK_PATH, get(routes::oauth::handle_callback))
         .route("/", get(routes::index::handler))
         // fallback for frontend spa

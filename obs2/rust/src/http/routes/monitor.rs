@@ -1,6 +1,7 @@
 use std::env;
 use std::ffi::{CString, c_void};
 use std::str::FromStr;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -453,6 +454,15 @@ impl MonitorSession {
         Ok(MonitorSession { matcher })
     }
 
+    pub fn with_diagnostics(mut self, enabled: bool) -> Self {
+        self.matcher.set_diagnostics(enabled);
+        self
+    }
+
+    pub fn set_diagnostics(&mut self, enabled: bool) {
+        self.matcher.set_diagnostics(enabled);
+    }
+
     /// Matches one BGRA frame. The matcher's scale cache makes the first overlay
     /// frame at a given resolution costlier (it searches for the scale) and every
     /// later frame at that resolution cheap (it reuses the learned scale).
@@ -490,26 +500,29 @@ fn handle_detected_language(
         return false;
     };
 
-    let mut switched = false;
-    if detected_lang != *active_lang {
-        tracing::info!(
-            active_lang = %active_lang,
-            detected_lang,
-            "detected ROM language; switching monitor templates"
-        );
-        match make_session(&detected_lang) {
-            Ok(next_session) => {
-                *session = next_session;
-                *active_lang = detected_lang.clone();
-                switched = true;
-            }
-            Err(err) => {
-                tracing::error!(detected_lang, "failed to switch monitor language after detection: {err}");
-                return false;
-            }
+    if detected_lang == *active_lang {
+        if !*language_notified {
+            tracing::info!(detected_lang, "detected ROM language");
+            *language_notified = true;
+            let _ = event_tx.send(MonitorEvent::LanguageDetected { lang: active_lang.clone() });
         }
-    } else {
-        tracing::info!(detected_lang, "detected ROM language");
+        return false;
+    }
+
+    tracing::info!(
+        active_lang = %active_lang,
+        detected_lang,
+        "detected ROM language; switching monitor templates"
+    );
+    match make_session(&detected_lang) {
+        Ok(next_session) => {
+            *session = next_session;
+            *active_lang = detected_lang.clone();
+        }
+        Err(err) => {
+            tracing::error!(detected_lang, "failed to switch monitor language after detection: {err}");
+            return false;
+        }
     }
 
     if !*language_notified {
@@ -517,7 +530,14 @@ fn handle_detected_language(
         let _ = event_tx.send(MonitorEvent::LanguageDetected { lang: active_lang.clone() });
     }
 
-    switched
+    true
+}
+
+fn log_level_match(info: &LevelMatch) {
+    match serde_json::to_string(info) {
+        Ok(json) => tracing::info!("{json}"),
+        Err(err) => tracing::info!(?info, "failed to serialize level match as JSON: {err}"),
+    }
 }
 
 /// Current monitor status. `enabled` is always present; the source is only
@@ -623,6 +643,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // run's clip is written out of the replay buffer.
     let event_tx = state.event_tx.clone();
     let recording_state = state.recording_state.clone();
+    let monitor_annotations_state = state.clone();
     let recording_source_name = status_source_name.clone();
     let recording_lang = DEFAULT_MONITOR_LANGUAGE.to_owned();
     let source_fps = unsafe { crate::ffi::ge_obs_video_fps() };
@@ -632,6 +653,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         let mut active_lang = recording_lang.clone();
         let mut language_notified = false;
         let mut last: Option<LevelMatch> = None;
+        let mut last_diagnostics_enabled = false;
         let mut last_fps_emit = Instant::now();
         let mut last_frame_completed: Option<Instant> = None;
         let mut slowest_frame_fps: Option<f64> = None;
@@ -647,16 +669,25 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             recording_source_name,
             recording_lang,
         );
-        while let Some(((result, match_ms), stats)) = source.capture_with_stats(|bytes, w, h| {
-            if timing_enabled {
-                let match_started = Instant::now();
-                let result = session.match_frame(bytes, w, h);
-                let match_ms = match_started.elapsed().as_secs_f64() * 1000.0;
-                (result, Some(match_ms))
-            } else {
-                (session.match_frame(bytes, w, h), None)
+        loop {
+            let diagnostics_enabled = monitor_annotations_state.monitor_annotations_enabled.load(Ordering::Acquire);
+            if diagnostics_enabled != last_diagnostics_enabled {
+                last_diagnostics_enabled = diagnostics_enabled;
+                last = None;
             }
-        }) {
+            session.set_diagnostics(diagnostics_enabled);
+            let Some(((result, match_ms), stats)) = source.capture_with_stats(|bytes, w, h| {
+                if timing_enabled {
+                    let match_started = Instant::now();
+                    let result = session.match_frame(bytes, w, h);
+                    let match_ms = match_started.elapsed().as_secs_f64() * 1000.0;
+                    (result, Some(match_ms))
+                } else {
+                    (session.match_frame(bytes, w, h), None)
+                }
+            }) else {
+                break;
+            };
             let now = Instant::now();
             if let Some(previous) = last_frame_completed {
                 let frame_elapsed = now.duration_since(previous).as_secs_f64();
@@ -690,7 +721,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                         &mut active_lang,
                         &mut language_notified,
                         &event_tx,
-                        MonitorSession::from_env,
+                        |lang| Ok(MonitorSession::from_env(lang)?.with_diagnostics(diagnostics_enabled)),
                     ) {
                         recording.set_rom_language(active_lang.clone());
                         last = None;
@@ -699,7 +730,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                     recording.on_frame(now, &info);
                     let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&info));
                     if changed {
-                        tracing::info!(?info);
+                        log_level_match(&info);
                         last = Some(info.clone());
                         // Ignore send errors: with no subscribers there is no
                         // receiver, but `watch` still retains the value for the
@@ -1180,6 +1211,63 @@ mod tests {
         assert!(language_notified);
         let event = event_rx.try_recv().expect("language detected event");
         assert!(matches!(event, MonitorEvent::LanguageDetected { lang } if lang == "en"));
+    }
+
+    #[test]
+    fn detected_language_can_switch_more_than_once_per_monitor_session() {
+        let mut session = MonitorSession::new("en", TEMPLATES_DIR).expect("session");
+        let mut active_lang = "en".to_owned();
+        let mut language_notified = false;
+        let (event_tx, mut event_rx) = broadcast::channel(8);
+
+        let (en_b, en_w, en_h) = load_bgra("screenshots-emu/en - start - 01 - Agent.png");
+        let en_detected = session.match_frame(&en_b, en_w, en_h).expect("en match");
+        assert_eq!(en_detected.detected_lang.as_deref(), Some("en"));
+
+        let first = handle_detected_language(
+            &en_detected,
+            &mut session,
+            &mut active_lang,
+            &mut language_notified,
+            &event_tx,
+            |lang| MonitorSession::new(lang, TEMPLATES_DIR),
+        );
+        assert!(!first, "initial same-language detection should not switch");
+        assert_eq!(active_lang, "en");
+        assert!(language_notified);
+        let event = event_rx.try_recv().expect("language detected event");
+        assert!(matches!(event, MonitorEvent::LanguageDetected { lang } if lang == "en"));
+
+        let (jp_b, jp_w, jp_h) = load_bgra("screenshots-emu/jp - start - 01 - Agent.png");
+        let jp_mismatch = session.match_frame(&jp_b, jp_w, jp_h).expect("jp mismatch match");
+        assert_eq!(jp_mismatch.detected_lang.as_deref(), Some("jp"));
+
+        let switched_to_jp = handle_detected_language(
+            &jp_mismatch,
+            &mut session,
+            &mut active_lang,
+            &mut language_notified,
+            &event_tx,
+            |lang| MonitorSession::new(lang, TEMPLATES_DIR),
+        );
+        assert!(switched_to_jp, "language change should switch after notification");
+        assert_eq!(active_lang, "jp");
+        assert!(matches!(event_rx.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+
+        let en_mismatch = session.match_frame(&en_b, en_w, en_h).expect("en mismatch match");
+        assert_eq!(en_mismatch.detected_lang.as_deref(), Some("en"));
+
+        let switched_back_to_en = handle_detected_language(
+            &en_mismatch,
+            &mut session,
+            &mut active_lang,
+            &mut language_notified,
+            &event_tx,
+            |lang| MonitorSession::new(lang, TEMPLATES_DIR),
+        );
+        assert!(switched_back_to_en, "a second language change should still switch");
+        assert_eq!(active_lang, "en");
+        assert!(matches!(event_rx.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
     }
 
     #[test]

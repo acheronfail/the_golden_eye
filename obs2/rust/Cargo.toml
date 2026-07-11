@@ -57,7 +57,9 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 
 [dev-dependencies]
+futures-util = "0.3.31"
 http-body-util = "0.1.3"
+tokio-tungstenite = "0.29.0"
 
 [profile.dist]
 inherits = "release"

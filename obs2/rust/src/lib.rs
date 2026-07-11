@@ -182,6 +182,7 @@ pub extern "C" fn ge_rust_start() {
         match_tx,
         event_tx,
         recording_state,
+        monitor_annotations_enabled: AtomicBool::new(false),
         source_tx,
         settings,
     });
