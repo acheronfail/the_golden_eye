@@ -96,7 +96,7 @@ test-rust *args:
 test-browser *args:
     cd obs2/browser && npm run test:unit -- --run {{ args }}
 
-# runs opencv frame tests
+# runs opencv frame tests; set GE_CV_TEST_JOBS=N to override the default parallelism
 test-cv *filter: make-release
     cd test && npm run test -- {{ filter }}
 
