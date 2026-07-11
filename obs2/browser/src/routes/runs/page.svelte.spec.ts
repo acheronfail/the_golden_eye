@@ -3,8 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RunsPage from './+page.svelte';
 import type { RunClip, RunsStreamEvent } from '$lib/api';
+import { settings } from '$lib/settings.svelte';
 
 const mocks = vi.hoisted(() => ({
+	revealRunFolder: vi.fn(),
 	streamRuns: vi.fn(),
 	runThumbnailUrl: vi.fn((path: string) => `/api/v1/runs/thumbnail?path=${encodeURIComponent(path)}`),
 	runVideoUrl: vi.fn((path: string) => `/api/v1/runs/video?path=${encodeURIComponent(path)}`)
@@ -14,6 +16,7 @@ vi.mock('$lib/api', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/api')>();
 	return {
 		...actual,
+		revealRunFolder: mocks.revealRunFolder,
 		runThumbnailUrl: mocks.runThumbnailUrl,
 		runVideoUrl: mocks.runVideoUrl,
 		streamRuns: mocks.streamRuns
@@ -56,6 +59,10 @@ const streamEvents: RunsStreamEvent[] = [
 		directory: { kind: 'completed', path: '/runs', exists: true, error: null }
 	},
 	{
+		type: 'directory',
+		directory: { kind: 'failed', path: '/runs/failed', exists: true, error: null }
+	},
+	{
 		type: 'clip',
 		clip: clip({
 			fileName: 'facility-0058.mov',
@@ -84,6 +91,8 @@ const streamEvents: RunsStreamEvent[] = [
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	settings.saveFailedRuns = true;
+	mocks.revealRunFolder.mockResolvedValue(undefined);
 	mocks.streamRuns.mockImplementation(async (onEvent: (event: RunsStreamEvent) => void) => {
 		for (const event of streamEvents) onEvent(event);
 	});
@@ -105,5 +114,28 @@ describe('/runs', () => {
 		expect(screen.getByText('search: facility')).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /facility-0058\.mov/i })).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /dam-failed\.mov/i })).not.toBeInTheDocument();
+	});
+
+	it('lets the user choose which configured clips folder to open', async () => {
+		const user = userEvent.setup();
+		render(RunsPage);
+
+		const showFolder = await screen.findByRole('button', { name: /show clips/i });
+		await user.click(showFolder);
+		await user.click(screen.getByRole('button', { name: /Failed clips/i }));
+
+		expect(mocks.revealRunFolder).toHaveBeenCalledWith('failed');
+	});
+
+	it('opens completed clips directly when failed run saving is disabled', async () => {
+		const user = userEvent.setup();
+		settings.saveFailedRuns = false;
+		render(RunsPage);
+
+		const showFolder = await screen.findByRole('button', { name: /show clips/i });
+		await user.click(showFolder);
+
+		expect(screen.queryByRole('dialog', { name: /Choose clips folder/i })).not.toBeInTheDocument();
+		expect(mocks.revealRunFolder).toHaveBeenCalledWith('completed');
 	});
 });

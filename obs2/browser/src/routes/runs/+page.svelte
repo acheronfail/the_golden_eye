@@ -2,6 +2,7 @@
 	import {
 		deleteRun,
 		renameRun,
+		revealRunFolder,
 		revealRun,
 		runThumbnailUrl,
 		runVideoUrl,
@@ -12,6 +13,7 @@
 		type RunDirectoryScan,
 		type RunsResponse
 	} from '$lib/api';
+	import { settings } from '$lib/settings.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
 		EMPTY_RUN_FILTERS,
@@ -37,6 +39,9 @@
 	let modalError = $state<string | null>(null);
 	let modalBusy = $state<string | null>(null);
 	let fileBrowserLabel = $state('show in file browser');
+	let folderBrowserLabel = $state('show clips folder');
+	let folderRevealBusy = $state(false);
+	let folderChooserOpen = $state(false);
 	let previewVersion = $state(0);
 	let previewPath = $state<string | null>(null);
 	let search = $state('');
@@ -63,6 +68,11 @@
 	const visibleClips = $derived(visibleRunClips(clips, currentFilters));
 	const directoryErrors = $derived((runs?.directories ?? []).filter((dir) => dir.error));
 	const scannedDirectoryCount = $derived(runs?.directories.length ?? 0);
+	const completedDirectory = $derived((runs?.directories ?? []).find((dir) => dir.kind === 'completed' && dir.exists));
+	const failedDirectory = $derived((runs?.directories ?? []).find((dir) => dir.kind === 'failed' && dir.exists));
+	const revealableDirectories = $derived(
+		[completedDirectory, failedDirectory].filter((dir): dir is RunDirectoryScan => Boolean(dir))
+	);
 	const hasActiveFilters = $derived(hasActiveRunFilters(currentFilters));
 	const activeFilterLabels = $derived(activeRunFilterLabels(currentFilters));
 	let metadataDirty = $derived.by(() => {
@@ -106,6 +116,7 @@
 
 	onMount(() => {
 		fileBrowserLabel = platformFileBrowserLabel();
+		folderBrowserLabel = platformFolderBrowserLabel();
 		reload();
 	});
 
@@ -267,6 +278,33 @@
 		}
 	}
 
+	function openFolderChooser() {
+		if (revealableDirectories.length === 0) return;
+		if (!settings.saveFailedRuns) {
+			void revealRunsFolder('completed');
+			return;
+		}
+		folderChooserOpen = true;
+	}
+
+	function closeFolderChooser() {
+		if (folderRevealBusy) return;
+		folderChooserOpen = false;
+	}
+
+	async function revealRunsFolder(kind: RunDirectoryScan['kind']) {
+		folderRevealBusy = true;
+		error = null;
+		try {
+			await revealRunFolder(kind);
+			folderChooserOpen = false;
+		} catch (err) {
+			error = err instanceof Error ? err.message : String(err);
+		} finally {
+			folderRevealBusy = false;
+		}
+	}
+
 	async function deleteSelectedRun() {
 		if (!selected) return;
 		const confirmed = confirm(`Delete "${selected.fileName}" from disk?\n\nThis cannot be undone.`);
@@ -308,6 +346,13 @@
 		if (platform.includes('mac')) return 'show in finder';
 		if (platform.includes('win')) return 'show in explorer';
 		return 'show in file browser';
+	}
+
+	function platformFolderBrowserLabel(): string {
+		const platform = navigator.platform.toLowerCase();
+		if (platform.includes('mac')) return 'show clips in finder';
+		if (platform.includes('win')) return 'show clips in explorer';
+		return 'show clips folder';
 	}
 
 	function runDetail(clip: RunClip): string {
@@ -391,6 +436,10 @@
 			{ label: 'Created by', value: clip.metadata.comment }
 		];
 	}
+
+	function directoryPath(directory: RunDirectoryScan | undefined): string {
+		return directory?.path ?? 'Not configured';
+	}
 </script>
 
 <svelte:head>
@@ -409,9 +458,18 @@
 		</div>
 		<button
 			type="button"
+			onclick={openFolderChooser}
+			disabled={folderRevealBusy || revealableDirectories.length === 0}
+			class="obs-text-button ml-auto shrink-0 px-2 py-1 font-mono text-xs underline-offset-2"
+			title={revealableDirectories.length > 0 ? 'Choose a clips folder to open' : 'Set a clips folder in Options first'}
+		>
+			{folderRevealBusy ? 'opening...' : folderBrowserLabel}
+		</button>
+		<button
+			type="button"
 			onclick={reload}
 			disabled={loading}
-			class="obs-text-button ml-auto shrink-0 px-2 py-1 font-mono text-xs underline-offset-2"
+			class="obs-text-button shrink-0 px-2 py-1 font-mono text-xs underline-offset-2"
 		>
 			{loading ? 'loading...' : 'reload'}
 		</button>
@@ -618,6 +676,57 @@
 		</ul>
 	{/if}
 </main>
+
+{#if folderChooserOpen}
+	<div class="obs-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+		<button
+			type="button"
+			aria-label="Close clips folder chooser"
+			class="absolute inset-0 cursor-default"
+			onclick={closeFolderChooser}
+		></button>
+		<dialog
+			open
+			aria-label="Choose clips folder"
+			class="obs-dialog relative z-10 m-0 w-full max-w-sm overflow-hidden rounded p-0"
+		>
+			<header class="obs-dialog-header px-4 py-3">
+				<h2 class="obs-heading text-lg font-semibold">Open clips folder</h2>
+				<p class="obs-dim mt-1 font-mono text-xs">Choose which configured output folder to reveal.</p>
+			</header>
+			<div class="grid gap-3 p-4">
+				<button
+					type="button"
+					class="obs-list-button grid gap-1 rounded px-3 py-3 text-left"
+					disabled={folderRevealBusy || !completedDirectory}
+					onclick={() => revealRunsFolder('completed')}
+				>
+					<span class="obs-list-title text-sm font-semibold">Completed clips</span>
+					<span class="obs-list-detail font-mono text-xs wrap-break-word">{directoryPath(completedDirectory)}</span>
+				</button>
+				<button
+					type="button"
+					class="obs-list-button grid gap-1 rounded px-3 py-3 text-left"
+					disabled={folderRevealBusy || !failedDirectory}
+					onclick={() => revealRunsFolder('failed')}
+				>
+					<span class="obs-list-title text-sm font-semibold">Failed clips</span>
+					<span class="obs-list-detail font-mono text-xs wrap-break-word">{directoryPath(failedDirectory)}</span>
+				</button>
+				<div class="flex justify-end">
+					<button
+						type="button"
+						class="obs-text-button px-2 py-1 font-mono text-xs"
+						disabled={folderRevealBusy}
+						onclick={closeFolderChooser}
+					>
+						close
+					</button>
+				</div>
+			</div>
+		</dialog>
+	</div>
+{/if}
 
 {#if selected}
 	<div class="obs-overlay fixed inset-0 z-50 flex items-center justify-center p-4">

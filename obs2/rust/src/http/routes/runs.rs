@@ -28,6 +28,12 @@ pub struct RunPathParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RunDirectoryParams {
+    kind: RunDirectoryKind,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RunRenameRequest {
     path: String,
     file_name: String,
@@ -74,7 +80,7 @@ pub struct RunDirectoryScan {
     error: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RunDirectoryKind {
     Completed,
@@ -265,6 +271,40 @@ pub async fn handle_reveal(
             (StatusCode::INTERNAL_SERVER_ERROR, "run reveal failed").into_response()
         })?
         .map_err(RunPathError::into_response)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[axum::debug_handler]
+pub async fn handle_reveal_folder(
+    State(state): State<AppState>,
+    Query(params): Query<RunDirectoryParams>,
+) -> Result<impl IntoResponse> {
+    let settings = state.settings.get_effective();
+    let path = match params.kind {
+        RunDirectoryKind::Completed => configured_dir(&settings.completed_output_path)
+            .ok_or(RunPathError::NotFound("completed run clip folder is not configured")),
+        RunDirectoryKind::Failed => {
+            if !settings.save_failed_runs {
+                Err(RunPathError::NotFound("failed run clip folder is not configured"))
+            } else {
+                configured_dir(&settings.failed_output_path)
+                    .ok_or(RunPathError::NotFound("failed run clip folder is not configured"))
+            }
+        }
+    }
+    .map_err(RunPathError::into_response)?;
+
+    tokio::task::spawn_blocking(move || {
+        ensure_configured_run_directory(&path).map_err(RunPathError::Internal)?;
+        reveal_folder_in_file_browser(&path)
+    })
+    .await
+    .map_err(|err| {
+        tracing::error!("run folder reveal task failed: {err:#}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "run folder reveal failed").into_response()
+    })?
+    .map_err(RunPathError::into_response)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -698,6 +738,24 @@ fn reveal_in_file_browser(path: &Path) -> std::result::Result<(), RunPathError> 
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
         Command::new("xdg-open").arg(parent).status()
     };
+
+    let status = status.map_err(|err| RunPathError::Internal(err.into()))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(RunPathError::Internal(anyhow!("file browser exited with status {status}")))
+    }
+}
+
+fn reveal_folder_in_file_browser(path: &Path) -> std::result::Result<(), RunPathError> {
+    #[cfg(target_os = "macos")]
+    let status = Command::new("open").arg(path).status();
+
+    #[cfg(target_os = "windows")]
+    let status = Command::new("explorer").arg(path).status();
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let status = Command::new("xdg-open").arg(path).status();
 
     let status = status.map_err(|err| RunPathError::Internal(err.into()))?;
     if status.success() {
