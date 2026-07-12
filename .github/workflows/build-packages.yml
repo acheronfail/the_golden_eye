@@ -186,11 +186,11 @@ jobs:
       - name: Run shim reload tests
         run: just test-shim
 
-      - name: Run Integration tests
-        run: just test-integration
-
       - name: Run Rust tests
         run: just test-rust
+
+      - name: Run Integration tests
+        run: just test-integration
 
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
@@ -317,19 +317,19 @@ jobs:
           call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
           bash -c "just test-shim"
 
-      - name: Run Integration tests
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
-          call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
-          bash -c "just test-integration"
-
       - name: Run Rust tests
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
           call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
           bash -c "just test-rust"
+
+      - name: Run Integration tests
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
+          call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
+          bash -c "just test-integration"
 
       - name: Build Windows package
         shell: cmd
