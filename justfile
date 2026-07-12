@@ -130,7 +130,7 @@ test-rust *args:
     if [ "${GE_ISOLATE_CARGO_TEST_TARGETS:-}" = "1" ]; then
       export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
     fi
-    cd "{{ justfile_directory() }}/obs2/rust" && node ../scripts/github-rust-test-summary.mjs "Rust Test Report" cargo test --release {{ args }}
+    cd "{{ justfile_directory() }}/obs2/rust" && node ../scripts/github-rust-test-summary.mjs "Rust Test Report" cargo test --release --lib --tests {{ args }}
 
 # runs the backend against the controllable Rust OBS host (no OBS process)
 test-integration *args:
