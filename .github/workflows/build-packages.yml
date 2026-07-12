@@ -308,22 +308,23 @@ jobs:
           cd obs2/browser && npm install
           cd ../../test && npm install
 
+      # Runs vcvarsall once and persists the resulting environment (INCLUDE,
+      # LIB, LIBPATH, PATH, etc.) via $GITHUB_ENV for every later step in this
+      # job -- `set`'s own "NAME=value" per-line output format happens to be
+      # exactly what $GITHUB_ENV expects, so no diffing or parsing is needed,
+      # just redirecting it there directly. This way the test steps and the
+      # packaging step share exactly the same compiler environment instead of
+      # each re-deriving it (and potentially diverging) independently.
       - name: Set up MSVC environment
-        uses: ilammy/msvc-dev-cmd@v3
-        with:
-          arch: x64
-
-      # bindgen (used by ffmpeg-sys-next's build.rs) invokes its own libclang,
-      # which doesn't automatically pick up the INCLUDE variable vcvarsall
-      # just set -- BINDGEN_EXTRA_CLANG_ARGS is bindgen's own mechanism for
-      # this, so translate INCLUDE into -I flags once, here, rather than
-      # per-step.
-      - name: Set up bindgen include paths
-        shell: pwsh
+        shell: cmd
         run: |
-          $includePaths = $env:INCLUDE -split ';' | Where-Object { $_ -ne '' }
-          $clangArgs = ($includePaths | ForEach-Object { '-I"' + $_ + '"' }) -join ' '
-          "BINDGEN_EXTRA_CLANG_ARGS=$clangArgs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
+          call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
+          set > "%GITHUB_ENV%"
+          setlocal EnableDelayedExpansion
+          set "CLANGARGS="
+          for %%P in ("!INCLUDE:;=" "!") do set "CLANGARGS=!CLANGARGS! -I"%%~P""
+          endlocal & (echo BINDGEN_EXTRA_CLANG_ARGS=%CLANGARGS%) >> "%GITHUB_ENV%"
 
       - name: Run shim reload tests
         shell: bash
