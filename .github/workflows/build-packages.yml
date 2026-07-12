@@ -320,17 +320,15 @@ jobs:
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
           call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
-          for /f "usebackq tokens=*" %%i in (`where cl.exe`) do (
-            set "CL_EXE=%%i"
-            goto found_cl
+          for /d %%i in ("%VSINSTALLDIR%\VC\Tools\MSVC\*") do (
+            set "VCTOOLS_DIR=%%~fi"
           )
-          :found_cl
-          if not defined CL_EXE (
-            echo cl.exe was not found after VsDevCmd setup.
+          if not defined VCTOOLS_DIR (
+            echo MSVC tools directory was not found under "%VSINSTALLDIR%\VC\Tools\MSVC".
             exit /b 1
           )
-          for %%i in ("%CL_EXE%") do set "CL_DIR=%%~dpi"
-          for %%i in ("%CL_DIR%..\..\..\include") do set "VC_INCLUDE=%%~fi"
+          set "VCToolsInstallDir=%VCTOOLS_DIR%\"
+          set "VC_INCLUDE=%VCTOOLS_DIR%\include"
           if not exist "%VC_INCLUDE%\vcruntime.h" (
             echo vcruntime.h was not found under "%VC_INCLUDE%".
             exit /b 1
