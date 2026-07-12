@@ -15,10 +15,12 @@ crate-type = ["staticlib", "rlib"]
 [[bin]]
 name = "test_match"
 path = "src/bin/test_match.rs"
+test = false
 
 [[bin]]
 name = "annotate_match"
 path = "src/bin/annotate_match.rs"
+test = false
 
 [features]
 # Enabled by the CMake build when BROWSER_DEV=ON. Turns on permissive CORS so
