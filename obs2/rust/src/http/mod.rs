@@ -58,6 +58,9 @@ pub struct AppStateInner {
     /// reports source creation/removal/update/rename. Retained so a page load
     /// receives the current source picker state immediately.
     pub source_tx: watch::Sender<Vec<routes::sources::Source>>,
+    /// Latest plugin update detected at startup. Retained so a browser dock that
+    /// connects after the network check finishes still gets the sticky notice.
+    pub update_tx: watch::Sender<Option<crate::updates::PluginUpdate>>,
     /// Plugin-owned user settings, loaded from and persisted to JSON.
     pub settings: crate::settings::SettingsStore,
 }
@@ -120,6 +123,8 @@ pub enum MonitorEvent {
         config_path: String,
         error: String,
     },
+    /// A newer plugin release is available on GitHub.
+    UpdateAvailable(crate::updates::PluginUpdate),
 }
 
 /// Why the backend stopped an active monitor. Serialized as a plain string
@@ -395,6 +400,7 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         .route("/api/v1/folders/pick", post(routes::folders::handle_pick))
         .route("/api/v1/folders/validate", post(routes::folders::handle_validate))
         .route("/api/v1/files/reveal", post(routes::files::handle_reveal))
+        .route("/api/v1/updates/open", post(routes::updates::handle_open))
         .route(
             "/api/v1/runs",
             get(routes::runs::handle_list)
@@ -455,6 +461,21 @@ mod tests {
         assert_eq!(json["type"], "version");
         assert_eq!(json["buildId"], "abc123");
         assert!(json.get("build_id").is_none());
+    }
+
+    #[test]
+    fn update_available_event_flattens_update_payload() {
+        let event = MonitorEvent::UpdateAvailable(crate::updates::PluginUpdate {
+            current_version: "1.0.0".to_owned(),
+            latest_version: "1.1.0".to_owned(),
+            release_url: "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.1.0".to_owned(),
+        });
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "updateAvailable");
+        assert_eq!(json["currentVersion"], "1.0.0");
+        assert_eq!(json["latestVersion"], "1.1.0");
+        assert_eq!(json["releaseUrl"], "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.1.0");
     }
 
     #[test]

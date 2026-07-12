@@ -76,7 +76,9 @@ const defaultSettings: Settings = {
 	discordNotificationsEnabled: true,
 	discordWebhookUrl: '',
 	streamingStartedMessageTemplate: 'Bond is now streaming at: {broadcast_url}',
-	streamingStoppedMessageTemplate: 'Bond stopped streaming at: {broadcast_url}'
+	streamingStoppedMessageTemplate: 'Bond stopped streaming at: {broadcast_url}',
+	updateCheckInterval: 'weekly',
+	lastUpdateCheckTime: null
 };
 
 const availableReplayBuffer = {
@@ -149,6 +151,19 @@ describe('/options', () => {
 
 		await waitFor(() =>
 			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ showDeveloperSettings: true }))
+		);
+	});
+
+	it('saves the plugin update check interval', async () => {
+		const user = userEvent.setup();
+		render(OptionsPageHarness);
+
+		const select = await screen.findByRole('combobox', { name: /Check for plugin updates/i });
+		await waitFor(() => expect(select).toBeEnabled());
+		await user.selectOptions(select, 'daily');
+
+		await waitFor(() =>
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ updateCheckInterval: 'daily' }))
 		);
 	});
 

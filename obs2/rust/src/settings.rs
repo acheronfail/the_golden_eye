@@ -24,8 +24,39 @@ use crate::stream_notifier::{DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE, DEFAULT
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const LEGACY_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suffix}{failed_suffix}";
+pub const DEFAULT_UPDATE_CHECK_INTERVAL: UpdateCheckInterval = UpdateCheckInterval::Weekly;
 pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "Goldeneye";
 pub const DEFAULT_FAILED_OUTPUT_DIR_NAME: &str = "failed";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdateCheckInterval {
+    Monthly,
+    Weekly,
+    Daily,
+    Never,
+}
+
+impl UpdateCheckInterval {
+    pub fn from_json_value(value: Option<&Value>) -> Self {
+        match value.and_then(Value::as_str) {
+            Some("monthly") => UpdateCheckInterval::Monthly,
+            Some("daily") => UpdateCheckInterval::Daily,
+            Some("never") => UpdateCheckInterval::Never,
+            Some("weekly") => UpdateCheckInterval::Weekly,
+            _ => DEFAULT_UPDATE_CHECK_INTERVAL,
+        }
+    }
+
+    pub fn interval_secs(self) -> Option<u64> {
+        match self {
+            UpdateCheckInterval::Daily => Some(24 * 60 * 60),
+            UpdateCheckInterval::Weekly => Some(7 * 24 * 60 * 60),
+            UpdateCheckInterval::Monthly => Some(30 * 24 * 60 * 60),
+            UpdateCheckInterval::Never => None,
+        }
+    }
+}
 
 /// User settings stored in the plugin-owned JSON file and mirrored by the SPA's
 /// bindable settings object.
@@ -48,6 +79,8 @@ pub struct AppSettings {
     pub discord_webhook_url: String,
     pub streaming_started_message_template: String,
     pub streaming_stopped_message_template: String,
+    pub update_check_interval: UpdateCheckInterval,
+    pub last_update_check_time: Option<u64>,
 }
 
 impl Default for AppSettings {
@@ -69,6 +102,8 @@ impl Default for AppSettings {
             discord_webhook_url: String::new(),
             streaming_started_message_template: DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE.to_owned(),
             streaming_stopped_message_template: DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE.to_owned(),
+            update_check_interval: DEFAULT_UPDATE_CHECK_INTERVAL,
+            last_update_check_time: None,
         }
     }
 }
@@ -112,6 +147,8 @@ impl AppSettings {
                 object.get("streamingStoppedMessageTemplate"),
                 DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE,
             ),
+            update_check_interval: UpdateCheckInterval::from_json_value(object.get("updateCheckInterval")),
+            last_update_check_time: non_negative_u64_option(object.get("lastUpdateCheckTime")),
         }
     }
 
@@ -310,12 +347,19 @@ impl SettingsStore {
         self.get().notification_options()
     }
 
+    pub fn set_last_update_check_time(&self, seconds: u64) -> anyhow::Result<AppSettings> {
+        let mut settings = self.get();
+        settings.last_update_check_time = Some(seconds);
+        self.replace(settings)
+    }
+
     pub fn set_from_json_value_with_runtime_defaults(&self, value: Value) -> anyhow::Result<AppSettings> {
         if let Some(error) = self.state.lock().unwrap_or_else(|p| p.into_inner()).file_error.clone() {
             anyhow::bail!("settings file is invalid; fix it or reset to defaults before saving: {error}");
         }
 
-        let settings = apply_runtime_output_path_defaults(AppSettings::from_json_value(value));
+        let mut settings = apply_runtime_output_path_defaults(AppSettings::from_json_value(value));
+        settings.last_update_check_time = self.get().last_update_check_time;
         self.replace(settings)
     }
 
@@ -419,6 +463,10 @@ fn non_negative_usize(value: Option<&Value>, fallback: usize) -> usize {
     number_value(value).filter(|n| n.is_finite()).map(|n| n.max(0.0).trunc() as usize).unwrap_or(fallback)
 }
 
+fn non_negative_u64_option(value: Option<&Value>) -> Option<u64> {
+    number_value(value).filter(|n| n.is_finite()).map(|n| n.max(0.0).trunc() as u64)
+}
+
 fn non_negative_f64(value: Option<&Value>, fallback: f64) -> f64 {
     number_value(value).filter(|n| n.is_finite()).map(|n| n.max(0.0)).unwrap_or(fallback)
 }
@@ -520,6 +568,8 @@ mod tests {
         assert!(!AppSettings::default().show_monitor_fps);
         assert!(!AppSettings::default().show_developer_settings);
         assert!(!AppSettings::default().welcome_modal_shown);
+        assert_eq!(AppSettings::default().update_check_interval, UpdateCheckInterval::Weekly);
+        assert_eq!(AppSettings::default().last_update_check_time, None);
         assert_eq!(AppSettings::from_json_value(json!({})).pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
         assert_eq!(
             AppSettings::from_json_value(json!({})).minimum_failed_run_length_secs,
@@ -529,6 +579,8 @@ mod tests {
         assert!(!AppSettings::from_json_value(json!({})).show_monitor_fps);
         assert!(!AppSettings::from_json_value(json!({})).show_developer_settings);
         assert!(!AppSettings::from_json_value(json!({})).welcome_modal_shown);
+        assert_eq!(AppSettings::from_json_value(json!({})).update_check_interval, UpdateCheckInterval::Weekly);
+        assert_eq!(AppSettings::from_json_value(json!({})).last_update_check_time, None);
     }
 
     #[test]
@@ -549,7 +601,9 @@ mod tests {
             "discordNotificationsEnabled": false,
             "discordWebhookUrl": " https://discord.example/webhook ",
             "streamingStartedMessageTemplate": "",
-            "streamingStoppedMessageTemplate": "Stopped {broadcast_url}"
+            "streamingStoppedMessageTemplate": "Stopped {broadcast_url}",
+            "updateCheckInterval": "daily",
+            "lastUpdateCheckTime": "1234.9"
         }));
 
         assert!(settings.stop_replay_buffer_when_monitor_stopped);
@@ -568,6 +622,8 @@ mod tests {
         assert_eq!(settings.discord_webhook_url, " https://discord.example/webhook ");
         assert_eq!(settings.streaming_started_message_template, DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE);
         assert_eq!(settings.streaming_stopped_message_template, "Stopped {broadcast_url}");
+        assert_eq!(settings.update_check_interval, UpdateCheckInterval::Daily);
+        assert_eq!(settings.last_update_check_time, Some(1234));
 
         let notification_options = settings.notification_options();
         assert!(!notification_options.enabled);
@@ -611,7 +667,9 @@ mod tests {
                 "discordNotificationsEnabled": false,
                 "discordWebhookUrl": "https://discord.example/webhook",
                 "streamingStartedMessageTemplate": "Started {broadcast_url}",
-                "streamingStoppedMessageTemplate": "Stopped {broadcast_url}"
+                "streamingStoppedMessageTemplate": "Stopped {broadcast_url}",
+                "updateCheckInterval": "monthly",
+                "lastUpdateCheckTime": 456
             })))
             .unwrap();
 
@@ -620,9 +678,48 @@ mod tests {
         assert!(saved.show_monitor_fps);
         assert!(saved.show_developer_settings);
         assert!(saved.welcome_modal_shown);
+        assert_eq!(saved.update_check_interval, UpdateCheckInterval::Monthly);
+        assert_eq!(saved.last_update_check_time, Some(456));
         assert!(path.exists());
 
         let reloaded = SettingsStore::load_from_path(path).get();
         assert_eq!(reloaded, saved);
+    }
+
+    #[test]
+    fn store_updates_last_update_check_time_without_changing_other_settings() {
+        let dir = TestDir::new("update-time");
+        let store = SettingsStore::load_from_path(dir.join("settings.json"));
+        store
+            .replace(AppSettings::from_json_value(json!({
+                "showMonitorFps": true,
+                "updateCheckInterval": "daily"
+            })))
+            .unwrap();
+
+        let saved = store.set_last_update_check_time(99).unwrap();
+
+        assert!(saved.show_monitor_fps);
+        assert_eq!(saved.update_check_interval, UpdateCheckInterval::Daily);
+        assert_eq!(saved.last_update_check_time, Some(99));
+    }
+
+    #[test]
+    fn put_settings_preserves_backend_owned_last_update_check_time() {
+        let dir = TestDir::new("preserve-update-time");
+        let store = SettingsStore::load_from_path(dir.join("settings.json"));
+        store.set_last_update_check_time(99).unwrap();
+
+        let saved = store
+            .set_from_json_value_with_runtime_defaults(json!({
+                "showMonitorFps": true,
+                "updateCheckInterval": "daily",
+                "lastUpdateCheckTime": null
+            }))
+            .unwrap();
+
+        assert!(saved.show_monitor_fps);
+        assert_eq!(saved.update_check_interval, UpdateCheckInterval::Daily);
+        assert_eq!(saved.last_update_check_time, Some(99));
     }
 }

@@ -598,6 +598,7 @@ dependencies = [
  "opencv",
  "reqwest",
  "rfd",
+ "semver",
  "serde",
  "serde_json",
  "tokio",

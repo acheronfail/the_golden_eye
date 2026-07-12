@@ -8,6 +8,7 @@ mod recording;
 mod settings;
 mod stream_notifier;
 mod timer;
+mod updates;
 
 use std::ffi::CStr;
 use std::fmt;
@@ -106,6 +107,12 @@ static LOGGING_INIT: Once = Once::new();
 /// stale STOPPED event racing with and tearing down a replacement monitor.
 static REPLAY_STOP_SHOULD_STOP_MONITOR: AtomicBool = AtomicBool::new(false);
 
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_obs_replay_buffer_output_directory(_buffer: *mut c_char, _buffer_size: usize) -> bool {
+    false
+}
+
 struct TheGoldenEyeLogFormat;
 
 impl<S, N> FormatEvent<S, N> for TheGoldenEyeLogFormat
@@ -184,6 +191,7 @@ pub extern "C" fn ge_rust_start() {
         recording_state,
         monitor_annotations_enabled: AtomicBool::new(false),
         source_tx,
+        update_tx: tokio::sync::watch::channel(None).0,
         settings,
     });
 
@@ -198,6 +206,7 @@ pub extern "C" fn ge_rust_start() {
         }
     });
     runtime.spawn(watch_settings_file(state.clone()));
+    runtime.spawn(updates::check_for_updates_on_startup(state.clone()));
 
     tracing::info!("server started");
 

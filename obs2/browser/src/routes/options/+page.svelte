@@ -11,7 +11,8 @@
 		DEFAULT_PRE_RUN_PADDING_SECS,
 		DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE,
 		DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE,
-		settings
+		settings,
+		type UpdateCheckInterval
 	} from '$lib';
 
 	type OptionsTab = 'general' | 'recording' | 'notifications';
@@ -104,6 +105,16 @@
 			description: 'Unix timestamp in seconds, suitable for Discord timestamp markup.'
 		}
 	];
+	const updateCheckIntervals: { value: UpdateCheckInterval; label: string }[] = [
+		{ value: 'monthly', label: 'Monthly' },
+		{ value: 'weekly', label: 'Weekly' },
+		{ value: 'daily', label: 'Daily' },
+		{ value: 'never', label: 'Never' }
+	];
+
+	const onUpdateCheckIntervalChange = (event: Event) => {
+		settings.updateCheckInterval = (event.currentTarget as HTMLSelectElement).value as UpdateCheckInterval;
+	};
 
 	const normalizeFailedRunLimit = () => {
 		const value = Number(settings.failedRunLimit);
@@ -363,6 +374,23 @@
 
 	<fieldset disabled={!settings.canEdit} class="flex flex-col gap-4 border-0 p-0">
 		{#if activeTab === 'general'}
+			<section class={panelClass}>
+				<label class={labelClass} for="update-check-interval">Check for plugin updates</label>
+				<select
+					id="update-check-interval"
+					class="obs-select font-mono text-sm"
+					value={settings.updateCheckInterval}
+					onchange={onUpdateCheckIntervalChange}
+				>
+					{#each updateCheckIntervals as interval}
+						<option value={interval.value}>{interval.label}</option>
+					{/each}
+				</select>
+				<p class={hintClass}>
+					Checks GitHub releases on app startup and shows a sticky notice when a newer version exists.
+				</p>
+			</section>
+
 			<section class={panelClass}>
 				<label class="flex items-center gap-3">
 					<input
