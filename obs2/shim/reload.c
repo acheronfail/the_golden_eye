@@ -351,7 +351,8 @@ static bool worker_run_once(void) {
 
 static void *worker_thread_proc(void *arg) {
   (void)arg;
-  while (worker_run_once()) {}
+  while (worker_run_once()) {
+  }
   return NULL;
 }
 
