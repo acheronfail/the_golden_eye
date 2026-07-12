@@ -665,13 +665,14 @@ mod tests {
         let replay_dir = PathBuf::from("/tmp/obs-replays");
         let settings = AppSettings::from_json_value(json!({})).with_default_output_paths(Some(&replay_dir));
 
-        assert_eq!(settings.completed_output_path, "/tmp/obs-replays/Goldeneye");
-        assert_eq!(settings.failed_output_path, "/tmp/obs-replays/Goldeneye/failed");
+        let default_completed = replay_dir.join("Goldeneye");
+        assert_eq!(settings.completed_output_path, default_completed.to_string_lossy());
+        assert_eq!(settings.failed_output_path, default_completed.join("failed").to_string_lossy());
 
         let custom_completed =
             AppSettings::from_json_value(json!({ "completedOutputPath": "/runs" })).with_default_output_paths(None);
         assert_eq!(custom_completed.completed_output_path, "/runs");
-        assert_eq!(custom_completed.failed_output_path, "/runs/failed");
+        assert_eq!(custom_completed.failed_output_path, Path::new("/runs").join("failed").to_string_lossy());
     }
 
     #[test]
