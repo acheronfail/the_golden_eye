@@ -19,6 +19,14 @@
 	const activate = (flag: { href?: string }): void => {
 		if (flag.href) void goto(flag.href);
 	};
+
+	const activateNotification = (flag: { href?: string; action?: () => void | Promise<void> }): void => {
+		if (flag.action) {
+			void flag.action();
+			return;
+		}
+		activate(flag);
+	};
 </script>
 
 {#if notifications.flags.length > 0}
@@ -35,11 +43,11 @@
 				role="status"
 			>
 				<div class="flex min-w-0 items-start gap-3">
-					{#if flag.href}
+					{#if flag.href || flag.action}
 						<button
 							type="button"
 							class="min-w-0 flex-1 border-0 bg-transparent p-0 text-left font-mono text-inherit"
-							onclick={() => activate(flag)}
+							onclick={() => activateNotification(flag)}
 						>
 							<p class="text-xs tracking-widest uppercase">{flag.title}</p>
 							{#if flag.detail}

@@ -839,6 +839,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let mut rx = state.match_tx.subscribe();
     let mut recording_rx = state.recording_state.subscribe();
     let mut source_rx = state.source_tx.subscribe();
+    let mut update_rx = state.update_tx.subscribe();
     let mut events = state.event_tx.subscribe();
 
     // Announce which build serves this API first, so a stale tab (older cached
@@ -858,6 +859,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         return;
     }
     if send_current_recording_state(&mut socket, &mut recording_rx).await.is_err() {
+        return;
+    }
+    if send_current_update(&mut socket, &mut update_rx).await.is_err() {
         return;
     }
 
@@ -892,6 +896,16 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     break;
                 }
                 if send_current_sources(&mut socket, &mut source_rx).await.is_err() {
+                    break;
+                }
+            }
+            // The retained plugin update changed: forward the latest update, if any.
+            changed = update_rx.changed() => {
+                // Err means the sender was dropped (server shutting down).
+                if changed.is_err() {
+                    break;
+                }
+                if send_current_update(&mut socket, &mut update_rx).await.is_err() {
                     break;
                 }
             }
@@ -966,6 +980,18 @@ async fn send_current_recording_state(
 ) -> Result<(), axum::Error> {
     let status = *rx.borrow_and_update();
     send_event(socket, &MonitorEvent::RecordingState { status }).await?;
+    Ok(())
+}
+
+/// Sends the retained plugin update, if any, marking the watch value as seen.
+async fn send_current_update(
+    socket: &mut WebSocket,
+    rx: &mut watch::Receiver<Option<crate::updates::PluginUpdate>>,
+) -> Result<(), axum::Error> {
+    let current = rx.borrow_and_update().clone();
+    if let Some(update) = current {
+        send_event(socket, &MonitorEvent::UpdateAvailable(update)).await?;
+    }
     Ok(())
 }
 

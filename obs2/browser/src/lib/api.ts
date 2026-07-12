@@ -234,6 +234,21 @@ export const resetSettingsToDefaults = async (): Promise<Settings> => {
 
 export const revealSettingsConfig = async (): Promise<void> => revealFile({ target: 'settingsConfig' });
 
+export interface PluginUpdate {
+	currentVersion: string;
+	latestVersion: string;
+	releaseUrl: string;
+}
+
+export const openUpdateRelease = async (releaseUrl: string): Promise<void> => {
+	const res = await fetch(apiUrl('/api/v1/updates/open'), {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ releaseUrl })
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+};
+
 export interface FolderPickResult {
 	cancelled: boolean;
 	path?: string | null;
@@ -469,7 +484,8 @@ export type AppSocketEvent =
 	| ({ type: 'recordingSaved' } & RecordingSaved)
 	| { type: 'monitorStopped'; reason: MonitorStoppedReason }
 	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
-	| { type: 'settingsInvalid'; configPath: string; error: string };
+	| { type: 'settingsInvalid'; configPath: string; error: string }
+	| ({ type: 'updateAvailable' } & PluginUpdate);
 
 /** Handlers for the messages the app WebSocket can push. All are optional;
  * provide only the ones you care about. */
@@ -495,6 +511,8 @@ export interface AppSocketHandlers {
 	onSettingsReloaded?: (settings: Settings, configPath: string) => void;
 	/** Settings JSON changed but is invalid. */
 	onSettingsInvalid?: (error: string, configPath: string) => void;
+	/** A newer plugin release is available. */
+	onUpdateAvailable?: (update: PluginUpdate) => void;
 	/** Fires when the socket closes. */
 	onClose?: () => void;
 }
@@ -571,6 +589,9 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 				break;
 			case 'settingsInvalid':
 				handlers.onSettingsInvalid?.(msg.error, msg.configPath);
+				break;
+			case 'updateAvailable':
+				handlers.onUpdateAvailable?.(msg);
 				break;
 		}
 	};

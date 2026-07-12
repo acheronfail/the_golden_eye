@@ -9,6 +9,7 @@ export interface NotificationFlag {
 	tone: NotificationTone;
 	timeoutMs?: number;
 	href?: string;
+	action?: () => void | Promise<void>;
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -48,6 +49,7 @@ interface NotificationFlagOptions {
 	timeoutMs?: number;
 	sticky?: boolean;
 	href?: string;
+	action?: () => void | Promise<void>;
 }
 
 export const addNotificationFlag = (options: {
@@ -59,6 +61,7 @@ export const addNotificationFlag = (options: {
 	timeoutMs?: number;
 	sticky?: boolean;
 	href?: string;
+	action?: () => void | Promise<void>;
 }): NotificationFlag => {
 	const timeoutMs = options.sticky ? undefined : (options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 	const flag: NotificationFlag = {
@@ -69,7 +72,8 @@ export const addNotificationFlag = (options: {
 		meta: options.meta,
 		tone: options.tone ?? 'info',
 		timeoutMs,
-		href: options.href
+		href: options.href,
+		action: options.action
 	};
 
 	notifications.flags = [...notifications.flags, flag];
@@ -98,7 +102,8 @@ export const replaceNotificationFlag = (id: number, options: NotificationFlagOpt
 		meta: options.meta,
 		tone: options.tone ?? 'info',
 		timeoutMs,
-		href: options.href
+		href: options.href,
+		action: options.action
 	};
 
 	notifications.flags = notifications.flags.map((item) => (item.id === id ? flag : item));

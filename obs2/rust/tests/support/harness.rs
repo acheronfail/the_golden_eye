@@ -36,10 +36,13 @@ impl Harness {
             fixture.display()
         );
 
-        // Each integration test is its own Cargo test binary, with exactly one
-        // test, so changing HOME before the backend creates threads is safe and
-        // keeps SettingsStore away from the developer's real settings.
-        unsafe { std::env::set_var("HOME", &temp) };
+        // The integration recipe runs ignored tests serially, so changing config
+        // env before the backend creates threads is safe and keeps SettingsStore
+        // away from developer/CI runner settings.
+        unsafe {
+            std::env::set_var("HOME", &temp);
+            std::env::set_var("XDG_CONFIG_HOME", temp.join(".config"));
+        }
 
         let obs = TestObs::install(Config {
             data_path: root.join("obs2"),

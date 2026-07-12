@@ -15,7 +15,9 @@ export const DEFAULT_MIN_FAILED_RUN_LEN_SECS = 10;
 export const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE = '\u{1f7e2} Bond is now streaming at: {broadcast_url}';
 export const DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE =
 	'\u{1f534} Bond stopped streaming at <t:{unix_seconds}:F>: {broadcast_url}';
+export const DEFAULT_UPDATE_CHECK_INTERVAL = 'weekly';
 const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
+const UpdateCheckIntervalSchema = z.enum(['monthly', 'weekly', 'daily', 'never']);
 
 const SettingsSchema = z.object({
 	stopReplayBufferWhenMonitorStopped: z.boolean().catch(false),
@@ -33,9 +35,12 @@ const SettingsSchema = z.object({
 	discordNotificationsEnabled: z.boolean().catch(true),
 	discordWebhookUrl: z.string().catch(''),
 	streamingStartedMessageTemplate: z.string().catch(DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE),
-	streamingStoppedMessageTemplate: z.string().catch(DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE)
+	streamingStoppedMessageTemplate: z.string().catch(DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE),
+	updateCheckInterval: UpdateCheckIntervalSchema.catch(DEFAULT_UPDATE_CHECK_INTERVAL),
+	lastUpdateCheckTime: z.coerce.number().int().min(0).nullable().catch(null)
 });
 export type Settings = z.infer<typeof SettingsSchema>;
+export type UpdateCheckInterval = Settings['updateCheckInterval'];
 
 export interface RecordingOptions {
 	completedOutputPath: string;
@@ -120,6 +125,8 @@ export const settings = new (class {
 	showMonitorFps = $state(initialSettings.showMonitorFps);
 	showDeveloperSettings = $state(initialSettings.showDeveloperSettings);
 	welcomeModalShown = $state(initialSettings.welcomeModalShown);
+	updateCheckInterval = $state<UpdateCheckInterval>(initialSettings.updateCheckInterval);
+	lastUpdateCheckTime = $state<number | null>(initialSettings.lastUpdateCheckTime);
 
 	//
 	// Recording
@@ -175,7 +182,9 @@ export const settings = new (class {
 			discordNotificationsEnabled: this.discordNotificationsEnabled,
 			discordWebhookUrl: this.discordWebhookUrl,
 			streamingStartedMessageTemplate: this.streamingStartedMessageTemplate,
-			streamingStoppedMessageTemplate: this.streamingStoppedMessageTemplate
+			streamingStoppedMessageTemplate: this.streamingStoppedMessageTemplate,
+			updateCheckInterval: this.updateCheckInterval,
+			lastUpdateCheckTime: this.lastUpdateCheckTime
 		})
 	);
 
@@ -311,6 +320,8 @@ export const settings = new (class {
 		this.showMonitorFps = next.showMonitorFps;
 		this.showDeveloperSettings = next.showDeveloperSettings;
 		this.welcomeModalShown = next.welcomeModalShown;
+		this.updateCheckInterval = next.updateCheckInterval;
+		this.lastUpdateCheckTime = next.lastUpdateCheckTime;
 		this.completedOutputPath = next.completedOutputPath;
 		this.saveFailedRuns = next.saveFailedRuns;
 		this.failedOutputPath = next.failedOutputPath;

@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { connectAppSocket } from './api';
+import { connectAppSocket, openUpdateRelease, type PluginUpdate } from './api';
 import {
 	applyLanguageDetected,
 	applyMonitorFps,
@@ -23,6 +23,7 @@ let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let stopped = true;
 let settingsErrorNotificationId: number | null = null;
+let updateNotificationId: number | null = null;
 
 const clearReconnectTimer = (): void => {
 	if (reconnectTimer !== null) {
@@ -83,6 +84,13 @@ const connect = (): void => {
 			}
 			settingsErrorNotificationId = addNotificationFlag(notification).id;
 		},
+		onUpdateAvailable: (update) => {
+			const notification = updateNotification(update);
+			if (updateNotificationId !== null && replaceNotificationFlag(updateNotificationId, notification)) {
+				return;
+			}
+			updateNotificationId = addNotificationFlag(notification).id;
+		},
 		onClose: () => {
 			if (socket === nextSocket) socket = null;
 			scheduleReconnect();
@@ -90,6 +98,22 @@ const connect = (): void => {
 	});
 	socket = nextSocket;
 };
+
+const updateNotification = (update: PluginUpdate) => ({
+	key: 'plugin-update-available',
+	title: 'Plugin update available',
+	detail: `${update.currentVersion} -> ${update.latestVersion}`,
+	meta: 'Click to open the latest GitHub release.',
+	tone: 'info' as const,
+	sticky: true,
+	action: async () => {
+		try {
+			await openUpdateRelease(update.releaseUrl);
+		} catch (err) {
+			console.warn('Failed to open plugin update release', err);
+		}
+	}
+});
 
 export const startAppSocket = (): void => {
 	if (!browser) return;

@@ -132,10 +132,10 @@ test:
 
 # formats the project and runs clippy
 fmt:
+    just clippy
     cd obs2/browser && npm run format:repo
     cd obs2/rust && rustup run nightly cargo fmt --
     find obs2 -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_rust.h -print0 | xargs -0 clang-format -style=file -i
-    just clippy
 
 # runs clippy
 clippy:
