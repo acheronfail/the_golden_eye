@@ -87,7 +87,7 @@ Linux-specific build internals are `just make-release-flatpak` and `just _flatpa
 ```sh
 just test             # release-build obs2, then run frame regression tests
 just test-watch       # same in watch mode
-just test-rust        # Rust unit tests; requires an existing browser bundle and static FFmpeg prefix
+just test-rust        # Rust unit tests; builds the browser bundle first if missing (requires a static FFmpeg prefix)
 just test-integration # Rust integration tests against a controllable fake-OBS host (no real OBS)
 just test-shim        # shim dlopen/reload/rollback fixture tests; no OBS/Rust toolchain needed
 ```

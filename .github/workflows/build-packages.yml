@@ -322,6 +322,7 @@ jobs:
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
           call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
+          set "BINDGEN_EXTRA_CLANG_ARGS=-I%INCLUDE:;= -I%"
           bash -c "just test-rust"
 
       - name: Run Integration tests
@@ -329,6 +330,7 @@ jobs:
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
           call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
+          set "BINDGEN_EXTRA_CLANG_ARGS=-I%INCLUDE:;= -I%"
           bash -c "just test-integration"
 
       - name: Build Windows package
@@ -336,6 +338,7 @@ jobs:
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
           call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
+          set "BINDGEN_EXTRA_CLANG_ARGS=-I%INCLUDE:;= -I%"
           bash -c "just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}"
 
       - name: Upload Windows package

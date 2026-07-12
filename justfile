@@ -78,8 +78,25 @@ configure-release:
       -DVCPKG_TARGET_TRIPLET="${VCPKGRS_TRIPLET}"
 
 # configure cmake for packaging (longer compile times due to LTO/strip/etc)
+[unix]
 configure-package:
     just configure Release OFF -DGE_RUST_PACKAGE_PROFILE=ON
+
+# configure cmake for packaging (needs vcpkg's toolchain file -- see
+# configure-release above)
+[windows]
+configure-package:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    vcpkg_root="${VCPKG_ROOT:-${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}}"
+    if command -v cygpath >/dev/null 2>&1; then
+      vcpkg_root="$(cygpath -m "${vcpkg_root}")"
+    fi
+    export VCPKGRS_TRIPLET="${VCPKGRS_TRIPLET:-x64-windows-static-md}"
+    just configure Release OFF \
+      -DGE_RUST_PACKAGE_PROFILE=ON \
+      -DCMAKE_TOOLCHAIN_FILE="${vcpkg_root}/scripts/buildsystems/vcpkg.cmake" \
+      -DVCPKG_TARGET_TRIPLET="${VCPKGRS_TRIPLET}"
 
 # generate IDE settings files
 ide-settings: configure-release
@@ -102,13 +119,10 @@ simulate-update:
 test-rust *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -f "$BROWSER_BUNDLE" ]; then
-      echo "browser bundle not found at $BROWSER_BUNDLE — run 'just make-release' first" >&2
-      exit 1
-    fi
 
     build_dir="{{ justfile_directory() }}/obs2/build"
     just configure-release
+    cmake --build "$build_dir" --target browser_build
     source "$build_dir/rust-cargo-env.sh"
 
     # Share Cargo's release target by default so builds, tests, and packaging
@@ -225,21 +239,6 @@ make-release: configure-release
 [linux]
 make-release: make-release-flatpak
 
-# configure the plugin for packaging
-[windows]
-configure-package-windows:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    vcpkg_root="${VCPKG_ROOT:-${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}}"
-    if command -v cygpath >/dev/null 2>&1; then
-      vcpkg_root="$(cygpath -m "${vcpkg_root}")"
-    fi
-    export VCPKGRS_TRIPLET="${VCPKGRS_TRIPLET:-x64-windows-static-md}"
-    just configure Release OFF \
-      -DGE_RUST_PACKAGE_PROFILE=ON \
-      -DCMAKE_TOOLCHAIN_FILE="${vcpkg_root}/scripts/buildsystems/vcpkg.cmake" \
-      -DVCPKG_TARGET_TRIPLET="${VCPKGRS_TRIPLET}"
-
 # build the plugin in release mode
 [windows]
 make-release: configure-release
@@ -273,7 +272,7 @@ make-package: configure-release
 
 # package the plugin with the slower Rust dist profile
 [windows]
-make-package-dist: configure-package-windows
+make-package-dist: configure-package
     cmake -E rm -rf obs2/build/package
     cmake --build obs2/build --config Release --target package-plugin
 
