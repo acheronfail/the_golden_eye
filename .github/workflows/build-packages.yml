@@ -310,36 +310,43 @@ jobs:
           cd obs2/browser && npm install
           cd ../../test && npm install
 
-      - name: Run shim reload tests
-        shell: cmd
+      # Runs vcvarsall once and persists INCLUDE/LIB/LIBPATH/PATH via
+      # $GITHUB_ENV/$GITHUB_PATH for every later step in this job -- so the
+      # test steps and the packaging step share exactly the same compiler
+      # environment instead of each re-deriving it (and potentially
+      # diverging) independently.
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v3
+        with:
+          arch: x64
+
+      # bindgen (used by ffmpeg-sys-next's build.rs) invokes its own libclang,
+      # which doesn't automatically pick up the INCLUDE variable vcvarsall
+      # just set -- BINDGEN_EXTRA_CLANG_ARGS is bindgen's own mechanism for
+      # this, so translate INCLUDE into -I flags once, here, rather than
+      # per-step.
+      - name: Set up bindgen include paths
+        shell: pwsh
         run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
-          call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
-          bash -c "just test-shim"
+          $includePaths = $env:INCLUDE -split ';' | Where-Object { $_ -ne '' }
+          $clangArgs = ($includePaths | ForEach-Object { '-I"' + $_ + '"' }) -join ' '
+          "BINDGEN_EXTRA_CLANG_ARGS=$clangArgs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Run shim reload tests
+        shell: bash
+        run: just test-shim
 
       - name: Run Rust tests
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
-          call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
-          set "BINDGEN_EXTRA_CLANG_ARGS=-I%INCLUDE:;= -I%"
-          bash -c "just test-rust"
+        shell: bash
+        run: just test-rust
 
       - name: Run Integration tests
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
-          call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
-          set "BINDGEN_EXTRA_CLANG_ARGS=-I%INCLUDE:;= -I%"
-          bash -c "just test-integration"
+        shell: bash
+        run: just test-integration
 
       - name: Build Windows package
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
-          call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
-          set "BINDGEN_EXTRA_CLANG_ARGS=-I%INCLUDE:;= -I%"
-          bash -c "just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}"
+        shell: bash
+        run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v7
