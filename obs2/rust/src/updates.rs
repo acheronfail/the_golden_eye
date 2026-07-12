@@ -48,9 +48,11 @@ async fn check_for_updates_on_startup_inner(state: AppState) -> anyhow::Result<(
         return Ok(());
     }
 
-    state.settings.set_last_update_check_time(now_unix_seconds()).context("saving last update check time")?;
+    let checked_at = now_unix_seconds();
+    let update = fetch_latest_update(crate::PLUGIN_VERSION).await?;
+    state.settings.set_last_update_check_time(checked_at).context("saving last update check time")?;
 
-    let Some(update) = fetch_latest_update(crate::PLUGIN_VERSION).await? else {
+    let Some(update) = update else {
         tracing::info!(version = crate::PLUGIN_VERSION, "plugin is up to date");
         return Ok(());
     };

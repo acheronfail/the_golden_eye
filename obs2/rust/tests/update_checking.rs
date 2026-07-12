@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use axum::Router;
 use axum::extract::State;
+use axum::http::StatusCode;
 use axum::routing::get;
 use futures_util::StreamExt;
 use serde_json::{Value, json};
@@ -23,6 +24,11 @@ async fn latest_release(State(calls): State<Arc<AtomicUsize>>) -> axum::Json<Val
         "tag_name": LATEST_VERSION,
         "html_url": RELEASE_URL
     }))
+}
+
+async fn latest_release_error(State(calls): State<Arc<AtomicUsize>>) -> StatusCode {
+    calls.fetch_add(1, Ordering::SeqCst);
+    StatusCode::INTERNAL_SERVER_ERROR
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -74,6 +80,49 @@ async fn startup_update_check_persists_check_time_and_replays_update_event() {
     release_server.await.unwrap();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn failed_startup_update_check_does_not_persist_check_time() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let app = Router::new().route("/latest", get(latest_release_error)).with_state(calls.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let update_check_url = format!("http://{}/latest", listener.local_addr().unwrap());
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let release_server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+
+    // SAFETY: integration tests run serially through the just recipe; set before
+    // the backend starts so the startup update task reads the mock endpoint.
+    unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", &update_check_url) };
+    let harness = Harness::start(Duration::ZERO).await;
+    wait_for_release_calls(&calls, 1).await;
+
+    let status: Value = harness
+        .client
+        .get(format!("{API}/api/v1/settings/status"))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["settings"]["lastUpdateCheckTime"], Value::Null);
+
+    drop(harness);
+    // SAFETY: remove after the backend has stopped so later tests use defaults.
+    unsafe { std::env::remove_var("GE_UPDATE_CHECK_URL") };
+    shutdown_tx.send(()).unwrap();
+    release_server.await.unwrap();
+}
+
 async fn wait_for_update_available_event(harness: &Harness, calls: &Arc<AtomicUsize>) -> Value {
     let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -108,5 +157,16 @@ async fn wait_for_update_available_event(harness: &Harness, calls: &Arc<AtomicUs
                 calls.load(Ordering::SeqCst)
             );
         }
+    }
+}
+
+async fn wait_for_release_calls(calls: &Arc<AtomicUsize>, count: usize) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if calls.load(Ordering::SeqCst) >= count {
+            return;
+        }
+        assert!(Instant::now() < deadline, "timed out waiting for release endpoint call");
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
