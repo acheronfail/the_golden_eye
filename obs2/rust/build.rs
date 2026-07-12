@@ -13,6 +13,12 @@ fn main() {
     println!("cargo:rerun-if-env-changed=OPENCV_DISABLE_PROBES");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
 
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        for lib in ["bcrypt", "mfplat", "mfuuid", "ntdll", "ole32", "secur32", "strmiids", "user32", "ws2_32"] {
+            println!("cargo:rustc-link-lib={lib}");
+        }
+    }
+
     // Emitting any rerun-if-* above disables cargo's default "rerun on any file
     // change", which would otherwise pin this build script to BROWSER_BUNDLE and
     // let the cbindgen-generated ge_rust.h drift out of sync with the Rust FFI.
