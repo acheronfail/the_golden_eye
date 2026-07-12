@@ -333,25 +333,25 @@ static bool g_worker_running = false;
 static bool g_worker_pending = false;
 static void (*g_worker_on_request)(void) = NULL;
 
-static void worker_run_once(void) {
+static bool worker_run_once(void) {
   ge_cond_lock_acquire(&g_worker_lock);
   while (g_worker_running && !g_worker_pending) {
     ge_cond_lock_wait(&g_worker_lock);
   }
   bool pending = g_worker_pending;
+  bool should_continue = g_worker_running || pending;
   g_worker_pending = false;
   ge_cond_lock_release(&g_worker_lock);
 
   if (pending && g_worker_on_request) {
     g_worker_on_request();
   }
+  return should_continue;
 }
 
 static void *worker_thread_proc(void *arg) {
   (void)arg;
-  while (g_worker_running) {
-    worker_run_once();
-  }
+  while (worker_run_once()) {}
   return NULL;
 }
 
