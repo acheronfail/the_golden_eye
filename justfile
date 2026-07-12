@@ -57,8 +57,25 @@ configure-dev:
     just configure Debug ON
 
 # release builds
+[unix]
 configure-release:
     just configure Release OFF
+
+# release builds (needs vcpkg's toolchain file so CMake's find_path picks up
+# simde/opencv4/ffmpeg from the vcpkg-installed triplet -- see
+# windows-vcpkg-deps below)
+[windows]
+configure-release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    vcpkg_root="${VCPKG_ROOT:-${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}}"
+    if command -v cygpath >/dev/null 2>&1; then
+      vcpkg_root="$(cygpath -m "${vcpkg_root}")"
+    fi
+    export VCPKGRS_TRIPLET="${VCPKGRS_TRIPLET:-x64-windows-static-md}"
+    just configure Release OFF \
+      -DCMAKE_TOOLCHAIN_FILE="${vcpkg_root}/scripts/buildsystems/vcpkg.cmake" \
+      -DVCPKG_TARGET_TRIPLET="${VCPKGRS_TRIPLET}"
 
 # configure cmake for packaging (longer compile times due to LTO/strip/etc)
 configure-package:
@@ -208,20 +225,6 @@ make-release: configure-release
 [linux]
 make-release: make-release-flatpak
 
-# configure the plugin for release
-[windows]
-configure-release-windows:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    vcpkg_root="${VCPKG_ROOT:-${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}}"
-    if command -v cygpath >/dev/null 2>&1; then
-      vcpkg_root="$(cygpath -m "${vcpkg_root}")"
-    fi
-    export VCPKGRS_TRIPLET="${VCPKGRS_TRIPLET:-x64-windows-static-md}"
-    just configure Release OFF \
-      -DCMAKE_TOOLCHAIN_FILE="${vcpkg_root}/scripts/buildsystems/vcpkg.cmake" \
-      -DVCPKG_TARGET_TRIPLET="${VCPKGRS_TRIPLET}"
-
 # configure the plugin for packaging
 [windows]
 configure-package-windows:
@@ -239,7 +242,7 @@ configure-package-windows:
 
 # build the plugin in release mode
 [windows]
-make-release: configure-release-windows
+make-release: configure-release
     cmake --build obs2/build --config Release
 
 # package the plugin with the slower Rust dist profile
@@ -276,7 +279,7 @@ make-package-dist: configure-package-windows
 
 # package the plugin with the normal Rust release profile
 [windows]
-make-package: configure-release-windows
+make-package: configure-release
     cmake -E rm -rf obs2/build/package
     cmake --build obs2/build --config Release --target package-plugin
 
@@ -292,7 +295,7 @@ install: make-release-flatpak
 
 # install the plugin on the current machine (release)
 [windows]
-install: configure-release-windows
+install: configure-release
     cmake --build obs2/build --config Release --target install-plugin
 
 # uninstall the plugin from the current machine (release)
@@ -307,7 +310,7 @@ uninstall:
 
 # uninstall the plugin from the current machine (release)
 [windows]
-uninstall: configure-release-windows
+uninstall: configure-release
     cmake --build obs2/build --config Release --target uninstall-plugin
 
 # runs OBS with the plugin (release)
