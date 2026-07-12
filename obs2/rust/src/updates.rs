@@ -99,6 +99,13 @@ pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<Plu
     );
     state.update_tx.send_replace(Some(update.clone()));
 
+    // Best-effort: this only feeds the "click to view the changelog" link on
+    // the later "plugin updated" notice (see `routes::monitor::handle_socket`),
+    // so a persistence failure here shouldn't fail the update check itself.
+    if let Err(err) = state.settings.set_last_known_update(&update.latest_version, &update.release_url) {
+        tracing::warn!("failed to persist last known plugin update: {err:#}");
+    }
+
     // Reuses this same fetch's asset list rather than fetching the release
     // again, which would double GitHub API traffic for every check.
     let update_for_stage = update.clone();

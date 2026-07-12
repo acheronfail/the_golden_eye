@@ -147,8 +147,8 @@
 	const onCheckForUpdateNow = async () => {
 		updateActionPending = true;
 		try {
-			const { updateFound } = await checkForUpdateNow();
-			if (!updateFound) {
+			const { update } = await checkForUpdateNow();
+			if (!update) {
 				addNotificationFlag({ title: "You're up to date", tone: 'success' });
 				return;
 			}
@@ -156,7 +156,7 @@
 			// poll briefly rather than assuming it's instant.
 			addNotificationFlag({
 				title: 'Update found',
-				detail: 'Downloading and verifying...',
+				detail: `Downloading and verifying v${update.latestVersion}...`,
 				tone: 'info'
 			});
 			const deadline = Date.now() + 30_000;
@@ -192,6 +192,17 @@
 				detail: 'The plugin will briefly reconnect while the update is installed.',
 				tone: 'success'
 			});
+			// The actual swap (unload old core, install new, reload) happens in
+			// the background and briefly drops the HTTP server -- keep the
+			// button disabled and poll (tolerating connection errors during
+			// that gap; refreshUpdateStatus already swallows them) until the
+			// staged update is gone, rather than re-enabling it while the swap
+			// is still in flight.
+			const deadline = Date.now() + 20_000;
+			while (Date.now() < deadline && updateStaged) {
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+				await refreshUpdateStatus();
+			}
 		} catch (err) {
 			addNotificationFlag({
 				title: 'Could not apply update',

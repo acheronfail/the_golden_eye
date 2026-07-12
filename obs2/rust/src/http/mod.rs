@@ -137,7 +137,17 @@ pub enum MonitorEvent {
     /// Sent once when a client connects shortly after this core was loaded via
     /// an applied update (dev hot-reload or a real auto-update), so the SPA
     /// can show a one-off "plugin updated" notice. See `AppStateInner::reloaded_at`.
-    UpdateApplied { version: String },
+    UpdateApplied {
+        version: String,
+        /// The GitHub release page for `version`, when the persisted "last
+        /// known update" (see `crate::settings::AppSettings::last_known_update_version`)
+        /// exactly matches the version now running -- i.e. the update really is
+        /// the one that was just applied, not some other update discovered
+        /// later that hasn't been applied yet. `None` otherwise, so the SPA
+        /// never shows a changelog link for the wrong release.
+        #[serde(rename = "releaseUrl", skip_serializing_if = "Option::is_none")]
+        release_url: Option<String>,
+    },
 }
 
 /// Why the backend stopped an active monitor. Serialized as a plain string

@@ -5,6 +5,7 @@ use axum::response::{IntoResponse, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::http::AppState;
+use crate::updates::PluginUpdate;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,7 +51,7 @@ pub async fn handle_apply_now(State(state): State<AppState>) -> Result<impl Into
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckNowResponse {
-    update_found: bool,
+    update: Option<PluginUpdate>,
 }
 
 /// Checks for an update right now, bypassing the configured check interval --
@@ -64,7 +65,7 @@ pub async fn handle_check_now(State(state): State<AppState>) -> Result<impl Into
         tracing::error!("manual update check failed: {err:#}");
         (StatusCode::INTERNAL_SERVER_ERROR, "update check failed").into_response()
     })?;
-    Ok(Json(CheckNowResponse { update_found: update.is_some() }))
+    Ok(Json(CheckNowResponse { update }))
 }
 
 #[derive(Debug, Serialize)]

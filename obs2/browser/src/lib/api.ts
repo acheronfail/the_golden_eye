@@ -264,7 +264,7 @@ export const applyUpdateNow = async (): Promise<void> => {
  * doesn't mean a release didn't just appear). Staging, if one is found,
  * happens in the background -- poll {@link getUpdateStatus} to see when it's
  * ready to apply. */
-export const checkForUpdateNow = async (): Promise<{ updateFound: boolean }> => {
+export const checkForUpdateNow = async (): Promise<{ update: PluginUpdate | null }> => {
 	const res = await fetch(apiUrl('/api/v1/updates/check'), { method: 'POST' });
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 	return res.json();
@@ -514,7 +514,7 @@ export type AppSocketEvent =
 	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
 	| { type: 'settingsInvalid'; configPath: string; error: string }
 	| ({ type: 'updateAvailable' } & PluginUpdate)
-	| { type: 'updateApplied'; version: string };
+	| { type: 'updateApplied'; version: string; releaseUrl?: string };
 
 /** Handlers for the messages the app WebSocket can push. All are optional;
  * provide only the ones you care about. */
@@ -544,8 +544,11 @@ export interface AppSocketHandlers {
 	onUpdateAvailable?: (update: PluginUpdate) => void;
 	/** The plugin just applied an update (dev hot-reload or a real auto-update)
 	 * and is now running `version`. Fires once per applied update, for any
-	 * client connecting shortly after -- see the backend's `reloaded_at`. */
-	onUpdateApplied?: (version: string) => void;
+	 * client connecting shortly after -- see the backend's `reloaded_at`.
+	 * `releaseUrl` is present only when the backend's persisted "last known
+	 * update" matches `version`, i.e. it's confidently the changelog for the
+	 * update that was just applied. */
+	onUpdateApplied?: (version: string, releaseUrl?: string) => void;
 	/** Fires when the socket closes. */
 	onClose?: () => void;
 }
@@ -630,7 +633,7 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 				break;
 			case 'updateApplied':
 				if (typeof msg.version === 'string') {
-					handlers.onUpdateApplied?.(msg.version);
+					handlers.onUpdateApplied?.(msg.version, msg.releaseUrl);
 				} else {
 					console.warn('Ignoring malformed updateApplied event', msg);
 				}

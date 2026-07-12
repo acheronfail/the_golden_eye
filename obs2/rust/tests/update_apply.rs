@@ -332,7 +332,10 @@ async fn manual_check_now_bypasses_the_interval_that_blocked_the_automatic_check
     let check_response = harness.client.post(format!("{API}/api/v1/updates/check")).send().await.unwrap();
     assert!(check_response.status().is_success(), "check-now request failed: {}", check_response.status());
     let check_body: Value = check_response.json().await.unwrap();
-    assert_eq!(check_body["updateFound"], true, "manual check should have found the newer release: {check_body}");
+    assert_eq!(
+        check_body["update"]["latestVersion"], "v999.0.0",
+        "manual check should have found the newer release: {check_body}"
+    );
 
     wait_for_staged_core(&core_path).await;
 

@@ -861,7 +861,16 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // by a grace period so a client connecting long after the reload doesn't
     // see a stale notice.
     if state.reloaded_at.is_some_and(|when| when.elapsed() < UPDATE_APPLIED_NOTICE_WINDOW) {
-        let applied = MonitorEvent::UpdateApplied { version: crate::PLUGIN_VERSION.to_owned() };
+        let settings = state.settings.get();
+        // Only surface a changelog link when the persisted "last known update"
+        // really is the one that was just applied -- not some other update
+        // discovered later that hasn't been applied yet.
+        let release_url = if settings.last_known_update_version.as_deref() == Some(crate::PLUGIN_VERSION) {
+            settings.last_known_update_release_url
+        } else {
+            None
+        };
+        let applied = MonitorEvent::UpdateApplied { version: crate::PLUGIN_VERSION.to_owned(), release_url };
         if send_event(&mut socket, &applied).await.is_err() {
             return;
         }
