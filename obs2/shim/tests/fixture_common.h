@@ -20,7 +20,10 @@ static inline void ge_fixture_log(const char *event) {
   if (!path || !*path) {
     return;
   }
-  FILE *f = fopen(path, "a");
+  // Binary mode: on Windows, text-mode append ("a") translates each '\n'
+  // written here into "\r\n", but test_reload.c reads this file back in
+  // binary mode and compares against '\n'-only expected strings.
+  FILE *f = fopen(path, "ab");
   if (!f) {
     return;
   }
