@@ -320,11 +320,34 @@ jobs:
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
           call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
+          for /f "usebackq tokens=*" %%i in (`where cl.exe`) do (
+            set "CL_EXE=%%i"
+            goto found_cl
+          )
+          :found_cl
+          if not defined CL_EXE (
+            echo cl.exe was not found after VsDevCmd setup.
+            exit /b 1
+          )
+          for %%i in ("%CL_EXE%") do set "CL_DIR=%%~dpi"
+          for %%i in ("%CL_DIR%..\..\..\include") do set "VC_INCLUDE=%%~fi"
+          if not exist "%VC_INCLUDE%\vcruntime.h" (
+            echo vcruntime.h was not found under "%VC_INCLUDE%".
+            exit /b 1
+          )
+          set "INCLUDE=%VC_INCLUDE%;%INCLUDE%"
           set > "%GITHUB_ENV%"
           setlocal EnableDelayedExpansion
           set "CLANGARGS="
-          for %%P in ("!INCLUDE:;=" "!") do set "CLANGARGS=!CLANGARGS! -I"%%~P""
-          endlocal & (echo BINDGEN_EXTRA_CLANG_ARGS=%CLANGARGS%) >> "%GITHUB_ENV%"
+          for %%P in ("!INCLUDE:;=" "!") do (
+            if defined CLANGARGS (
+              set "CLANGARGS=!CLANGARGS! -I"%%~P""
+            ) else (
+              set "CLANGARGS=-I"%%~P""
+            )
+          )
+          echo BINDGEN_EXTRA_CLANG_ARGS=!CLANGARGS!>> "%GITHUB_ENV%"
+          endlocal
 
       - name: Run shim reload tests
         shell: bash
