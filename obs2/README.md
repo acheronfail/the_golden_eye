@@ -18,6 +18,7 @@ Now that's complete, you can:
 # run OBS with the plugin
 just obs
 
-# run OBS with browser and Rust hot reload
+# run OBS with the browser dev server + hot-reloading the core into the
+# running OBS session on Rust changes, no restart needed (see obs2/scripts/dev.py)
 just dev
 ```

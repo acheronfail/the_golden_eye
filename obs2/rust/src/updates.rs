@@ -27,34 +27,68 @@ pub struct PluginUpdate {
 struct GithubRelease {
     tag_name: String,
     html_url: String,
+    #[serde(default)]
+    assets: Vec<GithubAsset>,
+}
+
+/// A release's downloadable file. Only the two fields `update_apply.rs`
+/// needs to pick the right platform zip and its checksums.txt.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct GithubAsset {
+    pub(crate) name: String,
+    pub(crate) browser_download_url: String,
 }
 
 pub async fn check_for_updates_on_startup(state: AppState) {
-    if let Err(err) = check_for_updates_on_startup_inner(state).await {
-        tracing::warn!("plugin update check failed: {err:#}");
-    }
-}
-
-async fn check_for_updates_on_startup_inner(state: AppState) -> anyhow::Result<()> {
-    let settings_status = state.settings.status();
-    if settings_status.file_error.is_some() {
-        tracing::info!("settings file is invalid; skipping plugin update check");
-        return Ok(());
+    // Dev builds (`just dev`) restart the server on every hot reload, each of
+    // which would otherwise re-hit GitHub's release API: `last_update_check_time`
+    // only advances on a *successful* check (see `check_for_updates_now`, and
+    // the `failed_startup_update_check_does_not_persist_check_time` test), so
+    // once a dev session gets rate-limited it would retry -- and get
+    // rate-limited again -- on every single reload thereafter. There's also no
+    // reason to check for updates while iterating locally.
+    if cfg!(feature = "dev") {
+        tracing::debug!("skipping plugin update check in a dev build");
+        return;
     }
 
     let settings = state.settings.get();
     if !is_check_due(settings.update_check_interval, settings.last_update_check_time, now_unix_seconds()) {
         tracing::debug!("plugin update check not due");
-        return Ok(());
+        return;
+    }
+
+    if let Err(err) = check_for_updates_now(state).await {
+        tracing::warn!("plugin update check failed: {err:#}");
+    }
+}
+
+/// Checks for an update right now, unconditionally -- bypassing the
+/// configured interval (and the dev-build skip above, which only guards the
+/// *automatic* startup check). Shared by that startup check and the manual
+/// "check now" endpoint (`POST /api/v1/updates/check`), so a user isn't
+/// stuck waiting out the interval just because an earlier automatic check
+/// already ran this week.
+///
+/// Records the check time, pushes `UpdateAvailable` over the WebSocket if a
+/// newer release exists, and kicks off staging in the background (staging
+/// alone never touches the running plugin -- only applying it, gated
+/// separately, does). Returns `Ok(None)` both when the plugin is already up
+/// to date and when the settings file is currently invalid (there's nowhere
+/// durable to record the check either way).
+pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<PluginUpdate>> {
+    if state.settings.status().file_error.is_some() {
+        tracing::info!("settings file is invalid; skipping plugin update check");
+        return Ok(None);
     }
 
     let checked_at = now_unix_seconds();
-    let update = fetch_latest_update(crate::PLUGIN_VERSION).await?;
+    let found = fetch_latest_update(crate::PLUGIN_VERSION).await?;
     state.settings.set_last_update_check_time(checked_at).context("saving last update check time")?;
 
-    let Some(update) = update else {
+    let Some((update, assets)) = found else {
         tracing::info!(version = crate::PLUGIN_VERSION, "plugin is up to date");
-        return Ok(());
+        return Ok(None);
     };
 
     tracing::info!(
@@ -63,8 +97,18 @@ async fn check_for_updates_on_startup_inner(state: AppState) -> anyhow::Result<(
         release_url = %update.release_url,
         "plugin update available"
     );
-    state.update_tx.send_replace(Some(update));
-    Ok(())
+    state.update_tx.send_replace(Some(update.clone()));
+
+    // Reuses this same fetch's asset list rather than fetching the release
+    // again, which would double GitHub API traffic for every check.
+    let update_for_stage = update.clone();
+    tokio::spawn(async move {
+        if let Err(err) = crate::update_apply::download_verify_and_stage(&update_for_stage, assets).await {
+            tracing::warn!("failed to stage plugin update: {err:#}");
+        }
+    });
+
+    Ok(Some(update))
 }
 
 pub fn is_check_due(interval: UpdateCheckInterval, last_check_time: Option<u64>, now: u64) -> bool {
@@ -77,7 +121,7 @@ pub fn is_check_due(interval: UpdateCheckInterval, last_check_time: Option<u64>,
     now.saturating_sub(last_check_time) >= interval_secs
 }
 
-async fn fetch_latest_update(current_version: &str) -> anyhow::Result<Option<PluginUpdate>> {
+async fn fetch_latest_update(current_version: &str) -> anyhow::Result<Option<(PluginUpdate, Vec<GithubAsset>)>> {
     let client = reqwest::Client::builder().timeout(UPDATE_CHECK_TIMEOUT).build()?;
     let releases_api_url = releases_api_url();
     let response = client
@@ -94,8 +138,9 @@ async fn fetch_latest_update(current_version: &str) -> anyhow::Result<Option<Plu
 
     let response = response.error_for_status().context("GitHub release API returned an error")?;
     let release: GithubRelease = response.json().await.context("parsing latest GitHub release")?;
+    let assets = release.assets.clone();
 
-    update_from_release(current_version, release)
+    Ok(update_from_release(current_version, release)?.map(|update| (update, assets)))
 }
 
 fn update_from_release(current_version: &str, release: GithubRelease) -> anyhow::Result<Option<PluginUpdate>> {
@@ -120,7 +165,7 @@ fn parse_version(value: &str) -> anyhow::Result<Version> {
     Ok(Version::parse(trimmed)?)
 }
 
-fn releases_api_url() -> String {
+pub(crate) fn releases_api_url() -> String {
     std::env::var(UPDATE_CHECK_URL_ENV).unwrap_or_else(|_| RELEASES_API_URL.to_owned())
 }
 
@@ -169,6 +214,7 @@ mod tests {
             GithubRelease {
                 tag_name: "v1.3.0".to_owned(),
                 html_url: "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.3.0".to_owned(),
+                assets: Vec::new(),
             },
         )
         .unwrap()
@@ -184,6 +230,7 @@ mod tests {
             GithubRelease {
                 tag_name: "v1.2.3".to_owned(),
                 html_url: "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.2.3".to_owned(),
+                assets: Vec::new(),
             },
         )
         .unwrap();

@@ -75,6 +75,12 @@ ide-settings: configure-release
 dev:
     python3 obs2/scripts/dev.py
 
+# builds a fake "newer" release package and serves it locally, so `just obs`
+# can be smoke-tested against the real production auto-update flow. Prints
+# the GE_UPDATE_CHECK_URL to export before running `just obs` separately.
+simulate-update:
+    python3 obs2/scripts/simulate_update.py
+
 # runs the rust tests
 test-rust *args:
     #!/usr/bin/env bash
@@ -116,6 +122,18 @@ test-integration *args:
 test-browser *args:
     cd obs2/browser && npm run test:unit -- --run {{ args }}
 
+# runs the shim's dlopen/reload/rollback fixture tests (no OBS/Rust toolchain needed)
+test-shim:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build_dir="{{ justfile_directory() }}/obs2/shim/tests/build"
+    cmake -S "{{ justfile_directory() }}/obs2/shim/tests" -B "$build_dir" -DCMAKE_BUILD_TYPE=Debug
+    # --config/-C are ignored by single-config generators (Unix Makefiles) and
+    # required by multi-config ones (Visual Studio on Windows), so pass both
+    # unconditionally rather than branching on platform.
+    cmake --build "$build_dir" --config Debug
+    ctest --test-dir "$build_dir" --output-on-failure -C Debug
+
 # runs opencv frame tests
 test-cv *filter: make-release
     cd test && npm run test -- {{ filter }}
@@ -127,6 +145,7 @@ bench-cv *filter: make-release
 # runs opencv frame tests
 test:
     just test-browser
+    just test-shim
     just test-rust
     just test-cv
 
@@ -135,7 +154,7 @@ fmt:
     just clippy
     cd obs2/browser && npm run format:repo
     cd obs2/rust && rustup run nightly cargo fmt --
-    find obs2 -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_rust.h -print0 | xargs -0 clang-format -style=file -i
+    find obs2 obs2/shim obs2/shim/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_rust.h -print0 | xargs -0 clang-format -style=file -i
 
 # runs clippy
 clippy:

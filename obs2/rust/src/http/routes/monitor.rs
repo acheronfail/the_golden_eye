@@ -19,6 +19,11 @@ use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason, Reco
 
 const DEFAULT_MONITOR_LANGUAGE: &str = "jp";
 const MONITOR_FPS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
+/// How long after an applied update a newly-connecting client still gets the
+/// one-off "plugin updated" notice. Long enough to cover the existing 1s
+/// WebSocket reconnect retry with real margin, short enough that a client
+/// connecting much later doesn't see a stale notice.
+const UPDATE_APPLIED_NOTICE_WINDOW: Duration = Duration::from_secs(60);
 
 /// A running monitor. OBS pushes captured frames into `mailbox` from its render
 /// callback (keyed by the leaked `producer` pointer); the worker `thread`
@@ -848,6 +853,18 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let version = MonitorEvent::Version { build_id: super::index::BUILD_ID.clone() };
     if send_event(&mut socket, &version).await.is_err() {
         return;
+    }
+
+    // A one-off "plugin updated" notice for any client connecting shortly
+    // after this core was loaded via an applied update (dev hot-reload or a
+    // real auto-update) -- not a cold OBS start, and not a rollback. Bounded
+    // by a grace period so a client connecting long after the reload doesn't
+    // see a stale notice.
+    if state.reloaded_at.is_some_and(|when| when.elapsed() < UPDATE_APPLIED_NOTICE_WINDOW) {
+        let applied = MonitorEvent::UpdateApplied { version: crate::PLUGIN_VERSION.to_owned() };
+        if send_event(&mut socket, &applied).await.is_err() {
+            return;
+        }
     }
 
     if send_current_sources(&mut socket, &mut source_rx).await.is_err() {

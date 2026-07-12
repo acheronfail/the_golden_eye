@@ -1,11 +1,13 @@
 // The "core" plugin: all of the heavy logic (the Rust staticlib, OpenCV, the
 // HTTP server, the OBS bridge). It is NOT loaded by OBS directly — instead the
-// thin shim in `plugin.c` registers itself as the OBS module and `dlopen`s this
-// library, calling `ge_core_load`/`ge_core_unload`. Splitting it out this way
-// lets the shim unload + reload this library at runtime (see `plugin.c`) so the
-// Rust code can be rebuilt without restarting OBS.
+// thin shim in `shim/plugin.c` registers itself as the OBS module and
+// `dlopen`s this library, calling `ge_core_load`/`ge_core_unload`. Splitting
+// it out this way lets the shim swap this library for a freshly downloaded
+// version at runtime (see `shim/reload.c`) without OBS itself being unloaded.
 
 #include "ge_rust.h"
+
+#include "../shim/reload.h"
 
 #include <ctype.h>
 #include <obs/frontend/obs-frontend-api.h>
@@ -118,12 +120,36 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
   }
 }
 
+// Stashed by ge_core_load so ge_core_trigger_reload can wake the shim's
+// reload worker thread later, once Rust has a verified update staged. NULL
+// until ge_core_load runs.
+static ge_request_reload_fn g_request_reload = NULL;
+
 // Called by the shim once this library has been dlopen'd. Mirrors what the old
-// monolithic `obs_module_load` did. Returns false on failure so the shim can
-// log a useful error and refuse to come up.
-GE_EXPORT bool ge_core_load(obs_module_t *module) {
+// monolithic `obs_module_load` did. Returns false on failure -- including if
+// ge_rust_start() couldn't bind its HTTP port -- so the shim can log a useful
+// error and refuse to come up (or roll back to a previously-running core).
+//
+// `canonical_path` is the shim's own resolved path for this core library --
+// NOT necessarily the file this process actually dlopen'd from (reload.c
+// always dlopens a temp copy). Rust needs this canonical path (not the temp
+// copy, and not obs_get_module_binary_path(), which reports the *shim's*
+// path since that's the OBS-registered module) to know where to stage and
+// apply future updates; see ge_rust_set_core_path.
+//
+// `is_reload` is true when this load followed a successful update apply
+// (not a cold OBS start, and not a rollback) -- see reload.h's ge_core_open.
+// Rust uses it to show a one-off "plugin updated" notice; see
+// ge_rust_set_was_reloaded.
+GE_EXPORT bool ge_core_load(obs_module_t *module, const char *canonical_path, bool is_reload,
+                            ge_request_reload_fn request_reload) {
   ge_obs_set_module(module);
-  ge_rust_start();
+  g_request_reload = request_reload;
+  ge_rust_set_core_path(canonical_path);
+  ge_rust_set_was_reloaded(is_reload);
+  if (!ge_rust_start()) {
+    return false;
+  }
   ge_connect_source_signals();
   ge_sources_changed();
   obs_frontend_add_event_callback(ge_on_frontend_event, NULL);
@@ -139,10 +165,20 @@ GE_EXPORT void ge_core_post_load(void) {
 }
 
 // Called by the shim before it dlcloses this library (on OBS shutdown, or
-// before a dev-mode hot reload). `ge_rust_stop` blocks until the tokio runtime
-// is fully torn down, so no Rust threads survive the dlclose that follows.
+// before a reload). `ge_rust_stop` blocks until the tokio runtime is fully
+// torn down, so no Rust threads survive the dlclose that follows.
 GE_EXPORT void ge_core_unload(void) {
   ge_disconnect_source_signals();
   obs_frontend_remove_event_callback(ge_on_frontend_event, NULL);
   ge_rust_stop();
+  g_request_reload = NULL;
+}
+
+// Called by Rust (update_apply.rs) once it has downloaded, verified, and
+// staged a newer core. Must only ever wake the shim's reload worker thread --
+// see reload.h's ge_request_reload_fn contract for why.
+GE_EXPORT void ge_core_trigger_reload(void) {
+  if (g_request_reload) {
+    g_request_reload();
+  }
 }

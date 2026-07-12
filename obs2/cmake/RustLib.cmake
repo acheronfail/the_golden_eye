@@ -179,7 +179,7 @@ if(GE_REUSE_HOST_BUILD_INPUTS)
               "-DGE_REQUIRED_FILE=${RUST_LIB}"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check-file-exists.cmake"
       COMMAND ${CMAKE_COMMAND}
-              "-DGE_REQUIRED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/ge_rust.h"
+              "-DGE_REQUIRED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/core/ge_rust.h"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check-file-exists.cmake"
       VERBATIM
   )

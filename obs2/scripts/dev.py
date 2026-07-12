@@ -1,21 +1,33 @@
 #!/usr/bin/env python3
 
 # The plugin is split into a thin shim (loaded by OBS) and a "core" library
-# (the Rust logic + OpenCV), which the shim dlopen's. In dev mode the shim
-# watches the core library on disk and hot-reloads it whenever it's rebuilt —
-# so editing the SvelteKit UI *or* the Rust code reloads live without
-# restarting OBS. The dev helper relinks the core whenever Rust sources change.
+# (the Rust logic + OpenCV), which the shim dlopen's. In dev mode this helper
+# runs the SvelteKit Vite dev server (so editing the UI reloads live) and
+# relinks the core whenever Rust sources change.
+#
+# Hot-reloading the rebuilt core into a running OBS session reuses the exact
+# same mechanism as production auto-update, rather than a dev-only FIFO into
+# the shim (which was removed when the shim was minimized -- see
+# obs2/shim/reload.c): after a successful rebuild, this script copies the
+# freshly built core library into the plugin's `.ge_update_staged/`
+# directory (the same convention update_apply.rs uses) and POSTs to
+# `/api/v1/updates/apply`. The Rust side treats a dev build as always
+# "opted in" to auto-update (see update_apply.rs::auto_apply_when_safe), so
+# if that POST is momentarily refused (e.g. a monitor session is active),
+# the plugin's own background loop picks the staged rebuild up shortly after
+# on its own -- no restart needed either way.
 
 from __future__ import annotations
 
-import errno
 import os
+import shutil
 import signal
-import stat
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import FrameType
@@ -26,7 +38,8 @@ ROOT = Path(__file__).resolve().parents[2]
 BUILD_DIR = ROOT / "obs2" / "build"
 RUST_SRC = ROOT / "obs2" / "rust" / "src"
 RUST_MANIFEST = ROOT / "obs2" / "rust" / "Cargo.toml"
-RELOAD_FIFO = Path(os.environ.get("TMPDIR", "/tmp")) / "ge_the_golden_eye.reload"
+PLUGIN_NAME = "the_golden_eye"
+API_BASE = "http://127.0.0.1:31337"
 
 
 def obs_plugin_paths() -> tuple[Path, Path]:
@@ -38,6 +51,59 @@ def obs_plugin_paths() -> tuple[Path, Path]:
         return BUILD_DIR / "%module%" / "bin" / arch_dir, BUILD_DIR / "%module%" / "data"
 
     return BUILD_DIR, BUILD_DIR
+
+
+def core_runtime_dir() -> Path:
+    """Directory the built core library actually lives in -- the real
+    on-disk path, unlike obs_plugin_paths()'s `%module%` placeholder (which
+    OBS itself substitutes when scanning, not something to resolve here)."""
+    if sys.platform == "darwin":
+        return BUILD_DIR / f"{PLUGIN_NAME}.plugin" / "Contents" / "MacOS"
+
+    if sys.platform.startswith("linux"):
+        arch_dir = "64bit" if sys.maxsize > 2**32 else "32bit"
+        return BUILD_DIR / PLUGIN_NAME / "bin" / arch_dir
+
+    return BUILD_DIR
+
+
+def find_core_library(runtime_dir: Path) -> Path:
+    # Globs rather than hardcoding a prefix/suffix (libgolden_core.dylib vs
+    # libgolden_core.so vs golden_core.dll) -- a third place to encode that
+    # convention isn't worth it when CMake and Rust already both know it.
+    candidates = sorted(path for path in runtime_dir.glob("*golden_core*") if path.is_file())
+    if not candidates:
+        raise FileNotFoundError(f"could not find the built core library under {runtime_dir}")
+    if len(candidates) > 1:
+        print(
+            f"[dev] warning: multiple core library files found under {runtime_dir}: {candidates}; using {candidates[0]}",
+            file=sys.stderr,
+        )
+    return candidates[0]
+
+
+def stage_dev_reload() -> None:
+    runtime_dir = core_runtime_dir()
+    core_lib = find_core_library(runtime_dir)
+    staged_dir = runtime_dir / ".ge_update_staged"
+    staged_dir.mkdir(exist_ok=True)
+    shutil.copy2(core_lib, staged_dir / core_lib.name)
+
+
+def trigger_reload_apply() -> None:
+    request = urllib.request.Request(f"{API_BASE}/api/v1/updates/apply", method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            print(f"[dev] reload applied (HTTP {response.status})", flush=True)
+    except urllib.error.HTTPError as error:
+        if error.code == 409:
+            print("[dev] reload deferred: plugin is busy monitoring/recording; it'll retry on its own", flush=True)
+        elif error.code == 404:
+            print("[dev] reload not applied: plugin reports nothing staged (unexpected)", file=sys.stderr)
+        else:
+            print(f"[dev] reload request failed: HTTP {error.code}", file=sys.stderr)
+    except urllib.error.URLError as error:
+        print(f"[dev] could not reach the plugin to trigger a reload (is OBS running yet?): {error}", file=sys.stderr)
 
 
 class ProcessManager:
@@ -125,26 +191,6 @@ def newest_rust_mtime() -> float:
     return newest
 
 
-def ping_reload_fifo() -> None:
-    try:
-        mode = RELOAD_FIFO.stat().st_mode
-    except FileNotFoundError:
-        return
-
-    if not stat.S_ISFIFO(mode):
-        return
-
-    try:
-        fd = os.open(RELOAD_FIFO, os.O_WRONLY | os.O_NONBLOCK)
-    except OSError as error:
-        if error.errno != errno.ENXIO:
-            print(f"[dev] could not ping reload FIFO: {error}", file=sys.stderr)
-        return
-
-    with os.fdopen(fd, "wb", closefd=True) as fifo:
-        fifo.write(b"\n")
-
-
 def rust_watch_loop(manager: ProcessManager, stop_event: threading.Event) -> None:
     last_seen = newest_rust_mtime()
 
@@ -161,10 +207,16 @@ def rust_watch_loop(manager: ProcessManager, stop_event: threading.Event) -> Non
 
         if stop_event.is_set():
             return
-        if result == 0:
-            ping_reload_fifo()
-        else:
+        if result != 0:
             print("[dev] core build failed; fix and save again", flush=True)
+            continue
+
+        try:
+            stage_dev_reload()
+        except OSError as error:
+            print(f"[dev] core rebuilt but failed to stage it for reload: {error}", file=sys.stderr)
+            continue
+        trigger_reload_apply()
 
 
 def install_signal_handlers(manager: ProcessManager, stop_event: threading.Event) -> None:
@@ -183,8 +235,6 @@ def main() -> int:
     if os.name != "posix":
         print("just dev requires POSIX process groups for cleanup.", file=sys.stderr)
         return 1
-
-    os.environ["GE_RELOAD_FIFO"] = str(RELOAD_FIFO)
 
     manager = ProcessManager()
     stop_event = threading.Event()

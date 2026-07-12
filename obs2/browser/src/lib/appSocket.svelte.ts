@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { connectAppSocket, openUpdateRelease, type PluginUpdate } from './api';
+import { connectAppSocket, openUpdateRelease, selfBuildId, type PluginUpdate } from './api';
 import {
 	applyLanguageDetected,
 	applyMonitorFps,
@@ -24,6 +24,46 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let stopped = true;
 let settingsErrorNotificationId: number | null = null;
 let updateNotificationId: number | null = null;
+
+const UPDATE_APPLIED_STORAGE_KEY = 'ge-update-applied-version';
+
+const showUpdateAppliedNotification = (version: string): void => {
+	addNotificationFlag({
+		key: 'plugin-update-applied',
+		title: 'Plugin updated',
+		detail: `Now running v${version}`,
+		tone: 'success'
+	});
+};
+
+/** In production, a page that just received `updateApplied` is about to
+ * reload anyway (see `reloadIfStale`, driven by the `version` handshake sent
+ * just before it) — an immediate toast would only flash and vanish with it.
+ * Persisting across the reload and showing it once on the fresh page
+ * instead. Dev mode never reloads (no `ge-build-id` meta tag to compare
+ * against), so there the toast has to show immediately or not at all. */
+const handleUpdateApplied = (version: string): void => {
+	if (selfBuildId() === null) {
+		showUpdateAppliedNotification(version);
+		return;
+	}
+	try {
+		sessionStorage.setItem(UPDATE_APPLIED_STORAGE_KEY, version);
+	} catch (err) {
+		console.warn('Failed to persist pending update-applied notice', err);
+	}
+};
+
+const consumePendingUpdateAppliedNotification = (): void => {
+	let version: string | null = null;
+	try {
+		version = sessionStorage.getItem(UPDATE_APPLIED_STORAGE_KEY);
+		if (version !== null) sessionStorage.removeItem(UPDATE_APPLIED_STORAGE_KEY);
+	} catch (err) {
+		console.warn('Failed to read pending update-applied notice', err);
+	}
+	if (version !== null) showUpdateAppliedNotification(version);
+};
 
 const clearReconnectTimer = (): void => {
 	if (reconnectTimer !== null) {
@@ -91,6 +131,7 @@ const connect = (): void => {
 			}
 			updateNotificationId = addNotificationFlag(notification).id;
 		},
+		onUpdateApplied: handleUpdateApplied,
 		onClose: () => {
 			if (socket === nextSocket) socket = null;
 			scheduleReconnect();
@@ -117,6 +158,9 @@ const updateNotification = (update: PluginUpdate) => ({
 
 export const startAppSocket = (): void => {
 	if (!browser) return;
+	// Picks up a notice persisted by handleUpdateApplied just before a
+	// production reload landed us here on the fresh page.
+	consumePendingUpdateAppliedNotification();
 	stopped = false;
 	connect();
 };

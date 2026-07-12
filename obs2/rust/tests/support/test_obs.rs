@@ -29,6 +29,7 @@ pub struct Calls {
     pub frame_callback_register: usize,
     pub frame_callback_unregister: usize,
     pub dock_config_save: usize,
+    pub core_trigger_reload: usize,
 }
 
 pub struct Config {
@@ -368,4 +369,14 @@ pub unsafe extern "C" fn config_set_string(
 pub extern "C" fn config_save_safe(_config: *mut c_void, _temp: *const c_char, _backup: *const c_char) -> c_int {
     STATE.lock().unwrap().calls.dock_config_save += 1;
     0
+}
+
+/// Stand-in for the real `ge_core_trigger_reload` (implemented in core.c and
+/// wired to the shim's reload worker thread) -- these integration tests link
+/// the Rust crate directly, without any C bridge, so there's no real shim to
+/// wake. Just records that it was called; the actual dlopen/rename/rollback
+/// mechanics have their own dedicated tests next to shim/reload.c.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_core_trigger_reload() {
+    STATE.lock().unwrap().calls.core_trigger_reload += 1;
 }

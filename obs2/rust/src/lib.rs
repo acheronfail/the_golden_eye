@@ -8,6 +8,7 @@ mod recording;
 mod settings;
 mod stream_notifier;
 mod timer;
+mod update_apply;
 mod updates;
 
 use std::ffi::CStr;
@@ -31,9 +32,9 @@ use crate::settings::{SettingsReload, SettingsStore};
 
 pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
 
-type ObsPathGetter = unsafe extern "C" fn(*mut c_char, usize) -> bool;
+pub(crate) type ObsPathGetter = unsafe extern "C" fn(*mut c_char, usize) -> bool;
 
-fn read_obs_path(getter: ObsPathGetter) -> Option<PathBuf> {
+pub(crate) fn read_obs_path(getter: ObsPathGetter) -> Option<PathBuf> {
     let mut buffer = vec![0 as c_char; 4096];
     let ok = unsafe { getter(buffer.as_mut_ptr(), buffer.len()) };
     if !ok {
@@ -101,6 +102,56 @@ struct ServerHandle {
 /// Global handle to the running server. `None` when the server is stopped.
 static SERVER: Mutex<Option<ServerHandle>> = Mutex::new(None);
 static LOGGING_INIT: Once = Once::new();
+
+/// The shim's canonical, on-disk path for *this* core library -- set by
+/// `ge_rust_set_core_path`, called from `core.c`'s `ge_core_load` before
+/// `ge_rust_start()`. NOT the path this process actually dlopen'd from
+/// (reload.c always dlopens a temp copy) and NOT the same as
+/// `ge_obs_module_binary_path()` (which reports the *shim's* path, since
+/// that's the OBS-registered module) -- `update_apply.rs` needs this
+/// specific canonical path to know where to stage and apply future updates.
+/// A plain `Mutex` (not `OnceLock`) because it must accept a fresh value on
+/// every load: in production each reload is a fresh dlopen with its own
+/// independent statics, but the integration test harness calls
+/// `ge_rust_start()` directly, multiple times per process, each wanting its
+/// own path.
+static CORE_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+pub(crate) fn core_path() -> Option<PathBuf> {
+    CORE_PATH.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+}
+
+/// Called by the C core (`ge_core_load`) with the shim's resolved canonical
+/// path for this core library, before `ge_rust_start()` runs.
+///
+/// # Safety
+/// `path` must be null or a valid NUL-terminated C string for the duration
+/// of this call; it's copied into an owned `PathBuf` immediately.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ge_rust_set_core_path(path: *const c_char) {
+    if path.is_null() {
+        return;
+    }
+    // SAFETY: the caller guarantees a valid NUL-terminated string for the
+    // duration of this call; copied into an owned PathBuf immediately.
+    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
+    *CORE_PATH.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(PathBuf::from(path));
+}
+
+/// Whether *this* core load followed a successful update apply, set by
+/// `ge_rust_set_was_reloaded` (called from `core.c`'s `ge_core_load`, mirroring
+/// `ge_rust_set_core_path`) before `ge_rust_start()` runs. `ge_rust_start`
+/// reads this once, into `AppStateInner.reloaded_at`, so a client connecting
+/// shortly after can be told "the plugin just updated" -- see
+/// `http::routes::monitor`.
+static WAS_RELOADED: AtomicBool = AtomicBool::new(false);
+
+/// Called by the C core (`ge_core_load`) to report whether this load followed
+/// a reload (an applied update) rather than a cold OBS start or a rollback.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_rust_set_was_reloaded(was_reloaded: bool) {
+    WAS_RELOADED.store(was_reloaded, Ordering::Release);
+}
 /// Whether OBS began its current replay-buffer stop while a monitor was still
 /// active. Intentional monitor shutdown removes the monitor before requesting
 /// the stop; an unexpected OBS stop does not. Snapshotting at STOPPING avoids a
@@ -145,9 +196,12 @@ fn init_logging() {
 
 /// Start the HTTP server on a background tokio runtime. Returns immediately
 /// without blocking the calling (C) thread. Calling this while the server is
-/// already running is a no-op.
+/// already running is a no-op that returns `true` (it's already up). Returns
+/// `false` if the runtime couldn't be created or the server's port failed to
+/// bind -- the caller (the shim, via `ge_core_load`) must treat that as a
+/// load failure rather than assuming the server came up.
 #[unsafe(no_mangle)]
-pub extern "C" fn ge_rust_start() {
+pub extern "C" fn ge_rust_start() -> bool {
     init_logging();
 
     configure_cv_template_dir();
@@ -161,14 +215,29 @@ pub extern "C" fn ge_rust_start() {
 
     if guard.is_some() {
         tracing::warn!("ge_rust_start called while server is already running");
-        return;
+        return true;
     }
 
     let runtime = match Runtime::new() {
         Ok(runtime) => runtime,
         Err(error) => {
             tracing::error!("failed to create tokio runtime: {error}");
-            return;
+            return false;
+        }
+    };
+
+    // Bind synchronously, inside the new runtime's context, so a bind
+    // failure (e.g. the port is still held by a not-yet-torn-down previous
+    // instance) is reported to the caller now rather than discovered later
+    // inside a spawned task that ge_core_load has no visibility into.
+    let listener = {
+        let _guard = runtime.enter();
+        match http::bind_listener() {
+            Ok(listener) => listener,
+            Err(error) => {
+                tracing::error!("failed to bind port {}: {error}", http::SERVER_PORT);
+                return false;
+            }
         }
     };
 
@@ -193,6 +262,7 @@ pub extern "C" fn ge_rust_start() {
         source_tx,
         update_tx: tokio::sync::watch::channel(None).0,
         settings,
+        reloaded_at: WAS_RELOADED.load(Ordering::Acquire).then(std::time::Instant::now),
     });
 
     // Spawn the server onto the runtime. `spawn` returns immediately so the
@@ -201,17 +271,19 @@ pub extern "C" fn ge_rust_start() {
     let state_clone = state.clone();
     tracing::info!(version = PLUGIN_VERSION, "starting server");
     runtime.spawn(async move {
-        if let Err(error) = http::create_server(shutdown_rx, state_clone).await {
+        if let Err(error) = http::serve(listener, shutdown_rx, state_clone).await {
             tracing::error!("http server exited with error: {error}");
         }
     });
     runtime.spawn(watch_settings_file(state.clone()));
     runtime.spawn(updates::check_for_updates_on_startup(state.clone()));
+    runtime.spawn(update_apply::auto_apply_when_safe(state.clone()));
 
     tracing::info!("server started");
 
     let runtime_handle = runtime.handle().clone();
     *guard = Some(ServerHandle { runtime, runtime_handle, shutdown: shutdown_tx, state });
+    true
 }
 
 async fn watch_settings_file(state: AppState) {

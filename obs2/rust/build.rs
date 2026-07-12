@@ -22,7 +22,9 @@ fn main() {
 
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let obs2_dir = crate_dir.parent().expect("Rust crate should live under obs2/").to_path_buf();
-    let output_file = obs2_dir.join("ge_rust.h");
+    let core_dir = obs2_dir.join("core");
+    std::fs::create_dir_all(&core_dir).expect("failed to create obs2/core directory");
+    let output_file = core_dir.join("ge_rust.h");
 
     cbindgen::Builder::new()
         .with_crate(crate_dir)

@@ -37,7 +37,8 @@ const SettingsSchema = z.object({
 	streamingStartedMessageTemplate: z.string().catch(DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE),
 	streamingStoppedMessageTemplate: z.string().catch(DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE),
 	updateCheckInterval: UpdateCheckIntervalSchema.catch(DEFAULT_UPDATE_CHECK_INTERVAL),
-	lastUpdateCheckTime: z.coerce.number().int().min(0).nullable().catch(null)
+	lastUpdateCheckTime: z.coerce.number().int().min(0).nullable().catch(null),
+	autoUpdateEnabled: z.boolean().catch(false)
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export type UpdateCheckInterval = Settings['updateCheckInterval'];
@@ -127,6 +128,7 @@ export const settings = new (class {
 	welcomeModalShown = $state(initialSettings.welcomeModalShown);
 	updateCheckInterval = $state<UpdateCheckInterval>(initialSettings.updateCheckInterval);
 	lastUpdateCheckTime = $state<number | null>(initialSettings.lastUpdateCheckTime);
+	autoUpdateEnabled = $state(initialSettings.autoUpdateEnabled);
 
 	//
 	// Recording
@@ -184,7 +186,8 @@ export const settings = new (class {
 			streamingStartedMessageTemplate: this.streamingStartedMessageTemplate,
 			streamingStoppedMessageTemplate: this.streamingStoppedMessageTemplate,
 			updateCheckInterval: this.updateCheckInterval,
-			lastUpdateCheckTime: this.lastUpdateCheckTime
+			lastUpdateCheckTime: this.lastUpdateCheckTime,
+			autoUpdateEnabled: this.autoUpdateEnabled
 		})
 	);
 
@@ -322,6 +325,7 @@ export const settings = new (class {
 		this.welcomeModalShown = next.welcomeModalShown;
 		this.updateCheckInterval = next.updateCheckInterval;
 		this.lastUpdateCheckTime = next.lastUpdateCheckTime;
+		this.autoUpdateEnabled = next.autoUpdateEnabled;
 		this.completedOutputPath = next.completedOutputPath;
 		this.saveFailedRuns = next.saveFailedRuns;
 		this.failedOutputPath = next.failedOutputPath;

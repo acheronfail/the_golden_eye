@@ -78,7 +78,8 @@ const defaultSettings: Settings = {
 	streamingStartedMessageTemplate: 'Bond is now streaming at: {broadcast_url}',
 	streamingStoppedMessageTemplate: 'Bond stopped streaming at: {broadcast_url}',
 	updateCheckInterval: 'weekly',
-	lastUpdateCheckTime: null
+	lastUpdateCheckTime: null,
+	autoUpdateEnabled: false
 };
 
 const availableReplayBuffer = {

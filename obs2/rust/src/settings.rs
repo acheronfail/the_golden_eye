@@ -81,6 +81,7 @@ pub struct AppSettings {
     pub streaming_stopped_message_template: String,
     pub update_check_interval: UpdateCheckInterval,
     pub last_update_check_time: Option<u64>,
+    pub auto_update_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -104,6 +105,7 @@ impl Default for AppSettings {
             streaming_stopped_message_template: DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE.to_owned(),
             update_check_interval: DEFAULT_UPDATE_CHECK_INTERVAL,
             last_update_check_time: None,
+            auto_update_enabled: false,
         }
     }
 }
@@ -149,6 +151,7 @@ impl AppSettings {
             ),
             update_check_interval: UpdateCheckInterval::from_json_value(object.get("updateCheckInterval")),
             last_update_check_time: non_negative_u64_option(object.get("lastUpdateCheckTime")),
+            auto_update_enabled: bool_field(object.get("autoUpdateEnabled"), default.auto_update_enabled),
         }
     }
 

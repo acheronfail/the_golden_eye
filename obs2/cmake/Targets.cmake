@@ -31,10 +31,6 @@ else()
 endif()
 set(GE_BUNDLED_TEMPLATE_DIR "${GE_PLUGIN_DATA_DIR}/cv_templates")
 
-if(WIN32 AND BROWSER_DEV)
-  message(FATAL_ERROR "BROWSER_DEV hot reload is not supported on Windows yet; configure with -DBROWSER_DEV=OFF.")
-endif()
-
 file(GLOB GE_CV_TEMPLATE_FILES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/cv_templates/*.png"
 )
@@ -60,8 +56,8 @@ add_custom_target(bundle_cv_templates ALL
 add_library(${CORE_NAME} SHARED)
 
 target_sources(${CORE_NAME} PRIVATE
-    obs_bridge.c
-    core.c
+    core/obs_bridge.c
+    core/core.c
 )
 
 if(NOT GE_OBS_NATIVE_DEPS_FOUND)
@@ -165,7 +161,8 @@ endif()
 #
 # A plugin bundle on macOS, and a regular shared library on other platforms.
 # It only dlopen's the core library, so it links nothing heavy: just libobs
-# (for the OBS module macros + blog), the dl loader, and pthreads (dev watcher).
+# (for the OBS module macros + blog), the dl loader, and pthreads (the reload
+# worker thread in shim/reload.c).
 #
 
 if(APPLE)
@@ -175,17 +172,13 @@ else()
 endif()
 
 target_sources(${PLUGIN_NAME} PRIVATE
-    dynlib.c
-    plugin.c
+    shim/dynlib.c
+    shim/reload.c
+    shim/plugin.c
 )
 
 if(NOT GE_OBS_NATIVE_DEPS_FOUND)
   add_dependencies(${PLUGIN_NAME} require_obs_libraries)
-endif()
-
-# The hot-reload watcher is dev-only; it isn't compiled into release builds.
-if(BROWSER_DEV)
-  target_sources(${PLUGIN_NAME} PRIVATE dev_reload.c)
 endif()
 
 target_include_directories(${PLUGIN_NAME} PRIVATE
@@ -212,8 +205,6 @@ endif()
 # plugin path at runtime, so the built plugin can be copied out of this repo.
 target_compile_definitions(${PLUGIN_NAME} PRIVATE
     GE_CORE_LIB_NAME="$<TARGET_FILE_NAME:${CORE_NAME}>"
-    # In dev mode the shim copies + hot-reloads the core library on rebuild.
-    $<$<AND:$<BOOL:${BROWSER_DEV}>,$<NOT:$<BOOL:${WIN32}>>>:GE_DEV>
 )
 
 # Build the core library and bundled templates whenever the plugin is built.

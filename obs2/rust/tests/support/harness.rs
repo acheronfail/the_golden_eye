@@ -44,9 +44,15 @@ impl Harness {
             std::env::set_var("XDG_CONFIG_HOME", temp.join(".config"));
         }
 
+        // Lives under the per-test temp dir (not the repo's real build
+        // directory) so tests that derive an install/staging directory from
+        // this path (e.g. update_apply.rs) get one that's isolated and
+        // writable, and cleaned up with everything else in `temp`.
+        let core_path = temp.join("golden_core.test");
+
         let obs = TestObs::install(Config {
             data_path: root.join("obs2"),
-            binary_path: root.join("obs2/build/golden_core.test"),
+            binary_path: core_path.clone(),
             replay_output_directory: replay_dir.clone(),
             replay_fixture: fixture,
             fps: 59.94,
@@ -58,7 +64,15 @@ impl Harness {
             sources: vec![(SOURCE_NAME.into(), "test_input".into())],
         });
 
-        ge_rust::ge_rust_start();
+        // Normally set by core.c's ge_core_load (see lib.rs::core_path); the
+        // harness calls ge_rust_start() directly, bypassing that C layer
+        // entirely, so it has to set this itself -- and must do so on every
+        // call (not just once), since this same process runs multiple tests
+        // that each want their own isolated path.
+        let core_path_c = std::ffi::CString::new(core_path.to_string_lossy().into_owned()).unwrap();
+        unsafe { ge_rust::ge_rust_set_core_path(core_path_c.as_ptr()) };
+
+        assert!(ge_rust::ge_rust_start(), "server failed to start");
         let client = reqwest::Client::new();
         wait_for_server(&client).await;
 
