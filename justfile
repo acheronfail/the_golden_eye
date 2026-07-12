@@ -130,7 +130,7 @@ test-rust *args:
     if [ "${GE_ISOLATE_CARGO_TEST_TARGETS:-}" = "1" ]; then
       export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
     fi
-    cd "{{ justfile_directory() }}/obs2/rust" && cargo test --release --lib --tests {{ args }}
+    cd "{{ justfile_directory() }}/obs2/rust" && cargo test --release --lib {{ args }}
 
 # runs the backend against the controllable Rust OBS host (no OBS process)
 test-integration *args:
@@ -147,7 +147,10 @@ test-integration *args:
       export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/integration"
     fi
     cd "{{ justfile_directory() }}/obs2/rust"
-    cargo test --release --tests -- --ignored --test-threads=1 {{ args }}
+    for test_file in tests/*.rs; do
+      test_name="$(basename "$test_file" .rs)"
+      cargo test --release --test "$test_name" -- --ignored --test-threads=1 {{ args }}
+    done
 
 # runs browser unit/component tests
 test-browser *args:
