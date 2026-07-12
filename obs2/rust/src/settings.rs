@@ -248,7 +248,7 @@ pub struct SettingsStatus {
 #[derive(Debug, Clone)]
 pub enum SettingsReload {
     Unchanged,
-    Reloaded(AppSettings),
+    Reloaded(Box<AppSettings>),
     Invalid(String),
 }
 
@@ -317,7 +317,7 @@ impl SettingsStore {
                 state.file_error = None;
                 state.file_bytes = disk_bytes;
                 tracing::info!(path = %self.path.display(), "reloaded settings");
-                SettingsReload::Reloaded(apply_runtime_output_path_defaults(settings))
+                SettingsReload::Reloaded(Box::new(apply_runtime_output_path_defaults(settings)))
             }
             Err(err) => {
                 let message = format!("{err:#}");

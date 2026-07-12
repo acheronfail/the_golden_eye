@@ -295,7 +295,7 @@ async fn watch_settings_file(state: AppState) {
             SettingsReload::Reloaded(settings) => {
                 let _ = state.event_tx.send(MonitorEvent::SettingsReloaded {
                     config_path: state.settings.path().to_string_lossy().into_owned(),
-                    settings,
+                    settings: *settings,
                 });
             }
             SettingsReload::Invalid(error) => {
