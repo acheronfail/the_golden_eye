@@ -36,11 +36,8 @@ jobs:
           merge-multiple: true
           path: dist
 
+      # NOTE: this is used by the plugin's auto-update mechanism
       - name: Generate checksums
-        # The auto-updater verifies a downloaded release zip against this
-        # file before ever touching the running plugin -- see
-        # obs2/rust/src/update_apply.rs. Run with cwd=dist so the recorded
-        # filenames have no path prefix.
         run: |
           cd dist
           sha256sum *.zip > checksums.txt

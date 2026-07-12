@@ -131,7 +131,6 @@ jobs:
   macos:
     name: macOS
     runs-on: macos-latest
-    needs: linux
 
     steps:
       - name: Checkout
@@ -205,7 +204,6 @@ jobs:
   windows:
     name: Windows
     runs-on: windows-latest
-    needs: linux
 
     env:
       VCPKG_ROOT: C:\vcpkg
@@ -310,11 +308,6 @@ jobs:
           cd obs2/browser && npm install
           cd ../../test && npm install
 
-      # Runs vcvarsall once and persists INCLUDE/LIB/LIBPATH/PATH via
-      # $GITHUB_ENV/$GITHUB_PATH for every later step in this job -- so the
-      # test steps and the packaging step share exactly the same compiler
-      # environment instead of each re-deriving it (and potentially
-      # diverging) independently.
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v3
         with:
