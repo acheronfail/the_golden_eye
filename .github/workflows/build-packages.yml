@@ -87,9 +87,6 @@ jobs:
       - name: Set up repository
         run: just setup
 
-      - name: Run shim reload tests
-        run: just test-shim
-
       - name: Check formatting
         run: |
           just fmt
@@ -97,6 +94,9 @@ jobs:
 
       - name: Build Release
         run: just make-release
+
+      - name: Run shim reload tests
+        run: just test-shim
 
       - name: Run frame regression tests
         run: just test-cv
@@ -187,9 +187,6 @@ jobs:
         run: just test-shim
 
       - name: Run Integration tests
-        # Builds the browser bundle itself; runs before "Run Rust tests"
-        # below, which requires that bundle to already exist rather than
-        # building it (see the test-rust recipe in the justfile).
         run: just test-integration
 
       - name: Run Rust tests
@@ -322,9 +319,6 @@ jobs:
 
       - name: Run Integration tests
         shell: cmd
-        # Builds the browser bundle itself; runs before "Run Rust tests"
-        # below, which requires that bundle to already exist rather than
-        # building it (see the test-rust recipe in the justfile).
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
           call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
