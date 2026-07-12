@@ -36,9 +36,16 @@ set_target_properties(ge_fixture_bad PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${GE_FIXTURE_DIR}"
 )
 
+if(WIN32)
+    set(GE_RELOAD_PLATFORM_SRC ../reload_win32.c)
+else()
+    set(GE_RELOAD_PLATFORM_SRC ../reload_unix.c)
+endif()
+
 add_executable(ge_shim_reload_tests
     ../dynlib.c
     ../reload.c
+    ${GE_RELOAD_PLATFORM_SRC}
     test_reload.c
 )
 target_include_directories(ge_shim_reload_tests PRIVATE .. .)

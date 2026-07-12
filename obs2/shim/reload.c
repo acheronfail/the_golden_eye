@@ -1,31 +1,14 @@
-#ifndef _WIN32
-#define _GNU_SOURCE
-#endif
-
 #include "reload.h"
 
 #include "dynlib.h"
+#include "reload_platform.h"
 
 #include <errno.h>
-#include <limits.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <dirent.h>
-#include <pthread.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#endif
-
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
 
 typedef bool (*ge_core_load_fn)(void *module_arg, const char *canonical_path, bool is_reload,
                                 ge_request_reload_fn request_reload);
@@ -55,14 +38,18 @@ static void set_err(char *err, size_t err_size, const char *fmt, ...) {
 /* for OBS-relative resolution, an unrelated concern).                    */
 /* ---------------------------------------------------------------------- */
 
+/* Checks for both separators unconditionally (not just GE_PATH_SEP) rather
+ * than special-casing by platform: a Windows path may legitimately use
+ * forward slashes, while a literal backslash in a POSIX filename is rare
+ * enough, and inconsequential enough here (these are always our own
+ * install/staging paths, never arbitrary user content), that one shared
+ * check is simpler than two platform-specific ones. */
 static const char *leaf_name(const char *path) {
   const char *slash = strrchr(path, '/');
-#ifdef _WIN32
   const char *backslash = strrchr(path, '\\');
   if (!slash || (backslash && backslash > slash)) {
     slash = backslash;
   }
-#endif
   return slash ? slash + 1 : path;
 }
 
@@ -128,38 +115,9 @@ static bool copy_file(const char *src, const char *dst, char *err, size_t err_si
   return ok;
 }
 
-static bool make_temp_path(char *out, size_t out_size) {
-#ifdef _WIN32
-  char dir[MAX_PATH];
-  DWORD dir_len = GetTempPathA((DWORD)sizeof(dir), dir);
-  if (dir_len == 0 || dir_len > sizeof(dir)) {
-    return false;
-  }
-  char tmp[MAX_PATH];
-  if (GetTempFileNameA(dir, "gec", 0, tmp) == 0) {
-    return false;
-  }
-  return (size_t)snprintf(out, out_size, "%s", tmp) < out_size;
-#else
-  const char *tmpdir = getenv("TMPDIR");
-  if (!tmpdir || !*tmpdir) {
-    tmpdir = "/tmp";
-  }
-  if ((size_t)snprintf(out, out_size, "%s/ge_core_XXXXXX.lib", tmpdir) >= out_size) {
-    return false;
-  }
-  int fd = mkstemps(out, 4 /* strlen(".lib") */);
-  if (fd < 0) {
-    return false;
-  }
-  close(fd);
-  return true;
-#endif
-}
-
 static ge_core_handle *open_handle(const char *canonical_path, char *err, size_t err_size) {
   char temp_path[PATH_MAX];
-  if (!make_temp_path(temp_path, sizeof(temp_path))) {
+  if (!ge_platform_make_temp_path(temp_path, sizeof(temp_path))) {
     set_err(err, err_size, "failed to create a temp path for the core library");
     return NULL;
   }
@@ -249,100 +207,6 @@ void ge_core_close(ge_core_handle *handle) {
 /* future cold start also picks up the new version.                       */
 /* ---------------------------------------------------------------------- */
 
-static bool replace_file(const char *staged, const char *canonical, char *err, size_t err_size) {
-#ifdef _WIN32
-  const DWORD flags = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
-  const int max_attempts = 6;
-  DWORD delay_ms = 50;
-  for (int attempt = 1; attempt <= max_attempts; attempt++) {
-    if (MoveFileExA(staged, canonical, flags)) {
-      return true;
-    }
-    DWORD last_error = GetLastError();
-    if (last_error != ERROR_SHARING_VIOLATION && last_error != ERROR_ACCESS_DENIED) {
-      set_err(err, err_size, "failed to move '%s' to '%s' (error %lu)", staged, canonical, (unsigned long)last_error);
-      return false;
-    }
-    if (attempt == max_attempts) {
-      set_err(err, err_size, "failed to move '%s' to '%s' after %d attempts (sharing violation)", staged, canonical,
-              max_attempts);
-      return false;
-    }
-    Sleep(delay_ms);
-    delay_ms *= 2;
-  }
-  return false;
-#else
-  if (rename(staged, canonical) != 0) {
-    set_err(err, err_size, "failed to rename '%s' to '%s': %s", staged, canonical, strerror(errno));
-    return false;
-  }
-  return true;
-#endif
-}
-
-static void remove_dir_recursive(const char *path) {
-#ifdef _WIN32
-  char pattern[PATH_MAX];
-  if ((size_t)snprintf(pattern, sizeof(pattern), "%s\\*", path) >= sizeof(pattern)) {
-    return;
-  }
-  WIN32_FIND_DATAA data;
-  HANDLE find = FindFirstFileA(pattern, &data);
-  if (find != INVALID_HANDLE_VALUE) {
-    do {
-      if (strcmp(data.cFileName, ".") == 0 || strcmp(data.cFileName, "..") == 0) {
-        continue;
-      }
-      char child[PATH_MAX];
-      if ((size_t)snprintf(child, sizeof(child), "%s\\%s", path, data.cFileName) >= sizeof(child)) {
-        continue;
-      }
-      if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-        remove_dir_recursive(child);
-      } else {
-        DeleteFileA(child);
-      }
-    } while (FindNextFileA(find, &data));
-    FindClose(find);
-  }
-  RemoveDirectoryA(path);
-#else
-  DIR *dir = opendir(path);
-  if (!dir) {
-    return;
-  }
-  struct dirent *entry;
-  while ((entry = readdir(dir)) != NULL) {
-    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-      continue;
-    }
-    char child[PATH_MAX];
-    if ((size_t)snprintf(child, sizeof(child), "%s/%s", path, entry->d_name) >= sizeof(child)) {
-      continue;
-    }
-    struct stat st;
-    if (lstat(child, &st) == 0 && S_ISDIR(st.st_mode)) {
-      remove_dir_recursive(child);
-    } else {
-      unlink(child);
-    }
-  }
-  closedir(dir);
-  rmdir(path);
-#endif
-}
-
-static bool dir_exists(const char *path) {
-#ifdef _WIN32
-  DWORD attrs = GetFileAttributesA(path);
-  return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
-#else
-  struct stat st;
-  return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
-#endif
-}
-
 /* Best-effort: swaps `canonical_dir` for `staged_dir_leaf` if the latter is
  * present next to staged_dir. Directories can't be atomically replaced by a
  * single rename the way files can (rename() over a non-empty directory
@@ -354,12 +218,12 @@ static bool dir_exists(const char *path) {
 static void sync_data_dir_best_effort(const char *staged_dir, const char *leaf, const char *canonical_dir, char *err,
                                       size_t err_size) {
   char staged_leaf[PATH_MAX];
-  if (!join_path(staged_leaf, sizeof(staged_leaf), staged_dir, leaf) || !dir_exists(staged_leaf)) {
+  if (!join_path(staged_leaf, sizeof(staged_leaf), staged_dir, leaf) || !ge_platform_dir_exists(staged_leaf)) {
     return;
   }
 
   char old_aside[PATH_MAX];
-  bool had_old = dir_exists(canonical_dir);
+  bool had_old = ge_platform_dir_exists(canonical_dir);
   if (had_old) {
     if ((size_t)snprintf(old_aside, sizeof(old_aside), "%s.updating", canonical_dir) >= sizeof(old_aside) ||
         rename(canonical_dir, old_aside) != 0) {
@@ -377,7 +241,7 @@ static void sync_data_dir_best_effort(const char *staged_dir, const char *leaf, 
   }
 
   if (had_old) {
-    remove_dir_recursive(old_aside);
+    ge_platform_remove_dir_recursive(old_aside);
   }
 }
 
@@ -423,7 +287,7 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
     *handle = fresh;
 
     char sync_err[256] = {0};
-    if (!replace_file(staged_lib, canonical_path, sync_err, sizeof(sync_err))) {
+    if (!ge_platform_replace_file(staged_lib, canonical_path, sync_err, sizeof(sync_err))) {
       set_err(err, err_size, "reload succeeded but canonical sync failed: %s", sync_err);
       /* The running core is already the new one; only the on-disk sync for
        * a future cold start failed. Don't tear anything down for this. */
@@ -442,7 +306,7 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
       }
     }
 
-    remove_dir_recursive(staged_dir);
+    ge_platform_remove_dir_recursive(staged_dir);
     return true;
   }
 
@@ -463,55 +327,26 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
 /* Reload worker thread.                                                  */
 /* ---------------------------------------------------------------------- */
 
-#ifdef _WIN32
-static CRITICAL_SECTION g_worker_lock;
-static CONDITION_VARIABLE g_worker_cond;
-static HANDLE g_worker_thread;
-#else
-static pthread_mutex_t g_worker_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t g_worker_cond = PTHREAD_COND_INITIALIZER;
-static pthread_t g_worker_thread;
-#endif
-
+static ge_cond_lock g_worker_lock;
+static ge_platform_thread g_worker_thread;
 static bool g_worker_running = false;
 static bool g_worker_pending = false;
 static void (*g_worker_on_request)(void) = NULL;
 
 static void worker_run_once(void) {
-#ifdef _WIN32
-  EnterCriticalSection(&g_worker_lock);
-#else
-  pthread_mutex_lock(&g_worker_lock);
-#endif
+  ge_cond_lock_acquire(&g_worker_lock);
   while (g_worker_running && !g_worker_pending) {
-#ifdef _WIN32
-    SleepConditionVariableCS(&g_worker_cond, &g_worker_lock, INFINITE);
-#else
-    pthread_cond_wait(&g_worker_cond, &g_worker_lock);
-#endif
+    ge_cond_lock_wait(&g_worker_lock);
   }
   bool pending = g_worker_pending;
   g_worker_pending = false;
-#ifdef _WIN32
-  LeaveCriticalSection(&g_worker_lock);
-#else
-  pthread_mutex_unlock(&g_worker_lock);
-#endif
+  ge_cond_lock_release(&g_worker_lock);
 
   if (pending && g_worker_on_request) {
     g_worker_on_request();
   }
 }
 
-#ifdef _WIN32
-static DWORD WINAPI worker_thread_proc(LPVOID arg) {
-  (void)arg;
-  while (g_worker_running) {
-    worker_run_once();
-  }
-  return 0;
-}
-#else
 static void *worker_thread_proc(void *arg) {
   (void)arg;
   while (g_worker_running) {
@@ -519,27 +354,18 @@ static void *worker_thread_proc(void *arg) {
   }
   return NULL;
 }
-#endif
 
 bool ge_reload_worker_start(void (*on_request)(void)) {
   g_worker_on_request = on_request;
   g_worker_pending = false;
   g_worker_running = true;
+  ge_cond_lock_init(&g_worker_lock);
 
-#ifdef _WIN32
-  InitializeCriticalSection(&g_worker_lock);
-  InitializeConditionVariable(&g_worker_cond);
-  g_worker_thread = CreateThread(NULL, 0, worker_thread_proc, NULL, 0, NULL);
-  if (!g_worker_thread) {
+  if (!ge_platform_thread_spawn(&g_worker_thread, worker_thread_proc, NULL)) {
     g_worker_running = false;
+    ge_cond_lock_destroy(&g_worker_lock);
     return false;
   }
-#else
-  if (pthread_create(&g_worker_thread, NULL, worker_thread_proc, NULL) != 0) {
-    g_worker_running = false;
-    return false;
-  }
-#endif
   return true;
 }
 
@@ -548,33 +374,18 @@ void ge_reload_worker_stop(void) {
     return;
   }
 
-#ifdef _WIN32
-  EnterCriticalSection(&g_worker_lock);
+  ge_cond_lock_acquire(&g_worker_lock);
   g_worker_running = false;
-  WakeConditionVariable(&g_worker_cond);
-  LeaveCriticalSection(&g_worker_lock);
-  WaitForSingleObject(g_worker_thread, INFINITE);
-  CloseHandle(g_worker_thread);
-  DeleteCriticalSection(&g_worker_lock);
-#else
-  pthread_mutex_lock(&g_worker_lock);
-  g_worker_running = false;
-  pthread_cond_signal(&g_worker_cond);
-  pthread_mutex_unlock(&g_worker_lock);
-  pthread_join(g_worker_thread, NULL);
-#endif
+  ge_cond_lock_signal(&g_worker_lock);
+  ge_cond_lock_release(&g_worker_lock);
+
+  ge_platform_thread_join(g_worker_thread);
+  ge_cond_lock_destroy(&g_worker_lock);
 }
 
 void ge_reload_worker_request(void) {
-#ifdef _WIN32
-  EnterCriticalSection(&g_worker_lock);
+  ge_cond_lock_acquire(&g_worker_lock);
   g_worker_pending = true;
-  WakeConditionVariable(&g_worker_cond);
-  LeaveCriticalSection(&g_worker_lock);
-#else
-  pthread_mutex_lock(&g_worker_lock);
-  g_worker_pending = true;
-  pthread_cond_signal(&g_worker_cond);
-  pthread_mutex_unlock(&g_worker_lock);
-#endif
+  ge_cond_lock_signal(&g_worker_lock);
+  ge_cond_lock_release(&g_worker_lock);
 }

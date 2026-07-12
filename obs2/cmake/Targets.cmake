@@ -177,6 +177,12 @@ target_sources(${PLUGIN_NAME} PRIVATE
     shim/plugin.c
 )
 
+if(WIN32)
+    target_sources(${PLUGIN_NAME} PRIVATE shim/reload_win32.c)
+else()
+    target_sources(${PLUGIN_NAME} PRIVATE shim/reload_unix.c)
+endif()
+
 if(NOT GE_OBS_NATIVE_DEPS_FOUND)
   add_dependencies(${PLUGIN_NAME} require_obs_libraries)
 endif()
