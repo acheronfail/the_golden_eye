@@ -454,9 +454,7 @@ export interface RecordingOptions {
 	postRunPaddingSecs: number;
 }
 
-/** A transition in the recorder's per-run state. Mirrors Rust `RecordingStatus`:
- * `started`/`cancelled`/`failed`/`aborted`/`kia`/`complete`/`statsSkipped`/
- * `failedDiscarded`/`savePending` ({@link RecordingSaved} follows). */
+/** A transition in the recorder's per-run state. Mirrors Rust `RecordingStatus` */
 export type RecordingStatus =
 	| 'started'
 	| 'cancelled'

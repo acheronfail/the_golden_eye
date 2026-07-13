@@ -1,6 +1,6 @@
-//! GoldenEye level target-time defs and stats-screen classification. The screen shows
-//! 1-3 times top-to-bottom (run, target, best) as a flat list; the target row appears
-//! only when beaten on *exactly* its target difficulty, fixing run/target/best layout.
+//! Goldeneye's stats screen shows 1-3 times. The first (top to bottom, left to
+//! right) is always the time, the 2nd is the target (if applicable) and the 3rd
+//! the best time (if one is present).
 
 use serde::Serialize;
 

@@ -1,6 +1,6 @@
 // Standalone CLI for exercising the GoldenEye level matcher outside of OBS:
 // `test_match <lang> path/to/screenshot.png [templates_dir]`. Loads the image as
-// BGRA, runs the matcher, and prints the result. Rust port of the old C++ tool.
+// BGRA, runs the matcher, and prints the result.
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;

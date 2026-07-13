@@ -65,7 +65,7 @@ struct ge_capture_region {
 ge_capture_ctx *ge_capture_create(bool double_buffered);
 
 /* Render the named source into a freshly malloc'd BGRA buffer (caller frees).
- * region non-NULL captures its sub-rectangle at out_*; else non-zero max_height
+ * A non-NULL region captures its sub-rectangle at out_*; else non-zero max_height
  * downscales a taller source (NULL/0 = native). NULL = not found or priming call. */
 uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint32_t max_height,
                               const struct ge_capture_region *region, uint32_t *out_width, uint32_t *out_height);
