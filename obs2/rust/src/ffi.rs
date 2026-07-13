@@ -40,6 +40,18 @@ pub(crate) fn queue_ui_task(task: ObsTask, param: *mut c_void) {
     }
 }
 
+/// Severity for [`ge_obs_blog`].
+///
+/// cbindgen:prefix-with-name=true
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum GeLogLevel {
+    Error = 0,
+    Warning = 1,
+    Info = 2,
+    Debug = 3,
+}
+
 unsafe extern "C" {
     /// Queues work onto one of OBS's task threads. UI-sensitive native dialogs
     /// should be routed through `OBS_TASK_UI`.
@@ -113,6 +125,11 @@ unsafe extern "C" {
     /// Serializes with callback invocation: once it returns, `cb` is neither
     /// running nor will run again, so `param` is safe to free.
     pub fn ge_obs_unregister_frame_callback(cb: GeFrameCb, param: *mut c_void);
+
+    /// Emits one pre-formatted line into OBS's log via `blog`. The message is
+    /// passed through `blog`'s `"%s"`, so any `%` it contains is literal. The
+    /// bridge maps [`GeLogLevel`] to the OBS `LOG_*` level.
+    pub fn ge_obs_blog(level: GeLogLevel, msg: *const c_char);
 
     /// libc `free`, used to release buffers handed back by the C bridge.
     pub fn free(ptr: *mut c_void);

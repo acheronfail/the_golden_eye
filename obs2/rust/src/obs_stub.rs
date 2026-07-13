@@ -151,3 +151,8 @@ pub extern "C" fn config_save_safe(_config: *mut c_void, _temp: *const c_char, _
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_core_trigger_reload() {}
+
+// `c_int` stands in for the ABI-identical `ffi::GeLogLevel` (a repr(C) fieldless
+// enum is int-sized); the bins that include this stub can't see that crate-private type.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_obs_blog(_level: c_int, _msg: *const c_char) {}

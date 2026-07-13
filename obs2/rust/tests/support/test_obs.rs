@@ -263,6 +263,12 @@ pub extern "C" fn ge_obs_video_fps() -> f64 {
     STATE.lock().unwrap().config.fps
 }
 
+// `c_int` stands in for the ABI-identical `GeLogLevel` (a repr(C) fieldless enum
+// is int-sized); this crate can't see that crate-private type. No real OBS log
+// here, so just drop the line.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_obs_blog(_level: c_int, _msg: *const c_char) {}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ge_obs_collect_source_names(buffer: *mut c_char, size: usize) {
     let names = STATE

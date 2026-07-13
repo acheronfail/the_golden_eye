@@ -4,6 +4,7 @@ mod ffi;
 mod ffmpeg;
 pub mod ge;
 mod http;
+mod logging;
 mod recording;
 mod settings;
 mod stream_notifier;
@@ -12,21 +13,15 @@ mod update_apply;
 mod updates;
 
 use std::ffi::CStr;
-use std::fmt;
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, Once};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use http::{AppState, AppStateInner, MonitorEvent, MonitorStoppedReason, RecordingStateStore};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
-use tracing::{Event, Subscriber};
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::fmt::FmtContext;
-use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
-use tracing_subscriber::registry::LookupSpan;
 
 use crate::settings::{SettingsReload, SettingsStore};
 
@@ -101,7 +96,6 @@ struct ServerHandle {
 
 /// Global handle to the running server. `None` when the server is stopped.
 static SERVER: Mutex<Option<ServerHandle>> = Mutex::new(None);
-static LOGGING_INIT: Once = Once::new();
 
 /// The shim's canonical on-disk path for *this* core, set via `ge_rust_set_core_path`.
 /// NOT the dlopen'd temp copy nor the shim's `ge_obs_module_binary_path`; `update_apply`
@@ -148,42 +142,12 @@ static REPLAY_STOP_SHOULD_STOP_MONITOR: AtomicBool = AtomicBool::new(false);
 #[path = "obs_stub.rs"]
 mod obs_stub;
 
-struct TheGoldenEyeLogFormat;
-
-impl<S, N> FormatEvent<S, N> for TheGoldenEyeLogFormat
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-    N: for<'a> FormatFields<'a> + 'static,
-{
-    fn format_event(&self, ctx: &FmtContext<'_, S, N>, mut writer: Writer<'_>, event: &Event<'_>) -> fmt::Result {
-        write!(writer, "[the_golden_eye] ")?;
-        tracing_subscriber::fmt::format().without_time().format_event(ctx, writer, event)
-    }
-}
-
-fn init_logging() {
-    LOGGING_INIT.call_once(|| {
-        let subscriber = tracing_subscriber::fmt().event_format(TheGoldenEyeLogFormat).with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                format!(
-                    "{}={level},tower_http={level}",
-                    env!("CARGO_CRATE_NAME"),
-                    level = if cfg!(debug_assertions) { "debug" } else { "info" }
-                )
-                .into()
-            }),
-        );
-
-        let _ = subscriber.try_init();
-    });
-}
-
 /// Start the HTTP server on a background tokio runtime; returns immediately.
 /// A no-op returning `true` if already running. Returns `false` if the runtime
 /// or port bind failed -- the caller must treat that as a load failure.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_rust_start() -> bool {
-    init_logging();
+    logging::init();
 
     configure_cv_template_dir();
 
