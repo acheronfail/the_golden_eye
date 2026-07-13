@@ -105,8 +105,8 @@ def make_handler(version: str, zip_path: Path, checksums_text: bytes) -> type[ht
             else:
                 self.send_error(404)
 
-        def log_message(self, fmt: str, *args: object) -> None:
-            print(f"[simulate-update] {self.address_string()} {fmt % args}", flush=True)
+        def log_message(self, format: str, *args: object) -> None:
+            print(f"[simulate-update] {self.address_string()} {format % args}", flush=True)
 
     return Handler
 

@@ -35,8 +35,11 @@ configure build_type browser_dev *cmake_args:
     set -euo pipefail
     build_dir="{{ justfile_directory() }}/obs2/build"
     source_dir="{{ justfile_directory() }}/obs2"
+    if command -v cygpath >/dev/null 2>&1; then
+      source_dir="$(cygpath -m "${source_dir}")"
+    fi
     cache="${build_dir}/CMakeCache.txt"
-    if [ -f "${cache}" ] && ! grep -qx "CMAKE_HOME_DIRECTORY:INTERNAL=${source_dir}" "${cache}"; then
+    if [ -f "${cache}" ] && ! grep -qxF "CMAKE_HOME_DIRECTORY:INTERNAL=${source_dir}" "${cache}"; then
       echo "Removing stale CMake build directory ${build_dir}"
       rm -rf "${build_dir}"
     fi
