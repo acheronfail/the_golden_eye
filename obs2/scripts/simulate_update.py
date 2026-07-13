@@ -22,13 +22,17 @@ from __future__ import annotations
 import hashlib
 import http.server
 import json
+from itertools import chain
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DIST_DIR = ROOT / "obs2" / "build" / "dist"
+DIST_DIRS = [
+    ROOT / "obs2" / "build" / "dist",
+    ROOT / "obs2" / "build-flatpak" / "dist"
+]
 SERVER_PORT = 8990
 RELEASE_URL = "https://github.com/acheronfail/the_golden_eye/releases/tag/simulated"
 
@@ -49,13 +53,13 @@ def build_package(version: str) -> Path:
     print(f"[simulate-update] building a package as v{version}...", flush=True)
     env = {**os.environ, "GE_PLUGIN_VERSION": version}
     subprocess.run(["just", "make-package"], cwd=ROOT, env=env, check=True)
-    zips = sorted(DIST_DIR.glob("*.zip"))
+    zips = sorted(chain.from_iterable(dir.glob("*.zip") for dir in DIST_DIRS))
     if not zips:
-        print(f"[simulate-update] no package zip found under {DIST_DIR}", file=sys.stderr)
+        print(f"[simulate-update] no package zip found under {DIST_DIRS}", file=sys.stderr)
         raise SystemExit(1)
     if len(zips) > 1:
         print(
-            f"[simulate-update] warning: multiple package zips found under {DIST_DIR}: {zips}; using {zips[-1]}",
+            f"[simulate-update] warning: multiple package zips found under {DIST_DIRS}: {zips}; using {zips[-1]}",
             file=sys.stderr,
         )
     return zips[-1]

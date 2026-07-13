@@ -335,6 +335,7 @@ obs: make-release-flatpak
       --env=LD_LIBRARY_PATH="/app/lib" \
       --env=OBS_PLUGINS_PATH="$(pwd)/%module%/bin/64bit" \
       --env=OBS_PLUGINS_DATA_PATH="$(pwd)/%module%/data" \
+      {{ if env_var_or_default("GE_UPDATE_CHECK_URL", "") != "" { "--env=GE_UPDATE_CHECK_URL=" + env_var("GE_UPDATE_CHECK_URL") } else { "" } }} \
       com.obsproject.Studio
 
 # runs OBS with the staged package build
