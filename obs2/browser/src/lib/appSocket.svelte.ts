@@ -161,6 +161,15 @@ const connect = (): void => {
 			updateNotificationId = addNotificationFlag(notification).id;
 		},
 		onUpdateApplied: handleUpdateApplied,
+		onUpdateStagingFailed: (error) => {
+			addNotificationFlag({
+				key: 'plugin-update-staging-failed',
+				title: 'Plugin update failed',
+				detail: error,
+				tone: 'error',
+				sticky: true
+			});
+		},
 		onClose: () => {
 			if (socket === nextSocket) socket = null;
 			scheduleReconnect();

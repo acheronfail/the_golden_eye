@@ -85,8 +85,9 @@ pub struct StreamMessage {
 /// `type` so the SPA can discriminate them. `Version` is sent once per
 /// connection (a handshake); `Sources`, `Match`, and `RecordingState` ride watch
 /// channels (latest-wins, replayed on connect); `RecordingSavePending`,
-/// `LanguageDetected`, `RecordingSaved`, and `MonitorStopped` ride `event_tx`
-/// (one-off, delivered only to currently-connected clients).
+/// `LanguageDetected`, `RecordingSaved`, `MonitorStopped`, and
+/// `UpdateStagingFailed` ride `event_tx` (one-off, delivered only to
+/// currently-connected clients).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum MonitorEvent {
@@ -148,6 +149,10 @@ pub enum MonitorEvent {
         #[serde(rename = "releaseUrl", skip_serializing_if = "Option::is_none")]
         release_url: Option<String>,
     },
+    /// A newer release was found but downloading/verifying/staging it failed
+    /// (e.g. an unwritable install directory), so no update is queued up to
+    /// apply. One-off, delivered via `event_tx` -- see `updates::check_for_updates_now`.
+    UpdateStagingFailed { error: String },
 }
 
 /// Why the backend stopped an active monitor. Serialized as a plain string

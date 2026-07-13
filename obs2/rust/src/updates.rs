@@ -109,9 +109,11 @@ pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<Plu
     // Reuses this same fetch's asset list rather than fetching the release
     // again, which would double GitHub API traffic for every check.
     let update_for_stage = update.clone();
+    let event_tx = state.event_tx.clone();
     tokio::spawn(async move {
         if let Err(err) = crate::update_apply::download_verify_and_stage(&update_for_stage, assets).await {
-            tracing::warn!("failed to stage plugin update: {err:#}");
+            tracing::error!("failed to stage plugin update: {err:#}");
+            let _ = event_tx.send(crate::http::MonitorEvent::UpdateStagingFailed { error: format!("{err:#}") });
         }
     });
 

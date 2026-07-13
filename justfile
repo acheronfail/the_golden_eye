@@ -328,7 +328,7 @@ obs-packaged: make-package
 obs: make-release-flatpak
     cd obs2/build-flatpak && flatpak run \
       --device=dri \
-      --filesystem="$(pwd):ro" \
+      --filesystem="$(pwd)" \
       --socket=session-bus \
       --talk-name=org.freedesktop.secrets \
       --talk-name=org.freedesktop.portal.Desktop \
@@ -344,7 +344,7 @@ obs-packaged: make-package
     cd obs2/build-flatpak/package/*/the_golden_eye && \
     flatpak run \
       --device=dri \
-      --filesystem="$(pwd):ro" \
+      --filesystem="$(pwd)" \
       --socket=session-bus \
       --talk-name=org.freedesktop.secrets \
       --talk-name=org.freedesktop.portal.Desktop \

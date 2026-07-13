@@ -514,7 +514,8 @@ export type AppSocketEvent =
 	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
 	| { type: 'settingsInvalid'; configPath: string; error: string }
 	| ({ type: 'updateAvailable' } & PluginUpdate)
-	| { type: 'updateApplied'; version: string; releaseUrl?: string };
+	| { type: 'updateApplied'; version: string; releaseUrl?: string }
+	| { type: 'updateStagingFailed'; error: string };
 
 /** Handlers for the messages the app WebSocket can push. All are optional;
  * provide only the ones you care about. */
@@ -549,6 +550,9 @@ export interface AppSocketHandlers {
 	 * update" matches `version`, i.e. it's confidently the changelog for the
 	 * update that was just applied. */
 	onUpdateApplied?: (version: string, releaseUrl?: string) => void;
+	/** A newer release was found but downloading/verifying/staging it failed, so
+	 * no update is queued up to apply. */
+	onUpdateStagingFailed?: (error: string) => void;
 	/** Fires when the socket closes. */
 	onClose?: () => void;
 }
@@ -637,6 +641,9 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 				} else {
 					console.warn('Ignoring malformed updateApplied event', msg);
 				}
+				break;
+			case 'updateStagingFailed':
+				handlers.onUpdateStagingFailed?.(msg.error);
 				break;
 		}
 	};
