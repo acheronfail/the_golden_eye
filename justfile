@@ -330,6 +330,11 @@ obs-packaged: make-package
 # runs OBS with the plugin (release)
 [linux]
 obs: make-release-flatpak
+    just _run-obs-flatpak
+
+# launches the Flatpak OBS against the plugin already built into obs2/build-flatpak
+[linux]
+_run-obs-flatpak:
     cd obs2/build-flatpak && flatpak run \
       --device=dri \
       --filesystem="$(pwd)" \
@@ -376,8 +381,22 @@ make-release-flatpak:
     cmake --build obs2/build --target rust_build
     just _flatpak-build all
 
+# builds the plugin into obs2/build-flatpak in dev mode
 [linux]
-_flatpak-build target rust_package_profile="OFF":
+_dev-build:
+    just configure-dev
+    cmake --build obs2/build --target rust_build
+    just _flatpak-build all OFF Debug ON
+
+# rebuilds the host Rust staticlib, then relinks the core inside the Flatpak SDK
+# so dev.py can stage the fresh core for the auto-update hot-reload path.
+[linux]
+_dev-relink:
+    cmake --build obs2/build --target rust_build
+    just _flatpak-build golden_core OFF Debug ON
+
+[linux]
+_flatpak-build target rust_package_profile="OFF" build_type="Release" browser_dev="OFF":
     #!/usr/bin/env bash
     set -euo pipefail
     root="{{ justfile_directory() }}"
@@ -414,8 +433,8 @@ _flatpak-build target rust_package_profile="OFF":
         mkdir -p "${build_dir}"
         cd "${build_dir}"
         cmake "${source_dir}" \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DBROWSER_DEV=OFF \
+          -DCMAKE_BUILD_TYPE={{ build_type }} \
+          -DBROWSER_DEV={{ browser_dev }} \
           -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
           -DGE_LINUX_NATIVE_OBS_BUILD=ON \
           -DGE_PLUGIN_INSTALL_ROOT:PATH="${XDG_CONFIG_HOME}/obs-studio/plugins" \

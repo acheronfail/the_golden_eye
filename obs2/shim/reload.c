@@ -168,13 +168,17 @@ static void free_handle(ge_core_handle *handle) {
   free(handle);
 }
 
-bool ge_core_open(const char *canonical_path, void *module_arg, bool is_reload, ge_request_reload_fn request_reload,
-                  ge_core_handle **out_handle, char *err, size_t err_size) {
-  ge_core_handle *handle = open_handle(canonical_path, err, err_size);
+bool ge_core_open(const char *load_path, const char *canonical_path, void *module_arg, bool is_reload,
+                  ge_request_reload_fn request_reload, ge_core_handle **out_handle, char *err, size_t err_size) {
+  ge_core_handle *handle = open_handle(load_path, err, err_size);
   if (!handle) {
     return false;
   }
 
+  // The core is dlopen'd from load_path (the staged copy on a reload) but is told
+  // its canonical_path -- where the file lives after the swap below -- so its own
+  // staged-update lookups resolve relative to the durable install dir, not a
+  // transient staged dir that ge_core_reload deletes on success.
   if (!handle->load(module_arg, canonical_path, is_reload, request_reload)) {
     set_err(err, err_size, "ge_core_load() returned false for '%s'", canonical_path);
     free_handle(handle);
@@ -241,6 +245,19 @@ static void sync_data_dir_best_effort(const char *staged_dir, const char *leaf, 
 /* The reload sequence itself.                                            */
 /* ---------------------------------------------------------------------- */
 
+bool ge_core_staged_present(const char *canonical_path, const char *staged_dir) {
+  char staged_lib[PATH_MAX];
+  if (!join_path(staged_lib, sizeof(staged_lib), staged_dir, leaf_name(canonical_path))) {
+    return false;
+  }
+  FILE *probe = fopen(staged_lib, "rb");
+  if (!probe) {
+    return false;
+  }
+  fclose(probe);
+  return true;
+}
+
 bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const char *staged_dir, void *module_arg,
                     ge_request_reload_fn request_reload, char *err, size_t err_size) {
   char staged_lib[PATH_MAX];
@@ -275,7 +292,8 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
 
   ge_core_handle *fresh = NULL;
   char open_err[256];
-  if (ge_core_open(staged_lib, module_arg, /*is_reload=*/true, request_reload, &fresh, open_err, sizeof(open_err))) {
+  if (ge_core_open(staged_lib, canonical_path, module_arg, /*is_reload=*/true, request_reload, &fresh, open_err,
+                   sizeof(open_err))) {
     *handle = fresh;
 
     char sync_err[256] = {0};
@@ -306,8 +324,8 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
    * success, above) -- roll back by relaunching the original. Not itself an
    * applied update (it's a revert), so is_reload is false here. */
   char rollback_err[256];
-  if (!ge_core_open(canonical_path, module_arg, /*is_reload=*/false, request_reload, handle, rollback_err,
-                    sizeof(rollback_err))) {
+  if (!ge_core_open(canonical_path, canonical_path, module_arg, /*is_reload=*/false, request_reload, handle,
+                    rollback_err, sizeof(rollback_err))) {
     set_err(err, err_size, "staged core failed to load (%s); rollback also failed (%s)", open_err, rollback_err);
     return false;
   }

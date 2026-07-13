@@ -28,4 +28,22 @@ static inline void ge_fixture_log(const char *event) {
   fclose(f);
 }
 
+// Overwrites GE_FIXTURE_CANONICAL_OUT (when set) with the canonical_path the
+// core was handed at load. test_reload.c uses it to assert a reloaded core is
+// told its durable install path, not the transient staged path it loaded from.
+static inline void ge_fixture_record_canonical(const char *canonical_path) {
+  const char *out = getenv("GE_FIXTURE_CANONICAL_OUT");
+  if (!out || !*out) {
+    return;
+  }
+  FILE *f = fopen(out, "wb");
+  if (!f) {
+    return;
+  }
+  if (canonical_path) {
+    fputs(canonical_path, f);
+  }
+  fclose(f);
+}
+
 #endif /* GE_FIXTURE_COMMON_H */

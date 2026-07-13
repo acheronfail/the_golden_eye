@@ -171,6 +171,11 @@ static bool resolve_canonical_core_path(char *out, size_t out_size) {
 // Invoked on the reload worker thread's own stack (see reload.h) -- never on
 // a stack that's inside the core itself.
 static void handle_reload_request(void) {
+  if (!ge_core_staged_present(g_canonical_path, g_staged_dir)) {
+    GE_LOG(LOG_WARNING, "reload requested but nothing staged");
+    return;
+  }
+
   char err[256];
   if (!ge_core_reload(&g_handle, g_canonical_path, g_staged_dir, obs_current_module(), ge_reload_worker_request, err,
                       sizeof(err))) {
@@ -201,8 +206,8 @@ bool obs_module_load(void) {
   }
 
   char err[256];
-  if (!ge_core_open(g_canonical_path, obs_current_module(), /*is_reload=*/false, ge_reload_worker_request, &g_handle,
-                    err, sizeof(err))) {
+  if (!ge_core_open(g_canonical_path, g_canonical_path, obs_current_module(), /*is_reload=*/false,
+                    ge_reload_worker_request, &g_handle, err, sizeof(err))) {
     GE_LOG(LOG_ERROR, "core failed to load; plugin disabled: %s", err);
     ge_reload_worker_stop();
     return false;
