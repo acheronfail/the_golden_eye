@@ -177,6 +177,7 @@ bench-cv *filter: make-release
 # runs opencv frame tests
 test:
     just test-browser
+    just test-integration
     just test-shim
     just test-rust
     just test-cv
