@@ -1,29 +1,22 @@
 import type { Settings } from './settings.svelte';
 
-// While developing, the SPA is served by the Vite dev server on its own port
-// (see the `dev` just recipe) while the plugin's HTTP API lives on port 31337.
-// Point API calls at that absolute origin in dev. In a production build the
-// plugin serves the SPA itself, so relative URLs keep us origin-agnostic.
+// In dev the SPA is Vite-served on its own port while the API lives on 31337, so
+// point API calls at that absolute origin. Production serves the SPA itself, so
+// relative URLs stay origin-agnostic.
 const API_ORIGIN = import.meta.env.DEV ? 'http://localhost:31337' : '';
 
 /** Resolve an API path to a full URL appropriate for the current build mode. */
 export const apiUrl = (path: string): string => `${API_ORIGIN}${path}`;
 
-/**
- * Resolve an API path to a WebSocket URL. In dev we connect to the plugin's
- * absolute origin (port 31337); in a production build the SPA is served by the
- * plugin, so we derive the ws:// origin from the current page location.
- */
+/** Resolve an API path to a WebSocket URL: the plugin's absolute origin (31337)
+ * in dev, or the current page's origin in a production build. */
 export const wsUrl = (path: string): string => {
 	if (import.meta.env.DEV) return `ws://localhost:31337${path}`;
 	const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 	return `${proto}//${window.location.host}${path}`;
 };
 
-/**
- * URL for a single-frame screenshot of the given OBS source, usable directly as
- * an `<img src>`.
- */
+/** URL for a single-frame screenshot of the given OBS source, usable as `<img src>`. */
 export const screenshotUrl = (source: string): string =>
 	apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(source)}`);
 
@@ -170,13 +163,9 @@ export const updateRunMetadata = async (path: string, metadata: EditableRunMetad
 	return res.json();
 };
 
-/** Replay-buffer status reported by the backend. `enabled` reflects the OBS
- * profile checkbox; `available` whether OBS has a replay-buffer output for the
- * current output settings; `active` whether it is currently running; and
- * `maxSeconds` the configured replay-buffer window. `outputDirectory` is the
- * OBS directory replay files are written into; default clip paths are derived
- * from it. Mirrors the Rust
- * `ReplayBufferStatus`. */
+/** Replay-buffer status: `enabled` (profile checkbox), `available`, `active`,
+ * `maxSeconds` (window), and `outputDirectory` (replay files; default clip paths
+ * derive from it). Mirrors Rust `ReplayBufferStatus`. */
 export interface ReplayBufferStatus {
 	enabled: boolean;
 	available: boolean;
@@ -259,22 +248,18 @@ export const applyUpdateNow = async (): Promise<void> => {
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 };
 
-/** Checks for an update right now, bypassing the configured check interval
- * (the automatic startup check already having found nothing this week
- * doesn't mean a release didn't just appear). Staging, if one is found,
- * happens in the background -- poll {@link getUpdateStatus} to see when it's
- * ready to apply. */
+/** Checks for an update now, bypassing the configured check interval. Staging, if
+ * one is found, happens in the background -- poll {@link getUpdateStatus} to see
+ * when it's ready to apply. */
 export const checkForUpdateNow = async (): Promise<{ update: PluginUpdate | null }> => {
 	const res = await fetch(apiUrl('/api/v1/updates/check'), { method: 'POST' });
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 	return res.json();
 };
 
-/** Downloads, verifies, and stages the latest release, resolving only once
- * it's ready to apply. This is the explicit-download path (the "Download now"
- * button and the "download and install" notice), so it works regardless of the
- * auto-update setting. Throws with a message suitable for display when the
- * plugin is already up to date (404). Follow with {@link applyUpdateNow}. */
+/** Downloads, verifies, and stages the latest release, resolving once ready to
+ * apply. Explicit-download path, so it ignores the auto-update setting. Throws a
+ * displayable message when already up to date (404). Follow with {@link applyUpdateNow}. */
 export const downloadUpdateNow = async (): Promise<void> => {
 	const res = await fetch(apiUrl('/api/v1/updates/download'), { method: 'POST' });
 	if (res.status === 404) throw new Error('No newer release is available to download.');
@@ -336,10 +321,9 @@ export interface LevelMatch {
 	difficulty: number;
 	/** ROM language detected from language-specific static UI, when visible. */
 	detected_lang?: 'en' | 'jp';
-	/** The stats-screen times split into run / target / best. `null` on any
-	 * screen with no timed rows (start, report screens, gameplay). `target_time`
-	 * is set only when the level was completed on the difficulty its target is
-	 * defined for; `best_time` only once a prior time exists. */
+	/** Stats-screen times split into run / target / best; `null` on screens with
+	 * no timed rows. `target_time` set only on the target's difficulty; `best_time`
+	 * only once a prior time exists. */
 	times: {
 		time: number;
 		target_time: number | null;
@@ -470,26 +454,9 @@ export interface RecordingOptions {
 	postRunPaddingSecs: number;
 }
 
-/** A transition in the backend recorder's per-run state. Mirrors the Rust
- * `RecordingStatus`:
- * - `started` — a run began (the clip's start was anchored);
- * - `cancelled` — the active run was abandoned mid-play before reaching its
- *   report screen (back to the level grid), so nothing is saved for it;
- * - `failed` / `aborted` / `kia` — a failure report screen was seen during the
- *   run (mission failed / mission aborted / killed in action); the specific one
- *   names why the run ended. The clip is still saved;
- * - `complete` — the mission-complete report screen was reached; the run is a
- *   success (sent once per run, and also clears a prior failure);
- * - `statsSkipped` — a *completed* run's stats screen was bypassed (the user
- *   backed out of the report screen to the level grid); the clip is still saved
- *   (a {@link RecordingSaved} still follows). A failed run backing out this way
- *   emits `savePending` instead;
- * - `failedDiscarded` — a failed run ended, but failed-run saving is disabled
- *   or the stats-screen run time, falling back to detected duration, is shorter
- *   than the configured minimum failed-run length;
- * - `savePending` — a run ended (at the stats screen, or a failed run backing
- *   out) and a save was scheduled; a {@link RecordingSaved} follows once the clip
- *   is written. */
+/** A transition in the recorder's per-run state. Mirrors Rust `RecordingStatus`:
+ * `started`/`cancelled`/`failed`/`aborted`/`kia`/`complete`/`statsSkipped`/
+ * `failedDiscarded`/`savePending` ({@link RecordingSaved} follows). */
 export type RecordingStatus =
 	| 'started'
 	| 'cancelled'
@@ -554,12 +521,9 @@ export interface AppSocketHandlers {
 	onSettingsInvalid?: (error: string, configPath: string) => void;
 	/** A newer plugin release is available. */
 	onUpdateAvailable?: (update: PluginUpdate) => void;
-	/** The plugin just applied an update (dev hot-reload or a real auto-update)
-	 * and is now running `version`. Fires once per applied update, for any
-	 * client connecting shortly after -- see the backend's `reloaded_at`.
-	 * `releaseUrl` is present only when the backend's persisted "last known
-	 * update" matches `version`, i.e. it's confidently the changelog for the
-	 * update that was just applied. */
+	/** The plugin just applied an update and is now running `version`. Fires once
+	 * per applied update. `releaseUrl` is present only when it's confidently the
+	 * changelog for the update just applied. */
 	onUpdateApplied?: (version: string, releaseUrl?: string) => void;
 	/** A newer release was found but downloading/verifying/staging it failed, so
 	 * no update is queued up to apply. */
@@ -568,18 +532,14 @@ export interface AppSocketHandlers {
 	onClose?: () => void;
 }
 
-/** The build id this page was served with, read from the `<meta>` tag the
- * backend injects into the SPA's HTML. `null` in dev, where the SPA is served by
- * Vite (no injection) — the version check is skipped there, and this also tells
- * callers elsewhere (e.g. the "plugin updated" notice) whether a stale-build
- * reload is imminent for this tab. */
+/** Build id this page was served with, from the `<meta>` tag the backend injects.
+ * `null` in dev (Vite-served, no injection), where the version check is skipped. */
 export const selfBuildId = (): string | null =>
 	document.querySelector('meta[name="ge-build-id"]')?.getAttribute('content') ?? null;
 
-/** Reload the page if the backend is serving a different frontend build than the
- * one this tab is running. Catches a stale tab — an older cached page, or one
- * left open across a plugin update — that reconnected to an updated backend. The
- * entry HTML is served `no-store`, so the reload lands on the current build. */
+/** Reload if the backend serves a different frontend build than this tab, e.g. a
+ * stale cached page left open across an update. Entry HTML is `no-store`, so the
+ * reload lands on the current build. */
 const reloadIfStale = (backendBuildId: string): void => {
 	const self = selfBuildId();
 	// No meta tag means dev mode (Vite-served SPA); nothing to compare against.
@@ -589,14 +549,9 @@ const reloadIfStale = (backendBuildId: string): void => {
 	}
 };
 
-/**
- * Open a WebSocket to the backend that pushes {@link AppSocketEvent} messages:
- * a one-off `version` handshake, the current OBS source list and subsequent
- * source changes, the latest {@link LevelMatch} whenever the matched state
- * changes (and once on connect), recorder state transitions, and one-off events
- * such as a recording being saved. Dispatches each message to the matching
- * handler. Returns the socket so callers can close it.
- */
+/** Open a WebSocket that pushes {@link AppSocketEvent} messages (version
+ * handshake, sources, matches, recorder transitions, save events), dispatching
+ * each to the matching handler. Returns the socket so callers can close it. */
 export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 	const socket = new WebSocket(wsUrl('/api/v1/monitor/ws'));
 	socket.onmessage = (event) => {
@@ -662,10 +617,8 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 	return socket;
 };
 
-/** Current monitor status reported by the backend. `sourceName` is only present
- * when `enabled` is true. `recordingState` is the backend-retained
- * recorder phase, or `null` when no run phase is active. Mirrors the Rust
- * `MonitorStatus`. */
+/** Current monitor status. `sourceName` present only when `enabled`;
+ * `recordingState` is the recorder phase or `null`. Mirrors Rust `MonitorStatus`. */
 export type MonitorStatus =
 	| { enabled: false; recordingState?: null }
 	| { enabled: true; sourceName: string; recordingState: RecordingStatus | null };

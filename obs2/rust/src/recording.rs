@@ -1,15 +1,6 @@
-//! Replay-buffer driven recording.
-//!
-//! Rather than start/stop a fresh recording per run (the legacy approach, which
-//! risked clipping the start while the recorder spun up), we keep OBS's replay
-//! buffer running for the whole session and save a window out of it at the end.
-//! [`RecordingState`] is fed every matched frame; it tracks where a run begins
-//! and ends, waits for the configured post-run padding, saves the replay buffer,
-//! and trims it (via [`crate::ffmpeg`]) down to just the run.
-//!
-//! Timing is anchored to the moment the buffer is saved: the saved file ends at
-//! ~"now", so the configured pre/post padding is translated into offsets from
-//! the end of that saved file.
+//! Replay-buffer driven recording. We keep OBS's replay buffer running for the whole
+//! session and save/trim (via [`crate::ffmpeg`]) a window out of it per run, rather
+//! than start/stop per run. Padding is anchored to the save moment (file ends at ~now).
 
 use std::ffi::{CStr, c_char};
 use std::fs;
@@ -117,10 +108,9 @@ impl RecordingOptions {
     }
 }
 
-/// The latest replay-saved event, published by the OBS frontend callback (see
-/// [`on_replay_saved`]) and awaited by the save thread. `generation` ticks once
-/// per event so a waiter can tell a fresh save from a stale one; `last_path` is
-/// the file OBS just wrote (or `None` if it reported none).
+/// The latest replay-saved event, published by the OBS frontend callback and awaited
+/// by the save thread. `generation` ticks per event so a waiter can tell fresh from
+/// stale; `last_path` is the file OBS just wrote (or `None` if it reported none).
 struct ReplaySaved {
     generation: u64,
     last_path: Option<String>,
@@ -381,11 +371,9 @@ pub fn stop_replay_buffer_if_active() {
     }
 }
 
-/// A save that has been scheduled and *will* happen, captured in full the moment
-/// the stats screen is seen. It is intentionally decoupled from the active-run
-/// state below: once scheduled it owns everything it needs, so backing out to
-/// the level grid or immediately starting another run can never drop it -- it
-/// still fires on its own timer.
+/// A scheduled save that *will* happen, captured in full when the stats screen is
+/// seen. Decoupled from the active-run state: once scheduled it owns all it needs,
+/// so backing out or starting another run can't drop it -- it fires on its own timer.
 struct PendingSave {
     /// Identifier shared by the pending and saved WebSocket events.
     save_id: u64,
@@ -493,13 +481,9 @@ pub struct RecordingState {
     /// The final report status seen during the active run. Tracked for
     /// naming/logging; the clip is saved either way.
     status: Option<RunStatus>,
-    /// The post-mission report screen (Complete/Failed/Abort/KIA) match seen
-    /// during the active run, or `None` if the run hasn't reached one yet.
-    /// Presence means the run finished, so backing out to the level grid from
-    /// the report screen (which bypasses the stats screen) still saves the clip;
-    /// its absence means the run was abandoned mid-play, with nothing to save.
-    /// Kept for naming the clip when the stats screen is skipped (report screens
-    /// carry the mission header but no timed rows, so no time is recovered).
+    /// The post-mission report screen (Complete/Failed/Abort/KIA) match, or `None`
+    /// if not reached. Presence means the run finished (so backing out still saves);
+    /// absence means abandoned. Also names the clip when the stats screen is skipped.
     report: Option<LevelMatch>,
     /// A scheduled save in flight, if any. Independent of the active run: once
     /// set it is always saved when its timer elapses, even if the user backs out
@@ -556,10 +540,9 @@ impl RecordingState {
         self.rom_language = rom_language;
     }
 
-    /// Schedule the replay-buffer save for a finished run, ending the active
-    /// run's report tracking. `stats` names the clip -- the stats-screen match
-    /// on the normal path, or the report-screen match when the stats screen was
-    /// skipped. Any earlier pending save is flushed first so it isn't dropped.
+    /// Schedule the replay-buffer save for a finished run, ending report tracking.
+    /// `stats` names the clip (stats-screen match, or report-screen when skipped).
+    /// Any earlier pending save is flushed first so it isn't dropped.
     fn schedule_save(&mut self, now: Instant, clip_start: Instant, stats: Option<LevelMatch>) -> bool {
         self.flush_pending(now);
         let status = self.status.unwrap_or(RunStatus::Complete);
@@ -685,25 +668,21 @@ impl RecordingState {
                     self.emit(RecordingStatus::Started);
                 }
             }
-            // Returning to the mission grid. What it means depends on whether the
-            // run reached its post-mission report screen. A pending save from an
-            // earlier run is deliberately untouched either way -- it fires on its
-            // own timer below.
+            // Returning to the mission grid. Meaning depends on whether the run
+            // reached its report screen. A pending save from an earlier run is
+            // untouched either way -- it fires on its own timer below.
             Screen::Levels => {
                 if let Some(start) = self.clip_start.take() {
                     if let Some(report) = self.report.take() {
-                        // The report screen was shown, then the user pressed B to
-                        // return to the grid -- bypassing the stats screen. The run
-                        // still finished, so save the clip on the same post-run
-                        // padding timer as the stats path, naming it from the report screen.
-                        // `schedule_save` clears `status`, so capture it first.
+                        // Report shown, then user pressed B to the grid, bypassing stats.
+                        // Run still finished, so save on the same padding timer, named from
+                        // the report. Capture `status` first: `schedule_save` clears it.
                         let status = self.status.unwrap_or(RunStatus::Complete);
                         tracing::info!("stats screen skipped (report -> level select)");
                         let scheduled = self.schedule_save(now, start, Some(report));
-                        // Backing out to the grid is the *normal* ending for a
-                        // failed run, so don't flag "skipped stats" -- just move to
-                        // the saving state. Only a completed run whose stats screen
-                        // was bypassed counts as skipped.
+                        // Backing out to the grid is the *normal* ending for a failed
+                        // run, so don't flag "skipped stats". Only a completed run whose
+                        // stats screen was bypassed counts as skipped.
                         self.emit(if scheduled {
                             if status.is_failed() {
                                 RecordingStatus::SavePending
@@ -722,11 +701,9 @@ impl RecordingState {
                     }
                 }
             }
-            // Failure report screens flag the active run (it still ends at stats)
-            // and mark that the run reached its report screen. Emit only on the
-            // first failure frame (the screen lingers across many frames) so
-            // clients see one transition, not a stream; the specific screen picks
-            // the status so the UI can name *why* the run ended.
+            // Failure report screens flag the active run and mark it reached its
+            // report screen. Emit only on the first failure frame (the screen lingers)
+            // so clients see one transition; the screen picks the status/why it ended.
             Screen::Failed | Screen::Abort | Screen::Kia => {
                 if self.clip_start.is_some() {
                     self.report.get_or_insert_with(|| m.clone());
@@ -740,11 +717,9 @@ impl RecordingState {
                     }
                 }
             }
-            // The mission-complete report screen: also marks the run as having
-            // reached its report screen. Emit `Complete` once -- on the first
-            // report frame of a clean run, or when it clears a failure flagged
-            // earlier this run (so clients can leave the "failed" state). Later
-            // complete frames (the screen lingers) don't re-emit.
+            // The mission-complete report screen: also marks the run as reaching its
+            // report screen. Emit `Complete` once -- first clean report frame, or when
+            // it clears an earlier failure flag. Later lingering frames don't re-emit.
             Screen::Complete => {
                 if self.clip_start.is_some() {
                     let first_report = self.report.is_none();
@@ -755,11 +730,9 @@ impl RecordingState {
                     }
                 }
             }
-            // The stats screen ends the run: hand the active run to a pending save
-            // scheduled a few seconds out (so the clip captures the overlay).
-            // Taking `clip_start` ends the active run, so later stats frames don't
-            // re-schedule and a fresh run can begin right away. Any save still
-            // waiting from an earlier run is flushed first so it isn't dropped.
+            // The stats screen ends the run: hand it to a pending save scheduled a
+            // few seconds out (so the clip captures the overlay). Taking `clip_start`
+            // ends the run; later stats frames don't re-schedule. Earlier save flushed.
             Screen::Stats => {
                 if let Some(start) = self.clip_start.take() {
                     tracing::info!("stats detected");

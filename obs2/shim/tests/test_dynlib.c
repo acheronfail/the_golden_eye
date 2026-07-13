@@ -1,9 +1,6 @@
 // Drives shim/dynlib.c directly: the raw dlopen/dlsym/dlclose wrapper and
-// self-path resolution, with no OBS dependency. reload.c's own tests
-// exercise this transitively (every ge_core_open goes through it), but only
-// ever on paths that are already known to exist and load cleanly -- this
-// file covers dynlib.c's own contract directly, including the failure
-// paths reload.c never triggers.
+// self-path resolution, no OBS dependency. reload.c's tests exercise it only
+// on clean paths; this file covers its contract directly, including failures.
 
 #include "../dynlib.h"
 #include "test_support.h"

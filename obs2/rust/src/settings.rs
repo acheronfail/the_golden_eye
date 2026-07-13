@@ -1,8 +1,6 @@
-//! Persisted application settings.
-//!
-//! These are user-editable options shared between the SPA and Rust runtime. The
-//! JSON file is intentionally owned by Rust so OBS-triggered workflows can
-//! read the same configuration even when no browser tab is open.
+//! Persisted application settings: user-editable options shared between the SPA and
+//! Rust runtime. The JSON file is owned by Rust so OBS-triggered workflows can read
+//! the same configuration even when no browser tab is open.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -81,12 +79,9 @@ pub struct AppSettings {
     pub streaming_stopped_message_template: String,
     pub update_check_interval: UpdateCheckInterval,
     pub last_update_check_time: Option<u64>,
-    /// The version of the most recently detected plugin update, backend-owned
-    /// like `last_update_check_time` above. Paired with
-    /// `last_known_update_release_url` so the "plugin updated" notice can show
-    /// a changelog link once this recorded version matches the now-running
-    /// `crate::PLUGIN_VERSION` -- see `set_last_known_update` and its use in
-    /// `updates::check_for_updates_now`.
+    /// Version of the most recently detected plugin update, backend-owned. Paired
+    /// with `last_known_update_release_url` so the "plugin updated" notice can show a
+    /// changelog link once it matches the running `crate::PLUGIN_VERSION`.
     pub last_known_update_version: Option<String>,
     /// The GitHub release URL paired with `last_known_update_version`.
     pub last_known_update_release_url: Option<String>,
@@ -406,14 +401,9 @@ impl SettingsStore {
         Ok(settings)
     }
 
-    /// Builds a new settings value from the current one and persists it,
-    /// retrying if another writer committed a change in between -- e.g. the
-    /// background update-check task racing a settings PUT. Both read the
-    /// current value, derive a new one from it (preserving fields they don't
-    /// own), and write the result back; without this check, whichever finishes
-    /// second overwrites the other's change with its own now-stale snapshot
-    /// (a classic read-modify-write lost update). `build` may run more than
-    /// once, so it must not have side effects.
+    /// Builds a new settings value from the current one and persists it, retrying if
+    /// another writer committed in between (a read-modify-write lost update, e.g. the
+    /// update-check task racing a PUT). `build` may re-run, so it must be side-effect-free.
     fn update(&self, build: impl Fn(&AppSettings) -> anyhow::Result<AppSettings>) -> anyhow::Result<AppSettings> {
         loop {
             let before = self.get();

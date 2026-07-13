@@ -165,17 +165,14 @@ bool ge_obs_replay_buffer_output_directory(char *buffer, size_t buffer_size) {
   return ok;
 }
 
-/* Reusable GPU surfaces for repeated captures. Creating and destroying a
- * texrender + stagesurface on every frame churns GPU memory; a long-running
- * caller (the monitor's hot loop) instead holds one of these and reuses the
- * surfaces across frames. */
+/* Reusable GPU surfaces for repeated captures. Creating/destroying a texrender
+ * + stagesurface per frame churns GPU memory; a long-running caller (the
+ * monitor hot loop) holds one and reuses the surfaces across frames. */
 struct ge_capture_ctx {
   gs_texrender_t *texrender;
-  /* Stage surface(s) the rendered texture is copied into for CPU readback. A
-   * synchronous context uses one (index 0). A double-buffered context uses both:
-   * it stages frame N into one surface while mapping frame N-1 back from the
-   * other, so the GPU has a full frame interval to finish the copy and the map
-   * never stalls the graphics thread -- at the cost of one frame of latency. */
+  /* Stage surface(s) the rendered texture is copied into for CPU readback.
+   * Synchronous uses one (index 0); double-buffered uses both (stage frame N
+   * while mapping N-1) so the readback never stalls, at one frame of latency. */
   gs_stagesurf_t *stagesurfaces[2];
   /* Dimensions the stagesurfaces were created for. They're bound to a
    * resolution, so they're recreated when the source size changes; the texrender
@@ -262,10 +259,9 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
   uint32_t width;
   uint32_t height;
   if (region && region->out_width != 0 && region->out_height != 0) {
-    // Calibrated capture: render only the source sub-rectangle holding the 4:3
-    // picture into the exact output size, so the GPU crops any pillarbox bars
-    // and undoes the stretch in one pass. Clamp the (possibly stale) fractions
-    // to the unit square so a bad calibration can never sample outside source.
+    // Calibrated capture: render only the sub-rectangle holding the 4:3 picture
+    // into the exact output size (GPU crops pillarbox and un-stretches in one
+    // pass). Clamp fractions to the unit square so bad calibration stays in bounds.
     float cx = region->crop_x < 0.0f ? 0.0f : region->crop_x;
     float cy = region->crop_y < 0.0f ? 0.0f : region->crop_y;
     float cw = region->crop_w <= 0.0f ? 1.0f : region->crop_w;
@@ -283,11 +279,9 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
     width = region->out_width;
     height = region->out_height;
   } else {
-    // The render target downscales to max_height (preserving aspect ratio) when
-    // the source is taller, so a 1080p (or larger) upscaled feed is captured as
-    // a cheap ~480p frame: far less data to map back and far less work for
-    // OpenCV. max_height == 0, or a source already no taller, captures at native
-    // size.
+    // Downscales to max_height (preserving aspect) when the source is taller, so
+    // a 1080p feed captures as a cheap ~480p frame -- less data to map, less
+    // OpenCV work. max_height == 0 or a shorter source captures at native size.
     width = src_width;
     height = src_height;
     if (max_height != 0 && src_height > max_height) {
@@ -315,10 +309,8 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
   int surface_count = ctx->double_buffered ? 2 : 1;
 
   /* (Re)create the stage surface(s) when the source resolution changes (incl.
-   * the first frame). On a double-buffered context this also discards any
-   * previously staged frame -- it was a different size -- so the pipeline
-   * re-primes. Resetting width/height to 0 on failure forces a retry on the next
-   * frame rather than leaving a stale size cached. */
+   * first frame); this discards any staged frame so a double-buffered pipeline
+   * re-primes. Reset width/height to 0 on failure to force a retry next frame. */
   if (ctx->width != width || ctx->height != height || !ctx->stagesurfaces[0]) {
     for (int i = 0; i < 2; i++) {
       if (ctx->stagesurfaces[i]) {
@@ -361,12 +353,9 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
     /* Issue the GPU->staging copy for this frame. */
     gs_stage_texture(ctx->stagesurfaces[cur], gs_texrender_get_texture(ctx->texrender));
 
-    /* Choose which staged frame to read back. Synchronous: map the frame we just
-     * staged (the map stalls until the GPU finishes, but there's no latency).
-     * Double-buffered: map the frame staged on the *previous* call from the other
-     * surface, which the GPU has had a full frame interval to complete, so the
-     * map doesn't stall -- except the first call after (re)priming has no
-     * previous frame, so it only stages and returns no frame this tick. */
+    /* Choose which staged frame to read back. Synchronous: map the frame just
+     * staged (stalls on the GPU, no latency). Double-buffered: map the previous
+     * call's frame (no stall); the first call after priming returns no frame. */
     gs_stagesurf_t *map_surface = NULL;
     if (ctx->double_buffered) {
       if (ctx->primed) {
@@ -415,13 +404,9 @@ void ge_obs_register_frame_callback(ge_frame_cb cb, void *param) {
 void ge_obs_unregister_frame_callback(ge_frame_cb cb, void *param) { obs_remove_main_render_callback(cb, param); }
 
 uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, uint32_t *out_height) {
-  /* One-shot callers (the /screenshot and /match routes) capture a single
-   * frame, so spin up a throwaway context. They capture at native resolution
-   * (max_height 0) -- screenshots feed template authoring and want full detail.
-   * The monitor's hot loop instead holds a context across frames via the
-   * ge_capture_* API directly, and downscales for speed. A one-shot capture has
-   * no "next frame" to map back, so it uses a synchronous (not double-buffered)
-   * context: a single get_frame call returns the frame directly. */
+  /* One-shot callers (/screenshot, /match) spin up a throwaway synchronous
+   * context and capture at native resolution (max_height 0) for full detail.
+   * A synchronous context returns the frame directly from a single get_frame. */
   ge_capture_ctx *ctx = ge_capture_create(false);
   if (!ctx) {
     return NULL;

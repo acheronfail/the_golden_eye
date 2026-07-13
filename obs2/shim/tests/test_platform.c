@@ -1,10 +1,6 @@
-// Drives the platform primitives declared in reload_platform.h directly --
-// temp paths, atomic file replace, recursive directory delete, dir-exists,
-// the reload worker's mutex+condvar pair, and thread spawn/join. reload.c's
-// own tests exercise these transitively through real reload scenarios; this
-// file checks each primitive's own documented contract in isolation,
-// including a couple of edge cases (replacing an existing destination,
-// deleting a populated tree) those scenarios don't happen to hit.
+// Drives the platform primitives in reload_platform.h directly -- temp paths,
+// atomic file replace, recursive dir delete, dir-exists, the worker's
+// mutex+condvar, thread spawn/join -- checking each contract in isolation.
 
 #include "../reload_platform.h"
 #include "test_support.h"
@@ -97,10 +93,9 @@ static void test_remove_dir_recursive(void) {
   CHECK(!ge_platform_dir_exists(tree), "the whole tree, including nested subdirectories, should be gone");
 }
 
-// State for the ge_cond_lock rendezvous test. A thread's run function takes
-// only a single void* argument, so there's nothing to gain from threading
-// this through it instead of a static -- matches how reload.c's own worker
-// callback (which takes no arguments at all) reaches its state.
+// State for the ge_cond_lock rendezvous test, kept in statics rather than
+// threaded through the run function's void* -- matching how reload.c's own
+// worker callback (which takes no arguments) reaches its state.
 static ge_cond_lock g_lock;
 static bool g_ready;
 static int g_observed;

@@ -38,12 +38,9 @@ static void set_err(char *err, size_t err_size, const char *fmt, ...) {
 /* for OBS-relative resolution, an unrelated concern).                    */
 /* ---------------------------------------------------------------------- */
 
-/* Checks for both separators unconditionally (not just GE_PATH_SEP) rather
- * than special-casing by platform: a Windows path may legitimately use
- * forward slashes, while a literal backslash in a POSIX filename is rare
- * enough, and inconsequential enough here (these are always our own
- * install/staging paths, never arbitrary user content), that one shared
- * check is simpler than two platform-specific ones. */
+/* Checks both separators unconditionally rather than special-casing by
+ * platform: Windows paths may use forward slashes, and these are always our own
+ * install/staging paths, so one shared check is simpler than two. */
 static const char *leaf_name(const char *path) {
   const char *slash = strrchr(path, '/');
   const char *backslash = strrchr(path, '\\');
@@ -207,14 +204,9 @@ void ge_core_close(ge_core_handle *handle) {
 /* future cold start also picks up the new version.                       */
 /* ---------------------------------------------------------------------- */
 
-/* Best-effort: swaps `canonical_dir` for `staged_dir_leaf` if the latter is
- * present next to staged_dir. Directories can't be atomically replaced by a
- * single rename the way files can (rename() over a non-empty directory
- * fails), so this renames the old one aside, renames the new one into
- * place, then deletes the old one -- there's a brief window where
- * canonical_dir doesn't exist, which is acceptable for bundled data files
- * (cv_templates/locale) that degrade gracefully if briefly missing, unlike
- * the core library itself. Never fails the overall reload; logs via err. */
+/* Best-effort: swaps `canonical_dir` for staged_dir/leaf if present. Directories
+ * can't be atomically renamed, so the old is moved aside, the new into place, old
+ * deleted -- a brief gap, fine for bundled data (cv_templates/locale). Never fails reload. */
 static void sync_data_dir_best_effort(const char *staged_dir, const char *leaf, const char *canonical_dir, char *err,
                                       size_t err_size) {
   char staged_leaf[PATH_MAX];

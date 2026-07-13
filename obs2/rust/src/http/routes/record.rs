@@ -26,10 +26,9 @@ pub async fn handle_stop(State(_): State<AppState>) -> Result<impl IntoResponse>
     Ok(StatusCode::OK)
 }
 
-/// Replay-buffer status. `enabled` reflects the OBS profile checkbox;
-/// `available` whether OBS has a replay-buffer output object for the current
-/// output settings; `active` whether it is currently running. Mirrored by the
-/// frontend's `ReplayBufferStatus`.
+/// Replay-buffer status: `enabled` (OBS profile checkbox), `available` (OBS has
+/// an output object for current settings), `active` (currently running).
+/// Mirrored by the frontend's `ReplayBufferStatus`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReplayBufferStatus {

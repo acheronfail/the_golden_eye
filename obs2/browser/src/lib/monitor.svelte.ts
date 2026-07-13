@@ -106,11 +106,8 @@ export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseSt
 	}
 };
 
-/**
- * Shared, reactive monitor state. The root layout refreshes this on navigation
- * so global UI can show when monitoring is active, while the live monitor socket
- * keeps route remounts from losing the recorder UI state.
- */
+/** Shared, reactive monitor state. Refreshed by the root layout on navigation;
+ * the live monitor socket keeps route remounts from losing recorder UI state. */
 export const monitor = $state<{
 	status: MonitorStatus | null;
 	loaded: boolean;

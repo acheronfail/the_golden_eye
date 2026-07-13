@@ -1,17 +1,6 @@
-//! Minimal stub implementations of the OBS C bridge, sufficient to satisfy
-//! the linker for build targets that never call into real OBS: `ge_rust`'s
-//! own `cfg(test)` unit-test binary, and the `test_match`/`annotate_match`
-//! CLI bins (which only exercise `cv`). `#[no_mangle]` entry points such as
-//! `ge_rust_start` are potential FFI exports, so rustc always keeps their
-//! object code in `libge_rust.rlib` -- any binary linking that rlib must
-//! resolve every symbol they transitively reference, even along code paths
-//! that binary never runs. The real definitions come from `obs2/core` and
-//! `obs2/shim`, and are only linked in by CMake when building the actual
-//! plugin.
-//!
-//! Types are kept as opaque `c_void`/`c_char` here (rather than importing
-//! `crate::ffi`'s types) so this file compiles standalone when included via
-//! `#[path]` from the separate `test_match`/`annotate_match` binary crates.
+//! Minimal OBS C-bridge stubs to satisfy the linker for targets that never call real
+//! OBS (`ge_rust` test bin, `test_match`/`annotate_match`): rustc keeps `#[no_mangle]`
+//! FFI code in the rlib, so any linker must resolve it. Types opaque for standalone use.
 
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::ptr;

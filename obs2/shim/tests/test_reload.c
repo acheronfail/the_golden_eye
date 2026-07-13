@@ -1,9 +1,6 @@
 // Drives shim/reload.c's dlopen/rename/rollback mechanics, the cv_templates/
-// locale data-dir sync, and the reload worker thread directly against the
-// fixture libraries in this directory, with no OBS or Rust dependency. This
-// is the tier of testing that obs2/rust's integration tests (which link the
-// Rust crate directly, never going through a real shim dlopen) cannot cover
-// -- see AGENTS.md and the auto-update design notes for why.
+// locale data-dir sync, and the reload worker thread against the fixture libs
+// here, no OBS or Rust dep -- the tier obs2/rust's integration tests can't cover.
 
 #ifndef _WIN32
 #define _GNU_SOURCE
@@ -32,9 +29,8 @@ static void dummy_request_reload(void) {
   // trigger machinery, so there's nothing for this to wake.
 }
 
-// State for scenario 4 (the reload worker thread). A plain callback like
-// this can't take parameters or return a result -- it has to reach its
-// inputs/outputs through statics, exactly like plugin.c's own
+// State for scenario 4 (the reload worker thread). A plain callback can't take
+// parameters, so it reaches its inputs/outputs through statics, like plugin.c's
 // handle_reload_request() reaches g_handle/g_canonical_path/g_staged_dir.
 static ge_core_handle **g_worker_handle;
 static const char *g_worker_canonical;
@@ -82,14 +78,9 @@ int main(int argc, char **argv) {
   CHECK(!ok, "reload with nothing staged should report failure");
   CHECK(handle != NULL, "handle should still be valid after a no-op reload attempt");
 
-  // --- Scenario 2: a valid newer core is staged, alongside a staged
-  // --- cv_templates dir (canonical already has an *older* one) and a
-  // --- staged locale dir (canonical has none yet) -- covers both the
-  // --- "swap out an existing data dir" and "create a data dir that didn't
-  // --- exist before" branches of sync_data_dir_best_effort in one pass.
-  // --- The swap should succeed, the old core must be fully closed before
-  // --- the new one opens, canonical should end up holding the new bytes,
-  // --- and ge_core_handle_post_load should reach the new core.
+  // --- Scenario 2: a valid newer core is staged with cv_templates (canonical
+  // --- has an older one) and locale (canonical has none), exercising both
+  // --- sync_data_dir_best_effort branches. Old core fully closed before new opens.
   char staged_v2[PATH_MAX];
   CHECK(test_make_subdir(work_dir, "staged_v2", staged_v2, sizeof(staged_v2)), "failed to create staged_v2");
   char staged_v2_lib[PATH_MAX];
@@ -150,11 +141,9 @@ int main(int argc, char **argv) {
         "canonical locale dir should have been created fresh from the staged content");
   free(locale_content);
 
-  // --- Scenario 3: the staged core fails to load -- must roll back to a
-  // --- running core (never end up in a broken/unloaded state), never touch
-  // --- canonical since the swap never succeeded, and (since sync only
-  // --- happens on success) leave the cv_templates dir exactly as scenario 2
-  // --- left it.
+  // --- Scenario 3: the staged core fails to load -- must roll back to a running
+  // --- core (never a broken/unloaded state), never touch canonical (swap never
+  // --- succeeded), and leave cv_templates exactly as scenario 2 left it.
   ge_core_close(handle);
   handle = NULL;
   CHECK(test_copy_file(fixture_v1, canonical), "failed to reset canonical core to fixture_v1");
@@ -187,14 +176,9 @@ int main(int argc, char **argv) {
         "canonical cv_templates should be untouched by a failed reload");
   free(templates_content);
 
-  // --- Scenario 4: the reload worker thread. ge_reload_worker_request()
-  // --- must be safe to call from any stack and only wake the dedicated
-  // --- worker, which then performs the actual reload on its own stack.
-  // --- ge_reload_worker_stop() joins that thread, so by the time it
-  // --- returns, any reload triggered beforehand is guaranteed to have
-  // --- finished -- no polling needed to observe the result. Also checks
-  // --- that stopping a never-started (or already-stopped) worker is safe,
-  // --- per its documented contract.
+  // --- Scenario 4: the reload worker thread. ge_reload_worker_request() must be
+  // --- safe from any stack and only wake the worker, which reloads on its own
+  // --- stack; ge_reload_worker_stop() joins it and is safe if never started.
   ge_reload_worker_stop(); // safe to call even though the worker was never started
 
   // A fresh staged dir -- scenario 2's staged_v2 was already consumed (a

@@ -1,8 +1,6 @@
-// POSIX (macOS/Linux) implementation of the platform primitives declared in
-// reload_platform.h. See reload_win32.c for the Windows counterpart -- kept
-// as two separate straight-line files instead of one file full of
-// #ifdef _WIN32 blocks, so each can be read top-to-bottom for its own
-// platform.
+// POSIX (macOS/Linux) implementation of the platform primitives in
+// reload_platform.h. See reload_win32.c for the Windows counterpart -- kept as
+// two straight-line files instead of one full of #ifdef _WIN32 blocks.
 
 #define _GNU_SOURCE // mkstemps() is a glibc/BSD extension, not plain POSIX.
 

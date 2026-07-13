@@ -75,11 +75,9 @@
 		goto(href, options);
 	};
 
-	// While the replay buffer is confirmed unavailable, force the user back to `/`
-	// (which explains how to enable it). `/`, `/runs`, `/options`, and the dev-only
-	// `/developer` tools are exempt so the user has somewhere to land and
-	// debugging still works. An unknown status (null) never redirects — we only
-	// act on a definitive "off".
+	// When the replay buffer is confirmed unavailable, force the user back to `/`
+	// (which explains how to enable it); `/`, `/runs`, `/options`, and `/developer`
+	// are exempt. An unknown status (null) never redirects.
 	$effect(() => {
 		const path = page.url.pathname;
 		const exempt = path === '/' || path === '/runs' || path === '/options' || path === '/developer';

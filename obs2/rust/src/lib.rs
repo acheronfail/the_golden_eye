@@ -103,30 +103,18 @@ struct ServerHandle {
 static SERVER: Mutex<Option<ServerHandle>> = Mutex::new(None);
 static LOGGING_INIT: Once = Once::new();
 
-/// The shim's canonical, on-disk path for *this* core library -- set by
-/// `ge_rust_set_core_path`, called from `core.c`'s `ge_core_load` before
-/// `ge_rust_start()`. NOT the path this process actually dlopen'd from
-/// (reload.c always dlopens a temp copy) and NOT the same as
-/// `ge_obs_module_binary_path()` (which reports the *shim's* path, since
-/// that's the OBS-registered module) -- `update_apply.rs` needs this
-/// specific canonical path to know where to stage and apply future updates.
-/// A plain `Mutex` (not `OnceLock`) because it must accept a fresh value on
-/// every load: in production each reload is a fresh dlopen with its own
-/// independent statics, but the integration test harness calls
-/// `ge_rust_start()` directly, multiple times per process, each wanting its
-/// own path.
+/// The shim's canonical on-disk path for *this* core, set via `ge_rust_set_core_path`.
+/// NOT the dlopen'd temp copy nor the shim's `ge_obs_module_binary_path`; `update_apply`
+/// needs it to stage updates. A `Mutex` (not `OnceLock`) so each load can reset it.
 static CORE_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 pub(crate) fn core_path() -> Option<PathBuf> {
     CORE_PATH.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
 }
 
-/// Called by the C core (`ge_core_load`) with the shim's resolved canonical
-/// path for this core library, before `ge_rust_start()` runs.
-///
+/// Called by the C core (`ge_core_load`) with the shim's canonical path for this core.
 /// # Safety
-/// `path` must be null or a valid NUL-terminated C string for the duration
-/// of this call; it's copied into an owned `PathBuf` immediately.
+/// `path` must be null or a valid NUL-terminated C string for this call; copied at once.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ge_rust_set_core_path(path: *const c_char) {
     if path.is_null() {
@@ -139,11 +127,8 @@ pub unsafe extern "C" fn ge_rust_set_core_path(path: *const c_char) {
 }
 
 /// Whether *this* core load followed a successful update apply, set by
-/// `ge_rust_set_was_reloaded` (called from `core.c`'s `ge_core_load`, mirroring
-/// `ge_rust_set_core_path`) before `ge_rust_start()` runs. `ge_rust_start`
-/// reads this once, into `AppStateInner.reloaded_at`, so a client connecting
-/// shortly after can be told "the plugin just updated" -- see
-/// `http::routes::monitor`.
+/// `ge_rust_set_was_reloaded` before `ge_rust_start()`. Read once into
+/// `reloaded_at` so a client can be told "the plugin just updated".
 static WAS_RELOADED: AtomicBool = AtomicBool::new(false);
 
 /// Called by the C core (`ge_core_load`) to report whether this load followed
@@ -152,10 +137,9 @@ static WAS_RELOADED: AtomicBool = AtomicBool::new(false);
 pub extern "C" fn ge_rust_set_was_reloaded(was_reloaded: bool) {
     WAS_RELOADED.store(was_reloaded, Ordering::Release);
 }
-/// Whether OBS began its current replay-buffer stop while a monitor was still
-/// active. Intentional monitor shutdown removes the monitor before requesting
-/// the stop; an unexpected OBS stop does not. Snapshotting at STOPPING avoids a
-/// stale STOPPED event racing with and tearing down a replacement monitor.
+/// Whether OBS began its replay-buffer stop while a monitor was still active.
+/// Intentional shutdown removes the monitor first; an unexpected OBS stop doesn't.
+/// Snapshot at STOPPING so a stale STOPPED event can't tear down a replacement monitor.
 static REPLAY_STOP_SHOULD_STOP_MONITOR: AtomicBool = AtomicBool::new(false);
 
 // Also included, unconditionally, by the `test_match`/`annotate_match` bin
@@ -194,12 +178,9 @@ fn init_logging() {
     });
 }
 
-/// Start the HTTP server on a background tokio runtime. Returns immediately
-/// without blocking the calling (C) thread. Calling this while the server is
-/// already running is a no-op that returns `true` (it's already up). Returns
-/// `false` if the runtime couldn't be created or the server's port failed to
-/// bind -- the caller (the shim, via `ge_core_load`) must treat that as a
-/// load failure rather than assuming the server came up.
+/// Start the HTTP server on a background tokio runtime; returns immediately.
+/// A no-op returning `true` if already running. Returns `false` if the runtime
+/// or port bind failed -- the caller must treat that as a load failure.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_rust_start() -> bool {
     init_logging();
@@ -226,10 +207,9 @@ pub extern "C" fn ge_rust_start() -> bool {
         }
     };
 
-    // Bind synchronously, inside the new runtime's context, so a bind
-    // failure (e.g. the port is still held by a not-yet-torn-down previous
-    // instance) is reported to the caller now rather than discovered later
-    // inside a spawned task that ge_core_load has no visibility into.
+    // Bind synchronously in the runtime's context so a bind failure (e.g. port
+    // still held by a previous instance) is reported to the caller now, not later
+    // inside a spawned task ge_core_load can't see.
     let listener = {
         let _guard = runtime.enter();
         match http::bind_listener() {
@@ -335,13 +315,9 @@ pub extern "C" fn ge_rust_stop() {
     tracing::info!("server stopped");
 }
 
-/// Spawn the YouTube stream-notifier workflow on the running tokio runtime.
-/// Accepts OBS service settings as JSON and posts a Discord notification with
-/// the live-stream URL. Returns immediately without blocking the calling thread.
-///
-/// # Safety
-/// `service_settings_json` must be null or a valid NUL-terminated C string that
-/// stays valid for the duration of this call.
+/// Spawn the YouTube stream-notifier on the tokio runtime; posts a Discord notification
+/// with the live-stream URL from OBS service-settings JSON. Returns immediately.
+/// Safety: `service_settings_json` must be null or a valid NUL-terminated C string.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ge_stream_notifier_start(service_settings_json: *const c_char) {
     let (runtime_handle, state) = {
@@ -394,14 +370,9 @@ pub extern "C" fn ge_sources_changed() {
     state.source_tx.send_replace(http::collect_sources());
 }
 
-/// Called from the OBS frontend event callback on
-/// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED` with the path of the just-saved
-/// replay file (may be null/empty). Wakes whichever recording save is blocked
-/// waiting for the buffer to finish writing, so we never have to poll.
-///
-/// # Safety
-/// `path` must be null or a valid NUL-terminated C string that stays valid for
-/// the duration of this call.
+/// Called on `OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED` with the saved replay path
+/// (may be null/empty). Wakes the blocked recording save so we never poll.
+/// Safety: `path` must be null or a valid NUL-terminated C string for this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ge_replay_buffer_saved(path: *const c_char) {
     let path = if path.is_null() {

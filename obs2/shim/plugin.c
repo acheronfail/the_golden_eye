@@ -1,13 +1,6 @@
-// Thin shim: this is the library OBS actually loads as a plugin. It contains
-// no real logic beyond OBS-module lifecycle and path resolution -- it
-// `dlopen`s the "core" library (the Rust staticlib + the OBS bridge +
-// OpenCV, see core/core.c) via shim/reload.c and forwards load/unload to it.
-//
-// Splitting plugin/core this way means link errors surface here as a
-// catchable, logged dlopen failure, and lets the core be swapped for a
-// freshly downloaded version while OBS keeps running (see reload.c) without
-// the shim itself ever needing to change. The core library is resolved
-// relative to this loaded shim, with an environment override for devs.
+// Thin shim: the library OBS actually loads. No real logic beyond OBS-module
+// lifecycle and path resolution -- it dlopens the "core" (Rust staticlib + OBS
+// bridge + OpenCV) via reload.c, so the core can be hot-swapped while OBS runs.
 
 #ifndef _WIN32
 #define _GNU_SOURCE

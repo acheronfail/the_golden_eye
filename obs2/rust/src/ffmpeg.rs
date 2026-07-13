@@ -1,12 +1,6 @@
-//! Thin wrapper over the statically-linked FFmpeg (libav*) for the one video
-//! operation the recorder needs: trimming a saved replay-buffer file down to the
-//! clip we actually want to keep.
-//!
-//! The trim is a pure remux -- packets are stream-copied, never re-encoded -- so
-//! it is fast and lossless. Stream copy can only cut on keyframe boundaries, so
-//! the kept clip may start a keyframe or two ahead of the requested point; that
-//! is an accepted trade-off for not transcoding (GoldenEye recordings have
-//! frequent keyframes, so the slack is small).
+//! Thin wrapper over statically-linked FFmpeg for the one op the recorder needs:
+//! trimming a saved replay-buffer file to the wanted clip. It's a pure stream-copy
+//! remux (fast, lossless), so cuts land on keyframes -- the clip may start early.
 
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -207,14 +201,9 @@ pub fn thumbnail_bmp(path: &Path, max_width: u32) -> anyhow::Result<Vec<u8>> {
     Err(anyhow!("no decodable video frame in {}", path.display()))
 }
 
-/// Remux `input` into `output`, keeping only the packets between `start_secs`
-/// and `end_secs` (both measured from the start of `input`). Packets are
-/// stream-copied, so this neither re-encodes nor decodes; the output container
-/// format is inferred from `output`'s extension.
-///
-/// Timestamps are shifted so the kept clip begins at ~0 in the output (using a
-/// single global offset, so audio and video stay in sync). Because the cut is
-/// on keyframe boundaries, the real start may be slightly before `start_secs`.
+/// Remux `input` to `output`, keeping only packets between `start_secs` and `end_secs`.
+/// Packets are stream-copied (no re-encode/decode); output format from `output`'s ext.
+/// Timestamps shift so the clip starts at ~0; keyframe cuts may begin before `start_secs`.
 #[cfg(test)]
 fn trim(input: &Path, output: &Path, start_secs: f64, end_secs: f64) -> anyhow::Result<()> {
     trim_with_metadata(input, output, start_secs, end_secs, None)
@@ -288,10 +277,9 @@ fn remux_with_metadata(
         let _ = ictx.seek(start_avtb, ..start_avtb);
     }
 
-    // Shift a timestamp from the input stream's time base into the output
-    // stream's time base, with the global start offset subtracted so the clip
-    // begins at ~0. A keyframe slightly before the cut clamps to 0 rather than
-    // going negative (muxers like mov reject negative timestamps).
+    // Shift a timestamp from the input to the output stream time base, minus the
+    // global start offset so the clip begins at ~0. Clamps to 0 (muxers like mov
+    // reject negative timestamps).
     let shift = |t: i64, in_tb: ffmpeg_next::Rational, out_tb: ffmpeg_next::Rational| -> i64 {
         let avtb = t.rescale(in_tb, rescale::TIME_BASE) - start_avtb;
         avtb.max(0).rescale(rescale::TIME_BASE, out_tb)

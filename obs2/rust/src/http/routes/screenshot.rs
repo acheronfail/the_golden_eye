@@ -38,7 +38,6 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
 }
 
 /// Copies a `width * height` BGRA buffer into a BMP-encoded byte vector.
-///
 /// # Safety
 /// `frame` must point to at least `width * height * 4` valid bytes.
 fn encode_bmp(frame: *const u8, width: u32, height: u32) -> std::io::Result<Vec<u8>> {

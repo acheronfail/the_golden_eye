@@ -1,7 +1,6 @@
-// Windows implementation of the platform primitives declared in
-// reload_platform.h. See reload_unix.c for the POSIX counterpart -- kept as
-// two separate straight-line files instead of one file full of #ifdef _WIN32
-// blocks, so each can be read top-to-bottom for its own platform.
+// Windows implementation of the platform primitives in reload_platform.h.
+// See reload_unix.c for the POSIX counterpart -- kept as two straight-line
+// files instead of one full of #ifdef _WIN32 blocks.
 
 #include "reload_platform.h"
 
@@ -105,10 +104,8 @@ void ge_cond_lock_wait(ge_cond_lock *lock) { SleepConditionVariableCS(&lock->cv,
 void ge_cond_lock_signal(ge_cond_lock *lock) { WakeConditionVariable(&lock->cv); }
 
 // CreateThread's callback is `DWORD WINAPI (*)(LPVOID)`, not the
-// `void *(*)(void *)` this header standardizes on (matching pthread_create,
-// which needs no trampoline) -- casting between the two calling conventions
-// would be undefined behavior, so this heap-allocated trampoline bridges
-// them instead.
+// `void *(*)(void *)` this header standardizes on -- casting between the two
+// calling conventions is UB, so this heap-allocated trampoline bridges them.
 typedef struct {
   void *(*run)(void *);
   void *arg;

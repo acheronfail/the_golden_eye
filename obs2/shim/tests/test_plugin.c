@@ -1,10 +1,6 @@
-// Drives the real, unmodified shim/plugin.c through its three OBS entry
-// points (obs_module_load/post_load/unload), linked directly into this
-// binary alongside a small fake OBS module registry (see fake_obs.c/.h) --
-// so the duplicate-copy check and the load/post_load/unload sequencing get
-// real coverage without needing the actual OBS SDK. reload.c's own tests
-// cover the dlopen/reload mechanics plugin.c calls into; this file covers
-// the thin OBS-facing layer on top of that.
+// Drives the real, unmodified shim/plugin.c through its three OBS entry points
+// (obs_module_load/post_load/unload), linked with a fake OBS registry (see
+// fake_obs.c/.h) -- so the duplicate check and load sequencing get real coverage.
 
 #include "../dynlib.h"
 #include "../reload.h"
@@ -35,14 +31,9 @@ int main(int argc, char **argv) {
   test_join(log_path, sizeof(log_path), work_dir, "fixture.log");
   test_set_env("GE_FIXTURE_LOG", log_path);
 
-  // --- Scenario 1: a second copy of the plugin is already loaded (same
-  // --- module file name, different registered module) -- obs_module_load
-  // --- must refuse to load this copy. GE_CORE_LIB is deliberately pointed
-  // --- at a real, valid core here (rather than left unset) so that if the
-  // --- duplicate check were ever broken, obs_module_load would actually
-  // --- *succeed* -- making this assertion a specific signal of the
-  // --- duplicate check itself, not a coincidental failure for some other
-  // --- reason (e.g. no core found).
+  // --- Scenario 1: a second copy of the plugin is already loaded (same module
+  // --- file name) -- obs_module_load must refuse. GE_CORE_LIB points at a valid
+  // --- core so a broken duplicate check would *succeed*, isolating this signal.
   fake_obs_reset();
   obs_module_t *self = fake_obs_register_module("the_golden_eye.so", "/path/a/the_golden_eye.so");
   fake_obs_register_module("the_golden_eye.so", "/path/b/the_golden_eye.so");
@@ -52,10 +43,9 @@ int main(int argc, char **argv) {
   CHECK(!obs_module_load(), "obs_module_load should refuse to load when a duplicate copy is already registered");
   obs_module_unload(); // defensive: if the check above is broken, this keeps state clean for scenario 2
 
-  // --- Scenario 2: resolving the core path falls all the way through to
-  // --- the bundled default (no GE_CORE_LIB override) -- since nothing real
-  // --- sits next to this test binary, this should fail cleanly rather than
-  // --- crash.
+  // --- Scenario 2: core-path resolution falls through to the bundled default
+  // --- (no GE_CORE_LIB) -- with nothing next to this test binary, it should
+  // --- fail cleanly rather than crash.
   fake_obs_reset();
   self = fake_obs_register_module("the_golden_eye.so", "/path/a/the_golden_eye.so");
   obs_module_set_pointer(self);
