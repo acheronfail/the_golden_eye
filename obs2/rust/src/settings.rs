@@ -364,16 +364,20 @@ impl SettingsStore {
     }
 
     pub fn set_last_update_check_time(&self, seconds: u64) -> anyhow::Result<AppSettings> {
-        let mut settings = self.get();
-        settings.last_update_check_time = Some(seconds);
-        self.replace(settings)
+        self.update(|current| {
+            let mut settings = current.clone();
+            settings.last_update_check_time = Some(seconds);
+            Ok(settings)
+        })
     }
 
     pub fn set_last_known_update(&self, version: &str, release_url: &str) -> anyhow::Result<AppSettings> {
-        let mut settings = self.get();
-        settings.last_known_update_version = Some(version.to_owned());
-        settings.last_known_update_release_url = Some(release_url.to_owned());
-        self.replace(settings)
+        self.update(|current| {
+            let mut settings = current.clone();
+            settings.last_known_update_version = Some(version.to_owned());
+            settings.last_known_update_release_url = Some(release_url.to_owned());
+            Ok(settings)
+        })
     }
 
     pub fn set_from_json_value_with_runtime_defaults(&self, value: Value) -> anyhow::Result<AppSettings> {
@@ -381,12 +385,13 @@ impl SettingsStore {
             anyhow::bail!("settings file is invalid; fix it or reset to defaults before saving: {error}");
         }
 
-        let mut settings = apply_runtime_output_path_defaults(AppSettings::from_json_value(value));
-        let current = self.get();
-        settings.last_update_check_time = current.last_update_check_time;
-        settings.last_known_update_version = current.last_known_update_version;
-        settings.last_known_update_release_url = current.last_known_update_release_url;
-        self.replace(settings)
+        self.update(|current| {
+            let mut settings = apply_runtime_output_path_defaults(AppSettings::from_json_value(value.clone()));
+            settings.last_update_check_time = current.last_update_check_time;
+            settings.last_known_update_version = current.last_known_update_version.clone();
+            settings.last_known_update_release_url = current.last_known_update_release_url.clone();
+            Ok(settings)
+        })
     }
 
     fn replace(&self, settings: AppSettings) -> anyhow::Result<AppSettings> {
@@ -399,6 +404,35 @@ impl SettingsStore {
         tracing::info!(path = %self.path.display(), "saved settings");
 
         Ok(settings)
+    }
+
+    /// Builds a new settings value from the current one and persists it,
+    /// retrying if another writer committed a change in between -- e.g. the
+    /// background update-check task racing a settings PUT. Both read the
+    /// current value, derive a new one from it (preserving fields they don't
+    /// own), and write the result back; without this check, whichever finishes
+    /// second overwrites the other's change with its own now-stale snapshot
+    /// (a classic read-modify-write lost update). `build` may run more than
+    /// once, so it must not have side effects.
+    fn update(&self, build: impl Fn(&AppSettings) -> anyhow::Result<AppSettings>) -> anyhow::Result<AppSettings> {
+        loop {
+            let before = self.get();
+            let settings = build(&before)?;
+            let bytes = write_settings(&self.path, &settings)?;
+
+            let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            if state.settings != before {
+                // Lost the race: someone else's write landed while we were
+                // building/writing ours. Retry against their fresher value
+                // instead of clobbering it.
+                continue;
+            }
+            state.settings = settings.clone();
+            state.file_error = None;
+            state.file_bytes = Some(bytes);
+            tracing::info!(path = %self.path.display(), "saved settings");
+            return Ok(settings);
+        }
     }
 }
 
