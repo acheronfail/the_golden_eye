@@ -359,11 +359,11 @@ obs-packaged: make-package
 obs: make-release
     #!/usr/bin/env bash
     set -euo pipefail
-    obs="${OBS_EXE:-C:/Program Files/obs-studio/bin/64bit/obs64.exe}"
-    if command -v cygpath >/dev/null 2>&1; then
-      obs="$(cygpath -u "${obs}")"
-    fi
-    OBS_PLUGINS_PATH="$(pwd)/obs2/build/Release" OBS_PLUGINS_DATA_PATH="$(pwd)/obs2/build" "${obs}"
+    obs_dir="C:/Program Files/obs-studio/bin/64bit"
+    export OBS_PLUGINS_PATH="$(cygpath -w "$(pwd)/obs2/build/Release")"
+    export OBS_PLUGINS_DATA_PATH="$(cygpath -w "$(pwd)/obs2/build")"
+    cd "$(cygpath -u "${obs_dir}")"
+    ./obs64.exe
 
 # build the plugin with the flatpak SDK
 [linux]
