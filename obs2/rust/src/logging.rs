@@ -30,8 +30,6 @@ pub fn init() {
     LOGGING_INIT.call_once(|| {
         let subscriber = tracing_subscriber::registry()
             .with(default_filter())
-            // Terminal sink: coloured, for when OBS is launched from a shell.
-            .with(tracing_subscriber::fmt::layer().event_format(GoldenEyeFormat).with_ansi(true))
             // OBS log sink: plain text routed through `blog`.
             .with(
                 tracing_subscriber::fmt::layer()
