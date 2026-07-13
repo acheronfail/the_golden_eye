@@ -203,6 +203,19 @@ async fn wait_for_staged_core(core_path: &std::path::Path) -> Vec<u8> {
     }
 }
 
+/// `trigger_apply` (update_apply.rs) deliberately fires `ge_core_trigger_reload`
+/// from a detached `std::thread` rather than the request-handling task -- see
+/// its doc comment -- so `/api/v1/updates/apply` returning 202 only means the
+/// trigger was dispatched, not that it has run yet. Poll instead of asserting
+/// the call count immediately after the response.
+async fn wait_for_core_trigger_reload(harness: &Harness) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while harness.obs.calls().core_trigger_reload == 0 {
+        assert!(Instant::now() < deadline, "timed out waiting for ge_core_trigger_reload to be called");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 async fn wait_for_last_check_time(harness: &Harness) -> Value {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -243,6 +256,7 @@ async fn valid_update_is_downloaded_verified_staged_and_can_be_applied() {
     // should succeed and reach the shim's (faked) reload trigger.
     let response = harness.client.post(format!("{API}/api/v1/updates/apply")).send().await.unwrap();
     assert_eq!(response.status().as_u16(), 202, "apply-now should succeed when idle and staged");
+    wait_for_core_trigger_reload(&harness).await;
     assert_eq!(harness.obs.calls().core_trigger_reload, 1);
 
     drop(harness);
