@@ -2,6 +2,7 @@
 //! session and save/trim (via [`crate::ffmpeg`]) a window out of it per run, rather
 //! than start/stop per run. Padding is anchored to the save moment (file ends at ~now).
 
+use std::collections::HashMap;
 use std::ffi::{CStr, c_char};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,7 +26,10 @@ pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level}/{difficulty}/{time} - 
 pub const DEFAULT_PRE_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS: f64 = 10.0;
-const PRE_RUN_MATCH_BUFFER_SECS: f64 = 0.5;
+/// Internal safety margin added to both the pre- and post-run padding, on top of
+/// the user's configured values and hidden from them, so a single-frame timing
+/// window can't drop the level-start briefing or stats overlay (e.g. padding 0).
+const MATCH_PADDING_BUFFER_SECS: f64 = 0.5;
 
 /// How long to wait for OBS to finish writing the saved replay file before
 /// giving up. The save is asynchronous; we block on the replay-saved event
@@ -44,11 +48,6 @@ const REPLAY_START_RETRY_DELAY: Duration = Duration::from_millis(250);
 /// event. Give the frontend a brief turn to finish its state transition.
 const REPLAY_STOP_SETTLE_DELAY: Duration = Duration::from_millis(400);
 const OBS_OUTPUT_PATH_BUFFER_SIZE: usize = 4096;
-
-/// How many of the first stats-screen frames to sample before settling on the
-/// run's time. The overlay's first frame can misread while it animates in, so we
-/// prefer the most common reading across these -- but still trust a sole frame.
-const STATS_VOTE_FRAMES: usize = 3;
 
 /// Recording behaviour supplied by the frontend when a monitor session starts.
 /// The settings store materializes empty output paths into runtime defaults
@@ -97,11 +96,11 @@ impl RecordingOptions {
     }
 
     fn pre_run_padding_secs(&self) -> f64 {
-        Self::non_negative_secs(self.pre_run_padding_secs, 0.0) + PRE_RUN_MATCH_BUFFER_SECS
+        Self::non_negative_secs(self.pre_run_padding_secs, 0.0) + MATCH_PADDING_BUFFER_SECS
     }
 
     fn post_run_padding_secs(&self) -> f64 {
-        Self::non_negative_secs(self.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS)
+        Self::non_negative_secs(self.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS) + MATCH_PADDING_BUFFER_SECS
     }
 
     fn minimum_failed_run_length_secs(&self) -> f64 {
@@ -394,29 +393,34 @@ struct PendingSave {
     completed_at: SystemTime,
     /// ROM/template language active when this save was scheduled.
     rom_language: String,
-    /// The stats-screen match, kept for naming the output clip. Refined from the
-    /// first few stats frames (see `stats_votes`) as they arrive.
+    /// The stats-screen match, kept for naming the output clip. Refined toward the
+    /// most-seen run time as stats frames arrive (see `stats_vote_counts`).
     stats: Option<LevelMatch>,
-    /// Stats readings sampled from the first [`STATS_VOTE_FRAMES`] stats frames,
-    /// used to settle `stats` on the most trustworthy time. Empty for saves not
-    /// scheduled off the stats screen (e.g. a report -> level select exit).
-    stats_votes: Vec<LevelMatch>,
+    /// Per-run-time frame counts across the stats screen, used to settle `stats`
+    /// on the most-seen (i.e. stable) reading. Empty for saves not scheduled off
+    /// the stats screen (e.g. a report -> level select exit).
+    stats_vote_counts: HashMap<Option<i32>, u32>,
+    /// The winning count so far, i.e. the frame count of the time in `stats`.
+    stats_vote_best_count: u32,
+    /// Set once the screen leaves stats: the vote is locked so a later run's stats
+    /// screen (within the padding window) can't fold into this save.
+    stats_vote_closed: bool,
 }
 
-/// Pick the most trustworthy stats reading: the run time seen most often,
-/// breaking ties toward the most recent frame. A single vote has nothing to
-/// compare against, so it's returned as-is.
-fn best_stats_vote(votes: &[LevelMatch]) -> Option<LevelMatch> {
-    let run_time = |m: &LevelMatch| m.times.map(|times| times.time);
-    votes
-        .iter()
-        .enumerate()
-        .max_by_key(|(idx, m)| {
-            let agreeing = votes.iter().filter(|other| run_time(other) == run_time(m)).count();
-            // Ties on count resolve to the greater index -- the later frame.
-            (agreeing, *idx)
-        })
-        .map(|(_, m)| m.clone())
+/// Record one stats reading and adopt it as `stats` when it becomes the most-seen
+/// (ties resolving to this newer reading), so the brief first-frame misread is
+/// outvoted by the stable one. Returns whether the winning run time changed.
+fn record_stats_vote(pending: &mut PendingSave, m: &LevelMatch) -> bool {
+    let time = m.times.map(|t| t.time);
+    let count = pending.stats_vote_counts.entry(time).or_insert(0);
+    *count += 1;
+    if *count < pending.stats_vote_best_count {
+        return false;
+    }
+    let previous_time = pending.stats.as_ref().and_then(|s| s.times).map(|t| t.time);
+    pending.stats_vote_best_count = *count;
+    pending.stats = Some(m.clone());
+    previous_time != time
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -494,6 +498,21 @@ fn failed_run_length_secs(now: Instant, clip_start: Instant, stats: Option<&Leve
         .filter(|time| *time >= 0)
         .map(|time| time as f64)
         .unwrap_or_else(|| now.saturating_duration_since(clip_start).as_secs_f64())
+}
+
+/// Build the notification for a pending save, reading `save_in_secs` as the time
+/// remaining until it fires. Used for the initial event and for the update sent
+/// when the voted time is refined.
+fn save_pending_event(pending: &PendingSave, options: &RecordingOptions, now: Instant) -> RecordingSavePending {
+    let run_length_secs = pending.finish_at.saturating_duration_since(pending.clip_start).as_secs_f64();
+    let estimated_duration_secs = run_length_secs + options.pre_run_padding_secs() + options.post_run_padding_secs();
+    recording_save_pending_event(
+        pending.save_id,
+        pending.fire_at.saturating_duration_since(now),
+        estimated_duration_secs,
+        pending.status,
+        pending.stats.as_ref(),
+    )
 }
 
 /// Tracks one recording session as it moves through the on-screen states, and
@@ -580,16 +599,11 @@ impl RecordingState {
         }
         // The minimum-failed-run-length gate is deferred to `take_pending_job`
         // (the save moment), so it can judge against the canonical time settled
-        // across the first few stats frames rather than a first-frame misread.
-        let run_length_secs = now.saturating_duration_since(clip_start).as_secs_f64();
+        // across the stats frames rather than a first-frame misread.
         let save_delay = self.options.save_delay();
         let save_id = self.next_save_id;
         self.next_save_id = self.next_save_id.saturating_add(1).max(1);
-        let estimated_duration_secs =
-            run_length_secs + self.options.pre_run_padding_secs() + self.options.post_run_padding_secs();
-        let pending_event =
-            recording_save_pending_event(save_id, save_delay, estimated_duration_secs, status, stats.as_ref());
-        self.pending = Some(PendingSave {
+        let pending = PendingSave {
             save_id,
             fire_at: now + save_delay,
             clip_start,
@@ -598,11 +612,15 @@ impl RecordingState {
             completed_at: SystemTime::now(),
             rom_language: self.rom_language.clone(),
             stats,
-            stats_votes: Vec::new(),
-        });
+            stats_vote_counts: HashMap::new(),
+            stats_vote_best_count: 0,
+            stats_vote_closed: false,
+        };
+        let _ =
+            self.event_tx.send(MonitorEvent::RecordingSavePending(save_pending_event(&pending, &self.options, now)));
+        self.pending = Some(pending);
         self.status = None;
         self.report = None;
-        let _ = self.event_tx.send(MonitorEvent::RecordingSavePending(pending_event));
         tracing::info!(?save_delay, "recording save scheduled");
         true
     }
@@ -653,6 +671,37 @@ impl RecordingState {
     fn flush_pending(&mut self, now: Instant) {
         if let Some(job) = self.take_pending_job(now) {
             spawn_save_and_trim(job);
+        }
+    }
+
+    /// When the in-flight save is due to fire, or `None` when nothing is pending.
+    /// The monitor loop waits on this so the save fires on time even if captured
+    /// frames stop arriving (e.g. a paused source).
+    pub fn pending_fire_at(&self) -> Option<Instant> {
+        self.pending.as_ref().map(|pending| pending.fire_at)
+    }
+
+    /// Fire the scheduled save once its post-run padding window has elapsed. Safe
+    /// to call on any tick (frame or idle wakeup); a no-op until then.
+    pub fn poll_pending(&mut self, now: Instant) {
+        if self.pending.as_ref().is_some_and(|pending| now >= pending.fire_at) {
+            self.flush_pending(now);
+        }
+    }
+
+    /// Fold another stats reading into the in-flight save and, when the winning
+    /// time changes, re-emit the pending notification so clients replace the
+    /// first-frame value. A no-op once the vote is closed or for non-stats saves.
+    fn refine_stats_vote(&mut self, now: Instant, m: &LevelMatch) {
+        let Some(pending) = self.pending.as_mut() else {
+            return;
+        };
+        if pending.stats_vote_counts.is_empty() || pending.stats_vote_closed {
+            return;
+        }
+        if record_stats_vote(pending, m) {
+            let event = save_pending_event(pending, &self.options, now);
+            let _ = self.event_tx.send(MonitorEvent::RecordingSavePending(event));
         }
     }
 
@@ -771,38 +820,37 @@ impl RecordingState {
                 if let Some(start) = self.clip_start.take() {
                     tracing::info!("stats detected");
                     if self.schedule_save(now, start, Some(m.clone())) {
-                        // Seed the vote buffer with this first reading. Later stats
-                        // frames (below) refine `stats` toward the most trustworthy
-                        // time before the save fires.
+                        // Seed the vote with this first reading; later stats frames
+                        // refine `stats` toward the most-seen time.
                         if let Some(pending) = self.pending.as_mut() {
-                            pending.stats_votes.push(m.clone());
+                            record_stats_vote(pending, m);
                         }
                         self.emit(RecordingStatus::SavePending);
                     } else {
                         self.emit(RecordingStatus::FailedDiscarded);
                     }
-                } else if let Some(pending) = self.pending.as_mut()
-                    && !pending.stats_votes.is_empty()
-                    && pending.stats_votes.len() < STATS_VOTE_FRAMES
-                {
-                    // Still on the stats screen with the save in flight: keep
-                    // sampling and settle `stats` on the most common reading,
-                    // since the first frame can misread while the overlay animates.
-                    pending.stats_votes.push(m.clone());
-                    pending.stats = best_stats_vote(&pending.stats_votes);
+                } else {
+                    // Still on the stats screen with the save in flight: keep voting
+                    // the whole window so a multi-frame first misread is outvoted by
+                    // the stable reading, updating the notification when it changes.
+                    self.refine_stats_vote(now, m);
                 }
             }
             _ => {}
         }
 
-        // Fire the scheduled save once its post-run padding window elapses. This
-        // runs every frame regardless of the current screen, so a pending save
-        // completes even after the user backs out or starts another run.
-        if let Some(pending) = &self.pending
-            && now >= pending.fire_at
+        // Leaving the stats screen locks the vote: any later run's stats screen
+        // within the padding window must not fold into this save.
+        if m.screen != Screen::Stats
+            && let Some(pending) = self.pending.as_mut()
         {
-            self.flush_pending(now);
+            pending.stats_vote_closed = true;
         }
+
+        // Fire the scheduled save once its post-run padding window elapses,
+        // regardless of the current screen, so a pending save completes even after
+        // the user backs out or starts another run.
+        self.poll_pending(now);
     }
 }
 
@@ -1472,17 +1520,25 @@ mod tests {
     }
 
     #[test]
-    fn pre_run_padding_defaults_to_five_and_adds_match_buffer() {
+    fn padding_defaults_to_five_and_adds_the_internal_buffer_at_both_ends() {
         let default = RecordingOptions::default();
         assert_eq!(default.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
+        assert_eq!(default.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS);
         assert_eq!(default.minimum_failed_run_length_secs, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS);
-        assert_eq!(default.pre_run_padding_secs(), DEFAULT_PRE_RUN_PADDING_SECS + PRE_RUN_MATCH_BUFFER_SECS);
+        assert_eq!(default.pre_run_padding_secs(), DEFAULT_PRE_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
+        assert_eq!(default.post_run_padding_secs(), DEFAULT_POST_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
 
-        let zero = RecordingOptions { pre_run_padding_secs: 0.0, ..RecordingOptions::default() };
-        assert_eq!(zero.pre_run_padding_secs(), PRE_RUN_MATCH_BUFFER_SECS);
+        // A configured value of zero still carries the internal safety buffer, so a
+        // one-frame timing window can't drop the briefing or stats overlay.
+        let zero =
+            RecordingOptions { pre_run_padding_secs: 0.0, post_run_padding_secs: 0.0, ..RecordingOptions::default() };
+        assert_eq!(zero.pre_run_padding_secs(), MATCH_PADDING_BUFFER_SECS);
+        assert_eq!(zero.post_run_padding_secs(), MATCH_PADDING_BUFFER_SECS);
 
-        let negative = RecordingOptions { pre_run_padding_secs: -2.0, ..RecordingOptions::default() };
-        assert_eq!(negative.pre_run_padding_secs(), PRE_RUN_MATCH_BUFFER_SECS);
+        let negative =
+            RecordingOptions { pre_run_padding_secs: -2.0, post_run_padding_secs: -2.0, ..RecordingOptions::default() };
+        assert_eq!(negative.pre_run_padding_secs(), MATCH_PADDING_BUFFER_SECS);
+        assert_eq!(negative.post_run_padding_secs(), MATCH_PADDING_BUFFER_SECS);
     }
 
     #[test]
@@ -1523,7 +1579,7 @@ mod tests {
         assert!(pending.failed);
         assert_eq!(pending.status, "failed");
         assert_eq!(pending.time_secs, Some(123));
-        assert!((pending.estimated_duration_secs - 22.5).abs() < f64::EPSILON);
+        assert!((pending.estimated_duration_secs - 23.0).abs() < f64::EPSILON);
         assert_eq!(recording.clip_start, None);
         assert_eq!(recording.status, None);
         assert!(recording.report.is_none());
@@ -1557,7 +1613,7 @@ mod tests {
         assert!(!pending.failed);
         assert_eq!(pending.status, "complete");
         assert_eq!(pending.time_secs, Some(123));
-        assert!((pending.estimated_duration_secs - 32.5).abs() < f64::EPSILON);
+        assert!((pending.estimated_duration_secs - 33.0).abs() < f64::EPSILON);
         assert_eq!(recording.clip_start, None);
         assert_eq!(recording.status, None);
         assert!(recording.report.is_none());
@@ -1566,34 +1622,6 @@ mod tests {
         let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
         assert_eq!(job.status, RunStatus::Complete);
         assert_eq!(job.stats.as_ref().map(|m| m.screen), Some(Screen::Stats));
-    }
-
-    #[test]
-    fn best_stats_vote_prefers_mode_then_recency() {
-        assert!(best_stats_vote(&[]).is_none());
-
-        // A single reading is trusted as-is.
-        assert_eq!(best_stats_vote(&[stats_match(374)]).and_then(|m| m.times).map(|t| t.time), Some(374));
-
-        // Two disagreeing readings: no majority, so trust the later frame.
-        assert_eq!(
-            best_stats_vote(&[stats_match(374), stats_match(14)]).and_then(|m| m.times).map(|t| t.time),
-            Some(14)
-        );
-
-        // Three readings: the value seen most often wins even when it's not last.
-        assert_eq!(
-            best_stats_vote(&[stats_match(14), stats_match(374), stats_match(14)])
-                .and_then(|m| m.times)
-                .map(|t| t.time),
-            Some(14),
-        );
-        assert_eq!(
-            best_stats_vote(&[stats_match(374), stats_match(14), stats_match(14)])
-                .and_then(|m| m.times)
-                .map(|t| t.time),
-            Some(14),
-        );
     }
 
     #[test]
@@ -1650,22 +1678,96 @@ mod tests {
     }
 
     #[test]
-    fn stats_sampling_stops_after_the_vote_window() {
-        let (mut recording, _events) = test_recording(RecordingOptions::default());
+    fn persistent_first_frame_misread_is_outvoted_by_the_stable_reading() {
+        // The misread spans several frames (as it can live, where the transitional
+        // overlay frame is matched more than once), yet the stable reading fills the
+        // rest of the window and wins -- there is no fixed sampling cap to defeat.
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let start = Instant::now();
+        let mut at = start + Duration::from_secs(10);
+
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Kia));
+
+        recording.on_frame(at, &stats_match(374));
+        let _ = pending_save_event(&mut events);
+        for _ in 0..2 {
+            at += Duration::from_millis(16);
+            recording.on_frame(at, &stats_match(374));
+        }
+        // Still on the (persisted) misread after three frames.
+        assert_eq!(pending_stats_time(&recording), Some(374));
+
+        for _ in 0..5 {
+            at += Duration::from_millis(16);
+            recording.on_frame(at, &stats_match(14));
+        }
+        assert_eq!(pending_stats_time(&recording), Some(14));
+        recording.pending = None;
+    }
+
+    #[test]
+    fn pending_notification_is_reissued_when_the_voted_time_changes() {
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
         let start = Instant::now();
         let stats_at = start + Duration::from_secs(10);
 
         recording.on_frame(start, &match_for_screen(Screen::Start));
         recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Kia));
-        // First STATS_VOTE_FRAMES frames all read 14; a later stray misread must
-        // not reopen the vote once the window has closed.
-        recording.on_frame(stats_at, &stats_match(14));
+
+        recording.on_frame(stats_at, &stats_match(374));
+        let first = pending_save_event(&mut events);
+        assert_eq!(first.time_secs, Some(374));
+
+        // A newer, differing reading replaces the notification under the same id.
         recording.on_frame(stats_at + Duration::from_millis(16), &stats_match(14));
+        let updated = pending_save_event(&mut events);
+        assert_eq!(updated.save_id, first.save_id);
+        assert_eq!(updated.time_secs, Some(14));
+
+        // A repeat of the settled reading doesn't spam another notification.
         recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(14));
-        recording.on_frame(stats_at + Duration::from_millis(48), &stats_match(999));
+        assert_no_monitor_event(&mut events);
+        recording.pending = None;
+    }
+
+    #[test]
+    fn leaving_the_stats_screen_locks_the_voted_time() {
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let start = Instant::now();
+        let stats_at = start + Duration::from_secs(10);
+
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Kia));
+        recording.on_frame(stats_at, &stats_match(14));
+        let _ = pending_save_event(&mut events);
+
+        // Once the screen leaves stats, a later stats reading (e.g. a new run's
+        // screen within the padding window) must not change this save's time.
+        recording.on_frame(stats_at + Duration::from_millis(16), &match_for_screen(Screen::Unknown));
+        recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(999));
 
         assert_eq!(pending_stats_time(&recording), Some(14));
-        assert_eq!(recording.pending.as_ref().map(|p| p.stats_votes.len()), Some(STATS_VOTE_FRAMES));
+        recording.pending = None;
+    }
+
+    #[test]
+    fn poll_pending_waits_for_the_padding_window_before_firing() {
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let start = Instant::now();
+        let stats_at = start + Duration::from_secs(10);
+
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Kia));
+        recording.on_frame(stats_at, &stats_match(14));
+        let _ = pending_save_event(&mut events);
+
+        // The fire time is the run finish plus the post-run padding, independent of
+        // when frames arrive; polling before it elapses is a no-op.
+        let fire_at = recording.pending_fire_at().expect("pending fire time");
+        assert_eq!(fire_at, stats_at + recording.options.save_delay());
+        recording.poll_pending(fire_at - Duration::from_millis(1));
+        assert!(recording.pending.is_some());
         recording.pending = None;
     }
 
@@ -1791,7 +1893,7 @@ mod tests {
 
         let pending = pending_save_event(&mut events);
         assert_eq!(pending.status, "complete");
-        assert!((pending.estimated_duration_secs - 30.5).abs() < f64::EPSILON);
+        assert!((pending.estimated_duration_secs - 31.0).abs() < f64::EPSILON);
 
         let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
         assert_eq!(job.status, RunStatus::Complete);
@@ -1891,7 +1993,7 @@ mod tests {
             panic!("expected pending save event");
         };
         assert_eq!(pending.save_id, 1);
-        assert_eq!(pending.save_in_secs, 5.0);
+        assert_eq!(pending.save_in_secs, 5.5);
         assert_eq!(pending.level, "Surface 2");
         assert_eq!(pending.time_secs, Some(123));
 
@@ -1903,7 +2005,7 @@ mod tests {
             |job| *saved_job.borrow_mut() = Some(job),
         );
 
-        assert_eq!(*slept.borrow(), Some(Duration::from_secs(3)));
+        assert_eq!(*slept.borrow(), Some(Duration::from_secs_f64(3.5)));
         let job = saved_job.borrow_mut().take().expect("save job");
         assert_eq!(job.save_id, 1);
         assert_eq!(job.status, RunStatus::Complete);
@@ -1915,7 +2017,7 @@ mod tests {
         assert_eq!(job.rom_language, "en");
         assert_eq!(job.event_tx.receiver_count(), 1);
         assert_eq!(job.recording_state.current(), None);
-        assert!((job.start_before_save_secs - 16.5).abs() < f64::EPSILON);
+        assert!((job.start_before_save_secs - 17.0).abs() < f64::EPSILON);
         assert_eq!(job.trim_tail_secs, 0.0);
         assert!(recording.pending.is_none());
     }
@@ -1942,7 +2044,7 @@ mod tests {
         let job = saved_job.borrow_mut().take().expect("save job");
         assert_eq!(job.save_id, 1);
         assert!((job.start_before_save_secs - 18.5).abs() < f64::EPSILON);
-        assert_eq!(job.trim_tail_secs, 2.0);
+        assert_eq!(job.trim_tail_secs, 1.5);
         assert!(recording.pending.is_none());
     }
 
@@ -1977,7 +2079,7 @@ mod tests {
         let pending = pending_save_event(&mut events);
         assert!(pending.failed);
         assert_eq!(pending.status, "failed");
-        assert!((pending.estimated_duration_secs - 30.5).abs() < f64::EPSILON);
+        assert!((pending.estimated_duration_secs - 31.0).abs() < f64::EPSILON);
 
         let job = recording.take_pending_job(failed_at + Duration::from_secs(5)).expect("save job");
         assert_eq!(job.status, RunStatus::Failed);
@@ -2019,7 +2121,7 @@ mod tests {
         assert!(pending.failed);
         assert_eq!(pending.status, "failed");
         assert_eq!(pending.time_secs, Some(20));
-        assert!((pending.estimated_duration_secs - 20.5).abs() < f64::EPSILON);
+        assert!((pending.estimated_duration_secs - 21.0).abs() < f64::EPSILON);
 
         let job = recording.take_pending_job(failed_at + Duration::from_secs(5)).expect("save job");
         assert_eq!(job.status, RunStatus::Failed);

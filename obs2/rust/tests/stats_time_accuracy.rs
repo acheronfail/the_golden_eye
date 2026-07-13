@@ -32,19 +32,21 @@ async fn first_stats_frame_misread_does_not_poison_the_saved_run_time() {
         .await;
     harness.start_monitor().await.error_for_status().unwrap();
 
-    // Replay every frame of the real capture in order. Pace each render so the
-    // capacity-1 mailbox never drops a frame (the misread first stats frame must
-    // be processed for this to exercise the fix, not merely tolerate it).
+    // Render every frame twice so the misread first stats frame spans several
+    // matched frames, as it can live. Pace renders so the capacity-1 mailbox keeps
+    // up -- the misread frame must be matched more than once to bite.
     let frames = decode_bgra_frames(&harness.root.join("test/clips/kia.mp4"));
     assert!(frames.len() > 1, "expected a multi-frame clip");
     for frame in frames {
-        harness.obs.render(frame);
-        tokio::time::sleep(Duration::from_millis(40)).await;
+        for _ in 0..2 {
+            harness.obs.render(frame.clone());
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
     }
 
-    // Stopping flushes the pending save on shutdown; the KIA run lands in the
-    // failed directory.
-    harness.stop_monitor().await.error_for_status().unwrap();
+    // Frames have now stopped (as if the source were paused), and the monitor is
+    // still running: the save must still fire on its own padding timer rather than
+    // waiting for the monitor to stop. The KIA run lands in the failed directory.
     let saved = wait_for_clip(&failed_dir).await;
     assert!(saved.starts_with(&failed_dir));
 
@@ -66,6 +68,8 @@ async fn first_stats_frame_misread_does_not_poison_the_saved_run_time() {
         clips[0]["metadata"]["timeSeconds"], 14,
         "saved run time should be the corrected 14s, not the first-frame misread"
     );
+
+    harness.stop_monitor().await.error_for_status().unwrap();
 }
 
 /// The minimum-failed-run-length gate must use the corrected time too: with a
