@@ -32,7 +32,7 @@ jobs:
       - name: Download packages
         uses: actions/download-artifact@v8
         with:
-          pattern: the-golden-eye-*
+          pattern: the_golden_eye-*
           merge-multiple: true
           path: dist
 

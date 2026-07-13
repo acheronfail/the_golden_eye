@@ -19,8 +19,16 @@ permissions:
 
 jobs:
   linux:
-    name: Linux
-    runs-on: ubuntu-latest
+    name: Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # No current aarch64 build of OBS right now, but maybe in the future...
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -45,7 +53,7 @@ jobs:
             obs2/vendor/obs
             obs2/vendor/opencv-static
             obs2/vendor/ffmpeg-static
-          key: ${{ runner.os }}-static-deps-${{ hashFiles('obs2/scripts/obs-headers.sh', 'obs2/scripts/opencv-static.sh', 'obs2/scripts/ffmpeg-static.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-static-deps-${{ hashFiles('obs2/scripts/obs-headers.sh', 'obs2/scripts/opencv-static.sh', 'obs2/scripts/ffmpeg-static.sh') }}
 
       - name: Cache cargo dependencies
         uses: actions/cache@v6
@@ -88,6 +96,7 @@ jobs:
         run: just setup
 
       - name: Check formatting
+        if: matrix.arch == 'x86_64'
         run: |
           just fmt
           git diff --exit-code
@@ -105,7 +114,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: frame-regression-test-results-linux
+          name: frame-regression-test-results-linux-${{ runner.arch }}
           path: test/test_results.json
           if-no-files-found: ignore
 
@@ -121,16 +130,29 @@ jobs:
       - name: Build Linux package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
 
+      - name: Determine package name
+        id: package
+        run: echo "basename=$(basename obs2/build-flatpak/dist/*.zip .zip)" >> "$GITHUB_OUTPUT"
+
       - name: Upload Linux package
         uses: actions/upload-artifact@v7
         with:
-          name: the-golden-eye-linux
+          name: ${{ steps.package.outputs.basename }}
           path: obs2/build-flatpak/dist/*.zip
           if-no-files-found: error
 
   macos:
-    name: macOS
-    runs-on: macos-latest
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-latest
+          - arch: x86_64
+            runner: macos-13
 
     steps:
       - name: Checkout
@@ -155,7 +177,7 @@ jobs:
             obs2/vendor/obs
             obs2/vendor/opencv-static
             obs2/vendor/ffmpeg-static
-          key: ${{ runner.os }}-static-deps-${{ hashFiles('obs2/scripts/obs-headers.sh', 'obs2/scripts/opencv-static.sh', 'obs2/scripts/ffmpeg-static.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-static-deps-${{ hashFiles('obs2/scripts/obs-headers.sh', 'obs2/scripts/opencv-static.sh', 'obs2/scripts/ffmpeg-static.sh') }}
 
       - name: Cache cargo dependencies
         uses: actions/cache@v6
@@ -194,10 +216,14 @@ jobs:
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
 
+      - name: Determine package name
+        id: package
+        run: echo "basename=$(basename obs2/build/dist/*.zip .zip)" >> "$GITHUB_OUTPUT"
+
       - name: Upload macOS package
         uses: actions/upload-artifact@v7
         with:
-          name: the-golden-eye-macos
+          name: ${{ steps.package.outputs.basename }}
           path: obs2/build/dist/*.zip
           if-no-files-found: error
 
@@ -363,9 +389,14 @@ jobs:
         shell: bash
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
 
+      - name: Determine package name
+        id: package
+        shell: bash
+        run: echo "basename=$(basename obs2/build/dist/*.zip .zip)" >> "$GITHUB_OUTPUT"
+
       - name: Upload Windows package
         uses: actions/upload-artifact@v7
         with:
-          name: the-golden-eye-windows
+          name: ${{ steps.package.outputs.basename }}
           path: obs2/build/dist/*.zip
           if-no-files-found: error
