@@ -8,10 +8,19 @@
 set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
 
 # Built up as a CMake list so each flag expands to a separate cargo argument.
+#
+# `--lib --bins`, deliberately NOT `--all-targets`: a normal build (`just obs`,
+# `just make`, `just dev`) only needs the staticlib (linked into the core) plus
+# the `test_match`/`annotate_match` bins (the `test/` frame-regression and
+# benchmark harness shell out to `target/<profile>/test_match`). It must NOT
+# also compile the integration-test crates and bench harnesses -- those are
+# heavy (each links the whole binary) and are compiled on demand by
+# `cargo test` in the `test-rust`/`test-integration` recipes, so building them
+# here just made every `just obs` recompile the full test suite for nothing.
 # `test_match`/`annotate_match` link `src/obs_stub.rs` directly (see that file)
 # to resolve the OBS bridge symbols they'd otherwise pull in unresolved from
-# `ge_rust_start` and friends, so --all-targets links cleanly on every platform.
-set(CARGO_BUILD_FLAGS "--all-targets")
+# `ge_rust_start` and friends, so `--bins` links cleanly on every platform.
+set(CARGO_BUILD_FLAGS "--lib" "--bins")
 if(GE_RUST_PACKAGE_PROFILE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
   message(FATAL_ERROR "GE_RUST_PACKAGE_PROFILE requires a non-Debug CMAKE_BUILD_TYPE.")
 endif()
