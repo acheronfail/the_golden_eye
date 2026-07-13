@@ -597,9 +597,7 @@ impl RecordingState {
             self.report = None;
             return false;
         }
-        // The minimum-failed-run-length gate is deferred to `take_pending_job`
-        // (the save moment), so it can judge against the canonical time settled
-        // across the stats frames rather than a first-frame misread.
+
         let save_delay = self.options.save_delay();
         let save_id = self.next_save_id;
         self.next_save_id = self.next_save_id.saturating_add(1).max(1);
