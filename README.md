@@ -14,6 +14,11 @@ Follow the instructions for your operating system:
 - [Install on macOS](docs/install-macos.md)
 - [Install on Windows](docs/install-windows.md)
 
+## Troubleshooting
+
+If the plugin misbehaves, [enabling debug logging](docs/debug-logging.md) helps
+you (and maintainers) see what's going on.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to work on this plugin.

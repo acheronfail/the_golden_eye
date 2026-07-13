@@ -2,9 +2,9 @@
 
 ## Project overview
 
-- `obs2/plugin.c` is the OBS-loaded shim that finds and loads the bundled core library.
-- `obs2/core.c` and `obs2/obs_bridge.c` connect OBS frontend events, source frames, and replay-buffer callbacks to Rust.
-- `obs2/rust/` contains the Rust core for frame matching, recording coordination, settings, stream notifications, and HTTP routes.
+- `obs2/shim/` is the OBS-loaded shim that finds and loads the bundled core library, also performs auto-update.
+- `obs2/core/` connects OBS (frontend events, source frames, and replay-buffer callbacks) to Rust.
+- `obs2/rust/` the main plugin - recording, frame matching, the webserver, etc.
 - `obs2/browser/` is the SvelteKit browser dock UI embedded into the plugin build.
 - `obs2/cv_templates/` contains the image templates used by the level and time matcher.
 - `test/` contains the Node-based frame regression harness for the matcher CLI.
@@ -58,6 +58,36 @@ Format changes before submitting:
 ```shell
 just fmt
 ```
+
+## Logging
+
+The Rust core logs through OBS's own logging facility, so its lines land in the
+OBS log alongside OBS's own output, each prefixed with `[the_golden_eye]`.
+
+To read them:
+
+- **From OBS:** _Help → Log Files → View Current Log_. This is the most reliable
+    way to see the logs, and the only one on Windows, where raw logs are not easily
+    visible from a terminal.
+- **On disk**, the current session's log is the newest file under:
+    - macOS: `~/Library/Application Support/obs-studio/logs/`
+    - Linux (Flatpak): `~/.var/app/com.obsproject.Studio/config/obs-studio/logs/`
+    - Windows: `%APPDATA%\obs-studio\logs\`
+- **In the terminal:** when OBS is launched from a shell (`just obs` / `just dev`
+    on macOS and Linux), the same lines are also printed to stdout with ANSI
+    colours.
+
+Verbosity is controlled by the `RUST_LOG` environment variable (a
+[`tracing` filter](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html);
+the crate name is `ge_rust`). Release builds default to `info`, so `debug`-level
+lines are hidden. To show them, launch OBS with `RUST_LOG` set:
+
+```shell
+RUST_LOG=ge_rust=debug just obs
+```
+
+To enable debug logging on an _installed_ build (launched normally, not through
+`just`), see [docs/debug-logging.md](docs/debug-logging.md).
 
 ## Release-note labels
 
