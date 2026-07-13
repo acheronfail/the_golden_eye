@@ -224,6 +224,59 @@ pub fn visual_second(path: &Path, offset: f64) -> u8 {
     })
 }
 
+/// Decode every frame of `path` into BGRA `Frame`s in presentation order,
+/// matching the pixel layout OBS hands the matcher. Used to replay a real
+/// capture clip through the live monitor loop.
+pub fn decode_bgra_frames(path: &Path) -> Vec<Frame> {
+    ffmpeg_next::init().expect("init ffmpeg");
+    let mut input = format::input(path).unwrap_or_else(|err| panic!("open {}: {err}", path.display()));
+    let stream = input.streams().best(media::Type::Video).expect("video stream");
+    let stream_index = stream.index();
+    let context = codec::context::Context::from_parameters(stream.parameters()).expect("codec context");
+    let mut decoder = context.decoder().video().expect("video decoder");
+    let mut scaler = ScalingContext::get(
+        decoder.format(),
+        decoder.width(),
+        decoder.height(),
+        Pixel::BGRA,
+        decoder.width(),
+        decoder.height(),
+        ScalingFlags::BILINEAR,
+    )
+    .expect("scaler");
+
+    let mut frames = Vec::new();
+    for (packet_stream, packet) in input.packets() {
+        if packet_stream.index() != stream_index {
+            continue;
+        }
+        decoder.send_packet(&packet).expect("send packet");
+        drain_bgra_frames(&mut decoder, &mut scaler, &mut frames);
+    }
+    decoder.send_eof().expect("send eof");
+    drain_bgra_frames(&mut decoder, &mut scaler, &mut frames);
+    frames
+}
+
+fn drain_bgra_frames(decoder: &mut ffmpeg_next::decoder::Video, scaler: &mut ScalingContext, frames: &mut Vec<Frame>) {
+    let mut decoded = Video::empty();
+    while decoder.receive_frame(&mut decoded).is_ok() {
+        let mut bgra = Video::empty();
+        scaler.run(&decoded, &mut bgra).expect("scale to bgra");
+        let width = bgra.width();
+        let height = bgra.height();
+        let stride = bgra.stride(0);
+        let source = bgra.data(0);
+        let mut data = vec![0u8; width as usize * height as usize * 4];
+        for y in 0..height as usize {
+            let source_row = &source[y * stride..][..width as usize * 4];
+            let output_row = &mut data[y * width as usize * 4..][..width as usize * 4];
+            output_row.copy_from_slice(source_row);
+        }
+        frames.push(Frame { width, height, bgra: data });
+    }
+}
+
 struct RgbFrame {
     data: Vec<u8>,
     width: u32,

@@ -218,13 +218,22 @@ export const triggerKiaDeathOverlay = (): void => {
 };
 
 export const applyRecordingSavePending = (pending: RecordingSavePending): void => {
-	const flag = addNotificationFlag({
+	const notification = {
 		title: 'Saving recording',
 		detail: savePendingDetail(pending),
 		meta: savePendingMeta(pending),
 		tone: pending.failed ? 'warning' : 'info',
 		sticky: true
-	});
+	} as const;
+
+	// The backend re-sends this under the same saveId when the run time is
+	// refined; replace the existing toast in place so a corrected time doesn't
+	// leave the first (stale) one stuck alongside it.
+	const existingFlagId = pendingSaveNotificationIds.get(pending.saveId);
+	if (existingFlagId !== undefined && replaceNotificationFlag(existingFlagId, notification)) {
+		return;
+	}
+	const flag = addNotificationFlag(notification);
 	pendingSaveNotificationIds.set(pending.saveId, flag.id);
 };
 

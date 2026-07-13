@@ -103,6 +103,13 @@ struct FrameMailbox {
     available: Condvar,
 }
 
+/// Outcome of a [`FrameMailbox::recv_until`] wait.
+enum MailboxRecv {
+    Frame(Frame),
+    Timeout,
+    Closed,
+}
+
 struct MailboxState {
     /// Buffered frames, oldest at the front. Capped at `FrameMailbox::capacity`.
     frames: std::collections::VecDeque<Frame>,
@@ -146,16 +153,41 @@ impl FrameMailbox {
 
     /// Consumer: block until a frame is buffered or the mailbox is closed. Returns
     /// the oldest buffered frame, or `None` once closed with nothing left to drain.
+    #[cfg(test)]
     fn recv(&self) -> Option<Frame> {
+        match self.recv_until(None) {
+            MailboxRecv::Frame(frame) => Some(frame),
+            MailboxRecv::Closed => None,
+            // Unreachable without a deadline; treat as closed rather than panic.
+            MailboxRecv::Timeout => None,
+        }
+    }
+
+    /// Consumer: like [`recv`], but wakes and returns [`MailboxRecv::Timeout`] once
+    /// `deadline` passes with no frame. Lets the monitor loop poll the pending-save
+    /// timer even while captured frames have stopped (e.g. a paused source).
+    fn recv_until(&self, deadline: Option<Instant>) -> MailboxRecv {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         loop {
             if let Some(frame) = state.frames.pop_front() {
-                return Some(frame);
+                return MailboxRecv::Frame(frame);
             }
             if state.closed {
-                return None;
+                return MailboxRecv::Closed;
             }
-            state = self.available.wait(state).unwrap_or_else(|p| p.into_inner());
+            match deadline {
+                None => state = self.available.wait(state).unwrap_or_else(|p| p.into_inner()),
+                Some(deadline) => {
+                    let Some(timeout) = deadline.checked_duration_since(Instant::now()) else {
+                        return MailboxRecv::Timeout;
+                    };
+                    let (next, result) = self.available.wait_timeout(state, timeout).unwrap_or_else(|p| p.into_inner());
+                    state = next;
+                    if result.timed_out() && state.frames.is_empty() && !state.closed {
+                        return MailboxRecv::Timeout;
+                    }
+                }
+            }
         }
     }
 
@@ -275,7 +307,7 @@ pub struct StartParams {
 }
 
 /// Source of frames for fixture-backed monitor-loop tests. The live OBS source
-/// uses `ObsSource::capture_with_stats` so production can carry timing metadata.
+/// uses `ObsSource::capture_with_stats_until` so production can carry timing metadata.
 #[cfg(test)]
 pub trait FrameSource {
     /// Acquire the next BGRA frame and hand it to `use_frame`. Returns the
@@ -314,11 +346,18 @@ impl ObsSource {
         }
     }
 
-    fn capture_with_stats<F, R>(&mut self, use_frame: F) -> Option<(R, Option<CapturedFrameStats>)>
+    /// Await the next frame (matching it via `use_frame`), or wake with
+    /// [`Captured::Idle`] once `deadline` passes so the caller can poll timers even
+    /// while frames have stopped. [`Captured::Closed`] once the mailbox is closed.
+    fn capture_with_stats_until<F, R>(&mut self, deadline: Option<Instant>, use_frame: F) -> Captured<R>
     where
         F: FnOnce(&[u8], u32, u32) -> R,
     {
-        let frame = self.mailbox.recv()?;
+        let frame = match self.mailbox.recv_until(deadline) {
+            MailboxRecv::Frame(frame) => frame,
+            MailboxRecv::Timeout => return Captured::Idle,
+            MailboxRecv::Closed => return Captured::Closed,
+        };
         let stats = match (frame.captured_at, frame.capture_ms) {
             (Some(captured_at), Some(capture_ms)) => Some(CapturedFrameStats {
                 capture_ms,
@@ -328,8 +367,18 @@ impl ObsSource {
             _ => None,
         };
         let result = use_frame(frame.buf.as_slice(), frame.width, frame.height);
-        Some((result, stats))
+        Captured::Frame(result, stats)
     }
+}
+
+/// Outcome of [`ObsSource::capture_with_stats_until`].
+enum Captured<R> {
+    /// A frame was matched, with optional capture timing.
+    Frame(R, Option<CapturedFrameStats>),
+    /// The deadline passed with no frame; poll pending timers and wait again.
+    Idle,
+    /// The mailbox is closed and drained; the monitor loop should exit.
+    Closed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -660,7 +709,11 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                 last = None;
             }
             session.set_diagnostics(diagnostics_enabled);
-            let Some(((result, match_ms), stats)) = source.capture_with_stats(|bytes, w, h| {
+            // Wake by the pending save's fire time even if no frame arrives, so a
+            // paused/stalled source can't stall (and eventually roll out of the
+            // replay buffer) a scheduled save.
+            let deadline = recording.pending_fire_at();
+            let (result, match_ms, stats) = match source.capture_with_stats_until(deadline, |bytes, w, h| {
                 if timing_enabled {
                     let match_started = Instant::now();
                     let result = session.match_frame(bytes, w, h);
@@ -669,8 +722,13 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                 } else {
                     (session.match_frame(bytes, w, h), None)
                 }
-            }) else {
-                break;
+            }) {
+                Captured::Frame((result, match_ms), stats) => (result, match_ms, stats),
+                Captured::Idle => {
+                    recording.poll_pending(Instant::now());
+                    continue;
+                }
+                Captured::Closed => break,
             };
             let now = Instant::now();
             if let Some(previous) = last_frame_completed {
