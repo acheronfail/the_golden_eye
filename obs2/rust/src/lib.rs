@@ -281,7 +281,8 @@ pub extern "C" fn ge_rust_stop() {
 
 /// Spawn the YouTube stream-notifier on the tokio runtime; posts a Discord notification
 /// with the live-stream URL from OBS service-settings JSON. Returns immediately.
-/// Safety: `service_settings_json` must be null or a valid NUL-terminated C string.
+/// # Safety
+/// `service_settings_json` must be null or a valid NUL-terminated C string.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ge_stream_notifier_start(service_settings_json: *const c_char) {
     let (runtime_handle, state) = {
@@ -336,7 +337,8 @@ pub extern "C" fn ge_sources_changed() {
 
 /// Called on `OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED` with the saved replay path
 /// (may be null/empty). Wakes the blocked recording save so we never poll.
-/// Safety: `path` must be null or a valid NUL-terminated C string for this call.
+/// # Safety
+/// `path` must be null or a valid NUL-terminated C string for this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ge_replay_buffer_saved(path: *const c_char) {
     let path = if path.is_null() {
