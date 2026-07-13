@@ -52,6 +52,7 @@ fn main() {
         .exclude_item("free")
         .exclude_item("ObsTaskType")
         .exclude_item("ObsTask")
+        .exclude_item("ge_core_trigger_reload")
         .generate()
         .expect("Unable to generate cbindgen bindings")
         .write_to_file(output_file);
