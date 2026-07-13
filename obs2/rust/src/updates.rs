@@ -70,12 +70,15 @@ pub async fn check_for_updates_on_startup(state: AppState) {
 /// stuck waiting out the interval just because an earlier automatic check
 /// already ran this week.
 ///
-/// Records the check time, pushes `UpdateAvailable` over the WebSocket if a
-/// newer release exists, and kicks off staging in the background (staging
-/// alone never touches the running plugin -- only applying it, gated
-/// separately, does). Returns `Ok(None)` both when the plugin is already up
-/// to date and when the settings file is currently invalid (there's nowhere
-/// durable to record the check either way).
+/// Records the check time and pushes `UpdateAvailable` over the WebSocket if a
+/// newer release exists. When the user has opted into automatic installs it
+/// also kicks off staging in the background; without that opt-in the download
+/// waits for an explicit request (see `download_and_stage_latest`) so we never
+/// pull down a release the user hasn't asked for. Staging alone never touches
+/// the running plugin -- only applying it, gated separately, does. Returns
+/// `Ok(None)` both when the plugin is already up to date and when the settings
+/// file is currently invalid (there's nowhere durable to record the check
+/// either way).
 pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<PluginUpdate>> {
     if state.settings.status().file_error.is_some() {
         tracing::info!("settings file is invalid; skipping plugin update check");
@@ -106,18 +109,40 @@ pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<Plu
         tracing::warn!("failed to persist last known plugin update: {err:#}");
     }
 
-    // Reuses this same fetch's asset list rather than fetching the release
-    // again, which would double GitHub API traffic for every check.
-    let update_for_stage = update.clone();
-    let event_tx = state.event_tx.clone();
-    tokio::spawn(async move {
-        if let Err(err) = crate::update_apply::download_verify_and_stage(&update_for_stage, assets).await {
-            tracing::error!("failed to stage plugin update: {err:#}");
-            let _ = event_tx.send(crate::http::MonitorEvent::UpdateStagingFailed { error: format!("{err:#}") });
-        }
-    });
+    // Only download and stage automatically when the user opted into auto
+    // installs. Otherwise the "Download now" button / "download and install"
+    // notice (both via `download_and_stage_latest`) drive the download on an
+    // explicit click, so we don't fetch a release the user hasn't asked for.
+    if state.settings.get().auto_update_enabled {
+        // Reuses this same fetch's asset list rather than fetching the release
+        // again, which would double GitHub API traffic for every check.
+        let update_for_stage = update.clone();
+        let event_tx = state.event_tx.clone();
+        tokio::spawn(async move {
+            if let Err(err) = crate::update_apply::download_verify_and_stage(&update_for_stage, assets).await {
+                tracing::error!("failed to stage plugin update: {err:#}");
+                let _ = event_tx.send(crate::http::MonitorEvent::UpdateStagingFailed { error: format!("{err:#}") });
+            }
+        });
+    }
 
     Ok(Some(update))
+}
+
+/// Fetches the latest release and, if it's newer than what's running,
+/// downloads, verifies, and stages it -- blocking until staging finishes (or
+/// fails). Unlike the background staging `check_for_updates_now` kicks off when
+/// auto-update is enabled, this is the explicit-download path behind the
+/// "Download now" button and the "download and install" notice, so it runs
+/// regardless of the auto-update setting. Returns whether an update was staged
+/// (`false` means the plugin is already up to date). Once this returns `true`,
+/// `POST /api/v1/updates/apply` can install it.
+pub async fn download_and_stage_latest() -> anyhow::Result<bool> {
+    let Some((update, assets)) = fetch_latest_update(crate::PLUGIN_VERSION).await? else {
+        return Ok(false);
+    };
+    crate::update_apply::download_verify_and_stage(&update, assets).await?;
+    Ok(true)
 }
 
 pub fn is_check_due(interval: UpdateCheckInterval, last_check_time: Option<u64>, now: u64) -> bool {

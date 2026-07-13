@@ -451,6 +451,7 @@ pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state
         .route("/api/v1/files/reveal", post(routes::files::handle_reveal))
         .route("/api/v1/updates/open", post(routes::updates::handle_open))
         .route("/api/v1/updates/check", post(routes::updates::handle_check_now))
+        .route("/api/v1/updates/download", post(routes::updates::handle_download_now))
         .route("/api/v1/updates/status", get(routes::updates::handle_status))
         .route("/api/v1/updates/apply", post(routes::updates::handle_apply_now))
         .route(

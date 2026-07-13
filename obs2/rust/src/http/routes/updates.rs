@@ -68,6 +68,25 @@ pub async fn handle_check_now(State(state): State<AppState>) -> Result<impl Into
     Ok(Json(CheckNowResponse { update }))
 }
 
+/// Downloads, verifies, and stages the latest release right now, blocking
+/// until it's ready to apply (or fails). Used by the "Download now" button and
+/// the "download and install" notice when auto-update is off, so the download
+/// only happens on an explicit request rather than automatically after a
+/// check. Callers apply it afterward via `POST /api/v1/updates/apply` (or poll
+/// `GET /api/v1/updates/status`). Returns 404 when the plugin is already up to
+/// date -- there's nothing to download.
+#[axum::debug_handler]
+pub async fn handle_download_now() -> Result<impl IntoResponse> {
+    let staged = crate::updates::download_and_stage_latest().await.map_err(|err| {
+        tracing::error!("manual update download failed: {err:#}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "update download failed").into_response()
+    })?;
+    if !staged {
+        return Err((StatusCode::NOT_FOUND, "no newer release is available to download").into_response().into());
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateStatusResponse {

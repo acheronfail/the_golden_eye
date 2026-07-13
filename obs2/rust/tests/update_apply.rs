@@ -249,6 +249,15 @@ async fn valid_update_is_downloaded_verified_staged_and_can_be_applied() {
     let harness = Harness::start(Duration::ZERO).await;
     let core_path = harness.temp.join(core_leaf);
 
+    // Auto-update defaults off, so the automatic startup check must NOT stage
+    // anything on its own -- the download waits for an explicit request.
+    assert_never_staged(&core_path, Duration::from_secs(1)).await;
+
+    // Explicit "download now": downloads, verifies, and stages, blocking until
+    // it's ready to apply.
+    let download_response = harness.client.post(format!("{API}/api/v1/updates/download")).send().await.unwrap();
+    assert_eq!(download_response.status().as_u16(), 204, "download-now should stage the update");
+
     let staged_bytes = wait_for_staged_core(&core_path).await;
     assert_eq!(staged_bytes, CORE_MARKER_CONTENT);
 
@@ -266,6 +275,85 @@ async fn valid_update_is_downloaded_verified_staged_and_can_be_applied() {
     server.await.unwrap();
 }
 
+/// With auto-update opted in, a check downloads and stages on its own -- no
+/// explicit "download now" needed. The complement of the manual-download path
+/// the other tests exercise.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn check_now_auto_stages_when_auto_update_enabled() {
+    let core_leaf = "golden_core.test";
+    let (base_url, shutdown_tx, server) = start_mock_github(core_leaf, true).await;
+
+    unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", format!("{base_url}/latest")) };
+
+    let harness = Harness::start(Duration::ZERO).await;
+    let core_path = harness.temp.join(core_leaf);
+
+    // Opt into automatic installs, then a manual check should download and
+    // stage on its own.
+    harness.put_settings(json!({ "autoUpdateEnabled": true })).await;
+
+    let check_response = harness.client.post(format!("{API}/api/v1/updates/check")).send().await.unwrap();
+    assert!(check_response.status().is_success(), "check-now request failed: {}", check_response.status());
+
+    let staged_bytes = wait_for_staged_core(&core_path).await;
+    assert_eq!(staged_bytes, CORE_MARKER_CONTENT);
+
+    drop(harness);
+    unsafe { std::env::remove_var("GE_UPDATE_CHECK_URL") };
+    shutdown_tx.send(()).unwrap();
+    server.await.unwrap();
+}
+
+/// With auto-update off (the default), a check finds the newer release but must
+/// NOT download or stage it on its own -- the download waits for an explicit
+/// request. The direct complement of `check_now_auto_stages_when_auto_update_enabled`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn check_now_does_not_stage_when_auto_update_disabled() {
+    let core_leaf = "golden_core.test";
+    // A valid release is available to download -- so anything staged would be a
+    // gating bug, not a download failure.
+    let (base_url, shutdown_tx, server) = start_mock_github(core_leaf, true).await;
+
+    unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", format!("{base_url}/latest")) };
+
+    let harness = Harness::start(Duration::ZERO).await;
+    let core_path = harness.temp.join(core_leaf);
+
+    // Auto-update defaults off, so neither the automatic startup check nor this
+    // manual check should stage anything.
+    let check_response = harness.client.post(format!("{API}/api/v1/updates/check")).send().await.unwrap();
+    assert!(check_response.status().is_success(), "check-now request failed: {}", check_response.status());
+    let check_body: Value = check_response.json().await.unwrap();
+    assert_eq!(
+        check_body["update"]["latestVersion"], LATEST_VERSION,
+        "check-now should still report the newer release: {check_body}"
+    );
+
+    // Nothing should have been staged...
+    assert_never_staged(&core_path, Duration::from_secs(1)).await;
+    let status: Value =
+        harness.client.get(format!("{API}/api/v1/updates/status")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(status["staged"], false, "status endpoint should report nothing staged while auto-update is off");
+
+    // ...and applying is refused because there's nothing staged to apply.
+    let apply_response = harness.client.post(format!("{API}/api/v1/updates/apply")).send().await.unwrap();
+    assert_eq!(apply_response.status().as_u16(), 404, "apply-now should refuse when nothing is staged");
+    assert_eq!(harness.obs.calls().core_trigger_reload, 0);
+
+    // An explicit download is what actually stages it.
+    let download_response = harness.client.post(format!("{API}/api/v1/updates/download")).send().await.unwrap();
+    assert_eq!(download_response.status().as_u16(), 204, "download-now should stage the found update");
+    let staged_bytes = wait_for_staged_core(&core_path).await;
+    assert_eq!(staged_bytes, CORE_MARKER_CONTENT);
+
+    drop(harness);
+    unsafe { std::env::remove_var("GE_UPDATE_CHECK_URL") };
+    shutdown_tx.send(()).unwrap();
+    server.await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn checksum_mismatch_is_never_staged() {
@@ -277,7 +365,11 @@ async fn checksum_mismatch_is_never_staged() {
     let harness = Harness::start(Duration::ZERO).await;
     let core_path = harness.temp.join(core_leaf);
 
-    assert_never_staged(&core_path, Duration::from_secs(2)).await;
+    // A download that fails checksum verification must surface as an error and
+    // leave nothing staged.
+    let download_response = harness.client.post(format!("{API}/api/v1/updates/download")).send().await.unwrap();
+    assert_eq!(download_response.status().as_u16(), 500, "download-now should fail on a checksum mismatch");
+    assert_never_staged(&core_path, Duration::from_secs(1)).await;
 
     let response = harness.client.post(format!("{API}/api/v1/updates/apply")).send().await.unwrap();
     assert_eq!(response.status().as_u16(), 404, "apply-now should refuse when nothing is staged");
@@ -299,6 +391,8 @@ async fn apply_now_is_refused_while_monitoring() {
 
     let harness = Harness::start(Duration::ZERO).await;
     let core_path = harness.temp.join(core_leaf);
+    let download_response = harness.client.post(format!("{API}/api/v1/updates/download")).send().await.unwrap();
+    assert_eq!(download_response.status().as_u16(), 204, "download-now should stage the update");
     wait_for_staged_core(&core_path).await;
 
     let start_response = harness.start_monitor().await;
@@ -350,6 +444,12 @@ async fn manual_check_now_bypasses_the_interval_that_blocked_the_automatic_check
         check_body["update"]["latestVersion"], "v999.0.0",
         "manual check should have found the newer release: {check_body}"
     );
+
+    // Auto-update is off, so finding the release doesn't download it -- that
+    // waits for an explicit "download now."
+    assert_never_staged(&core_path, Duration::from_secs(1)).await;
+    let download_response = harness.client.post(format!("{API}/api/v1/updates/download")).send().await.unwrap();
+    assert_eq!(download_response.status().as_u16(), 204, "download-now should stage the found update");
 
     wait_for_staged_core(&core_path).await;
 

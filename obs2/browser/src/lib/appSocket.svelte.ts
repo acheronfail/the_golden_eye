@@ -1,5 +1,12 @@
 import { browser } from '$app/environment';
-import { connectAppSocket, openUpdateRelease, selfBuildId, type PluginUpdate } from './api';
+import {
+	applyUpdateNow,
+	connectAppSocket,
+	downloadUpdateNow,
+	openUpdateRelease,
+	selfBuildId,
+	type PluginUpdate
+} from './api';
 import {
 	applyLanguageDetected,
 	applyMonitorFps,
@@ -178,19 +185,51 @@ const connect = (): void => {
 	socket = nextSocket;
 };
 
+/** Downloads, verifies, and installs the update the notice is about, keeping
+ * a single progress flag updated throughout. The plugin can install updates
+ * itself, so the notice offers exactly that rather than just linking out to
+ * GitHub. Applying briefly drops the connection while the core swaps in. */
+const downloadAndInstall = async (update: PluginUpdate): Promise<void> => {
+	const progressId = addNotificationFlag({
+		key: 'plugin-update-installing',
+		title: 'Installing update',
+		detail: `Downloading and verifying ${update.latestVersion}...`,
+		tone: 'info',
+		sticky: true
+	}).id;
+	try {
+		await downloadUpdateNow();
+		await applyUpdateNow();
+		replaceNotificationFlag(progressId, {
+			key: 'plugin-update-installing',
+			title: 'Applying update',
+			detail: 'The plugin will briefly reconnect while the update is installed.',
+			tone: 'success'
+		});
+	} catch (err) {
+		replaceNotificationFlag(progressId, {
+			key: 'plugin-update-installing',
+			title: 'Update failed',
+			detail: err instanceof Error ? err.message : String(err),
+			tone: 'error',
+			sticky: true
+		});
+	}
+};
+
 const updateNotification = (update: PluginUpdate) => ({
 	key: 'plugin-update-available',
 	title: 'Plugin update available',
 	detail: `${update.currentVersion} -> ${update.latestVersion}`,
-	meta: 'Click to open the latest GitHub release.',
+	meta: 'Click to download and install.',
 	tone: 'info' as const,
 	sticky: true,
 	action: async () => {
-		try {
-			await openUpdateRelease(update.releaseUrl);
-		} catch (err) {
-			console.warn('Failed to open plugin update release', err);
+		if (updateNotificationId !== null) {
+			dismissNotificationFlag(updateNotificationId);
+			updateNotificationId = null;
 		}
+		await downloadAndInstall(update);
 	}
 });
 

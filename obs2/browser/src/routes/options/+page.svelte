@@ -4,6 +4,7 @@
 	import {
 		applyUpdateNow,
 		checkForUpdateNow,
+		downloadUpdateNow,
 		getUpdateStatus,
 		pickFolder,
 		validateFolder,
@@ -123,54 +124,89 @@
 		settings.updateCheckInterval = (event.currentTarget as HTMLSelectElement).value as UpdateCheckInterval;
 	};
 
-	// null while the initial status fetch is in flight -- treated the same as
-	// `false` for the button label, so it starts as "Check now" rather than
-	// flashing "Apply update now" before we actually know.
-	let updateStaged: boolean | null = $state(null);
-	let updateActionPending = $state(false);
+	// Drives both the update button's label and what clicking it does:
+	//   check       -> "Check now"        (idle)
+	//   checking     -> "Checking…"        (check in flight, disabled)
+	//   download     -> "Download now"      (update found, awaiting an explicit
+	//                                        download because auto-install is off)
+	//   downloading  -> "Downloading…"      (download/verify/stage in flight, disabled)
+	//   apply        -> "Apply update now"  (a verified update is staged)
+	//   applying     -> "Applying…"         (apply in flight, disabled)
+	type UpdateButtonPhase = 'check' | 'checking' | 'download' | 'downloading' | 'apply' | 'applying';
+	let updatePhase = $state<UpdateButtonPhase>('check');
+	const updateActionPending = $derived(
+		updatePhase === 'checking' || updatePhase === 'downloading' || updatePhase === 'applying'
+	);
 
-	const refreshUpdateStatus = async () => {
-		try {
-			updateStaged = (await getUpdateStatus()).staged;
-		} catch (err) {
-			console.warn('Failed to fetch update status', err);
+	// Polls the staging status until a verified update is ready or the timeout
+	// elapses. Tolerates fetch errors (e.g. the server briefly dropping mid
+	// swap) by treating them as "not yet." Returns whether one became ready.
+	const pollUntilStaged = async (timeoutMs: number): Promise<boolean> => {
+		const deadline = Date.now() + timeoutMs;
+		while (Date.now() < deadline) {
+			try {
+				if ((await getUpdateStatus()).staged) return true;
+			} catch (err) {
+				console.warn('Failed to fetch update status', err);
+			}
+			await new Promise((resolve) => setTimeout(resolve, 1000));
 		}
+		return false;
 	};
 
 	// Runs once on mount (nothing reactive is read below, so $effect never
-	// re-fires) -- there's no push-based signal for "something got staged in
-	// the background" to react to instead.
+	// re-fires): reflect an update that was already staged in the background
+	// (e.g. by an automatic install) as "apply now." There's no push-based
+	// signal for "something got staged" to react to instead.
 	$effect(() => {
-		void refreshUpdateStatus();
+		void (async () => {
+			try {
+				if ((await getUpdateStatus()).staged) updatePhase = 'apply';
+			} catch (err) {
+				console.warn('Failed to fetch update status', err);
+			}
+		})();
 	});
 
 	const onCheckForUpdateNow = async () => {
-		updateActionPending = true;
+		updatePhase = 'checking';
 		try {
 			const { update } = await checkForUpdateNow();
 			if (!update) {
 				addNotificationFlag({ title: "You're up to date", tone: 'success' });
+				updatePhase = 'check';
 				return;
 			}
-			// Staging (download + checksum verify) happens in the background;
-			// poll briefly rather than assuming it's instant.
+			if (!settings.autoUpdateEnabled) {
+				// No automatic download -- let the user start it explicitly. No
+				// toast here: the backend's check pushes the sticky "plugin update
+				// available" notice over the WebSocket, and the button itself
+				// flips to "Download now," so a second "update found" toast would
+				// just be noise.
+				updatePhase = 'download';
+				return;
+			}
+			// Auto-install is on, so the backend is already downloading in the
+			// background; wait for it to finish staging. With auto-update on the
+			// sticky notice is suppressed (the plugin handles it itself), so this
+			// toast is the only feedback for the interaction.
 			addNotificationFlag({
 				title: 'Update found',
 				detail: `Downloading and verifying ${update.latestVersion}...`,
 				tone: 'info'
 			});
-			const deadline = Date.now() + 30_000;
-			while (Date.now() < deadline) {
-				await refreshUpdateStatus();
-				if (updateStaged) break;
-				await new Promise((resolve) => setTimeout(resolve, 1000));
-			}
-			if (!updateStaged) {
+			updatePhase = 'downloading';
+			if (await pollUntilStaged(30_000)) {
+				updatePhase = 'apply';
+			} else {
 				addNotificationFlag({
 					title: 'Still downloading',
-					detail: "Check again shortly -- it's taking longer than expected.",
+					detail: "It's taking longer than expected -- finish it from the button.",
 					tone: 'info'
 				});
+				// Offer an actionable button rather than a stuck spinner; the
+				// download endpoint just finishes what's already in flight.
+				updatePhase = 'download';
 			}
 		} catch (err) {
 			addNotificationFlag({
@@ -178,13 +214,28 @@
 				detail: err instanceof Error ? err.message : String(err),
 				tone: 'error'
 			});
-		} finally {
-			updateActionPending = false;
+			updatePhase = 'check';
+		}
+	};
+
+	const onDownloadUpdateNow = async () => {
+		updatePhase = 'downloading';
+		try {
+			// Resolves only once the update is downloaded, verified, and staged.
+			await downloadUpdateNow();
+			updatePhase = 'apply';
+		} catch (err) {
+			addNotificationFlag({
+				title: 'Update download failed',
+				detail: err instanceof Error ? err.message : String(err),
+				tone: 'error'
+			});
+			updatePhase = 'download';
 		}
 	};
 
 	const onApplyUpdateNow = async () => {
-		updateActionPending = true;
+		updatePhase = 'applying';
 		try {
 			await applyUpdateNow();
 			addNotificationFlag({
@@ -194,15 +245,20 @@
 			});
 			// The actual swap (unload old core, install new, reload) happens in
 			// the background and briefly drops the HTTP server -- keep the
-			// button disabled and poll (tolerating connection errors during
-			// that gap; refreshUpdateStatus already swallows them) until the
-			// staged update is gone, rather than re-enabling it while the swap
-			// is still in flight.
+			// button disabled and poll (tolerating connection errors during that
+			// gap) until the staged update is gone, rather than re-enabling it
+			// while the swap is still in flight.
 			const deadline = Date.now() + 20_000;
-			while (Date.now() < deadline && updateStaged) {
+			let stillStaged = true;
+			while (Date.now() < deadline && stillStaged) {
 				await new Promise((resolve) => setTimeout(resolve, 1000));
-				await refreshUpdateStatus();
+				try {
+					stillStaged = (await getUpdateStatus()).staged;
+				} catch {
+					// Server is briefly gone mid-swap; keep waiting.
+				}
 			}
+			updatePhase = stillStaged ? 'apply' : 'check';
 		} catch (err) {
 			addNotificationFlag({
 				title: 'Could not apply update',
@@ -210,11 +266,13 @@
 				tone: 'error'
 			});
 			// The failure might mean it was never staged in the first place
-			// (e.g. it got applied or cleared by another client) -- refresh
-			// rather than leaving a stale "Apply update now" showing.
-			void refreshUpdateStatus();
-		} finally {
-			updateActionPending = false;
+			// (e.g. it got applied or cleared by another client) -- reflect the
+			// real status rather than leaving a stale "Apply update now" showing.
+			try {
+				updatePhase = (await getUpdateStatus()).staged ? 'apply' : 'check';
+			} catch {
+				updatePhase = 'apply';
+			}
 		}
 	};
 
@@ -489,7 +547,8 @@
 					{/each}
 				</select>
 				<p class={hintClass}>
-					Checks GitHub releases on app startup and shows a sticky notice when a newer version exists.
+					Checks GitHub releases on app startup and shows a notice to download and install a newer version when one
+					exists.
 				</p>
 			</section>
 
@@ -507,13 +566,17 @@
 					in progress). The plugin keeps running throughout -- no OBS restart needed.
 				</p>
 				<div>
-					{#if updateStaged}
+					{#if updatePhase === 'apply' || updatePhase === 'applying'}
 						<button type="button" class={pathButtonClass} disabled={updateActionPending} onclick={onApplyUpdateNow}>
-							{updateActionPending ? 'Applying…' : 'Apply update now'}
+							{updatePhase === 'applying' ? 'Applying…' : 'Apply update now'}
+						</button>
+					{:else if updatePhase === 'download' || updatePhase === 'downloading'}
+						<button type="button" class={pathButtonClass} disabled={updateActionPending} onclick={onDownloadUpdateNow}>
+							{updatePhase === 'downloading' ? 'Downloading…' : 'Download now'}
 						</button>
 					{:else}
 						<button type="button" class={pathButtonClass} disabled={updateActionPending} onclick={onCheckForUpdateNow}>
-							{updateActionPending ? 'Checking…' : 'Check now'}
+							{updatePhase === 'checking' ? 'Checking…' : 'Check now'}
 						</button>
 					{/if}
 				</div>
