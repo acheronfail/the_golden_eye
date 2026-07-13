@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
 
   ge_core_handle *handle = NULL;
   char err[256];
-  CHECK(ge_core_open(canonical, NULL, false, dummy_request_reload, &handle, err, sizeof(err)),
+  CHECK(ge_core_open(canonical, canonical, NULL, false, dummy_request_reload, &handle, err, sizeof(err)),
         "initial open failed: %s", err);
 
   // --- Scenario 1: nothing staged -- reload should fail without touching
@@ -73,6 +73,8 @@ int main(int argc, char **argv) {
   char empty_staged[PATH_MAX];
   CHECK(test_make_subdir(work_dir, "empty_staged", empty_staged, sizeof(empty_staged)),
         "failed to create empty_staged");
+
+  CHECK(!ge_core_staged_present(canonical, empty_staged), "an empty staged dir should report nothing present");
 
   bool ok = ge_core_reload(&handle, canonical, empty_staged, NULL, dummy_request_reload, err, sizeof(err));
   CHECK(!ok, "reload with nothing staged should report failure");
@@ -109,10 +111,28 @@ int main(int argc, char **argv) {
   // Deliberately no canonical "locale" dir yet -- covers the had_old=false
   // branch for that one.
 
+  CHECK(ge_core_staged_present(canonical, staged_v2), "a populated staged dir should report a core present");
+
+  char canonical_out[PATH_MAX];
+  test_join(canonical_out, sizeof(canonical_out), work_dir, "canonical_out.txt");
+  test_set_env("GE_FIXTURE_CANONICAL_OUT", canonical_out);
+
   remove(log_path);
   ok = ge_core_reload(&handle, canonical, staged_v2, NULL, dummy_request_reload, err, sizeof(err));
   CHECK(ok, "reload to fixture_v2 should succeed: %s", err);
   CHECK(handle != NULL, "handle should be non-NULL after a successful reload");
+
+  // Regression: the reloaded core loads from the staged copy but must be told its
+  // canonical install path -- otherwise its own staged-update lookups resolve
+  // against the staged dir (which the reload just deleted), so no later hot-reload
+  // is ever detected.
+  char *reported_canonical = test_read_file(canonical_out);
+  CHECK(reported_canonical != NULL, "expected the reloaded core to record its canonical path");
+  if (reported_canonical) {
+    CHECK(strcmp(reported_canonical, canonical) == 0, "reloaded core should be told the canonical path '%s', got '%s'",
+          canonical, reported_canonical);
+    free(reported_canonical);
+  }
 
   ge_core_handle_post_load(handle);
 
@@ -147,7 +167,7 @@ int main(int argc, char **argv) {
   ge_core_close(handle);
   handle = NULL;
   CHECK(test_copy_file(fixture_v1, canonical), "failed to reset canonical core to fixture_v1");
-  CHECK(ge_core_open(canonical, NULL, false, dummy_request_reload, &handle, err, sizeof(err)),
+  CHECK(ge_core_open(canonical, canonical, NULL, false, dummy_request_reload, &handle, err, sizeof(err)),
         "re-open before rollback scenario failed: %s", err);
 
   char staged_bad[PATH_MAX];

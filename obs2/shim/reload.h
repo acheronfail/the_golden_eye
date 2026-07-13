@@ -21,8 +21,8 @@ typedef struct ge_core_handle ge_core_handle;
 // Opens `canonical_path` via a fresh temp copy (never the canonical path, so no
 // loader hands back a stale image) and calls its ge_core_load(...). On failure
 // returns false with a message in err. is_reload=true only for a reload's new core.
-bool ge_core_open(const char *canonical_path, void *module_arg, bool is_reload, ge_request_reload_fn request_reload,
-                  ge_core_handle **out_handle, char *err, size_t err_size);
+bool ge_core_open(const char *load_path, const char *canonical_path, void *module_arg, bool is_reload,
+                  ge_request_reload_fn request_reload, ge_core_handle **out_handle, char *err, size_t err_size);
 
 // Calls the handle's ge_core_post_load(). No-op if NULL. Named distinctly from
 // the core's own ge_core_post_load() (dlsym'd), since core.c includes this header.
@@ -31,6 +31,13 @@ void ge_core_handle_post_load(ge_core_handle *handle);
 // Calls the handle's ge_core_unload(), then closes the dynlib handle and
 // removes its temp copy. No-op if handle is NULL.
 void ge_core_close(ge_core_handle *handle);
+
+// Whether staged_dir currently holds a core ready to swap in. The reload worker
+// can be woken with nothing staged -- `just dev` POSTs /updates/apply while the
+// dev auto-apply loop also polls, so one staged core can trigger two wakeups; the
+// first applies (and deletes) it, leaving the second a no-op. Callers use this to
+// tell that benign case apart from a real ge_core_reload failure.
+bool ge_core_staged_present(const char *canonical_path, const char *staged_dir);
 
 // Replaces *handle with a staged version from staged_dir; the old core is fully
 // closed before the new one opens (never both -- they share a fixed TCP port). On

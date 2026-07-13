@@ -21,8 +21,11 @@ from types import FrameType
 from typing import NoReturn, Optional
 
 
+IS_LINUX = sys.platform.startswith("linux")
+
 ROOT = Path(__file__).resolve().parents[2]
 BUILD_DIR = ROOT / "obs2" / "build"
+PLUGIN_BUILD_DIR = ROOT / "obs2" / "build-flatpak" if IS_LINUX else BUILD_DIR
 RUST_SRC = ROOT / "obs2" / "rust" / "src"
 RUST_MANIFEST = ROOT / "obs2" / "rust" / "Cargo.toml"
 PLUGIN_NAME = "the_golden_eye"
@@ -30,14 +33,11 @@ API_BASE = "http://127.0.0.1:31337"
 
 
 def obs_plugin_paths() -> tuple[Path, Path]:
-    if sys.platform == "darwin":
-        return BUILD_DIR, BUILD_DIR
-
-    if sys.platform.startswith("linux"):
+    if IS_LINUX:
         arch_dir = "64bit" if sys.maxsize > 2**32 else "32bit"
-        return BUILD_DIR / "%module%" / "bin" / arch_dir, BUILD_DIR / "%module%" / "data"
+        return PLUGIN_BUILD_DIR / "%module%" / "bin" / arch_dir, PLUGIN_BUILD_DIR / "%module%" / "data"
 
-    return BUILD_DIR, BUILD_DIR
+    return PLUGIN_BUILD_DIR, PLUGIN_BUILD_DIR
 
 
 def core_runtime_dir() -> Path:
@@ -45,13 +45,13 @@ def core_runtime_dir() -> Path:
     on-disk path, unlike obs_plugin_paths()'s `%module%` placeholder (which
     OBS itself substitutes when scanning, not something to resolve here)."""
     if sys.platform == "darwin":
-        return BUILD_DIR / f"{PLUGIN_NAME}.plugin" / "Contents" / "MacOS"
+        return PLUGIN_BUILD_DIR / f"{PLUGIN_NAME}.plugin" / "Contents" / "MacOS"
 
-    if sys.platform.startswith("linux"):
+    if IS_LINUX:
         arch_dir = "64bit" if sys.maxsize > 2**32 else "32bit"
-        return BUILD_DIR / PLUGIN_NAME / "bin" / arch_dir
+        return PLUGIN_BUILD_DIR / PLUGIN_NAME / "bin" / arch_dir
 
-    return BUILD_DIR
+    return PLUGIN_BUILD_DIR
 
 
 def find_core_library(runtime_dir: Path) -> Path:
@@ -188,7 +188,11 @@ def rust_watch_loop(manager: ProcessManager, stop_event: threading.Event) -> Non
 
         last_seen = time.time()
         print("[dev] rust change detected; rebuilding core...", flush=True)
-        proc = manager.start(["cmake", "--build", ".", "--target", "golden_core"], cwd=BUILD_DIR)
+        if IS_LINUX:
+            # Relinking happens inside the Flatpak SDK for linux
+            proc = manager.start(["just", "_dev-relink"], cwd=ROOT)
+        else:
+            proc = manager.start(["cmake", "--build", ".", "--target", "golden_core"], cwd=BUILD_DIR)
         result = proc.wait()
         manager.forget(proc)
 
@@ -228,19 +232,26 @@ def main() -> int:
     install_signal_handlers(manager, stop_event)
 
     try:
-        manager.run(["just", "configure-dev"])
-        manager.run(["cmake", "--build", "obs2/build"])
+        if IS_LINUX:
+            # Linux needs to build in the flatpak env
+            manager.run(["just", "_dev-build"])
+        else:
+            manager.run(["just", "configure-dev"])
+            manager.run(["cmake", "--build", "obs2/build"])
 
         vite = manager.start(["npm", "run", "dev"], cwd=ROOT / "obs2" / "browser")
 
         watcher = threading.Thread(target=rust_watch_loop, args=(manager, stop_event), daemon=True)
         watcher.start()
 
-        plugin_path, data_path = obs_plugin_paths()
-        env = os.environ.copy()
-        env["OBS_PLUGINS_PATH"] = str(plugin_path)
-        env["OBS_PLUGINS_DATA_PATH"] = str(data_path)
-        obs = manager.start(["obs"], env=env)
+        if IS_LINUX:
+            obs = manager.start(["just", "_run-obs-flatpak"], cwd=ROOT)
+        else:
+            plugin_path, data_path = obs_plugin_paths()
+            env = os.environ.copy()
+            env["OBS_PLUGINS_PATH"] = str(plugin_path)
+            env["OBS_PLUGINS_DATA_PATH"] = str(data_path)
+            obs = manager.start(["obs"], env=env)
         obs_status = obs.wait()
         manager.forget(obs)
 
