@@ -38,10 +38,17 @@ impl Harness {
 
         // The integration recipe runs ignored tests serially, so changing config
         // env before the backend creates threads is safe and keeps SettingsStore
-        // away from developer/CI runner settings.
+        // away from developer/CI runner settings. Windows code reads APPDATA/
+        // USERPROFILE instead of HOME/XDG_CONFIG_HOME (default_settings_path in
+        // settings.rs, home_dir in http/routes/{folders,runs}.rs) -- without
+        // overriding those too, every test on Windows shares the real,
+        // persistent %APPDATA%\The Golden Eye\settings.json, so state like
+        // `lastUpdateCheckTime` leaks across tests (and processes).
         unsafe {
             std::env::set_var("HOME", &temp);
             std::env::set_var("XDG_CONFIG_HOME", temp.join(".config"));
+            std::env::set_var("APPDATA", &temp);
+            std::env::set_var("USERPROFILE", &temp);
         }
 
         // Lives under the per-test temp dir (not the repo's real build
