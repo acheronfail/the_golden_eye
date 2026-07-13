@@ -3,10 +3,7 @@
 
 // Small helpers shared by every obs2/shim test binary: a failure-counting
 // CHECK macro plus temp directories, whole-file copy/compare, and env vars.
-// Each test_*.c file defines its own `static int g_failures = 0;` before
-// using CHECK (see any test_*.c for the pattern) -- kept per translation
-// unit rather than shared across binaries, since every test file here is
-// its own standalone executable with its own main().
+// Each test_*.c defines its own `static int g_failures = 0;` (per standalone main()).
 
 #include <stdbool.h>
 #include <stdio.h>

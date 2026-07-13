@@ -1,21 +1,8 @@
 #!/usr/bin/env python3
 
-# Builds the current source tree as a fake "newer" release package (bumping
-# GE_PLUGIN_VERSION so it's guaranteed newer than whatever's actually
-# running) and serves it, plus a checksums.txt, from a local HTTP server
-# that mimics GitHub's releases API shape closely enough for
-# obs2/rust/src/update_apply.rs to consume it unmodified. This is for
-# smoke-testing the production auto-update flow end to end with `just obs`,
-# without touching the real GitHub repo or waiting for an actual release.
-#
-# Usage:
-#   just simulate-update
-#   # in another terminal, once this prints its URL:
-#   GE_UPDATE_CHECK_URL=http://127.0.0.1:8990/latest just obs
-#
-# Then, in the plugin's options page, either turn on "Automatically install
-# updates" or click "Apply update now" once the "Plugin update available"
-# notice appears.
+# Builds the source tree as a fake "newer" release (bumped GE_PLUGIN_VERSION) and
+# serves it plus checksums.txt from a local HTTP server mimicking GitHub's releases API,
+# to smoke-test auto-update end to end. Usage: `just simulate-update` (see README/repo).
 
 from __future__ import annotations
 

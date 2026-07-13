@@ -2,9 +2,8 @@
 #define GE_RELOAD_PLATFORM_H
 
 // Platform-specific primitives used by reload.c's platform-agnostic
-// open/close/reload orchestration and worker thread loop. Implemented once
-// per platform in reload_win32.c / reload_unix.c, so reload.c itself never
-// needs an #ifdef _WIN32.
+// orchestration, implemented per platform in reload_win32.c / reload_unix.c
+// so reload.c itself never needs an #ifdef _WIN32.
 
 #include <limits.h>
 #include <stdbool.h>

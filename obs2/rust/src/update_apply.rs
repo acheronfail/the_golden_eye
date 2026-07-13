@@ -1,13 +1,6 @@
-//! Downloads, verifies, stages, and applies plugin updates while OBS keeps
-//! running. `updates.rs` only checks for and announces an update (fetch
-//! latest release, compare semver); this module owns everything after that:
-//! picking the right release asset, verifying it against `checksums.txt`,
-//! staging it next to the running core library, and -- once it's safe to do
-//! so -- asking the shim to swap it in.
-//!
-//! The staging directory (`.ge_update_staged`, a sibling of the core
-//! library) is a convention shared with `obs2/shim/reload.c`/`plugin.c`;
-//! neither side depends on the other's code, only on this fixed name.
+//! Downloads, verifies, stages, and applies plugin updates while OBS runs (`updates.rs`
+//! only detects/announces). Picks the release asset, verifies vs `checksums.txt`, stages
+//! into `.ge_update_staged` (a name shared with reload.c/plugin.c), then asks the shim.
 
 use std::ffi::OsStr;
 use std::io::Read;
@@ -26,10 +19,9 @@ const CHECKSUMS_ASSET_NAME: &str = "checksums.txt";
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 const AUTO_APPLY_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
-/// The exact `<platform>-<arch>` suffix `Package.cmake` bakes into release
-/// zip filenames (`the_golden_eye-<suffix>.zip`), including its
-/// `aarch64` -> `arm64` normalization -- Rust's own `std::env::consts::ARCH`
-/// reports `"aarch64"`, which would never match a real asset name otherwise.
+/// The exact `<platform>-<arch>` suffix `Package.cmake` bakes into release zip names
+/// (`the_golden_eye-<suffix>.zip`), including its `aarch64` -> `arm64` normalization
+/// (Rust's `std::env::consts::ARCH` reports `"aarch64"`, which wouldn't match).
 fn platform_arch_suffix() -> Option<&'static str> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("macos", "aarch64") => Some("macos-arm64"),
@@ -46,11 +38,9 @@ fn asset_zip_name() -> anyhow::Result<String> {
     Ok(format!("the_golden_eye-{suffix}.zip"))
 }
 
-/// The shim's canonical, on-disk path for this core library -- set once by
-/// `ge_core_load` via `ge_rust_set_core_path` (see `lib.rs::core_path`).
-/// Deliberately NOT `ge_obs_module_binary_path()`: that reports the OBS
-/// module's path, which is the *shim's* file (the shim is what OBS actually
-/// registered), not the core's.
+/// The shim's canonical on-disk path for this core library, set by `ge_core_load` via
+/// `ge_rust_set_core_path` (see `lib.rs::core_path`). NOT `ge_obs_module_binary_path()`,
+/// which reports the *shim's* file (the OBS-registered module), not the core's.
 fn canonical_core_path() -> anyhow::Result<PathBuf> {
     crate::core_path().context("core canonical path not set (ge_core_load hasn't run yet?)")
 }
@@ -67,11 +57,9 @@ pub fn has_staged_update() -> bool {
     dir.join(STAGED_DIR_NAME).join(leaf).is_file()
 }
 
-/// No active monitor session and no in-flight recording/replay-buffer
-/// activity. Shared by the auto-apply loop and the manual "apply now"
-/// endpoint -- callers should re-check this immediately before triggering,
-/// not just when an update was first staged, to close the gap between "it
-/// was safe" and "it's still safe."
+/// No active monitor session and no in-flight recording/replay-buffer activity.
+/// Shared by the auto-apply loop and manual "apply now" -- re-check immediately
+/// before triggering (not just when staged) to close the "was safe"/"still safe" gap.
 pub fn is_safe_to_apply(state: &AppStateInner) -> bool {
     let no_monitor = state.monitor.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).is_none();
     let no_recording = state.recording_state.current().is_none();
@@ -79,29 +67,16 @@ pub fn is_safe_to_apply(state: &AppStateInner) -> bool {
     no_monitor && no_recording && no_replay_buffer
 }
 
-/// Wakes the shim's reload worker thread to apply whatever is currently
-/// staged. Must run on a plain OS thread, never on a tokio worker of the
-/// runtime this call is about to ask to be torn down -- `ge_rust_stop()`
-/// (which the reload triggers) blocks the calling thread, and tokio refuses
-/// to drop a runtime from within one of its own workers. See
-/// `obs2/rust/tests/support/harness.rs`'s `Drop` impl for the same hazard.
+/// Wakes the shim's reload worker to apply whatever is staged. Must run on a plain OS
+/// thread, never a tokio worker of the runtime being torn down: `ge_rust_stop()` (the
+/// reload triggers it) blocks, and tokio refuses to drop a runtime from its own worker.
 pub fn trigger_apply() {
     std::thread::spawn(|| unsafe { crate::ffi::ge_core_trigger_reload() });
 }
 
-/// Background task: periodically applies a staged update on its own, but
-/// only when the user has opted in (`autoUpdateEnabled`) and it's currently
-/// safe to do so. Spawned once from `ge_rust_start`.
-///
-/// Dev builds (`cfg!(feature = "dev")`, set by CMake when `BROWSER_DEV=ON`)
-/// always count as opted in, regardless of the setting -- this loop doubles
-/// as `just dev`'s hot-reload fallback: `obs2/scripts/dev.py` stages a
-/// freshly rebuilt core and pokes `/api/v1/updates/apply` directly for an
-/// immediate reload, and this loop picks it up shortly after on its own if
-/// that poke was refused (e.g. a monitor session was active at that
-/// instant). The `dev` feature never ships in a packaged build, so this
-/// can't affect real users. Polls faster in dev builds so that fallback
-/// isn't sluggish.
+/// Background task: periodically applies a staged update when opted in
+/// (`autoUpdateEnabled`) and safe. Spawned once from `ge_rust_start`. Dev builds
+/// always count as opted in and poll faster (hot-reload fallback for `just dev`).
 pub async fn auto_apply_when_safe(state: AppState) {
     let poll_interval = if cfg!(feature = "dev") { Duration::from_secs(2) } else { AUTO_APPLY_CHECK_INTERVAL };
     let mut interval = tokio::time::interval(poll_interval);
@@ -121,14 +96,9 @@ pub async fn auto_apply_when_safe(state: AppState) {
     }
 }
 
-/// Downloads, verifies, and stages the release matching `update`. On
-/// success, `.ge_update_staged/` (see `STAGED_DIR_NAME`) contains a
-/// checksum-verified core library plus, best-effort, `cv_templates`/`locale`
-/// extracted from the release package -- ready for `trigger_apply`.
-///
-/// `assets` comes from the same GitHub API response `updates.rs` already
-/// fetched to detect this update; re-fetching it here would double GitHub
-/// API traffic for every check.
+/// Downloads, verifies, and stages the release matching `update`. On success
+/// `.ge_update_staged/` holds a checksum-verified core plus best-effort
+/// `cv_templates`/`locale`, ready for `trigger_apply`. `assets` is reused from `updates.rs`.
 pub async fn download_verify_and_stage(update: &PluginUpdate, assets: Vec<GithubAsset>) -> anyhow::Result<()> {
     let install_dir = install_dir()?;
     let core_leaf_name =
@@ -253,10 +223,9 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Recursively searches `root` for a file or directory whose exact leaf name
-/// is `name`. The release package's internal layout differs per platform
-/// (macOS bundle vs Linux/Windows bin+data directories), so this searches
-/// rather than assuming a fixed relative path.
+/// Recursively searches `root` for a file or directory whose leaf name is `name`.
+/// The release package's layout differs per platform (macOS bundle vs Linux/Windows
+/// bin+data), so this searches rather than assuming a fixed relative path.
 fn find_named(root: &Path, name: &OsStr) -> Option<PathBuf> {
     let entries = std::fs::read_dir(root).ok()?;
     let mut subdirs = Vec::new();

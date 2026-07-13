@@ -2,11 +2,8 @@
 #define GE_FIXTURE_COMMON_H
 
 // Shared by every generation of the fixture core library (see fixture.c).
-// Appends a line to the file named by the GE_FIXTURE_LOG env var each time
-// one of the fixture's ABI entry points runs, so test_reload.c can observe
-// cross-instance ordering: each dlopen of "the same" library gets its own
-// fresh statics, so an in-process counter can't see across separate opens
-// the way a file on disk can.
+// Appends to the GE_FIXTURE_LOG file each time an ABI entry point runs, so
+// test_reload.c can observe cross-instance ordering (statics reset per dlopen).
 
 #include <stdio.h>
 #include <stdlib.h>

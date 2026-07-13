@@ -33,18 +33,13 @@ pub struct AppStateInner {
     /// The currently running monitor, if any. Enforces a single monitor at a
     /// time: `/api/v1/monitor/start` fails while this is `Some`.
     pub monitor: std::sync::Mutex<Option<routes::monitor::MonitorHandle>>,
-    /// Latest `LevelMatch` from the running monitor, broadcast to connected
-    /// WebSocket clients. `None` when no monitor is running (set on stop). The
-    /// monitor worker only sends a new value when the matched state changes
-    /// (ignoring `runtime_ms`), so subscribers aren't flooded with duplicates.
-    /// `watch` retains the latest value, so a client connecting mid-run sees the
-    /// current match immediately.
+    /// Latest `LevelMatch` from the running monitor (`None` when stopped). A
+    /// `watch` channel: only sent when the matched state changes (ignoring
+    /// `runtime_ms`), and retained so a mid-run client sees the current match.
     pub match_tx: watch::Sender<Option<LevelMatch>>,
     /// One-off monitor events broadcast to connected WebSocket clients (e.g. a
-    /// run's clip being saved). Unlike `match_tx`, this carries only discrete
-    /// events rather than retained state: a `broadcast` channel fans each event
-    /// out to every current subscriber and keeps nothing for late joiners. Send
-    /// errors (no subscribers) are ignored at the call sites.
+    /// clip being saved). A `broadcast` channel: discrete events, nothing retained
+    /// for late joiners. Send errors (no subscribers) are ignored at call sites.
     pub event_tx: broadcast::Sender<MonitorEvent>,
     /// Latest recorder phase from the running monitor. This is retained so a
     /// page reload or second browser can see "recording" / "saving" / etc.
@@ -63,14 +58,9 @@ pub struct AppStateInner {
     pub update_tx: watch::Sender<Option<crate::updates::PluginUpdate>>,
     /// Plugin-owned user settings, loaded from and persisted to JSON.
     pub settings: crate::settings::SettingsStore,
-    /// `Some(when this core started)` if this core load followed a successful
-    /// update apply (not a cold OBS start, not a rollback) -- see
-    /// `crate::WAS_RELOADED`. A client connecting shortly after gets a one-off
-    /// "plugin updated" notice (see `routes::monitor::handle_socket`); checked
-    /// against a grace period rather than sent once via a channel, since a
-    /// `broadcast` send at startup could race a client that hasn't reconnected
-    /// yet and a `watch` value would never look "new" again after the first
-    /// client consumes it.
+    /// `Some(start instant)` if this core load followed a successful update apply
+    /// (see `crate::WAS_RELOADED`), so a client connecting within a grace period
+    /// gets a one-off "plugin updated" notice (see `routes::monitor::handle_socket`).
     pub reloaded_at: Option<std::time::Instant>,
 }
 
@@ -81,21 +71,15 @@ pub struct StreamMessage {
     pub webhook_url: String,
 }
 
-/// Messages pushed to app WebSocket clients, serialized internally tagged by
-/// `type` so the SPA can discriminate them. `Version` is sent once per
-/// connection (a handshake); `Sources`, `Match`, and `RecordingState` ride watch
-/// channels (latest-wins, replayed on connect); `RecordingSavePending`,
-/// `LanguageDetected`, `RecordingSaved`, `MonitorStopped`, and
-/// `UpdateStagingFailed` ride `event_tx` (one-off, delivered only to
-/// currently-connected clients).
+/// Messages pushed to app WebSocket clients, internally tagged by `type` for
+/// the SPA. Some variants ride watch channels (latest-wins, replayed on
+/// connect); others ride `event_tx` (one-off, only to connected clients).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum MonitorEvent {
-    /// Sent once when a client connects: the build id of the SPA this backend
-    /// serves. The SPA compares it against the build it was itself served with
-    /// (a `<meta>` tag injected into its HTML) and reloads if they differ, so a
-    /// stale tab -- an older cached page, or one left open across a plugin
-    /// update -- picks up the new frontend. See [`routes::index::BUILD_ID`].
+    /// Sent once on connect: the build id of the SPA this backend serves. The
+    /// SPA compares it against its own served build and reloads on mismatch, so
+    /// a stale tab picks up the new frontend. See [`routes::index::BUILD_ID`].
     Version {
         #[serde(rename = "buildId")]
         build_id: String,
@@ -140,12 +124,9 @@ pub enum MonitorEvent {
     /// can show a one-off "plugin updated" notice. See `AppStateInner::reloaded_at`.
     UpdateApplied {
         version: String,
-        /// The GitHub release page for `version`, when the persisted "last
-        /// known update" (see `crate::settings::AppSettings::last_known_update_version`)
-        /// exactly matches the version now running -- i.e. the update really is
-        /// the one that was just applied, not some other update discovered
-        /// later that hasn't been applied yet. `None` otherwise, so the SPA
-        /// never shows a changelog link for the wrong release.
+        /// GitHub release page for `version`, but only when the persisted
+        /// `last_known_update_version` matches the running version (i.e. this is
+        /// the update just applied). `None` otherwise, to avoid a wrong link.
         #[serde(rename = "releaseUrl", skip_serializing_if = "Option::is_none")]
         release_url: Option<String>,
     },
@@ -197,22 +178,17 @@ pub enum RecordingStatus {
     /// The "killed in action" report screen was seen during the active run
     /// (another failure variant, distinguished for the UI).
     Kia,
-    /// The mission-complete report screen was reached: the run is a success.
-    /// Emitted once per run -- on the first sight of the complete screen, or, if
-    /// a failure was flagged earlier this run, to clear it (so the SPA can leave
-    /// the "failed" state).
+    /// The mission-complete report screen was reached: the run succeeded.
+    /// Emitted once per run -- on first sight, or to clear an earlier-flagged
+    /// failure (so the SPA can leave the "failed" state).
     Complete,
-    /// The stats screen was bypassed on a *completed* run: the user backed out of
-    /// the mission-complete report screen straight to the level grid, so the run
-    /// ended without the stats screen ever showing. The clip is still saved (on
-    /// the same timer as the stats path) and a [`MonitorEvent::RecordingSaved`]
-    /// still follows. A *failed* run backing out this way is its normal ending, so
-    /// it emits [`RecordingStatus::SavePending`] instead (not "skipped stats").
+    /// A *completed* run backed out of the report screen to the level grid,
+    /// bypassing the stats screen. The clip is still saved and a
+    /// [`MonitorEvent::RecordingSaved`] follows. (A failed run does this normally.)
     StatsSkipped,
-    /// A failed run reached an ending screen, but the active recording
-    /// configuration says not to save it (failed-run saving is disabled, or the
-    /// stats-screen run time, falling back to detected duration, is shorter
-    /// than the configured minimum failed-run length).
+    /// A failed run reached an ending screen, but the active recording config
+    /// says not to save it (failed-run saving disabled, or the run time is
+    /// shorter than the configured minimum failed-run length).
     FailedDiscarded,
     /// A run ended at the stats screen (or, via `StatsSkipped`, the report
     /// screen): a save has been scheduled and will fire a few seconds later. A
@@ -392,19 +368,9 @@ async fn log_requests(req: Request, next: Next) -> Response {
     response
 }
 
-/// Binds the server's listening socket synchronously (no `.await`), so a
-/// caller like `ge_rust_start` can know immediately whether the port bound
-/// successfully instead of finding out later, asynchronously, after
-/// `ge_core_load` has already returned `true`. Registering a tokio
-/// `TcpListener` still requires an active runtime context, so callers must
-/// invoke this from inside a `runtime.enter()` guard even though nothing
-/// here is `async`.
-///
-/// Uses `SO_REUSEADDR` so we can rebind the port immediately after a
-/// previous server instance is torn down — without it, a client socket
-/// lingering in TIME_WAIT makes the bind fail with "address already in use",
-/// which is exactly what happens across a reload (stop server, start a new
-/// one on the same port).
+/// Binds the listening socket synchronously so callers (e.g. `ge_rust_start`)
+/// learn immediately whether the port bound. Must run inside a `runtime.enter()`
+/// guard; sets `SO_REUSEADDR` so the port can rebind across a reload (TIME_WAIT).
 pub fn bind_listener() -> std::io::Result<TcpListener> {
     let addr = SocketAddr::from(([0, 0, 0, 0], SERVER_PORT));
     let socket = TcpSocket::new_v4()?;

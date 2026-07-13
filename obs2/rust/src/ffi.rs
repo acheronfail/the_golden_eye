@@ -1,24 +1,16 @@
 use std::ffi::{c_char, c_void};
 
-/// Opaque capture context owning the reusable OBS render/stage surfaces. Create
-/// one with [`ge_capture_create`], capture frames through it with
-/// [`ge_capture_get_frame`], and release it with [`ge_capture_destroy`]. A
-/// repeated caller (the monitor loop) holds one of these so the GPU surfaces
-/// aren't recreated per frame.
+/// Opaque capture context owning reusable OBS render/stage surfaces. Create with
+/// [`ge_capture_create`], capture via [`ge_capture_get_frame`], release with
+/// [`ge_capture_destroy`]. The monitor loop holds one so GPU surfaces persist.
 #[repr(C)]
 pub struct GeCaptureCtx {
     _private: [u8; 0],
 }
 
-/// Optional capture transform handed to [`ge_capture_get_frame`] once the
-/// matcher has calibrated the source's true 4:3 picture. `crop_*` are fractions
-/// in `[0, 1]` of the source; only that sub-rectangle is rendered, scaled per
-/// axis to fill `out_width` x `out_height`. Mirrors `struct ge_capture_region`
-/// in `obs_bridge.h` -- the field layout must stay in sync.
-/// Signature of an OBS per-frame render callback, as registered by
-/// [`ge_obs_register_frame_callback`]. Invoked once per rendered frame on the
-/// graphics thread, inside an active graphics context. `cx`/`cy` are the main
-/// canvas dimensions (unused by the monitor, which captures a named source).
+/// Optional capture transform for [`ge_capture_get_frame`]: `crop_*` are `[0,1]`
+/// source fractions scaled into `out_*` (mirrors `ge_capture_region`). `GeFrameCb`
+/// is a per-frame graphics-thread render callback; `cx`/`cy` = canvas dims.
 pub type GeFrameCb = unsafe extern "C" fn(param: *mut c_void, cx: u32, cy: u32);
 
 #[repr(C)]
@@ -90,36 +82,18 @@ unsafe extern "C" {
     /// configured rate cannot be read. Returns 0.0 if OBS cannot provide either.
     pub fn ge_obs_video_fps() -> f64;
     pub fn ge_obs_collect_source_names(buffer: *mut c_char, buffer_size: usize);
-    /// Renders the named source to a freshly `malloc`'d BGRA pixel buffer
-    /// (`width * height * 4` bytes) and writes its dimensions to the out
-    /// params. Returns null if the source can't be found or rendered. The
-    /// caller owns the buffer and must release it with [`free`]. Internally
-    /// spins up a throwaway [`GeCaptureCtx`]; repeated callers should hold a
-    /// context and use [`ge_capture_get_frame`] instead.
+    /// Renders the named source to a freshly `malloc`'d BGRA buffer
+    /// (`width*height*4`), writing dims to out params; null if not found. Caller
+    /// frees via [`free`]. Spins up a throwaway ctx; repeat callers should reuse one.
     pub fn ge_obs_get_source_frame(source_name: *const c_char, out_width: *mut u32, out_height: *mut u32) -> *mut u8;
 
-    /// Creates a capture context (allocating its reusable texrender). Returns
-    /// null on failure. Release it with [`ge_capture_destroy`].
-    ///
-    /// When `double_buffered` is true, the readback is pipelined (stage frame N,
-    /// map frame N-1) so the map never stalls the graphics thread, at the cost
-    /// of one frame of latency. The first [`ge_capture_get_frame`] after creation
-    /// (and after any resolution change) then only primes the pipeline and
-    /// returns null even on success -- treat that as "no frame yet". A
-    /// synchronous (`false`) context returns a frame on every successful call.
+    /// Creates a capture context; null on failure, release via [`ge_capture_destroy`].
+    /// When `double_buffered`, readback is pipelined (one frame latency) and the first
+    /// frame after creation/resize primes the pipeline, returning null even on success.
     pub fn ge_capture_create(double_buffered: bool) -> *mut GeCaptureCtx;
-    /// Renders the named source into a freshly `malloc`'d BGRA buffer using the
-    /// context's reusable surfaces. Same ownership contract as
-    /// [`ge_obs_get_source_frame`]: the caller owns the buffer and must release
-    /// it with [`free`]. When `region` is non-null, only its source
-    /// sub-rectangle is captured, resized to `region.out_width` x
-    /// `region.out_height` (`max_height` is ignored). When `region` is null and
-    /// `max_height` is non-zero and the source is taller, the frame is
-    /// downscaled on the GPU to that height (preserving aspect ratio); pass null
-    /// and 0 to capture the whole source at native resolution. The captured
-    /// dimensions are written to the out params, and the stagesurface is
-    /// recreated if they change. Returns null if the source can't be found or
-    /// rendered.
+    /// Renders the source into a `malloc`'d BGRA buffer via the context's surfaces;
+    /// same ownership as [`ge_obs_get_source_frame`] (free via [`free`]). `region`
+    /// captures/resizes a sub-rect; else `max_height` downscales; null+0 = native.
     pub fn ge_capture_get_frame(
         ctx: *mut GeCaptureCtx,
         source_name: *const c_char,
@@ -143,11 +117,8 @@ unsafe extern "C" {
     /// libc `free`, used to release buffers handed back by the C bridge.
     pub fn free(ptr: *mut c_void);
 
-    /// Wakes the shim's reload worker thread to check for and apply a staged
-    /// update (see obs2/shim/reload.h). Safe to call from any context -- it
-    /// only signals a condition variable and returns immediately -- but must
-    /// never be called from a tokio worker thread whose runtime is about to
-    /// be torn down as part of the reload it triggers; see update_apply.rs's
-    /// `trigger_apply`, which calls this from a detached `std::thread`.
+    /// Wakes the shim's reload worker to apply a staged update (see reload.h).
+    /// Safe from any context, but never from a tokio worker whose runtime the
+    /// reload tears down; see update_apply.rs's `trigger_apply` (detached thread).
     pub fn ge_core_trigger_reload();
 }

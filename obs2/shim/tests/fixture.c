@@ -1,9 +1,6 @@
-// One source file, built into three distinct shared libraries (see
-// CMakeLists.txt): ge_fixture_v1, ge_fixture_v2 (GE_FIXTURE_GENERATION 1/2),
-// and ge_fixture_bad (GE_FIXTURE_GENERATION 99, GE_FIXTURE_LOAD_FAILS
-// defined so its ge_core_load deliberately returns false). Implements
-// exactly the ABI shim/reload.c expects from a real core library, with no
-// OBS dependency at all -- this is what test_reload.c drives directly.
+// One source file, built into three shared libraries (see CMakeLists.txt):
+// ge_fixture_v1/v2 (GE_FIXTURE_GENERATION 1/2) and ge_fixture_bad (gen 99,
+// GE_FIXTURE_LOAD_FAILS so ge_core_load returns false). Implements the core ABI reload.c drives.
 
 #include "fixture_common.h"
 

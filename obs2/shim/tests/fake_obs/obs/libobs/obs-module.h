@@ -2,19 +2,16 @@
 #define GE_FAKE_OBS_MODULE_H
 
 // Minimal stand-in for real libobs' obs-module.h, declaring only the exact
-// symbols shim/plugin.c uses. Lets test_plugin.c compile and link the real,
-// unmodified plugin.c against a controllable fake OBS module registry
-// instead of the real OBS SDK -- see fake_obs.c for that registry, and
-// fake_obs.h for the test-only API that controls it.
+// symbols shim/plugin.c uses, so test_plugin.c can link the real plugin.c
+// against a controllable fake OBS registry (see fake_obs.c / fake_obs.h).
 
 typedef struct obs_module obs_module_t;
 
 #define MODULE_EXPORT
 
-// Declared here (not only inside the OBS_DECLARE_MODULE() expansion below)
-// so test code in a different translation unit can call it, simulating
-// what the real OBS host does right after dlopen'ing a plugin -- handing it
-// its own module handle -- before calling obs_module_load().
+// Declared here (not only inside OBS_DECLARE_MODULE() below) so test code in
+// another translation unit can call it, simulating the real OBS host handing a
+// freshly dlopen'd plugin its own module handle before obs_module_load().
 void obs_module_set_pointer(obs_module_t *module);
 obs_module_t *obs_current_module(void);
 

@@ -1,15 +1,6 @@
-// Standalone CLI for exercising the GoldenEye level matcher outside of OBS.
-//
-//   test_match <lang> path/to/screenshot.png [templates_dir]
-//
-// Loads the given image, converts it to the BGRA layout the plugin feeds the
-// matcher, runs the matcher, and prints the match result to stdout. `lang` is
-// a template filename prefix such as "en" or "jp", and
-// `templates_dir` defaults to the cv_templates/ directory that ships
-// alongside obs2/.
-//
-// This is a Rust port of obs2/test_match.cpp + obs2/cv_wrapper.cpp, using the
-// `opencv` crate instead of binding to OpenCV directly.
+// Standalone CLI for exercising the GoldenEye level matcher outside of OBS:
+// `test_match <lang> path/to/screenshot.png [templates_dir]`. Loads the image as
+// BGRA, runs the matcher, and prints the result.
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
@@ -22,22 +13,17 @@ use serde::Serialize;
 use crate::ge;
 use crate::timer::PhaseTimer;
 
-// Cached count of usable cores. OpenCV here is built without TBB/OpenMP, so each
-// `match_template` pins a single core; the per-scale / per-template matches that
-// dominate match time are independent and are spread across the spare cores with
-// `par_map`. Queried once -- the value is fixed for the process.
+// Cached count of usable cores. OpenCV is built without TBB/OpenMP, so each
+// `match_template` pins one core; independent per-scale/per-template matches are
+// spread across spare cores by `par_map`. Queried once; fixed for the process.
 fn parallelism() -> usize {
     static N: OnceLock<usize> = OnceLock::new();
     *N.get_or_init(|| thread::available_parallelism().map(|p| p.get()).unwrap_or(1))
 }
 
-// Maps `f` over `0..n`, returning the results in index order. The work is split
-// into contiguous chunks run on scoped OS threads so the independent OpenCV
-// template matches in a sweep execute concurrently (a near-linear speedup on
-// multicore, since each match is single-threaded). Tiny `n` or a single-core
-// machine falls back to a serial map so the thread setup is only paid when it
-// wins. Order is preserved, so callers can replay any sequential selection
-// (e.g. early-exit-at-first-hit) over the results and get an identical answer.
+// Maps `f` over `0..n` in index order, splitting the work into contiguous chunks
+// on scoped OS threads so independent template matches run concurrently. Falls
+// back to serial for tiny `n` or single-core. Order preserved for replay.
 fn par_map<T, F>(n: usize, f: F) -> Vec<T>
 where
     T: Send,
@@ -88,114 +74,68 @@ const LABEL_THRESHOLD: f64 = 0.70;
 const LABEL_REGION_W: f64 = 0.60;
 const LABEL_REGION_H: f64 = 0.50;
 
-// Box searched for the mission digit, as fractions of the frame. It spans the
-// three header rows but excludes the level title above and the
-// "PRIMARY OBJECTIVES:" / "STATISTICS:" rows below, so the anchor never latches
-// onto an unrelated colon and the search stays cheap. "Mission N:" sits near the
-// left margin, so the right side never holds the digit.
+// Box searched for the mission digit, as fractions of the frame. Spans the three
+// header rows but excludes the title above and the objectives/stats rows below,
+// so the anchor never latches an unrelated colon; kept left, near the margin.
 const MISSION_REGION_X: f64 = 0.0;
 const MISSION_REGION_W: f64 = 0.40;
 const MISSION_REGION_Y: f64 = 0.18;
 const MISSION_REGION_H: f64 = 0.26;
-// Mission-digit correlation that ends the scale sweep early. The
-// resolution-implied scale is tried first and, on the native-res frame, lands
-// the real digit there at ~0.95-0.97; accepting at 0.90 lets that first scale
-// settle the common case in one pass. Only off-scale captures
-// (letterboxed/windowed) score below this on the first scale and fall through to
-// the remaining scales. Anchoring is restricted to confident colons
-// ([[COLON_ANCHOR_THRESHOLD]]), so the digit found here sits on a real header
-// row rather than on background texture.
+// Mission-digit correlation that ends the scale sweep early. The implied scale
+// is tried first and lands the real digit at ~0.95-0.97; 0.90 settles the common
+// case in one pass. Off-scale captures fall through to the remaining scales.
 const MISSION_STRONG: f64 = 0.90;
 
-// Region searched for the time colons: they sit in the upper part of the
-// stats table. The box is kept generous because the overlay does not always
-// land in the same place: captures that letterbox or rescale the console
-// output (composite -> HDMI converters, different capture resolutions) push
-// the stats table higher and further left than a clean emulator grab. A wider
-// box tolerates that drift; the "mm:ss" spacing checks downstream still reject
-// label colons ("Time:", "Accuracy:") and other stray matches.
-// The region must reach far enough down that a time-row colon near its lower
-// edge still fits (match_template only reports a colon whose full height lands
-// inside the box). That height offset scales with the source, so a bottom edge
-// of ~0.62 detects the Time and Target/Best rows at every resolution yet still
-// excludes the lower stat table ("Shot total:", "Head hits:"), whose colons
-// only begin around 0.61+ and would need the box to reach ~0.66 to register.
+// Region searched for the time colons (upper stats table). Kept generous to
+// tolerate overlay drift from letterboxing/rescaling; downstream "mm:ss" spacing
+// checks reject label colons. Bottom ~0.62 catches Time/Best but not lower rows.
 const COLON_REGION_X: f64 = 0.15;
 const COLON_REGION_W: f64 = 0.62;
 const COLON_REGION_Y: f64 = 0.45;
 const COLON_REGION_H: f64 = 0.17;
 
-// Region searched by the entry gate for the stats-overlay header colons. Both
-// the level-start (briefing) screen and the post-mission stats screen carry the
-// same three left-aligned header rows ("<Difficulty>:", "Mission N:",
-// "Part <roman>:"), each ending in a colon, in the upper-left of the frame.
-// Counting strong colons here admits both screens (so the start screen's
-// mission/part/difficulty can be read) while still rejecting busy gameplay
-// frames, which lack a tidy stack of label colons in this band.
+// Region searched by the entry gate for stats-overlay header colons. Both the
+// level-start and stats screens carry the same three left-aligned header rows
+// ending in colons; counting strong colons admits them but rejects gameplay.
 const HEADER_REGION_X: f64 = 0.08;
 const HEADER_REGION_W: f64 = 0.56;
 const HEADER_REGION_Y: f64 = 0.18;
 const HEADER_REGION_H: f64 = 0.30;
 
-// Screen classification. Every header screen carries a banner word one line
-// below the "<Difficulty>:" / "Mission N:" / "Part <roman>:" stack
-// ("PRIMARY OBJECTIVES:", "STATISTICS:", "SPECIAL OPTIONS:", "DIFFICULTY:");
-// the four post-mission report screens instead carry the same "REPORT:" banner
-// and are told apart by the status value one line lower ("Completed" /
-// "FAILED" / "ABORTED" / "KILLED IN ACTION"). The banner sits in the upper
-// band below the header; the status value sits in the band just beneath it,
-// left of the per-objective result column on the right. Each template is
-// matched in its band and the strongest above this threshold wins. The bands
-// are kept generous so composite/HDMI overlay drift still lands the text
-// inside them.
+// Screen classification. Each header screen has a banner word below the header
+// stack; the four report screens share a "REPORT:" banner and differ in a status
+// value below it. Strongest template match in its band above this threshold wins.
 const SCREEN_THRESHOLD: f64 = 0.78;
 // (x, y, w, h) as fractions of the frame.
 const SCREEN_BANNER_REGION: (f64, f64, f64, f64) = (0.04, 0.39, 0.56, 0.11);
 const SCREEN_STATUS_REGION: (f64, f64, f64, f64) = (0.18, 0.47, 0.48, 0.10);
-// Language detection uses the side tab on the level-start briefing. The tab is
-// short, static, and visually distinct between the English and Japanese ROMs,
-// so it can reject a wrong ROM/template language before a
-// same-shaped banner in the wrong language is misclassified as another screen.
+// Language detection uses the side tab on the level-start briefing: short,
+// static, and distinct between the English and Japanese ROMs, so it rejects a
+// wrong ROM/template language before a same-shaped banner is misclassified.
 const LANGUAGE_START_THRESHOLD: f64 = 0.82;
 const LANGUAGE_START_MARGIN: f64 = 0.12;
-// The language marker is the vertical START tab on the right side of the
-// level-start briefing. It is fixed near the top-right of both centered 4:3
-// captures and wider 16:9 captures, so there is no need to search the whole
-// frame.
+// The language marker is the vertical START tab on the right of the level-start
+// briefing. It is fixed near the top-right of both 4:3 and 16:9 captures, so
+// there is no need to search the whole frame.
 const LANGUAGE_START_REGION: (f64, f64, f64, f64) = (0.68, 0.035, 0.30, 0.35);
-// The mission-select grid ("levels" screen) carries none of the header colons
-// the other overlays share, so the entry gate rejects it. It is instead
-// recognized by the distinctive film-strip divider that separates its four
-// rows of level thumbnails: a tan horizontal bar flanked above and below by a
-// row of sprocket-hole dots. That divider is part of the static film-strip
-// frame, so it is present (and identical between en/jp) even while the
-// thumbnails are still loading in -- which the report/start overlays and busy
-// gameplay frames never reproduce. The template is matched across the band that
-// holds the three inner dividers; the strongest correlation above this
-// threshold classifies the frame as `Levels`.
+// The mission-select grid carries none of the shared header colons, so the gate
+// rejects it. It is instead recognized by its film-strip divider (static, en/jp
+// identical); strongest match above this threshold classifies it as `Levels`.
 const LEVELS_THRESHOLD: f64 = 0.68;
-// (x, y, w, h) as fractions of the frame: a band over the left half of the
-// film strip spanning the first two inter-row dividers (~0.27 and ~0.50 of the
-// frame at every capture resolution). Two dividers give redundancy -- the
-// floating selection crosshair can sit over one mid-transition -- while a tight
-// band keeps the single template match cheap. The right tab ("PREVIOUS") and
-// the outer margins are excluded.
+// (x, y, w, h) as fractions of the frame: a band over the left half of the film
+// strip spanning the first two inter-row dividers. Two give redundancy (the
+// crosshair can cover one); a tight band keeps the match cheap.
 const LEVELS_REGION: (f64, f64, f64, f64) = (0.04, 0.20, 0.52, 0.42);
 
 // Correlation needed to accept an individual digit/colon glyph.
 const GLYPH_THRESHOLD: f64 = 0.78;
 // Colon correlation required to anchor a mission-number search. Higher than the
-// glyph threshold: real header colons clear it easily, but it keeps the tiny
-// colon template from matching background texture (each false hit is expensive,
-// driving a per-colon digit search and quadratic suppression).
+// glyph threshold: real header colons clear it, but the tiny colon template
+// won't match background texture (each false hit is expensive).
 const COLON_ANCHOR_THRESHOLD: f64 = 0.86;
-// The entry gate admits a frame only when it finds two header colons (the
-// "<Difficulty>:" / "Mission N:" / "Part <roman>:" stack) AND at least one is a
-// confident match. Composite/HDMI sources and window-chrome captures soften the
-// glyphs, so the count threshold sits in the low 0.8s and the peak requirement
-// at 0.85 -- low enough to admit a blurry windowed jp grab (whose colons top out
-// near 0.87) yet high enough that busy gameplay frames, lacking a tidy colon
-// stack, stay out. Non-stats frames that do slip through still read no times.
+// The entry gate admits a frame only with two header colons AND at least one
+// confident match. Thresholds sit low (0.8s / 0.85) to admit blurry composite/
+// HDMI grabs yet reject gameplay; any non-stats frame that slips in reads no times.
 const TIME_GATE_COLON_THRESHOLD: f64 = 0.84;
 const TIME_GATE_STRONG_COLON: f64 = 0.85;
 
@@ -204,34 +144,18 @@ const TIME_GATE_STRONG_COLON: f64 = 0.85;
 // height needs the templates resized by (frame_height / REFERENCE_HEIGHT).
 const REFERENCE_HEIGHT: f64 = 1080.0;
 
-// Frames taller than this are downscaled to it before matching. 480 is the
-// height of the composite/HDMI captures the matcher already handles accurately,
-// so normalizing every source to it bounds match time without losing accuracy.
-// Exposed so the live capture can downscale to the same height up front (the
-// GPU does it for free), making this internal downscale a no-op on those frames.
+// Frames taller than this are downscaled to it before matching. 480 matches the
+// composite/HDMI captures handled accurately, bounding match time. Exposed so
+// live capture can downscale up front (GPU), making this internal step a no-op.
 pub const WORK_HEIGHT: i32 = 480;
 
-// GoldenEye always renders a 4:3 image. Some HDMI converters take that 4:3
-// signal and stretch it to fill a 16:9 frame, so every on-screen glyph comes
-// out wider than it is tall. The matcher derives a single uniform scale from
-// the frame height and matches templates at that one scale, so a horizontally
-// stretched frame defeats it: the glyph width no longer matches the template.
-//
-// Every overlay the matcher reads (level briefing, post-mission stats, the
-// report screens, the options/difficulty screens) is drawn on the same big
-// manilla folder. That folder is the one object always on screen whose true
-// proportions are known, so it is used to calibrate: locate the folder, measure
-// its width:height, and if it is wider than the folder ever is at 4:3 the
-// picture has been stretched. The calibration (a horizontal squish back to 4:3)
-// is learned once per source resolution and reused for every later frame --
-// including frames with no folder of their own (the mission-select grid), which
-// inherit the resolution's transform. See [`CvMatcher::calibrate_aspect`].
+// GoldenEye renders 4:3, but some HDMI converters stretch it to 16:9, so glyphs
+// come out too wide for the single-scale matcher. The always-on manilla folder
+// (known proportions) calibrates a horizontal squish. See `calibrate_aspect`.
 const TARGET_ASPECT: f64 = 4.0 / 3.0;
-// The manilla folder's width:height measures ~1.20-1.26 across clean 4:3
-// captures (the spread is overscan in the vertical extent, not real shape
-// change). A folder wider than this is the tell-tale of a horizontally
-// stretched picture; the threshold sits comfortably between that native band
-// and the ~1.66 a 16:9-stretched folder measures.
+// The manilla folder's width:height measures ~1.20-1.26 on clean 4:3 captures. A
+// folder wider than this signals a horizontally stretched picture; the threshold
+// sits between that native band and the ~1.66 a 16:9-stretched folder measures.
 const FOLDER_STRETCH_ASPECT: f64 = 1.45;
 // Height the frame is downscaled to for the one-off folder measurement. The
 // folder's aspect is scale-invariant, so a small frame measures it just as well
@@ -245,20 +169,14 @@ const FOLDER_PROJ_FRAC: f64 = 0.25;
 // is rejected as not-a-folder -- gameplay can have warm patches, but the menu
 // folder always fills most of the frame.
 const FOLDER_MIN_FRAC: f64 = 0.40;
-// A column whose mean brightness is below this counts as a (black) pillarbox
-// bar rather than content. Real captures put their bars at ~0 while the
-// GoldenEye background texture never falls near it, so a stretched frame's
-// content extent is trimmed of any bars before it is squished back to 4:3.
+// A column whose mean brightness is below this counts as a (black) pillarbox bar,
+// not content. Real bars sit at ~0, below any GoldenEye background texture, so a
+// stretched frame's content is trimmed of bars before squishing back to 4:3.
 const BAR_BRIGHTNESS: f64 = 24.0;
 
-// Multipliers searched around the resolution-implied scale. Deriving the scale
-// from the frame height (rather than blindly sweeping a fixed ladder) keeps the
-// search cheap -- a native-resolution frame never matches tiny templates and a
-// 640x480 composite grab never matches full-size ones -- and avoids the
-// wrong-scale false matches a wide sweep produces. 1.0 (the implied scale) is
-// tried first; the neighbours absorb overscan and letterboxing. A single global
-// scale (the one that best fits the mission label) is then reused for every
-// other template so the glyphs stay crisply aligned.
+// Multipliers searched around the resolution-implied scale. Deriving it from the
+// frame height keeps the search cheap and avoids wrong-scale false matches. 1.0
+// is tried first; the best-fit global scale is reused for every other template.
 const SCALE_MULTIPLIERS: [f64; 7] = [1.0, 0.95, 1.05, 0.90, 1.10, 0.85, 1.15];
 
 // Candidate template scales for a frame `frame_height` pixels tall.
@@ -267,11 +185,9 @@ fn candidate_scales(frame_height: i32) -> Vec<f64> {
     SCALE_MULTIPLIERS.iter().map(|m| base * m).collect()
 }
 
-// Horizontal extent [left, right] (inclusive) of the non-bar content in a
-// grayscale frame: the first and last columns whose mean brightness rises above
-// `bar_brightness`. Dark pillarbox bars flanking the picture are trimmed; a
-// frame with no bars yields the full width. Returns the full width if every
-// column reads as dark (degenerate frame), so callers never act on it.
+// Horizontal extent [left, right] (inclusive) of non-bar content: the first and
+// last columns whose mean brightness rises above `bar_brightness`. Dark bars are
+// trimmed; a frame with no bars (or all-dark) yields the full width.
 fn content_h_extent(gray: &Mat, bar_brightness: f64) -> Result<(i32, i32)> {
     let w = gray.cols();
     if w <= 0 {
@@ -317,14 +233,9 @@ fn first_last_above(mask: &Mat, dim: i32, frac: f64) -> Result<(i32, i32)> {
     Ok((lo, hi))
 }
 
-// Measures the width:height of the manilla folder in a `w`x`h` BGRA frame, or
-// `None` when no folder-like region is present (gameplay, the mission-select
-// grid, a transition). The folder is the large warm (high-red, bright) block
-// that backs every menu overlay; it is isolated with a colour+brightness mask
-// and its extent read off the row/column projections of that mask, so interior
-// dark elements (the briefing photo, the stats text) don't shrink the box. The
-// frame is downscaled first -- the aspect is scale-invariant and this only runs
-// once per resolution, so working small keeps the cold-frame calibration cheap.
+// Measures the manilla folder's width:height in a `w`x`h` BGRA frame, or `None`
+// when no folder-like region is present. The folder is the large warm block,
+// isolated by a colour+brightness mask; the frame is downscaled first (cheap).
 #[derive(Clone, Copy)]
 struct FolderDetection {
     aspect: f64,
@@ -397,11 +308,9 @@ fn detect_folder_aspect(bgra_frame: &impl ToInputArray, w: i32, h: i32) -> Resul
     Ok(Some(FolderDetection { aspect, rect }))
 }
 
-// Templates are authored from a pixel-sharp emulator, but most real sources
-// pass through composite cabling and HDMI converters that blur the glyphs.
-// Softening the (already downscaled) templates with a small Gaussian closes
-// that gap so the normalized correlation stays high on blurry input; it costs
-// almost nothing on sharp input because the kernel is tiny.
+// Templates are authored pixel-sharp, but real composite/HDMI sources blur the
+// glyphs. Softening templates with a small Gaussian keeps correlation high on
+// blurry input and costs almost nothing on sharp input (tiny kernel).
 const TEMPLATE_BLUR_KSIZE: i32 = 3;
 
 #[derive(Clone, Copy, Debug)]
@@ -519,23 +428,18 @@ fn format_seconds(seconds: i32) -> String {
 struct FoundMission {
     mission: i32,
     score: f64,
-    // Centre of the anchoring "Mission N:" colon, in the coordinates of the
-    // region it was searched in. The vertical centre pins the difficulty row
-    // (one line up) and part row (one line down); both centres let a later frame
-    // re-search the mission in a tight box instead of the whole header.
+    // Centre of the anchoring "Mission N:" colon, in region coordinates. The
+    // vertical centre pins the difficulty (up) and part (down) rows; both let a
+    // later frame re-search the mission in a tight box instead of the header.
     colon_cx: i32,
     colon_cy: i32,
     colon: Option<MatchRect>,
     digit: Option<MatchRect>,
 }
 
-// Which overlay screen a frame shows. All of these except `Levels` (the
-// unimplemented mission grid) share the mission/part/difficulty header; they
-// are told apart by the banner word below it ("STATISTICS:", "SPECIAL
-// OPTIONS:", "DIFFICULTY:", "PRIMARY OBJECTIVES:") or, for the four
-// post-mission report screens, by the status value ("Completed" / "FAILED" /
-// "ABORTED" / "KILLED IN ACTION"). `Unknown` covers gameplay and anything the
-// gate rejects.
+// Which overlay screen a frame shows. All but `Levels` share the
+// mission/part/difficulty header; they are told apart by the banner word below
+// it or, for report screens, the status value. `Unknown` covers gameplay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Screen {
     Unknown,
@@ -581,11 +485,9 @@ pub struct LevelMatch {
     /// The stats-screen times split into run / target / best (see [`ge::Times`]).
     /// `None` on any screen that carries no timed rows (start, report, gameplay).
     pub times: Option<ge::Times>,
-    /// The raw times read off the overlay in top-to-bottom order, before
-    /// classification -- the unclassified source `times` is derived from. Empty
-    /// on screens with no timed rows. Kept for the digit-matching test harness,
-    /// which asserts every rendered row was read correctly; production code uses
-    /// the classified `times` instead.
+    /// Raw times read off the overlay top-to-bottom, before classification (the
+    /// source `times` derives from). Empty on untimed screens. Kept for the test
+    /// harness; production code uses the classified `times` instead.
     pub raw_times: Vec<i32>,
     /// Optional template-match rectangles for developer tooling. These are
     /// empty unless annotation diagnostics are explicitly enabled.
@@ -633,18 +535,13 @@ fn reject_untrusted_screen(result: &mut LevelMatch) {
 // Loads "<dir>/<lang>-<name>.png" as a single-channel (grayscale) template.
 // Returns an empty Mat when the file is missing or unreadable.
 fn load_template(dir: &str, lang: &str, name: &str) -> Result<Mat> {
-    // `dir` comes from `cv::template_dir()`, which the caller may have set from
-    // a canonicalized path. On Windows, `canonicalize()` returns a verbatim
-    // (`\\?\`-prefixed) path, and verbatim paths treat '/' as a literal
-    // filename character rather than a separator -- so joining with a plain
-    // `format!("{dir}/...")` silently looks up a nonexistent file (every
-    // template "missing", matcher never recognizes any screen). `Path::join`
-    // appends with the native separator and stays correct either way.
+    // `dir` may be a canonicalized path. On Windows that is verbatim (`\\?\`),
+    // where '/' is a literal char, so `format!("{dir}/...")` would silently miss
+    // every template. `Path::join` uses the native separator and stays correct.
     let path = std::path::Path::new(dir).join(format!("{lang}-{name}.png"));
     // Some templates are intentionally absent for a language (e.g. jp has no
-    // difficulty-select banner). Skip the read in that case so OpenCV does not
-    // log a spurious "can't open/read file" warning; an empty Mat means the
-    // same "no template" to every caller.
+    // difficulty-select banner). Skip the read to avoid a spurious OpenCV
+    // warning; an empty Mat means "no template" to every caller.
     if !path.exists() {
         return Ok(Mat::default());
     }
@@ -652,10 +549,9 @@ fn load_template(dir: &str, lang: &str, name: &str) -> Result<Mat> {
     imgcodecs::imread(&path.to_string_lossy(), imgcodecs::IMREAD_GRAYSCALE)
 }
 
-// Softens `tmpl` in place with a small Gaussian so the sharp emulator-authored
-// templates correlate against blurry composite/HDMI-converted sources. The
-// kernel is clamped to the template size (and forced odd) so tiny glyphs at
-// small scales stay valid.
+// Softens `tmpl` with a small Gaussian so sharp emulator-authored templates
+// correlate against blurry composite/HDMI sources. The kernel is clamped to the
+// template size (and forced odd) so tiny glyphs at small scales stay valid.
 fn blurred(tmpl: &Mat) -> Result<Mat> {
     if tmpl.empty() {
         return tmpl.try_clone();
@@ -836,12 +732,9 @@ struct HeaderColons {
     scale: f64,
 }
 
-// Detects header colons inside `region` (fractional x/y/w/h of the frame),
-// trying every candidate scale so the gate works regardless of capture
-// resolution (the base template alone only matches an emulator-native grab).
-// Returns the richest result (most colons, then highest peak) and the scale it
-// occurred at, stopping early once a scale clearly clears the bar so common
-// cases stay cheap.
+// Detects header colons inside `region` (fractional x/y/w/h), trying every
+// candidate scale so the gate works at any capture resolution. Returns the
+// richest result (most colons, then peak) and its scale, stopping early.
 fn detect_header_colons(
     frame: &(impl MatTraitConst + ToInputArray),
     base_colon: &Mat,
@@ -885,11 +778,9 @@ fn detect_header_colons(
         Ok(Some((colons.len(), peak)))
     });
 
-    // Replay the original sequential selection over the parallel results so the
-    // chosen scale is identical to the serial version: prefer the scale that
-    // resolves the most colons (the full header stack), breaking ties on peak
-    // correlation, and stop at the first scale that lands a confident header
-    // row pair (no later scale can change the outcome).
+    // Replay the sequential selection over the parallel results so the chosen
+    // scale matches the serial version: most colons wins, ties break on peak,
+    // and stop at the first scale landing a confident header row pair.
     for (i, r) in scored.into_iter().enumerate() {
         let Some((count, peak)) = r? else { continue };
         if count > best.count || (count == best.count && peak > best.peak) {
@@ -952,10 +843,9 @@ fn find_mission_from_colons(
     let label_region = label_region.try_clone()?;
     let label_region = &label_region;
 
-    // Anchor only on confident colons. A real header colon clears ~0.9, while
-    // the low glyph threshold would also match noise all over a textured
-    // background -- each spurious hit then triggers a 10-digit search and an
-    // O(n^2) suppression, which is what made the per-scale mission search slow.
+    // Anchor only on confident colons. A real header colon clears ~0.9, while the
+    // low glyph threshold would match noise on textured background -- each
+    // spurious hit triggers a 10-digit search and O(n^2) suppression.
     let mut colons = Vec::new();
     collect_detections(label_region, colon_tmpl, COLON_ANCHOR_THRESHOLD, 0, &mut colons)?;
     let colons = suppress(colons, colon_w, colon_h, 0.5);
@@ -963,12 +853,9 @@ fn find_mission_from_colons(
     let band_pad_x = digit_w * 2;
     let band_pad_y = digit_h;
 
-    // Each (colon, digit) pair is an independent template search. At native
-    // resolution the digit templates are large and there can be several anchor
-    // colons, so this is the bulk of the mission cost; fan the pairs across the
-    // cores and reduce to the single strongest digit immediately left of a
-    // colon afterwards. Each work item returns its own best candidate so the
-    // final reduction reproduces the serial "highest-scoring digit wins".
+    // Each (colon, digit) pair is an independent template search -- the bulk of
+    // the mission cost at native resolution. Fan the pairs across cores; each
+    // returns its best candidate, reduced to the serial "highest digit wins".
     let work: Vec<(usize, usize)> = (0..colons.len()).flat_map(|c| (1..=9).map(move |v| (c, v))).collect();
     let search_digit = |k: usize| {
         let (ci, v) = work[k];
@@ -1011,10 +898,9 @@ fn find_mission_from_colons(
         }
         Ok(best)
     };
-    // Once the mission location is cached this region is only a few glyphs
-    // wide. Spawning one OS thread per digit costs more than the tiny template
-    // searches themselves, so keep that warm path serial; retain parallelism
-    // for the much larger cold header scan.
+    // Once the mission location is cached this region is only a few glyphs wide,
+    // where per-digit threads cost more than the tiny searches. Keep that warm
+    // path serial; parallelize only the larger cold header scan.
     let partials: Vec<Result<Option<FoundMission>>> = if label_region.total() < 10_000 {
         (0..work.len()).map(search_digit).collect()
     } else {
@@ -1065,22 +951,16 @@ fn find_times_band(frame: &Mat, colon_tmpl: &Mat, digit_tmpls: &[Mat]) -> Result
         c.x += colon_x0;
         c.y += colon_y0;
     }
-    // Widen the colon suppression horizontally (cell_w = 2*colon_w gives a
-    // ~colon_w radius) so a side-lobe peak a few pixels from the true colon is
-    // merged away; a stray second colon next to the real one would otherwise
-    // anchor a bogus reading off the neighbouring glyphs. The vertical radius is
-    // left at half a colon height so the Time and Best-Time rows (~one digit
-    // height apart) stay distinct.
+    // Widen the colon suppression horizontally (~colon_w radius) so a side-lobe
+    // peak near the true colon is merged, avoiding a bogus reading. Vertical
+    // radius stays half a colon height so Time and Best-Time rows stay distinct.
     let colons = suppress(colons, colon_w * 2, colon_h, 0.5);
 
     let band_pad_x = digit_w * 3;
     let band_pad_y = digit_h;
-    // Each colon anchors an independent, tiny digit search. Stats screens can
-    // produce many plausible colon peaks from label punctuation and textured
-    // backgrounds (the blurriest fixtures yield ~20), so doing all ten digit
-    // templates around every anchor serially dominated the entire matcher.
-    // Spread anchors across the spare cores and combine their detections before
-    // the unchanged global suppression/geometry checks below.
+    // Each colon anchors an independent, tiny digit search. Stats screens yield
+    // many colon peaks (~20 on blurry fixtures), so ten templates per anchor
+    // serially dominated the matcher. Spread anchors across cores, then combine.
     let digit_buckets: Vec<Result<Vec<Detection>>> = par_map(colons.len(), |i| {
         let colon = colons[i];
         let x0 = (colon.x - band_pad_x).max(0);
@@ -1106,13 +986,9 @@ fn find_times_band(frame: &Mat, colon_tmpl: &Mat, digit_tmpls: &[Mat]) -> Result
     for bucket in digit_buckets {
         digits.extend(bucket?);
     }
-    // Suppress with a wider neighbourhood (0.7 of a digit cell) than the colon
-    // pass uses: two adjacent glyphs blur together into a phantom "8" centred in
-    // the gap between them, a few pixels from each real digit. Real digits sit a
-    // full digit-width (~1.1 cells) apart, so a 0.7-cell radius drops the lower
-    // scoring phantom without ever merging two genuine digits. Without this the
-    // phantom is picked as one of the two nearest digits and corrupts the
-    // reading (e.g. "00" -> "80", "30" -> "38").
+    // Suppress with a wider neighbourhood (0.7 digit cell) than the colon pass:
+    // two adjacent glyphs blur into a phantom "8" between them. Real digits sit
+    // ~1.1 cells apart, so 0.7 drops the phantom without merging genuine digits.
     let digits = suppress(digits, digit_w, digit_h, 0.7);
 
     let mut times: Vec<FoundTime> = Vec::new();
@@ -1158,13 +1034,9 @@ fn find_times_band(frame: &Mat, colon_tmpl: &Mat, digit_tmpls: &[Mat]) -> Result
 
         let minutes = l1.value * 10 + l0.value;
         let seconds = r0.value * 10 + r1.value;
-        // A time is an "mm:ss" value capped at 0x3ff (1023) seconds, so its
-        // seconds field is always 0-59 and its minutes field never exceeds 17
-        // (17:02 = 1022 is the largest in-range value; 18:00 already overflows).
-        // A phantom colon landing a few pixels from a real one reads its
-        // neighbouring glyphs in the wrong order and yields an impossible field
-        // (e.g. "11:71" off the "01:17" row); rejecting out-of-range minutes or
-        // seconds drops that bogus reading without touching any genuine time.
+        // A time is "mm:ss" capped at 0x3ff (1023) s, so seconds are 0-59 and
+        // minutes <= 17. A phantom colon reads glyphs out of order into an
+        // impossible field; rejecting out-of-range values drops the bogus reading.
         if seconds >= 60 || minutes > 17 {
             continue;
         }
@@ -1191,17 +1063,9 @@ fn find_times_band(frame: &Mat, colon_tmpl: &Mat, digit_tmpls: &[Mat]) -> Result
         if ra != rb { ra.cmp(&rb) } else { a.x.cmp(&b.x) }
     });
 
-    // A single time-colon can register twice when a side-lobe peak survives the
-    // colon suppression -- likeliest at small template scales, where the colon is
-    // only a few pixels wide and the suppression radius (~colon_w) drops below the
-    // side-lobe offset. Both detections anchor the same row and read the same
-    // digits, yielding a duplicate time. Collapse times whose colons sit within a
-    // glyph of each other; two genuine times sharing a row ("Target: .. (Best
-    // Time: ..)") have colons many digit-widths apart and are preserved.
-    // The vertical radius stays well under one row's height: adjacent rows share
-    // the same value-colon x (the times align to a tab stop), so a tall threshold
-    // would fold two real rows into one. A side-lobe duplicate sits within a
-    // couple of pixels of its twin, far inside this bound.
+    // A time-colon can register twice when a side-lobe peak survives suppression,
+    // yielding a duplicate time. Collapse times whose colons sit within a glyph;
+    // genuine same-row times are many digit-widths apart and preserved.
     let dedup_dy = (digit_h as f64 * 0.3) as i32;
     let mut deduped: Vec<FoundTime> = Vec::with_capacity(times.len());
     for t in times {
@@ -1220,11 +1084,9 @@ pub fn match_level(bgra_frame: &impl ToInputArray, lang: &str, templates_dir: &s
     CvMatcher::new(lang, templates_dir)?.match_level_from_bgra_frame(bgra_frame)
 }
 
-// The scale at which a frame's overlay was found, remembered so later frames
-// can skip the multi-scale search. A capture's resolution (and therefore the
-// overlay scale) is fixed for a whole session, so once one overlay frame has
-// been resolved the rest can be matched at exactly that scale. Keyed by source
-// dimensions so a resolution change transparently forces a fresh search.
+// The scale a frame's overlay was found at, remembered so later frames skip the
+// multi-scale search (resolution is fixed for a session). Keyed by source
+// dimensions so a resolution change forces a fresh search.
 #[derive(Clone, Copy)]
 struct ScaleCache {
     src_w: i32,
@@ -1239,22 +1101,17 @@ struct ScaleCache {
     mission_cy: i32,
 }
 
-// Colon and digit templates resized for one exact scale. These glyphs are used
-// by the mission reader and (on stats screens) the time reader on every frame;
-// resizing and Gaussian-blurring all eleven twice per frame is pure repeated
-// work. Arc lets the hot path borrow a cached set without holding the cache lock
-// while OpenCV matches it.
+// Colon and digit templates resized for one exact scale, used every frame by the
+// mission and time readers. Caching avoids re-resizing/blurring all eleven; Arc
+// lets the hot path borrow a set without holding the cache lock during matching.
 struct ScaledGlyphs {
     colon: Mat,
     digits: Vec<Mat>,
 }
 
-// The aspect correction learned for a source resolution: the horizontal window
-// of the frame that holds the 4:3 picture, and the width that window is resized
-// to (height is never touched -- the converters that stretch only ever stretch
-// horizontally). Learned once from the first frame that shows a manilla folder
-// and reused for every later frame at the same resolution, so a stretched
-// mission-select grid (which has no folder of its own) is still corrected.
+// Aspect correction learned for a source resolution: the horizontal window
+// holding the 4:3 picture and the width it resizes to (height untouched).
+// Learned once from a folder frame and reused for every frame at that resolution.
 #[derive(Clone, Copy)]
 struct AspectCalibration {
     // Source dimensions this calibration was measured for.
@@ -1269,13 +1126,9 @@ struct AspectCalibration {
     folder_rect: Option<Rect>,
 }
 
-// The learned aspect correction expressed as a source-relative capture
-// transform: the sub-rectangle of the source that holds the 4:3 picture
-// (fractions in [0, 1]) and the aspect ratio it should be resized to. The
-// monitor hands this to the capture layer so the GPU crops and un-stretches
-// future frames in one pass, instead of the matcher redoing it on the CPU every
-// frame. Fractions are resolution-independent, so they apply regardless of the
-// height the capture downscales to.
+// The learned aspect correction as a source-relative capture transform: the 4:3
+// sub-rectangle (fractions in [0,1]) and its target aspect. The monitor feeds it
+// to the capture layer so the GPU crops+un-stretches future frames in one pass.
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct CaptureRegion {
     pub crop_x: f32,
@@ -1292,10 +1145,9 @@ impl AspectCalibration {
         AspectCalibration { src_w, src_h, crop_x: 0, crop_w: src_w, target_w: src_w, folder_rect: None }
     }
 
-    // As a source-relative capture transform. Horizontal crop only -- the
-    // converters stretch horizontally, so the full height is always kept. The
-    // crop is a fraction of the frame width, which equals the same fraction of
-    // the source width (the capture downscale preserves the horizontal aspect).
+    // As a source-relative capture transform. Horizontal crop only (full height
+    // kept). The crop is a fraction of frame width, equal to the same fraction of
+    // source width (the downscale preserves horizontal aspect).
     fn capture_region(&self) -> CaptureRegion {
         CaptureRegion {
             crop_x: self.crop_x as f32 / self.src_w as f32,
@@ -1389,10 +1241,9 @@ pub struct CvMatcher {
     diffs: Vec<Mat>,
     colon: Mat,
     digits: Vec<Mat>,
-    // Banner templates that identify the screen. `objectives` ("PRIMARY
-    // OBJECTIVES:") marks the level-start briefing; `statistics` ("STATISTICS:")
-    // the post-mission stats screen; `special` ("SPECIAL OPTIONS:") the 007
-    // options screen; `difficulty` ("DIFFICULTY:") the difficulty-select screen.
+    // Banner templates that identify the screen: `objectives` (level-start),
+    // `statistics` (post-mission stats), `special` (007 options), `difficulty`
+    // (difficulty-select).
     objectives: Mat,
     statistics: Mat,
     special: Mat,
@@ -1421,17 +1272,9 @@ pub struct CvMatcher {
 
 impl CvMatcher {
     pub fn new(lang: &str, templates_dir: &str) -> Result<Self> {
-        // Pin OpenCV's own parallel backend to a single thread. On macOS that
-        // backend is GCD, which fans every `match_template` out across the GCD
-        // thread pool. We instead drive parallelism explicitly with `par_map`
-        // (one thread per independent template/scale match), so leaving OpenCV
-        // multi-threaded too would oversubscribe the cores -- N concurrent
-        // matches each spawning M internal threads -- and produce large
-        // tail-latency spikes (frames occasionally taking 3-5x the median).
-        // One match == one core keeps the per-frame time tight and predictable,
-        // which is what matters for never missing a single-frame overlay.
-        // `GE_CV_THREADS` (the benchmarking hook) opts out so the internal
-        // backend can still be measured in isolation.
+        // Pin OpenCV's parallel backend to one thread: we drive parallelism with
+        // `par_map`, so a multi-threaded backend would oversubscribe cores and
+        // spike tail latency. `GE_CV_THREADS` opts out for benchmarking.
         if std::env::var_os("GE_CV_THREADS").is_none() {
             let _ = core::set_num_threads(1);
         }
@@ -1612,14 +1455,8 @@ impl CvMatcher {
     }
 
     // Returns `gray` corrected to 4:3 when the source is a stretched 4:3 picture,
-    // or unchanged otherwise. The correction is learned once per source
-    // resolution (the "calibration" step) and cached: on the first frame at a
-    // new resolution it looks for the manilla folder and, if that folder is
-    // wider than it ever is at 4:3, records the horizontal squish that restores
-    // it. Frames with no folder (gameplay, the mission-select grid) don't
-    // calibrate on their own but inherit a calibration learned from an earlier
-    // menu frame this session -- so once any folder has been seen, the whole
-    // session's frames are corrected.
+    // else unchanged. Learned once per resolution off the manilla folder and
+    // cached; folderless frames inherit an earlier menu frame's calibration.
     fn calibrate_aspect(&self, bgra_frame: &impl ToInputArray, gray: &Mat) -> Result<(Mat, AspectCalibration)> {
         let (w, h) = (gray.cols(), gray.rows());
 
@@ -1662,11 +1499,9 @@ impl CvMatcher {
         Ok((calib.apply(gray)?, calib))
     }
 
-    /// The capture transform learned for the current source, or `None` while the
-    /// source is uncalibrated (no folder seen yet) or already 4:3 (no correction
-    /// needed). The monitor feeds this back to the capture layer so the GPU
-    /// crops + un-stretches future frames directly. Once a non-`None` value is
-    /// returned it stays stable for the session's source resolution.
+    /// The capture transform learned for the current source, or `None` while
+    /// uncalibrated or already 4:3. The monitor feeds it back so the GPU
+    /// crops+un-stretches frames directly; stable once non-`None`.
     pub fn capture_region(&self) -> Option<CaptureRegion> {
         let calib = (*self.aspect_cache.lock().ok()?)?;
         if calib.is_identity() {
@@ -1675,22 +1510,17 @@ impl CvMatcher {
         Some(calib.capture_region())
     }
 
-    // Reads the mission number inside `rect` of the native-resolution `gray`,
-    // sweeping `scales` and stopping at the first that lands a confident digit
-    // (the resolution-implied scale is tried first). Returns the match and the
-    // scale it was found at. Coordinates in the result are relative to `rect`.
+    // Reads the mission number inside `rect` of native-res `gray`, sweeping
+    // `scales` (implied first) and stopping at the first confident digit. Returns
+    // the match and its scale; result coordinates are relative to `rect`.
     fn read_mission(&self, gray: &Mat, rect: Rect, scales: &[f64]) -> Result<(FoundMission, f64)> {
         let region = gray.roi(rect)?;
         let mut found =
             FoundMission { mission: -1, score: GLYPH_THRESHOLD, colon_cx: -1, colon_cy: -1, colon: None, digit: None };
         let mut scale_used = scales.first().copied().unwrap_or(1.0);
-        // Sweep scales sequentially so the early-exit is preserved: a single
-        // scale's mission read is expensive at native resolution (the digit
-        // templates are large), so the resolution-implied scale -- tried first
-        // and almost always the right one -- must short-circuit the rest rather
-        // than every scale being matched up front. The parallelism instead lives
-        // inside `find_mission_from_colons`, which fans the per-digit searches of
-        // the one scale that runs across the cores.
+        // Sweep scales sequentially to preserve the early-exit: a native-res
+        // mission read is expensive, so the implied scale (tried first) must
+        // short-circuit. Parallelism lives inside `find_mission_from_colons`.
         for &scale in scales {
             let glyphs = self.scaled_glyphs(scale)?;
             let f = find_mission_from_colons(&region, &glyphs.colon, &glyphs.digits)?;
@@ -1713,10 +1543,8 @@ impl CvMatcher {
     }
 
     // Detects the mission-select grid by matching its film-strip divider in the
-    // band that holds the three inter-row dividers. Sweeps `scales` (the
-    // resolution-implied scale first) and stops at the first that clears the
-    // threshold, so an in-spec capture settles on the first try. Returns the
-    // peak correlation found.
+    // inter-row band. Sweeps `scales` (implied first), stopping at the first to
+    // clear the threshold. Returns the peak correlation found.
     fn detect_levels(&self, frame: &Mat, scales: &[f64]) -> Result<Option<MatchRect>> {
         if self.levels.empty() {
             return Ok(None);
@@ -1770,20 +1598,9 @@ impl CvMatcher {
         }
     }
 
-    // Identifies the overlay screen by matching each screen's banner word in
-    // the band below the header, and the four report screens' status values in
-    // the band beneath that, at the scale already established from the header
-    // glyphs. The strongest match above the threshold wins; nothing above it
-    // leaves the screen `Unknown`. Reading the screen lets the caller skip the
-    // time search on every screen but `Stats` (the only one with timed rows).
-    //
-    // A single scale is enough for the common case because the banner/status
-    // words are short and scale-tolerant -- the long "KILLED IN ACTION" status
-    // is templated on just its distinctive "ACTION" so it stays as tolerant as
-    // the rest. Only when that single pass comes up `Unknown` (an overlay
-    // captured a few percent off the header-implied scale) is a small
-    // neighbour-scale sweep run to recover it, so the per-frame cost stays at
-    // one match per template for nearly every frame.
+    // Identifies the overlay screen by matching each screen's banner word (and
+    // report screens' status values) at the header-established scale; strongest
+    // above threshold wins, else `Unknown`. Off-scale misses trigger a small sweep.
     fn classify_screen(&self, frame: &Mat, scale: f64) -> Result<(Screen, Option<MatchRect>)> {
         // Sub-region of `frame` given as fractional (x, y, w, h).
         let region = |r: (f64, f64, f64, f64)| -> Result<Mat> {
@@ -1835,22 +1652,9 @@ impl CvMatcher {
             };
 
         search(scale, &mut best, &mut best_rect, &mut best_score_v)?;
-        // Recover an off-scale overlay only when the implied scale resolved
-        // nothing; the true screen's word climbs above the bar at its real
-        // scale while the others stay well below it.
-        //
-        // The banner/status words are long, so their correlation is far more
-        // scale-sensitive than the short colon/digit/label glyphs that fix
-        // `scale` upstream: those tolerate a couple percent of scale error and
-        // still match, so `scale` can settle a hair off the overlay's true
-        // scale. A real-source capture whose overlay sits a few percent off the
-        // resolution-implied scale (composite/HDMI overscan) then peaks *between*
-        // the coarse 5% steps and is missed -- e.g. an av2hdmi start screen whose
-        // banner peaks at ~1.025x scores ~0.94 there but only ~0.73 at 1.0x and
-        // ~0.61 at 1.05x, so the old [0.95, 1.05, ...] ladder never saw it.
-        // Sweep in 2.5% steps out to +/-10% so that in-between peak is caught;
-        // the nearest deviations are tried first and the search stops at the
-        // first scale that clears the bar, so the recovery stays cheap.
+        // Recover an off-scale overlay only when the implied scale found nothing.
+        // The long banner/status words are more scale-sensitive than the glyphs
+        // that fix `scale`, so sweep 2.5% steps to +/-10%, nearest first, cheaply.
         if best_score_v < SCREEN_THRESHOLD {
             for m in [0.975, 1.025, 0.95, 1.05, 0.925, 1.075, 0.90, 1.10] {
                 search(scale * m, &mut best, &mut best_rect, &mut best_score_v)?;
@@ -1903,23 +1707,15 @@ impl CvMatcher {
         let mut gray = Mat::default();
         imgproc::cvt_color_def(bgra_frame, &mut gray, imgproc::COLOR_BGRA2GRAY)?;
 
-        // Restore a 4:3 picture that an HDMI converter stretched to a wider
-        // aspect, so the glyphs regain the proportions the templates expect.
-        // Calibrated once per resolution off the manilla folder; a no-op on
-        // clean 4:3 grabs and on 4:3 content pillarboxed in 16:9.
+        // Restore a 4:3 picture that an HDMI converter stretched wide, so glyphs
+        // regain the proportions templates expect. Calibrated once per resolution
+        // off the folder; a no-op on clean 4:3 or pillarboxed grabs.
         let (gray, calib) = self.calibrate_aspect(bgra_frame, &gray)?;
         let folder_region = self.folder_annotation(calib);
 
-        // Template matching cost grows with frame area, so a native 1080p (or
-        // larger) capture is ~5x more expensive than a 480p composite grab for
-        // no accuracy gain: the overlay glyphs are large and the templates are
-        // softened to tolerate blur anyway. Downscale tall frames to a fixed
-        // working height so match time is bounded regardless of source
-        // resolution. Only seconds/labels are returned (no pixel coordinates),
-        // so the downscale needs no coordinate remapping.
-        // `gray` keeps native resolution for the mission-digit read (digits need
-        // the detail to tell e.g. 5 from 8); `frame` is the downscaled copy used
-        // for the area-heavy gate/label/briefing matches that tolerate blur.
+        // Match cost grows with frame area, so downscale tall frames to a fixed
+        // working height to bound it. `gray` keeps native res for the mission-digit
+        // read; `frame` is the downscaled copy for the blur-tolerant matches.
         let frame = if gray.rows() > WORK_HEIGHT {
             let scale = WORK_HEIGHT as f64 / gray.rows() as f64;
             let w = ((gray.cols() as f64 * scale).round() as i32).max(1);
@@ -1936,10 +1732,9 @@ impl CvMatcher {
         // only searches the handful of scales near its own.
         let scales = candidate_scales(frame.rows());
 
-        // If a previous frame at this resolution already resolved the overlay
-        // scale, reuse it: the gate and mission searches then try just that one
-        // scale instead of sweeping the ladder. The first overlay frame still
-        // pays the full search to learn the scale (stored at the end).
+        // If a previous frame at this resolution resolved the overlay scale, reuse
+        // it so the gate and mission searches try just that one scale. The first
+        // overlay frame still pays the full search to learn it (stored at the end).
         let (src_w, src_h) = (gray.cols(), gray.rows());
         let hint = self.scale_cache.lock().ok().and_then(|c| *c).filter(|c| c.src_w == src_w && c.src_h == src_h);
         let gate_scales: Vec<f64> = match hint {
@@ -1947,13 +1742,9 @@ impl CvMatcher {
             None => scales.clone(),
         };
 
-        // Entry gate: the stats overlay (both the level-start briefing and the
-        // post-mission stats screen) carries a stack of left-aligned header
-        // rows, each ending in a colon ("<Difficulty>:", "Mission N:",
-        // "Part <roman>:"). Requiring two strong colons in that header band
-        // admits both screens while rejecting busy gameplay frames cheaply, and
-        // the scale at which they matched is reused below so the labels are not
-        // re-searched across every scale.
+        // Entry gate: the stats overlay (briefing and stats screens) carries a
+        // stack of left-aligned header rows ending in colons. Two strong colons
+        // admit both screens, reject gameplay, and fix the scale reused below.
         let header = detect_header_colons(
             &frame,
             &self.colon,
@@ -1990,18 +1781,9 @@ impl CvMatcher {
         );
         timer.lap("header gate");
         if !has_header {
-            // No header colons: this is gameplay, a transition, or the
-            // mission-select grid (which shares none of the header rows). Try to
-            // recognize the grid by its film-strip divider before giving up.
-            //
-            // Reuse the cached overlay scale when one is known: the film-strip
-            // divider scales with the frame exactly as the stats overlay does,
-            // so once any overlay frame this session has pinned the resolution's
-            // scale, the grid only needs checking at that one scale. This is the
-            // common steady-state path -- most gameplay frames have no header --
-            // so dropping it from a full ladder sweep to a single scale keeps the
-            // matcher cheap on every non-overlay frame. A cold session (no hint)
-            // still sweeps the full ladder via `gate_scales == scales`.
+            // No header colons: gameplay, a transition, or the mission-select
+            // grid. Try to recognize the grid by its film-strip divider, reusing
+            // the cached overlay scale when known (a cold session sweeps the ladder).
             self.push_work_search_region(
                 &mut search_regions,
                 &mapper,
@@ -2062,24 +1844,15 @@ impl CvMatcher {
         );
 
         // Read the mission number on the NATIVE-resolution frame: anchor on ':'
-        // and take the strongest single digit immediately to its left. The
-        // search is confined to a small top-left box (the header rows, excluding
-        // the objectives/stats rows below) so it stays cheap even at native res.
-        //
-        // The scale is swept (cold) because the colon is scale tolerant but the
-        // digit is not: at the wrong scale a letter on the "<Difficulty>:" row
-        // (e.g. the tail of "Agent:") can out-match the real mission digit. At
-        // native resolution the real digit is crisp and tops the early-exit bar
-        // at its true scale, so the common case resolves on the first scale.
+        // and take the strongest digit to its left, in a small top-left box. The
+        // scale is swept cold because the digit (unlike the colon) is scale-fussy.
         let mission_scales: Vec<f64> = match hint {
             Some(c) => vec![c.mission_scale],
             None => candidate_scales(gray.rows()),
         };
-        // Search box. Cold: the header band (excludes title and the rows below).
-        // Warm: a tight box around the mission colon found on the first overlay
-        // frame -- the overlay is fixed for the session, so the digit is read in
-        // a few hundred pixels instead of the whole header, the bulk of the
-        // per-frame cost at native resolution.
+        // Search box. Cold: the header band (excludes title and rows below). Warm:
+        // a tight box around the cached mission colon, so the digit is read in a
+        // few hundred pixels instead of the whole header (the bulk of native cost).
         let header_box = || {
             let x = (gray.cols() as f64 * MISSION_REGION_X) as i32;
             let y = (gray.rows() as f64 * MISSION_REGION_Y) as i32;
@@ -2090,10 +1863,9 @@ impl CvMatcher {
         let mission_rect = match hint {
             Some(c) if c.mission_cx >= 0 => {
                 let ch = (self.colon.rows() as f64 * c.mission_scale).round().max(1.0) as i32;
-                // The cached point is the colon centre. One colon-height on
-                // either side vertically absorbs capture jitter without also
-                // admitting the difficulty/part rows; two heights to the left
-                // cover the single mission digit with ample spacing.
+                // The cached point is the colon centre. One colon-height each way
+                // vertically absorbs jitter without admitting the difficulty/part
+                // rows; two heights left cover the single mission digit.
                 let x0 = (c.mission_cx - ch * 2).max(0);
                 let y0 = (c.mission_cy - ch).max(0);
                 let x1 = (c.mission_cx + ch).min(gray.cols());
@@ -2136,11 +1908,9 @@ impl CvMatcher {
         let mut global_scale = header.scale;
         timer.lap("mission");
 
-        // The difficulty row sits one glyph-line above the mission row and the
-        // part row one line below, both left-aligned. Anchoring each label
-        // search to a short band around the mission row (rather than scanning the
-        // whole upper-left corner) cuts the label matching several fold. A band
-        // of three colon-heights either side absorbs line-spacing variation.
+        // The difficulty row sits one glyph-line above the mission row, the part
+        // row one below. Anchoring each label search to a short band around the
+        // mission row (three colon-heights each way) cuts label matching severalfold.
         let colon_h = (self.colon.rows() as f64 * global_scale).round() as i32;
         let mission_cy = mission_cy_frame;
         let pad = ((colon_h as f64) * 0.4) as i32;
@@ -2253,11 +2023,9 @@ impl CvMatcher {
         let digit_width_sum: i32 = digit_tmpls.iter().map(|t| t.cols()).sum();
         timer.lap("load glyph templates");
 
-        // Identify the overlay screen from its banner / status value. Only the
-        // stats screen carries timed rows, so reading the screen lets the time
-        // search be skipped on every other screen (start lists objectives, the
-        // report screens list per-objective results, etc.), which would
-        // otherwise be mis-read as times.
+        // Identify the overlay screen from its banner / status value. Only stats
+        // screens carry timed rows, so reading the screen lets the time search be
+        // skipped elsewhere (avoiding objectives/results being mis-read as times).
         self.push_work_search_region(
             &mut search_regions,
             &mapper,
@@ -2303,9 +2071,8 @@ impl CvMatcher {
         timer.lap("time assembly");
 
         // Learn the scale from this fully-resolved overlay (slow path only) so
-        // subsequent frames at the same resolution fast-path the scale search.
-        // Require every header marker, so a partial/ambiguous match never
-        // poisons the cache with a wrong scale.
+        // later frames at this resolution fast-path the scale search. Require
+        // every header marker so a partial match never poisons the cache.
         if hint.is_none()
             && has_overlay_markers(&result)
             && let Ok(mut cache) = self.scale_cache.lock()

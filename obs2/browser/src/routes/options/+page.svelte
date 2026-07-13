@@ -124,14 +124,9 @@
 		settings.updateCheckInterval = (event.currentTarget as HTMLSelectElement).value as UpdateCheckInterval;
 	};
 
-	// Drives both the update button's label and what clicking it does:
-	//   check       -> "Check now"        (idle)
-	//   checking     -> "Checking…"        (check in flight, disabled)
-	//   download     -> "Download now"      (update found, awaiting an explicit
-	//                                        download because auto-install is off)
-	//   downloading  -> "Downloading…"      (download/verify/stage in flight, disabled)
-	//   apply        -> "Apply update now"  (a verified update is staged)
-	//   applying     -> "Applying…"         (apply in flight, disabled)
+	// Drives the update button's label and click action: check (idle), checking,
+	// download (update found, auto-install off), downloading, apply (verified
+	// update staged), applying.
 	type UpdateButtonPhase = 'check' | 'checking' | 'download' | 'downloading' | 'apply' | 'applying';
 	let updatePhase = $state<UpdateButtonPhase>('check');
 	const updateActionPending = $derived(
@@ -154,10 +149,9 @@
 		return false;
 	};
 
-	// Runs once on mount (nothing reactive is read below, so $effect never
-	// re-fires): reflect an update that was already staged in the background
-	// (e.g. by an automatic install) as "apply now." There's no push-based
-	// signal for "something got staged" to react to instead.
+	// Runs once on mount (nothing reactive is read, so $effect never re-fires):
+	// reflect an update already staged in the background as "apply now," since
+	// there's no push-based "something got staged" signal to react to.
 	$effect(() => {
 		void (async () => {
 			try {
@@ -178,18 +172,15 @@
 				return;
 			}
 			if (!settings.autoUpdateEnabled) {
-				// No automatic download -- let the user start it explicitly. No
-				// toast here: the backend's check pushes the sticky "plugin update
-				// available" notice over the WebSocket, and the button itself
-				// flips to "Download now," so a second "update found" toast would
-				// just be noise.
+				// No automatic download -- let the user start it explicitly. No toast:
+				// the backend pushes the sticky "update available" notice and the
+				// button flips to "Download now," so a second toast is just noise.
 				updatePhase = 'download';
 				return;
 			}
-			// Auto-install is on, so the backend is already downloading in the
-			// background; wait for it to finish staging. With auto-update on the
-			// sticky notice is suppressed (the plugin handles it itself), so this
-			// toast is the only feedback for the interaction.
+			// Auto-install is on: the backend is already downloading, so wait for it
+			// to stage. The sticky notice is suppressed here, so this toast is the
+			// only feedback for the interaction.
 			addNotificationFlag({
 				title: 'Update found',
 				detail: `Downloading and verifying ${update.latestVersion}...`,
@@ -243,11 +234,9 @@
 				detail: 'The plugin will briefly reconnect while the update is installed.',
 				tone: 'success'
 			});
-			// The actual swap (unload old core, install new, reload) happens in
-			// the background and briefly drops the HTTP server -- keep the
-			// button disabled and poll (tolerating connection errors during that
-			// gap) until the staged update is gone, rather than re-enabling it
-			// while the swap is still in flight.
+			// The swap happens in the background and briefly drops the HTTP server,
+			// so keep the button disabled and poll (tolerating connection errors)
+			// until the staged update is gone.
 			const deadline = Date.now() + 20_000;
 			let stillStaged = true;
 			while (Date.now() < deadline && stillStaged) {

@@ -1,9 +1,6 @@
-// The "core" plugin: all of the heavy logic (the Rust staticlib, OpenCV, the
-// HTTP server, the OBS bridge). It is NOT loaded by OBS directly — instead the
-// thin shim in `shim/plugin.c` registers itself as the OBS module and
-// `dlopen`s this library, calling `ge_core_load`/`ge_core_unload`. Splitting
-// it out this way lets the shim swap this library for a freshly downloaded
-// version at runtime (see `shim/reload.c`) without OBS itself being unloaded.
+// The "core" plugin: all the heavy logic (Rust staticlib, OpenCV, HTTP server,
+// OBS bridge). Not loaded by OBS directly -- the shim (`shim/plugin.c`) dlopens
+// it and can swap it for a downloaded version at runtime (see `shim/reload.c`).
 
 #include "ge_rust.h"
 
@@ -125,22 +122,9 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
 // until ge_core_load runs.
 static ge_request_reload_fn g_request_reload = NULL;
 
-// Called by the shim once this library has been dlopen'd. Mirrors what the old
-// monolithic `obs_module_load` did. Returns false on failure -- including if
-// ge_rust_start() couldn't bind its HTTP port -- so the shim can log a useful
-// error and refuse to come up (or roll back to a previously-running core).
-//
-// `canonical_path` is the shim's own resolved path for this core library --
-// NOT necessarily the file this process actually dlopen'd from (reload.c
-// always dlopens a temp copy). Rust needs this canonical path (not the temp
-// copy, and not obs_get_module_binary_path(), which reports the *shim's*
-// path since that's the OBS-registered module) to know where to stage and
-// apply future updates; see ge_rust_set_core_path.
-//
-// `is_reload` is true when this load followed a successful update apply
-// (not a cold OBS start, and not a rollback) -- see reload.h's ge_core_open.
-// Rust uses it to show a one-off "plugin updated" notice; see
-// ge_rust_set_was_reloaded.
+// Called by the shim after dlopen. Returns false on failure (incl. HTTP port
+// bind) so the shim can log and roll back. `canonical_path` is the shim's
+// resolved core path (for staging updates); `is_reload` flags a post-update load.
 GE_EXPORT bool ge_core_load(obs_module_t *module, const char *canonical_path, bool is_reload,
                             ge_request_reload_fn request_reload) {
   ge_obs_set_module(module);

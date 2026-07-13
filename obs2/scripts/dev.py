@@ -1,21 +1,8 @@
 #!/usr/bin/env python3
 
-# The plugin is split into a thin shim (loaded by OBS) and a "core" library
-# (the Rust logic + OpenCV), which the shim dlopen's. In dev mode this helper
-# runs the SvelteKit Vite dev server (so editing the UI reloads live) and
-# relinks the core whenever Rust sources change.
-#
-# Hot-reloading the rebuilt core into a running OBS session reuses the exact
-# same mechanism as production auto-update, rather than a dev-only FIFO into
-# the shim (which was removed when the shim was minimized -- see
-# obs2/shim/reload.c): after a successful rebuild, this script copies the
-# freshly built core library into the plugin's `.ge_update_staged/`
-# directory (the same convention update_apply.rs uses) and POSTs to
-# `/api/v1/updates/apply`. The Rust side treats a dev build as always
-# "opted in" to auto-update (see update_apply.rs::auto_apply_when_safe), so
-# if that POST is momentarily refused (e.g. a monitor session is active),
-# the plugin's own background loop picks the staged rebuild up shortly after
-# on its own -- no restart needed either way.
+# Dev helper: runs the SvelteKit Vite dev server (live UI reload) and relinks the
+# core on Rust changes, hot-reloading it via the production auto-update path -- stage
+# into `.ge_update_staged/` and POST `/api/v1/updates/apply` (dev builds auto-apply).
 
 from __future__ import annotations
 

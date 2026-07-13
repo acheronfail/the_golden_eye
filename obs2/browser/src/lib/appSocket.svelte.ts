@@ -53,12 +53,9 @@ const showUpdateAppliedNotification = (version: string, releaseUrl?: string): vo
 	});
 };
 
-/** In production, a page that just received `updateApplied` is about to
- * reload anyway (see `reloadIfStale`, driven by the `version` handshake sent
- * just before it) — an immediate toast would only flash and vanish with it.
- * Persisting across the reload and showing it once on the fresh page
- * instead. Dev mode never reloads (no `ge-build-id` meta tag to compare
- * against), so there the toast has to show immediately or not at all. */
+/** In production the page is about to reload after `updateApplied`, so persist
+ * the toast across the reload and show it once on the fresh page. Dev never
+ * reloads (no `ge-build-id` meta tag), so there it must show immediately. */
 const handleUpdateApplied = (version: string, releaseUrl?: string): void => {
 	if (selfBuildId() === null) {
 		showUpdateAppliedNotification(version, releaseUrl);
@@ -148,12 +145,9 @@ const connect = (): void => {
 			settingsErrorNotificationId = addNotificationFlag(notification).id;
 		},
 		onUpdateAvailable: (update) => {
-			// With auto-update on, the plugin handles this itself (staging
-			// happens regardless of the setting either way) and reports back via
-			// the "update found" / "plugin updated" notices instead -- a sticky
-			// "click to open the release page" notice on top of that is just
-			// noise, and clicking it would suggest a manual step that isn't
-			// actually needed.
+			// With auto-update on, the plugin stages and reports back via the
+			// "update found" / "plugin updated" notices, so a sticky "open the
+			// release page" notice would just be noise suggesting a needless step.
 			if (settings.autoUpdateEnabled) {
 				if (updateNotificationId !== null) {
 					dismissNotificationFlag(updateNotificationId);
@@ -185,10 +179,9 @@ const connect = (): void => {
 	socket = nextSocket;
 };
 
-/** Downloads, verifies, and installs the update the notice is about, keeping
- * a single progress flag updated throughout. The plugin can install updates
- * itself, so the notice offers exactly that rather than just linking out to
- * GitHub. Applying briefly drops the connection while the core swaps in. */
+/** Downloads, verifies, and installs the notice's update, keeping one progress
+ * flag updated throughout. Applying briefly drops the connection while the core
+ * swaps in. */
 const downloadAndInstall = async (update: PluginUpdate): Promise<void> => {
 	const progressId = addNotificationFlag({
 		key: 'plugin-update-installing',

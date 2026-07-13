@@ -20,15 +20,13 @@ use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason, Reco
 const DEFAULT_MONITOR_LANGUAGE: &str = "jp";
 const MONITOR_FPS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
 /// How long after an applied update a newly-connecting client still gets the
-/// one-off "plugin updated" notice. Long enough to cover the existing 1s
-/// WebSocket reconnect retry with real margin, short enough that a client
-/// connecting much later doesn't see a stale notice.
+/// one-off "plugin updated" notice. Long enough to cover the 1s WebSocket
+/// reconnect retry, short enough to avoid a stale notice much later.
 const UPDATE_APPLIED_NOTICE_WINDOW: Duration = Duration::from_secs(60);
 
-/// A running monitor. OBS pushes captured frames into `mailbox` from its render
-/// callback (keyed by the leaked `producer` pointer); the worker `thread`
-/// consumes and matches them. Stopping unregisters the callback, closes the
-/// mailbox to wake the worker, joins it, then frees the producer.
+/// A running monitor. OBS pushes captured frames into `mailbox` (keyed by the
+/// leaked `producer`); the worker `thread` matches them. Stopping unregisters
+/// the callback, closes the mailbox to wake+join the worker, then frees producer.
 pub struct MonitorHandle {
     mailbox: Arc<FrameMailbox>,
     producer: ProducerPtr,
@@ -39,12 +37,8 @@ pub struct MonitorHandle {
 }
 
 /// The leaked `ProducerCtx` pointer, made `Send` so the handle can move to the
-/// blocking teardown task.
-///
-/// SAFETY: the pointer is only dereferenced from the OBS graphics thread (the
-/// render callback). The start thread creates it and the stop thread frees it,
-/// but only after `ge_obs_unregister_frame_callback` guarantees no callback is
-/// running -- so it is never aliased across threads concurrently.
+/// blocking teardown task. SAFETY: only dereferenced on the OBS graphics thread;
+/// freed only after `ge_obs_unregister_frame_callback` ensures no callback runs.
 struct ProducerPtr(*mut ProducerCtx);
 unsafe impl Send for ProducerPtr {}
 
@@ -99,12 +93,9 @@ impl Drop for FrameBuf {
 /// frame (drop any older unconsumed one); a larger value retains a short backlog.
 const FRAME_BUFFER_CAPACITY: usize = 1;
 
-/// A bounded, drop-oldest frame buffer between the OBS producer and the monitor
-/// consumer. Holds at most `capacity` frames; when full, the oldest unconsumed
-/// frame is dropped (and freed) to make room for the newest, so the matcher never
-/// falls behind -- when processing is slower than the frame rate the surplus
-/// frames are discarded rather than queued unboundedly. Frames are delivered
-/// oldest-first (FIFO). At `capacity == 1` this is a latest-wins single slot.
+/// A bounded, drop-oldest FIFO frame buffer between the OBS producer and the
+/// monitor consumer. Holds up to `capacity` frames; when full, the oldest is
+/// dropped/freed so the matcher never falls behind. `capacity == 1` is latest-wins.
 struct FrameMailbox {
     /// Maximum number of buffered frames; at least 1.
     capacity: usize,
@@ -177,11 +168,9 @@ impl FrameMailbox {
     }
 }
 
-/// State the OBS render callback needs to capture a frame and hand it off: the
-/// reusable capture context (owns its GPU surfaces), the source to capture, the
-/// calibrated region shared with the worker, and the mailbox to push into. Boxed
-/// and passed to OBS as the callback `param`. Owns the capture context and
-/// destroys it on drop (in `handle_stop`, after the callback is unregistered).
+/// State the OBS render callback needs to capture a frame and hand it off:
+/// capture context, source name, calibrated region, and mailbox. Boxed as the
+/// callback `param`; owns the capture context and destroys it on drop.
 struct ProducerCtx {
     ctx: *mut crate::ffi::GeCaptureCtx,
     name: CString,
@@ -302,15 +291,13 @@ pub trait FrameSource {
 }
 
 /// Frame source backed by the live OBS source: consumes the frames the render
-/// callback (`ge_frame_callback`) pushes into the shared mailbox. The capture
-/// itself, and the capture context's GPU surfaces, live on the producer side;
-/// this only blocks for the next frame and matches it.
+/// callback (`ge_frame_callback`) pushes into the shared mailbox. Capture and
+/// its GPU surfaces live on the producer side; this only awaits and matches.
 struct ObsSource {
     mailbox: Arc<FrameMailbox>,
     /// The calibrated capture transform, shared with the producer callback.
-    /// Latched on first sight: a stretched source's transform is fixed for the
-    /// session, and once frames arrive pre-normalized the matcher reports no
-    /// further calibration, so re-reading it would (incorrectly) clear it.
+    /// Latched on first sight: fixed for the session, and re-reading after frames
+    /// arrive pre-normalized would (incorrectly) clear it.
     region: Arc<Mutex<Option<CaptureRegion>>>,
 }
 
@@ -433,12 +420,9 @@ impl MonitorTiming {
     }
 }
 
-/// A monitor session: owns the matcher (and therefore its per-resolution scale
-/// cache) for the lifetime of one start/stop cycle. Because the cache lives in
-/// the matcher, dropping the session clears it -- so each `start` begins with a
-/// cold cache and a source/resolution change is never matched against a stale
-/// scale. Within a session, the cache keys on the source dimensions, so a
-/// mid-session resolution change re-learns the scale on the next frame.
+/// A monitor session: owns the matcher (and its per-resolution scale cache) for
+/// one start/stop cycle, so dropping the session clears the cache and each start
+/// begins cold. The cache keys on source dimensions, re-learning on resolution changes.
 pub struct MonitorSession {
     matcher: CvMatcher,
 }
@@ -600,13 +584,9 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher")
     })?;
 
-    // Reusable capture context (and its GPU surfaces), created once for the
-    // session. Owned by the ProducerCtx below and destroyed when that is dropped
-    // on stop. Double-buffered: the render callback runs on the graphics thread,
-    // so pipelining the readback (map last frame while staging this one) keeps it
-    // from stalling OBS's render. The first frame after start (or a resolution
-    // change) only primes the pipeline and yields no frame -- the callback's
-    // null check skips it.
+    // Reusable capture context (and GPU surfaces), created once per session and
+    // destroyed with the ProducerCtx on stop. Double-buffered so readback pipelines
+    // without stalling OBS's render; the first frame only primes and yields none.
     let ctx = unsafe { crate::ffi::ge_capture_create(true) };
     if ctx.is_null() {
         tracing::error!("failed to create capture context; monitor not started");
@@ -614,9 +594,8 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     }
 
     // Shared between the OBS producer (render callback) and the worker consumer:
-    // the frame mailbox and the latched capture region. Capacity 1 keeps only the
-    // freshest frame (drop-oldest), so the matcher never lags behind real time;
-    // raise it to retain a short backlog.
+    // the frame mailbox and latched capture region. Capacity 1 is drop-oldest
+    // (freshest frame only); raise it to retain a short backlog.
     let mailbox = Arc::new(FrameMailbox::new(FRAME_BUFFER_CAPACITY));
     let region = Arc::new(Mutex::new(None));
     let monitor_timing_mode = MonitorTimingMode::from_env();
@@ -799,10 +778,9 @@ pub(crate) async fn stop_monitor(state: &AppState) -> bool {
         // through a `ProducerPtr(producer)` pattern). Unwrap it as a local after.
         let MonitorHandle { mailbox, producer, thread, .. } = handle;
         let producer = producer.0;
-        // Stop new frames first. `ge_obs_unregister_frame_callback` serializes
-        // with callback invocation, so once it returns the producer callback is
-        // neither running nor will run again -- the ProducerCtx (and its capture
-        // context) is then safe to free below.
+        // Stop new frames first. `ge_obs_unregister_frame_callback` serializes with
+        // callback invocation, so once it returns the callback is neither running
+        // nor will run again -- the ProducerCtx is then safe to free below.
         unsafe { crate::ffi::ge_obs_unregister_frame_callback(ge_frame_callback, producer.cast()) };
         // Wake the worker out of its blocking `recv` so the run loop exits.
         mailbox.close();
@@ -831,11 +809,9 @@ pub(crate) async fn stop_monitor(state: &AppState) -> bool {
     true
 }
 
-/// Upgrades the connection to a WebSocket that streams [`MonitorEvent`]s as JSON.
-/// The current source list, match (if any), and recorder phase are sent
-/// immediately on connect. New `sources`, `match`, and `recordingState` values
-/// are pushed each time their retained backend state changes; one-off events
-/// such as `recordingSaved` are forwarded as they occur.
+/// Upgrades the connection to a WebSocket streaming [`MonitorEvent`]s as JSON.
+/// Retained state (sources, match, recorder phase) is sent on connect and on
+/// each change; one-off events such as `recordingSaved` are forwarded as they occur.
 pub async fn handle_ws(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
@@ -855,11 +831,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         return;
     }
 
-    // A one-off "plugin updated" notice for any client connecting shortly
-    // after this core was loaded via an applied update (dev hot-reload or a
-    // real auto-update) -- not a cold OBS start, and not a rollback. Bounded
-    // by a grace period so a client connecting long after the reload doesn't
-    // see a stale notice.
+    // A one-off "plugin updated" notice for any client connecting shortly after
+    // this core was loaded via an applied update (not a cold start or rollback),
+    // bounded by a grace period so late-connecting clients don't see it stale.
     if state.reloaded_at.is_some_and(|when| when.elapsed() < UPDATE_APPLIED_NOTICE_WINDOW) {
         let settings = state.settings.get();
         // Only surface a changelog link when the persisted "last known update"

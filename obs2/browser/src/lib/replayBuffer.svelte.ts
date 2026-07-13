@@ -1,22 +1,15 @@
 import { getReplayBufferStatus, type ReplayBufferStatus } from './api';
 
-/**
- * Shared, reactive replay-buffer status. The whole wizard depends on OBS's
- * replay buffer being available (it's what clips are saved from), so the root
- * layout polls this on every navigation and bounces the user back to `/` while
- * it cannot be used. `status` is `null` until the first check resolves, or when
- * a check fails (e.g. the backend is unreachable).
- */
+/** Shared, reactive replay-buffer status (what clips are saved from). The root
+ * layout polls it on navigation and bounces to `/` while unusable. `status` is
+ * `null` until the first check resolves, or when a check fails. */
 export const replayBuffer = $state<{ status: ReplayBufferStatus | null; loaded: boolean }>({
 	status: null,
 	loaded: false
 });
 
-/**
- * Whether the replay buffer is *known* to be usable. An unknown status (not
- * yet loaded, or the check failed) counts as unavailable, so the wizard stays
- * gated until we positively confirm it can be used.
- */
+/** Whether the replay buffer is *known* to be usable. An unknown status (not yet
+ * loaded, or the check failed) counts as unavailable, keeping the wizard gated. */
 export const isReplayBufferAvailable = (): boolean => replayBuffer.status?.available === true;
 export const isReplayBufferEnabled = isReplayBufferAvailable;
 
