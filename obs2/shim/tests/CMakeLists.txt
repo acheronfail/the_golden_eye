@@ -91,12 +91,16 @@ add_executable(ge_shim_test_plugin
     ../plugin.c
     ../dynlib.c
     ../reload.c
+    ../version.c
     ${GE_RELOAD_PLATFORM_SRC}
     fake_obs.c
     test_plugin.c
 )
 target_include_directories(ge_shim_test_plugin PRIVATE .. . fake_obs)
-target_compile_definitions(ge_shim_test_plugin PRIVATE GE_CORE_LIB_NAME="unused_bundled_core_name")
+target_compile_definitions(ge_shim_test_plugin PRIVATE
+    GE_CORE_LIB_NAME="unused_bundled_core_name"
+    GE_SHIM_VERSION="0.0.0-test"
+)
 target_link_libraries(ge_shim_test_plugin PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
 add_dependencies(ge_shim_test_plugin ge_fixture_v1 ge_fixture_bad)
 

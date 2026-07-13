@@ -174,6 +174,7 @@ endif()
 target_sources(${PLUGIN_NAME} PRIVATE
     shim/dynlib.c
     shim/reload.c
+    shim/version.c
     shim/plugin.c
 )
 
@@ -209,8 +210,14 @@ endif()
 
 # Bake in only relative bundle names. The shim resolves them from the loaded
 # plugin path at runtime, so the built plugin can be copied out of this repo.
+#
+# GE_SHIM_VERSION stamps the version this shim binary was built with (see
+# shim/version.c). The shim is never replaced by the auto-update flow -- only
+# the core library is -- so this is how a stale shim can be told apart from
+# the running core's own (possibly newer) version after an update.
 target_compile_definitions(${PLUGIN_NAME} PRIVATE
     GE_CORE_LIB_NAME="$<TARGET_FILE_NAME:${CORE_NAME}>"
+    GE_SHIM_VERSION="${GE_PLUGIN_VERSION}"
 )
 
 # Build the core library and bundled templates whenever the plugin is built.

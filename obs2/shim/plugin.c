@@ -15,6 +15,7 @@
 
 #include "dynlib.h"
 #include "reload.h"
+#include "version.h"
 
 #include <obs/libobs/obs-module.h>
 #include <obs/libobs/util/base.h>
@@ -187,6 +188,8 @@ static void handle_reload_request(void) {
 }
 
 bool obs_module_load(void) {
+  GE_LOG(LOG_INFO, "shim v%s loading", ge_shim_version());
+
   if (!ge_check_duplicate_obs_module()) {
     return false;
   }
