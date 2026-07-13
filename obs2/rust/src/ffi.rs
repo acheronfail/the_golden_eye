@@ -40,10 +40,7 @@ pub(crate) fn queue_ui_task(task: ObsTask, param: *mut c_void) {
     }
 }
 
-/// Severity for [`ge_obs_blog`], and the single source of truth for the levels:
-/// cbindgen emits it into `ge_rust.h` (variants prefixed, e.g. `GeLogLevel_Error`)
-/// and the C bridge maps each variant to the matching OBS `LOG_*` level, so OBS's
-/// numeric log constants stay defined only in `<util/base.h>`.
+/// Severity for [`ge_obs_blog`].
 ///
 /// cbindgen:prefix-with-name=true
 #[repr(C)]
@@ -131,8 +128,7 @@ unsafe extern "C" {
 
     /// Emits one pre-formatted line into OBS's log via `blog`. The message is
     /// passed through `blog`'s `"%s"`, so any `%` it contains is literal. The
-    /// bridge maps [`GeLogLevel`] to the OBS `LOG_*` level. Lets the core's
-    /// tracing output reach the OBS log.
+    /// bridge maps [`GeLogLevel`] to the OBS `LOG_*` level.
     pub fn ge_obs_blog(level: GeLogLevel, msg: *const c_char);
 
     /// libc `free`, used to release buffers handed back by the C bridge.

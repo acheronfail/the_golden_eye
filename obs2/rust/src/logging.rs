@@ -6,9 +6,6 @@
 //! - **OBS's own log via `blog`** (see [`ffi::ge_obs_blog`]) -- so the core's
 //!   logs land in the OBS log file on every platform, including Windows where
 //!   stdout is never surfaced.
-//!
-//! Both sinks share one [`EnvFilter`] and the same [`GoldenEyeFormat`]; they
-//! differ only in ANSI (on for the terminal, off for the plain-text OBS log).
 
 use std::ffi::CString;
 use std::fmt;
@@ -61,9 +58,7 @@ fn default_filter() -> EnvFilter {
 }
 
 /// Prefixes every line with the plugin tag, then defers to the stock formatter
-/// without a timestamp -- both the terminal and OBS stamp their own. ANSI is
-/// left to the layer's `with_ansi`, which the delegated formatter honours via
-/// the writer.
+/// without a timestamp.
 struct GoldenEyeFormat;
 
 impl<S, N> FormatEvent<S, N> for GoldenEyeFormat

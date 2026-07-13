@@ -1,12 +1,4 @@
-// Bridges the Rust core's tracing output into OBS's log. Kept in its own
-// translation unit because it needs `GeLogLevel` (and the `ge_obs_blog`
-// prototype) from the cbindgen-generated ge_rust.h, which declares the capture
-// API with types that conflict with obs_bridge.h -- so the two headers can't be
-// included together. See obs_bridge.h.
-//
-// This is the single source of truth for the OBS log constants: `GeLogLevel` is
-// defined once in Rust (rust/src/ffi.rs) and generated into ge_rust.h, and the
-// OBS `LOG_*` values come straight from <util/base.h>. Neither is duplicated.
+// Bridges the Rust core's tracing output into OBS's log.
 
 #include "ge_rust.h"
 
