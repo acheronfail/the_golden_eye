@@ -156,7 +156,7 @@
 			// poll briefly rather than assuming it's instant.
 			addNotificationFlag({
 				title: 'Update found',
-				detail: `Downloading and verifying v${update.latestVersion}...`,
+				detail: `Downloading and verifying ${update.latestVersion}...`,
 				tone: 'info'
 			});
 			const deadline = Date.now() + 30_000;
