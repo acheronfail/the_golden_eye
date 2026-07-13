@@ -357,14 +357,14 @@ pub fn collect_sources() -> Vec<routes::sources::Source> {
 async fn log_requests(req: Request, next: Next) -> Response {
     let method = req.method().clone();
     let path = req.uri().path().to_owned();
-    tracing::info!(%method, %path, "request received");
+    tracing::debug!(%method, %path, "request received");
 
     let start = std::time::Instant::now();
     let response = next.run(req).await;
     let elapsed = start.elapsed();
 
     let status = response.status();
-    tracing::info!(%method, %path, %status, ?elapsed, "request sent");
+    tracing::debug!(%method, %path, %status, ?elapsed, "request sent");
     response
 }
 
