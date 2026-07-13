@@ -30,8 +30,11 @@ System dependencies:
 - Windows:
   - OBS Studio
   - Visual Studio Build Tools with MSVC
-  - `vcpkg`, with `VCPKG_ROOT` or `VCPKG_INSTALLATION_ROOT` set
-  - `just`, `cmake`, and Git Bash
+  - `vcpkg` (with `VCPKG_ROOT` set)
+  - `just`, `cygwin`, `cmake`, `llvm`, `python` and `nodejs` (easily installed via `scoop`)
+  - Git needs to be setup:
+      - for CRLFs: `git config core.autocrlf input`
+      - Also make sure to install `git` via Cygwin Setup, so it knows all the cygwin tools
 
 Get started:
 
