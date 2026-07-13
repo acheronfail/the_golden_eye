@@ -58,6 +58,7 @@ add_library(${CORE_NAME} SHARED)
 target_sources(${CORE_NAME} PRIVATE
     core/obs_bridge.c
     core/core.c
+    core/ge_log.c
 )
 
 if(NOT GE_OBS_NATIVE_DEPS_FOUND)
