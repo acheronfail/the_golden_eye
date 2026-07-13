@@ -81,6 +81,16 @@ pub struct AppSettings {
     pub streaming_stopped_message_template: String,
     pub update_check_interval: UpdateCheckInterval,
     pub last_update_check_time: Option<u64>,
+    /// The version of the most recently detected plugin update, backend-owned
+    /// like `last_update_check_time` above. Paired with
+    /// `last_known_update_release_url` so the "plugin updated" notice can show
+    /// a changelog link once this recorded version matches the now-running
+    /// `crate::PLUGIN_VERSION` -- see `set_last_known_update` and its use in
+    /// `updates::check_for_updates_now`.
+    pub last_known_update_version: Option<String>,
+    /// The GitHub release URL paired with `last_known_update_version`.
+    pub last_known_update_release_url: Option<String>,
+    pub auto_update_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -104,6 +114,9 @@ impl Default for AppSettings {
             streaming_stopped_message_template: DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE.to_owned(),
             update_check_interval: DEFAULT_UPDATE_CHECK_INTERVAL,
             last_update_check_time: None,
+            last_known_update_version: None,
+            last_known_update_release_url: None,
+            auto_update_enabled: false,
         }
     }
 }
@@ -149,6 +162,9 @@ impl AppSettings {
             ),
             update_check_interval: UpdateCheckInterval::from_json_value(object.get("updateCheckInterval")),
             last_update_check_time: non_negative_u64_option(object.get("lastUpdateCheckTime")),
+            last_known_update_version: string_field_option(object.get("lastKnownUpdateVersion")),
+            last_known_update_release_url: string_field_option(object.get("lastKnownUpdateReleaseUrl")),
+            auto_update_enabled: bool_field(object.get("autoUpdateEnabled"), default.auto_update_enabled),
         }
     }
 
@@ -232,7 +248,7 @@ pub struct SettingsStatus {
 #[derive(Debug, Clone)]
 pub enum SettingsReload {
     Unchanged,
-    Reloaded(AppSettings),
+    Reloaded(Box<AppSettings>),
     Invalid(String),
 }
 
@@ -301,7 +317,7 @@ impl SettingsStore {
                 state.file_error = None;
                 state.file_bytes = disk_bytes;
                 tracing::info!(path = %self.path.display(), "reloaded settings");
-                SettingsReload::Reloaded(apply_runtime_output_path_defaults(settings))
+                SettingsReload::Reloaded(Box::new(apply_runtime_output_path_defaults(settings)))
             }
             Err(err) => {
                 let message = format!("{err:#}");
@@ -348,9 +364,20 @@ impl SettingsStore {
     }
 
     pub fn set_last_update_check_time(&self, seconds: u64) -> anyhow::Result<AppSettings> {
-        let mut settings = self.get();
-        settings.last_update_check_time = Some(seconds);
-        self.replace(settings)
+        self.update(|current| {
+            let mut settings = current.clone();
+            settings.last_update_check_time = Some(seconds);
+            Ok(settings)
+        })
+    }
+
+    pub fn set_last_known_update(&self, version: &str, release_url: &str) -> anyhow::Result<AppSettings> {
+        self.update(|current| {
+            let mut settings = current.clone();
+            settings.last_known_update_version = Some(version.to_owned());
+            settings.last_known_update_release_url = Some(release_url.to_owned());
+            Ok(settings)
+        })
     }
 
     pub fn set_from_json_value_with_runtime_defaults(&self, value: Value) -> anyhow::Result<AppSettings> {
@@ -358,9 +385,13 @@ impl SettingsStore {
             anyhow::bail!("settings file is invalid; fix it or reset to defaults before saving: {error}");
         }
 
-        let mut settings = apply_runtime_output_path_defaults(AppSettings::from_json_value(value));
-        settings.last_update_check_time = self.get().last_update_check_time;
-        self.replace(settings)
+        self.update(|current| {
+            let mut settings = apply_runtime_output_path_defaults(AppSettings::from_json_value(value.clone()));
+            settings.last_update_check_time = current.last_update_check_time;
+            settings.last_known_update_version = current.last_known_update_version.clone();
+            settings.last_known_update_release_url = current.last_known_update_release_url.clone();
+            Ok(settings)
+        })
     }
 
     fn replace(&self, settings: AppSettings) -> anyhow::Result<AppSettings> {
@@ -373,6 +404,35 @@ impl SettingsStore {
         tracing::info!(path = %self.path.display(), "saved settings");
 
         Ok(settings)
+    }
+
+    /// Builds a new settings value from the current one and persists it,
+    /// retrying if another writer committed a change in between -- e.g. the
+    /// background update-check task racing a settings PUT. Both read the
+    /// current value, derive a new one from it (preserving fields they don't
+    /// own), and write the result back; without this check, whichever finishes
+    /// second overwrites the other's change with its own now-stale snapshot
+    /// (a classic read-modify-write lost update). `build` may run more than
+    /// once, so it must not have side effects.
+    fn update(&self, build: impl Fn(&AppSettings) -> anyhow::Result<AppSettings>) -> anyhow::Result<AppSettings> {
+        loop {
+            let before = self.get();
+            let settings = build(&before)?;
+            let bytes = write_settings(&self.path, &settings)?;
+
+            let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            if state.settings != before {
+                // Lost the race: someone else's write landed while we were
+                // building/writing ours. Retry against their fresher value
+                // instead of clobbering it.
+                continue;
+            }
+            state.settings = settings.clone();
+            state.file_error = None;
+            state.file_bytes = Some(bytes);
+            tracing::info!(path = %self.path.display(), "saved settings");
+            return Ok(settings);
+        }
     }
 }
 
@@ -435,6 +495,10 @@ fn write_settings(path: &Path, settings: &AppSettings) -> anyhow::Result<Vec<u8>
 
 fn string_field(value: Option<&Value>, fallback: &str) -> String {
     value.and_then(Value::as_str).unwrap_or(fallback).to_owned()
+}
+
+fn string_field_option(value: Option<&Value>) -> Option<String> {
+    value.and_then(Value::as_str).map(str::to_owned)
 }
 
 fn bool_field(value: Option<&Value>, fallback: bool) -> bool {
@@ -635,13 +699,14 @@ mod tests {
         let replay_dir = PathBuf::from("/tmp/obs-replays");
         let settings = AppSettings::from_json_value(json!({})).with_default_output_paths(Some(&replay_dir));
 
-        assert_eq!(settings.completed_output_path, "/tmp/obs-replays/Goldeneye");
-        assert_eq!(settings.failed_output_path, "/tmp/obs-replays/Goldeneye/failed");
+        let default_completed = replay_dir.join("Goldeneye");
+        assert_eq!(settings.completed_output_path, default_completed.to_string_lossy());
+        assert_eq!(settings.failed_output_path, default_completed.join("failed").to_string_lossy());
 
         let custom_completed =
             AppSettings::from_json_value(json!({ "completedOutputPath": "/runs" })).with_default_output_paths(None);
         assert_eq!(custom_completed.completed_output_path, "/runs");
-        assert_eq!(custom_completed.failed_output_path, "/runs/failed");
+        assert_eq!(custom_completed.failed_output_path, Path::new("/runs").join("failed").to_string_lossy());
     }
 
     #[test]
@@ -702,6 +767,56 @@ mod tests {
         assert!(saved.show_monitor_fps);
         assert_eq!(saved.update_check_interval, UpdateCheckInterval::Daily);
         assert_eq!(saved.last_update_check_time, Some(99));
+    }
+
+    #[test]
+    fn store_updates_last_known_update_without_changing_other_settings() {
+        let dir = TestDir::new("update-known");
+        let store = SettingsStore::load_from_path(dir.join("settings.json"));
+        store
+            .replace(AppSettings::from_json_value(json!({
+                "showMonitorFps": true,
+                "updateCheckInterval": "daily"
+            })))
+            .unwrap();
+
+        let saved = store
+            .set_last_known_update("v1.2.3", "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.2.3")
+            .unwrap();
+
+        assert!(saved.show_monitor_fps);
+        assert_eq!(saved.update_check_interval, UpdateCheckInterval::Daily);
+        assert_eq!(saved.last_known_update_version, Some("v1.2.3".to_owned()));
+        assert_eq!(
+            saved.last_known_update_release_url,
+            Some("https://github.com/acheronfail/the_golden_eye/releases/tag/v1.2.3".to_owned())
+        );
+    }
+
+    #[test]
+    fn put_settings_preserves_backend_owned_last_known_update() {
+        let dir = TestDir::new("preserve-known-update");
+        let store = SettingsStore::load_from_path(dir.join("settings.json"));
+        store
+            .set_last_known_update("v1.2.3", "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.2.3")
+            .unwrap();
+
+        let saved = store
+            .set_from_json_value_with_runtime_defaults(json!({
+                "showMonitorFps": true,
+                "updateCheckInterval": "daily",
+                "lastKnownUpdateVersion": null,
+                "lastKnownUpdateReleaseUrl": null
+            }))
+            .unwrap();
+
+        assert!(saved.show_monitor_fps);
+        assert_eq!(saved.update_check_interval, UpdateCheckInterval::Daily);
+        assert_eq!(saved.last_known_update_version, Some("v1.2.3".to_owned()));
+        assert_eq!(
+            saved.last_known_update_release_url,
+            Some("https://github.com/acheronfail/the_golden_eye/releases/tag/v1.2.3".to_owned())
+        );
     }
 
     #[test]

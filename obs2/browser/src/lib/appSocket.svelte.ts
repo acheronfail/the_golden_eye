@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { connectAppSocket, openUpdateRelease, type PluginUpdate } from './api';
+import { connectAppSocket, openUpdateRelease, selfBuildId, type PluginUpdate } from './api';
 import {
 	applyLanguageDetected,
 	applyMonitorFps,
@@ -24,6 +24,62 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let stopped = true;
 let settingsErrorNotificationId: number | null = null;
 let updateNotificationId: number | null = null;
+
+const UPDATE_APPLIED_STORAGE_KEY = 'ge-update-applied-version';
+
+const showUpdateAppliedNotification = (version: string, releaseUrl?: string): void => {
+	addNotificationFlag({
+		key: 'plugin-update-applied',
+		title: 'Plugin updated',
+		detail: `Now running v${version}`,
+		tone: 'success',
+		meta: releaseUrl ? 'Click to view the changelog.' : undefined,
+		action: releaseUrl
+			? async () => {
+					try {
+						await openUpdateRelease(releaseUrl);
+					} catch (err) {
+						console.warn('Failed to open plugin update release', err);
+					}
+				}
+			: undefined
+	});
+};
+
+/** In production, a page that just received `updateApplied` is about to
+ * reload anyway (see `reloadIfStale`, driven by the `version` handshake sent
+ * just before it) — an immediate toast would only flash and vanish with it.
+ * Persisting across the reload and showing it once on the fresh page
+ * instead. Dev mode never reloads (no `ge-build-id` meta tag to compare
+ * against), so there the toast has to show immediately or not at all. */
+const handleUpdateApplied = (version: string, releaseUrl?: string): void => {
+	if (selfBuildId() === null) {
+		showUpdateAppliedNotification(version, releaseUrl);
+		return;
+	}
+	try {
+		sessionStorage.setItem(UPDATE_APPLIED_STORAGE_KEY, JSON.stringify({ version, releaseUrl }));
+	} catch (err) {
+		console.warn('Failed to persist pending update-applied notice', err);
+	}
+};
+
+const consumePendingUpdateAppliedNotification = (): void => {
+	let stored: string | null = null;
+	try {
+		stored = sessionStorage.getItem(UPDATE_APPLIED_STORAGE_KEY);
+		if (stored !== null) sessionStorage.removeItem(UPDATE_APPLIED_STORAGE_KEY);
+	} catch (err) {
+		console.warn('Failed to read pending update-applied notice', err);
+	}
+	if (stored === null) return;
+	try {
+		const parsed = JSON.parse(stored) as { version: string; releaseUrl?: string };
+		showUpdateAppliedNotification(parsed.version, parsed.releaseUrl);
+	} catch (err) {
+		console.warn('Failed to parse pending update-applied notice', err);
+	}
+};
 
 const clearReconnectTimer = (): void => {
 	if (reconnectTimer !== null) {
@@ -85,11 +141,34 @@ const connect = (): void => {
 			settingsErrorNotificationId = addNotificationFlag(notification).id;
 		},
 		onUpdateAvailable: (update) => {
+			// With auto-update on, the plugin handles this itself (staging
+			// happens regardless of the setting either way) and reports back via
+			// the "update found" / "plugin updated" notices instead -- a sticky
+			// "click to open the release page" notice on top of that is just
+			// noise, and clicking it would suggest a manual step that isn't
+			// actually needed.
+			if (settings.autoUpdateEnabled) {
+				if (updateNotificationId !== null) {
+					dismissNotificationFlag(updateNotificationId);
+					updateNotificationId = null;
+				}
+				return;
+			}
 			const notification = updateNotification(update);
 			if (updateNotificationId !== null && replaceNotificationFlag(updateNotificationId, notification)) {
 				return;
 			}
 			updateNotificationId = addNotificationFlag(notification).id;
+		},
+		onUpdateApplied: handleUpdateApplied,
+		onUpdateStagingFailed: (error) => {
+			addNotificationFlag({
+				key: 'plugin-update-staging-failed',
+				title: 'Plugin update failed',
+				detail: error,
+				tone: 'error',
+				sticky: true
+			});
 		},
 		onClose: () => {
 			if (socket === nextSocket) socket = null;
@@ -117,6 +196,9 @@ const updateNotification = (update: PluginUpdate) => ({
 
 export const startAppSocket = (): void => {
 	if (!browser) return;
+	// Picks up a notice persisted by handleUpdateApplied just before a
+	// production reload landed us here on the fresh page.
+	consumePendingUpdateAppliedNotification();
 	stopped = false;
 	connect();
 };

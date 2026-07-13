@@ -1,8 +1,15 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { pickFolder, validateFolder, type FolderValidation } from '$lib/api';
-	import { dismissNotificationFlagsByKey } from '$lib/notifications.svelte';
+	import {
+		applyUpdateNow,
+		checkForUpdateNow,
+		getUpdateStatus,
+		pickFolder,
+		validateFolder,
+		type FolderValidation
+	} from '$lib/api';
+	import { addNotificationFlag, dismissNotificationFlagsByKey } from '$lib/notifications.svelte';
 	import { replayBuffer } from '$lib/replayBuffer.svelte';
 	import {
 		DEFAULT_CLIP_FILENAME_TEMPLATE,
@@ -114,6 +121,101 @@
 
 	const onUpdateCheckIntervalChange = (event: Event) => {
 		settings.updateCheckInterval = (event.currentTarget as HTMLSelectElement).value as UpdateCheckInterval;
+	};
+
+	// null while the initial status fetch is in flight -- treated the same as
+	// `false` for the button label, so it starts as "Check now" rather than
+	// flashing "Apply update now" before we actually know.
+	let updateStaged: boolean | null = $state(null);
+	let updateActionPending = $state(false);
+
+	const refreshUpdateStatus = async () => {
+		try {
+			updateStaged = (await getUpdateStatus()).staged;
+		} catch (err) {
+			console.warn('Failed to fetch update status', err);
+		}
+	};
+
+	// Runs once on mount (nothing reactive is read below, so $effect never
+	// re-fires) -- there's no push-based signal for "something got staged in
+	// the background" to react to instead.
+	$effect(() => {
+		void refreshUpdateStatus();
+	});
+
+	const onCheckForUpdateNow = async () => {
+		updateActionPending = true;
+		try {
+			const { update } = await checkForUpdateNow();
+			if (!update) {
+				addNotificationFlag({ title: "You're up to date", tone: 'success' });
+				return;
+			}
+			// Staging (download + checksum verify) happens in the background;
+			// poll briefly rather than assuming it's instant.
+			addNotificationFlag({
+				title: 'Update found',
+				detail: `Downloading and verifying ${update.latestVersion}...`,
+				tone: 'info'
+			});
+			const deadline = Date.now() + 30_000;
+			while (Date.now() < deadline) {
+				await refreshUpdateStatus();
+				if (updateStaged) break;
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+			if (!updateStaged) {
+				addNotificationFlag({
+					title: 'Still downloading',
+					detail: "Check again shortly -- it's taking longer than expected.",
+					tone: 'info'
+				});
+			}
+		} catch (err) {
+			addNotificationFlag({
+				title: 'Update check failed',
+				detail: err instanceof Error ? err.message : String(err),
+				tone: 'error'
+			});
+		} finally {
+			updateActionPending = false;
+		}
+	};
+
+	const onApplyUpdateNow = async () => {
+		updateActionPending = true;
+		try {
+			await applyUpdateNow();
+			addNotificationFlag({
+				title: 'Applying update',
+				detail: 'The plugin will briefly reconnect while the update is installed.',
+				tone: 'success'
+			});
+			// The actual swap (unload old core, install new, reload) happens in
+			// the background and briefly drops the HTTP server -- keep the
+			// button disabled and poll (tolerating connection errors during
+			// that gap; refreshUpdateStatus already swallows them) until the
+			// staged update is gone, rather than re-enabling it while the swap
+			// is still in flight.
+			const deadline = Date.now() + 20_000;
+			while (Date.now() < deadline && updateStaged) {
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+				await refreshUpdateStatus();
+			}
+		} catch (err) {
+			addNotificationFlag({
+				title: 'Could not apply update',
+				detail: err instanceof Error ? err.message : String(err),
+				tone: 'error'
+			});
+			// The failure might mean it was never staged in the first place
+			// (e.g. it got applied or cleared by another client) -- refresh
+			// rather than leaving a stale "Apply update now" showing.
+			void refreshUpdateStatus();
+		} finally {
+			updateActionPending = false;
+		}
 	};
 
 	const normalizeFailedRunLimit = () => {
@@ -389,6 +491,32 @@
 				<p class={hintClass}>
 					Checks GitHub releases on app startup and shows a sticky notice when a newer version exists.
 				</p>
+			</section>
+
+			<section class={panelClass}>
+				<label class="flex items-center gap-3">
+					<input
+						type="checkbox"
+						bind:checked={settings.autoUpdateEnabled}
+						class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
+					/>
+					<span class={labelClass}>Automatically install updates</span>
+				</label>
+				<p class={hintClass}>
+					Applies a downloaded, checksum-verified update on its own once it's safe to do so (no monitoring or recording
+					in progress). The plugin keeps running throughout -- no OBS restart needed.
+				</p>
+				<div>
+					{#if updateStaged}
+						<button type="button" class={pathButtonClass} disabled={updateActionPending} onclick={onApplyUpdateNow}>
+							{updateActionPending ? 'Applying…' : 'Apply update now'}
+						</button>
+					{:else}
+						<button type="button" class={pathButtonClass} disabled={updateActionPending} onclick={onCheckForUpdateNow}>
+							{updateActionPending ? 'Checking…' : 'Check now'}
+						</button>
+					{/if}
+				</div>
 			</section>
 
 			<section class={panelClass}>

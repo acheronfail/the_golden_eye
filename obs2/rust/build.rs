@@ -13,6 +13,12 @@ fn main() {
     println!("cargo:rerun-if-env-changed=OPENCV_DISABLE_PROBES");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
 
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        for lib in ["bcrypt", "mfplat", "mfuuid", "ntdll", "ole32", "secur32", "strmiids", "user32", "ws2_32"] {
+            println!("cargo:rustc-link-lib={lib}");
+        }
+    }
+
     // Emitting any rerun-if-* above disables cargo's default "rerun on any file
     // change", which would otherwise pin this build script to BROWSER_BUNDLE and
     // let the cbindgen-generated ge_rust.h drift out of sync with the Rust FFI.
@@ -22,7 +28,9 @@ fn main() {
 
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let obs2_dir = crate_dir.parent().expect("Rust crate should live under obs2/").to_path_buf();
-    let output_file = obs2_dir.join("ge_rust.h");
+    let core_dir = obs2_dir.join("core");
+    std::fs::create_dir_all(&core_dir).expect("failed to create obs2/core directory");
+    let output_file = core_dir.join("ge_rust.h");
 
     cbindgen::Builder::new()
         .with_crate(crate_dir)
@@ -44,6 +52,7 @@ fn main() {
         .exclude_item("free")
         .exclude_item("ObsTaskType")
         .exclude_item("ObsTask")
+        .exclude_item("ge_core_trigger_reload")
         .generate()
         .expect("Unable to generate cbindgen bindings")
         .write_to_file(output_file);

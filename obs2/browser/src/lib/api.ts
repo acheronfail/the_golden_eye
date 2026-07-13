@@ -249,6 +249,34 @@ export const openUpdateRelease = async (releaseUrl: string): Promise<void> => {
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 };
 
+/** Applies whatever update is currently staged. Throws with a message
+ * suitable for display when nothing is staged yet (404) or it's not
+ * currently safe to apply one (409, e.g. a monitor session is active). */
+export const applyUpdateNow = async (): Promise<void> => {
+	const res = await fetch(apiUrl('/api/v1/updates/apply'), { method: 'POST' });
+	if (res.status === 404) throw new Error('No update is staged yet -- try again in a moment.');
+	if (res.status === 409) throw new Error('Cannot apply an update while monitoring or recording is active.');
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+};
+
+/** Checks for an update right now, bypassing the configured check interval
+ * (the automatic startup check already having found nothing this week
+ * doesn't mean a release didn't just appear). Staging, if one is found,
+ * happens in the background -- poll {@link getUpdateStatus} to see when it's
+ * ready to apply. */
+export const checkForUpdateNow = async (): Promise<{ update: PluginUpdate | null }> => {
+	const res = await fetch(apiUrl('/api/v1/updates/check'), { method: 'POST' });
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
+/** Whether a verified update is currently staged and ready to apply. */
+export const getUpdateStatus = async (): Promise<{ staged: boolean }> => {
+	const res = await fetch(apiUrl('/api/v1/updates/status'));
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
 export interface FolderPickResult {
 	cancelled: boolean;
 	path?: string | null;
@@ -485,7 +513,9 @@ export type AppSocketEvent =
 	| { type: 'monitorStopped'; reason: MonitorStoppedReason }
 	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
 	| { type: 'settingsInvalid'; configPath: string; error: string }
-	| ({ type: 'updateAvailable' } & PluginUpdate);
+	| ({ type: 'updateAvailable' } & PluginUpdate)
+	| { type: 'updateApplied'; version: string; releaseUrl?: string }
+	| { type: 'updateStagingFailed'; error: string };
 
 /** Handlers for the messages the app WebSocket can push. All are optional;
  * provide only the ones you care about. */
@@ -513,14 +543,26 @@ export interface AppSocketHandlers {
 	onSettingsInvalid?: (error: string, configPath: string) => void;
 	/** A newer plugin release is available. */
 	onUpdateAvailable?: (update: PluginUpdate) => void;
+	/** The plugin just applied an update (dev hot-reload or a real auto-update)
+	 * and is now running `version`. Fires once per applied update, for any
+	 * client connecting shortly after -- see the backend's `reloaded_at`.
+	 * `releaseUrl` is present only when the backend's persisted "last known
+	 * update" matches `version`, i.e. it's confidently the changelog for the
+	 * update that was just applied. */
+	onUpdateApplied?: (version: string, releaseUrl?: string) => void;
+	/** A newer release was found but downloading/verifying/staging it failed, so
+	 * no update is queued up to apply. */
+	onUpdateStagingFailed?: (error: string) => void;
 	/** Fires when the socket closes. */
 	onClose?: () => void;
 }
 
 /** The build id this page was served with, read from the `<meta>` tag the
  * backend injects into the SPA's HTML. `null` in dev, where the SPA is served by
- * Vite (no injection) — the version check is skipped there. */
-const selfBuildId = (): string | null =>
+ * Vite (no injection) — the version check is skipped there, and this also tells
+ * callers elsewhere (e.g. the "plugin updated" notice) whether a stale-build
+ * reload is imminent for this tab. */
+export const selfBuildId = (): string | null =>
 	document.querySelector('meta[name="ge-build-id"]')?.getAttribute('content') ?? null;
 
 /** Reload the page if the backend is serving a different frontend build than the
@@ -592,6 +634,16 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 				break;
 			case 'updateAvailable':
 				handlers.onUpdateAvailable?.(msg);
+				break;
+			case 'updateApplied':
+				if (typeof msg.version === 'string') {
+					handlers.onUpdateApplied?.(msg.version, msg.releaseUrl);
+				} else {
+					console.warn('Ignoring malformed updateApplied event', msg);
+				}
+				break;
+			case 'updateStagingFailed':
+				handlers.onUpdateStagingFailed?.(msg.error);
 				break;
 		}
 	};

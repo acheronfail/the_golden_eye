@@ -14,7 +14,7 @@ use axum::response::Response;
 use axum::routing::{get, post};
 pub(crate) use routes::monitor::stop_monitor;
 use serde::Serialize;
-use tokio::net::TcpSocket;
+use tokio::net::{TcpListener, TcpSocket};
 use tokio::sync::{Mutex, broadcast, oneshot, watch};
 use tower::ServiceBuilder;
 use tower_http::BoxError;
@@ -63,6 +63,15 @@ pub struct AppStateInner {
     pub update_tx: watch::Sender<Option<crate::updates::PluginUpdate>>,
     /// Plugin-owned user settings, loaded from and persisted to JSON.
     pub settings: crate::settings::SettingsStore,
+    /// `Some(when this core started)` if this core load followed a successful
+    /// update apply (not a cold OBS start, not a rollback) -- see
+    /// `crate::WAS_RELOADED`. A client connecting shortly after gets a one-off
+    /// "plugin updated" notice (see `routes::monitor::handle_socket`); checked
+    /// against a grace period rather than sent once via a channel, since a
+    /// `broadcast` send at startup could race a client that hasn't reconnected
+    /// yet and a `watch` value would never look "new" again after the first
+    /// client consumes it.
+    pub reloaded_at: Option<std::time::Instant>,
 }
 
 /// A Discord webhook message we posted and may later edit.
@@ -76,8 +85,9 @@ pub struct StreamMessage {
 /// `type` so the SPA can discriminate them. `Version` is sent once per
 /// connection (a handshake); `Sources`, `Match`, and `RecordingState` ride watch
 /// channels (latest-wins, replayed on connect); `RecordingSavePending`,
-/// `LanguageDetected`, `RecordingSaved`, and `MonitorStopped` ride `event_tx`
-/// (one-off, delivered only to currently-connected clients).
+/// `LanguageDetected`, `RecordingSaved`, `MonitorStopped`, and
+/// `UpdateStagingFailed` ride `event_tx` (one-off, delivered only to
+/// currently-connected clients).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum MonitorEvent {
@@ -125,6 +135,24 @@ pub enum MonitorEvent {
     },
     /// A newer plugin release is available on GitHub.
     UpdateAvailable(crate::updates::PluginUpdate),
+    /// Sent once when a client connects shortly after this core was loaded via
+    /// an applied update (dev hot-reload or a real auto-update), so the SPA
+    /// can show a one-off "plugin updated" notice. See `AppStateInner::reloaded_at`.
+    UpdateApplied {
+        version: String,
+        /// The GitHub release page for `version`, when the persisted "last
+        /// known update" (see `crate::settings::AppSettings::last_known_update_version`)
+        /// exactly matches the version now running -- i.e. the update really is
+        /// the one that was just applied, not some other update discovered
+        /// later that hasn't been applied yet. `None` otherwise, so the SPA
+        /// never shows a changelog link for the wrong release.
+        #[serde(rename = "releaseUrl", skip_serializing_if = "Option::is_none")]
+        release_url: Option<String>,
+    },
+    /// A newer release was found but downloading/verifying/staging it failed
+    /// (e.g. an unwritable install directory), so no update is queued up to
+    /// apply. One-off, delivered via `event_tx` -- see `updates::check_for_updates_now`.
+    UpdateStagingFailed { error: String },
 }
 
 /// Why the backend stopped an active monitor. Serialized as a plain string
@@ -364,7 +392,28 @@ async fn log_requests(req: Request, next: Next) -> Response {
     response
 }
 
-pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> anyhow::Result<()> {
+/// Binds the server's listening socket synchronously (no `.await`), so a
+/// caller like `ge_rust_start` can know immediately whether the port bound
+/// successfully instead of finding out later, asynchronously, after
+/// `ge_core_load` has already returned `true`. Registering a tokio
+/// `TcpListener` still requires an active runtime context, so callers must
+/// invoke this from inside a `runtime.enter()` guard even though nothing
+/// here is `async`.
+///
+/// Uses `SO_REUSEADDR` so we can rebind the port immediately after a
+/// previous server instance is torn down — without it, a client socket
+/// lingering in TIME_WAIT makes the bind fail with "address already in use",
+/// which is exactly what happens across a reload (stop server, start a new
+/// one on the same port).
+pub fn bind_listener() -> std::io::Result<TcpListener> {
+    let addr = SocketAddr::from(([0, 0, 0, 0], SERVER_PORT));
+    let socket = TcpSocket::new_v4()?;
+    socket.set_reuseaddr(true)?;
+    socket.bind(addr)?;
+    socket.listen(1024)
+}
+
+pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state: AppState) -> anyhow::Result<()> {
     // Build middleware stack
 
     // NOTE: tower composes middleware from top to bottom; i.e., the first added is the first to be run
@@ -401,6 +450,9 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
         .route("/api/v1/folders/validate", post(routes::folders::handle_validate))
         .route("/api/v1/files/reveal", post(routes::files::handle_reveal))
         .route("/api/v1/updates/open", post(routes::updates::handle_open))
+        .route("/api/v1/updates/check", post(routes::updates::handle_check_now))
+        .route("/api/v1/updates/status", get(routes::updates::handle_status))
+        .route("/api/v1/updates/apply", post(routes::updates::handle_apply_now))
         .route(
             "/api/v1/runs",
             get(routes::runs::handle_list)
@@ -429,16 +481,6 @@ pub async fn create_server(shutdown: oneshot::Receiver<()>, state: AppState) -> 
 
     let app = app.with_state(state.clone());
 
-    // Build the listener with SO_REUSEADDR so we can rebind the port immediately
-    // after a previous server instance is torn down — without it, a client socket
-    // lingering in TIME_WAIT makes the bind fail with "address already in use",
-    // which is exactly what happens on a dev hot reload (stop server, start a new
-    // one on the same port).
-    let addr: SocketAddr = format!("0.0.0.0:{SERVER_PORT}").parse()?;
-    let socket = TcpSocket::new_v4()?;
-    socket.set_reuseaddr(true)?;
-    socket.bind(addr)?;
-    let listener = socket.listen(1024)?;
     tracing::info!("listening on {}", listener.local_addr()?);
     let _ = axum::serve(listener, app)
         .with_graceful_shutdown(async move {

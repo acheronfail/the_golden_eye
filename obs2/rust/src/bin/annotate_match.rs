@@ -1,6 +1,13 @@
 use std::env;
 use std::process::ExitCode;
 
+// Only `ge_rust::cv` is used below, but linking `ge_rust`'s rlib at all pulls
+// in its `#[no_mangle]` FFI entry points (e.g. `ge_rust_start`) unconditionally,
+// and this bin must resolve every OBS/bridge symbol they reference even though
+// it never calls them. See src/obs_stub.rs for why.
+#[path = "../obs_stub.rs"]
+mod obs_stub;
+
 use opencv::core::Mat;
 use opencv::prelude::*;
 use opencv::{Result, imgcodecs, imgproc};

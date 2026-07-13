@@ -25,8 +25,11 @@ use crate::cv::{LevelMatch, Screen};
 use crate::http::{MonitorEvent, RecordingSavePending, RecordingSaved, RecordingStateStore, RecordingStatus};
 use crate::{ffmpeg, ge};
 
-/// Default filename template for trimmed clips. Mirrors the frontend default and
-/// falls back through the unique-name suffixer when multiple runs render alike.
+/// Default filename template for trimmed clips. Uses platform-native separators
+/// and falls back through the unique-name suffixer when multiple runs render alike.
+#[cfg(windows)]
+pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level}\\{difficulty}\\{time} - {timestamp_local}";
+#[cfg(not(windows))]
 pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level}/{difficulty}/{time} - {timestamp_local}";
 pub const DEFAULT_PRE_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
@@ -2093,7 +2096,11 @@ mod tests {
             RunStatus::Kia,
             UNIX_EPOCH,
             Some(&m),
-            "{level}/{difficulty}/{time}?{status}",
+            &format!(
+                "{{level}}{}{{difficulty}}{}{{time}}?{{status}}",
+                std::path::MAIN_SEPARATOR,
+                std::path::MAIN_SEPARATOR
+            ),
         );
         let name = path.file_name().and_then(|name| name.to_str()).unwrap();
         for forbidden in ['/', '\\', ':', '*', '?', '"', '<', '>', '|'] {
@@ -2115,7 +2122,13 @@ mod tests {
             default_clip_path_for_surface_2(UNIX_EPOCH),
         );
         assert_eq!(
-            clip_relative_path("replay", RunStatus::Complete, UNIX_EPOCH, Some(&m), "{level}/../{time}"),
+            clip_relative_path(
+                "replay",
+                RunStatus::Complete,
+                UNIX_EPOCH,
+                Some(&m),
+                &format!("{{level}}{}..{}{{time}}", std::path::MAIN_SEPARATOR, std::path::MAIN_SEPARATOR),
+            ),
             default_clip_path_for_surface_2(UNIX_EPOCH),
         );
         assert_eq!(

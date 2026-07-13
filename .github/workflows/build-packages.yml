@@ -95,6 +95,9 @@ jobs:
       - name: Build Release
         run: just make-release
 
+      - name: Run shim reload tests
+        run: just test-shim
+
       - name: Run frame regression tests
         run: just test-cv
 
@@ -128,7 +131,6 @@ jobs:
   macos:
     name: macOS
     runs-on: macos-latest
-    needs: linux
 
     steps:
       - name: Checkout
@@ -180,6 +182,15 @@ jobs:
       - name: Set up repository
         run: just setup
 
+      - name: Run shim reload tests
+        run: just test-shim
+
+      - name: Run Rust tests
+        run: just test-rust
+
+      - name: Run Integration tests
+        run: just test-integration
+
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
 
@@ -193,7 +204,6 @@ jobs:
   windows:
     name: Windows
     runs-on: windows-latest
-    needs: linux
 
     env:
       VCPKG_ROOT: C:\vcpkg
@@ -298,12 +308,60 @@ jobs:
           cd obs2/browser && npm install
           cd ../../test && npm install
 
-      - name: Build Windows package
+      # Runs vcvarsall once and persists the resulting environment (INCLUDE,
+      # LIB, LIBPATH, PATH, etc.) via $GITHUB_ENV for every later step in this
+      # job -- `set`'s own "NAME=value" per-line output format happens to be
+      # exactly what $GITHUB_ENV expects, so no diffing or parsing is needed,
+      # just redirecting it there directly. This way the test steps and the
+      # packaging step share exactly the same compiler environment instead of
+      # each re-deriving it (and potentially diverging) independently.
+      - name: Set up MSVC environment
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
           call "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat" -arch=x64
-          bash -c "just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}"
+          for /d %%i in ("%VSINSTALLDIR%\VC\Tools\MSVC\*") do (
+            set "VCTOOLS_DIR=%%~fi"
+          )
+          if not defined VCTOOLS_DIR (
+            echo MSVC tools directory was not found under "%VSINSTALLDIR%\VC\Tools\MSVC".
+            exit /b 1
+          )
+          set "VCToolsInstallDir=%VCTOOLS_DIR%\"
+          set "VC_INCLUDE=%VCTOOLS_DIR%\include"
+          if not exist "%VC_INCLUDE%\vcruntime.h" (
+            echo vcruntime.h was not found under "%VC_INCLUDE%".
+            exit /b 1
+          )
+          set "INCLUDE=%VC_INCLUDE%;%INCLUDE%"
+          set > "%GITHUB_ENV%"
+          setlocal EnableDelayedExpansion
+          set "CLANGARGS="
+          for %%P in ("!INCLUDE:;=" "!") do (
+            if defined CLANGARGS (
+              set "CLANGARGS=!CLANGARGS! -I"%%~P""
+            ) else (
+              set "CLANGARGS=-I"%%~P""
+            )
+          )
+          echo BINDGEN_EXTRA_CLANG_ARGS=!CLANGARGS!>> "%GITHUB_ENV%"
+          endlocal
+
+      - name: Run shim reload tests
+        shell: bash
+        run: just test-shim
+
+      - name: Run Rust tests
+        shell: bash
+        run: just test-rust
+
+      - name: Run Integration tests
+        shell: bash
+        run: just test-integration
+
+      - name: Build Windows package
+        shell: bash
+        run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v7

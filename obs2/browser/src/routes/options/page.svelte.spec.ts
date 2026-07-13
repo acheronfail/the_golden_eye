@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => {
 		getMonitorStatus: vi.fn(),
 		getReplayBufferStatus: vi.fn(),
 		getSettingsStatus: vi.fn(),
+		getUpdateStatus: vi.fn(),
 		putSettings: vi.fn()
 	};
 	return {
@@ -56,6 +57,7 @@ vi.mock('$lib/api', async (importOriginal) => {
 		getMonitorStatus: mocks.api.getMonitorStatus,
 		getReplayBufferStatus: mocks.api.getReplayBufferStatus,
 		getSettingsStatus: mocks.api.getSettingsStatus,
+		getUpdateStatus: mocks.api.getUpdateStatus,
 		putSettings: mocks.api.putSettings
 	};
 });
@@ -78,7 +80,8 @@ const defaultSettings: Settings = {
 	streamingStartedMessageTemplate: 'Bond is now streaming at: {broadcast_url}',
 	streamingStoppedMessageTemplate: 'Bond stopped streaming at: {broadcast_url}',
 	updateCheckInterval: 'weekly',
-	lastUpdateCheckTime: null
+	lastUpdateCheckTime: null,
+	autoUpdateEnabled: false
 };
 
 const availableReplayBuffer = {
@@ -110,6 +113,7 @@ beforeEach(() => {
 		fileError: null
 	});
 	mocks.api.putSettings.mockImplementation(async (next: Settings) => next);
+	mocks.api.getUpdateStatus.mockResolvedValue({ staged: false });
 });
 
 describe('/options', () => {

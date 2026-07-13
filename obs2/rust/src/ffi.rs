@@ -142,4 +142,12 @@ unsafe extern "C" {
 
     /// libc `free`, used to release buffers handed back by the C bridge.
     pub fn free(ptr: *mut c_void);
+
+    /// Wakes the shim's reload worker thread to check for and apply a staged
+    /// update (see obs2/shim/reload.h). Safe to call from any context -- it
+    /// only signals a condition variable and returns immediately -- but must
+    /// never be called from a tokio worker thread whose runtime is about to
+    /// be torn down as part of the reload it triggers; see update_apply.rs's
+    /// `trigger_apply`, which calls this from a detached `std::thread`.
+    pub fn ge_core_trigger_reload();
 }

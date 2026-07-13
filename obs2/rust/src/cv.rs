@@ -633,16 +633,23 @@ fn reject_untrusted_screen(result: &mut LevelMatch) {
 // Loads "<dir>/<lang>-<name>.png" as a single-channel (grayscale) template.
 // Returns an empty Mat when the file is missing or unreadable.
 fn load_template(dir: &str, lang: &str, name: &str) -> Result<Mat> {
-    let path = format!("{dir}/{lang}-{name}.png");
+    // `dir` comes from `cv::template_dir()`, which the caller may have set from
+    // a canonicalized path. On Windows, `canonicalize()` returns a verbatim
+    // (`\\?\`-prefixed) path, and verbatim paths treat '/' as a literal
+    // filename character rather than a separator -- so joining with a plain
+    // `format!("{dir}/...")` silently looks up a nonexistent file (every
+    // template "missing", matcher never recognizes any screen). `Path::join`
+    // appends with the native separator and stays correct either way.
+    let path = std::path::Path::new(dir).join(format!("{lang}-{name}.png"));
     // Some templates are intentionally absent for a language (e.g. jp has no
     // difficulty-select banner). Skip the read in that case so OpenCV does not
     // log a spurious "can't open/read file" warning; an empty Mat means the
     // same "no template" to every caller.
-    if !std::path::Path::new(&path).exists() {
+    if !path.exists() {
         return Ok(Mat::default());
     }
     // imread returns an empty Mat (not an error) when the file is unreadable.
-    imgcodecs::imread(&path, imgcodecs::IMREAD_GRAYSCALE)
+    imgcodecs::imread(&path.to_string_lossy(), imgcodecs::IMREAD_GRAYSCALE)
 }
 
 // Softens `tmpl` in place with a small Gaussian so the sharp emulator-authored

@@ -8,16 +8,10 @@
 set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
 
 # Built up as a CMake list so each flag expands to a separate cargo argument.
-set(CARGO_BUILD_FLAGS "")
-if(WIN32)
-  # Windows package builds only need the staticlib that CMake links into
-  # golden_core. Binaries/tests link Rust directly and therefore cannot resolve
-  # OBS bridge symbols such as ge_obs_collect_source_names until golden_core is
-  # linked.
-  list(APPEND CARGO_BUILD_FLAGS --lib)
-else()
-  list(APPEND CARGO_BUILD_FLAGS --all-targets)
-endif()
+# `test_match`/`annotate_match` link `src/obs_stub.rs` directly (see that file)
+# to resolve the OBS bridge symbols they'd otherwise pull in unresolved from
+# `ge_rust_start` and friends, so --all-targets links cleanly on every platform.
+set(CARGO_BUILD_FLAGS "--all-targets")
 if(GE_RUST_PACKAGE_PROFILE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
   message(FATAL_ERROR "GE_RUST_PACKAGE_PROFILE requires a non-Debug CMAKE_BUILD_TYPE.")
 endif()
@@ -179,7 +173,7 @@ if(GE_REUSE_HOST_BUILD_INPUTS)
               "-DGE_REQUIRED_FILE=${RUST_LIB}"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check-file-exists.cmake"
       COMMAND ${CMAKE_COMMAND}
-              "-DGE_REQUIRED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/ge_rust.h"
+              "-DGE_REQUIRED_FILE=${CMAKE_CURRENT_SOURCE_DIR}/core/ge_rust.h"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check-file-exists.cmake"
       VERBATIM
   )

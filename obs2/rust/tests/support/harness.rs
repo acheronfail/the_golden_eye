@@ -2,6 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use axum::Router;
+use axum::routing::get;
 use ffmpeg_next::format::Pixel;
 use ffmpeg_next::frame::Video;
 use ffmpeg_next::software::scaling::context::Context as ScalingContext;
@@ -38,15 +40,39 @@ impl Harness {
 
         // The integration recipe runs ignored tests serially, so changing config
         // env before the backend creates threads is safe and keeps SettingsStore
-        // away from developer/CI runner settings.
+        // away from developer/CI runner settings. Windows code reads APPDATA/
+        // USERPROFILE instead of HOME/XDG_CONFIG_HOME (default_settings_path in
+        // settings.rs, home_dir in http/routes/{folders,runs}.rs) -- without
+        // overriding those too, every test on Windows shares the real,
+        // persistent %APPDATA%\The Golden Eye\settings.json, so state like
+        // `lastUpdateCheckTime` leaks across tests (and processes).
         unsafe {
             std::env::set_var("HOME", &temp);
             std::env::set_var("XDG_CONFIG_HOME", temp.join(".config"));
+            std::env::set_var("APPDATA", &temp);
+            std::env::set_var("USERPROFILE", &temp);
         }
+
+        // `ge_rust_start` unconditionally kicks off a background update check
+        // (see `updates::check_for_updates_on_startup`); without an override it
+        // hits the real GitHub API on every single test run. Point it at a
+        // local "nothing new" mock instead, unless the test already set its
+        // own (update_apply.rs/update_checking.rs configure one that actually
+        // reports an update, which must win).
+        if std::env::var_os("GE_UPDATE_CHECK_URL").is_none() {
+            let mock_url = start_local_update_mock().await;
+            unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", mock_url) };
+        }
+
+        // Lives under the per-test temp dir (not the repo's real build
+        // directory) so tests that derive an install/staging directory from
+        // this path (e.g. update_apply.rs) get one that's isolated and
+        // writable, and cleaned up with everything else in `temp`.
+        let core_path = temp.join("golden_core.test");
 
         let obs = TestObs::install(Config {
             data_path: root.join("obs2"),
-            binary_path: root.join("obs2/build/golden_core.test"),
+            binary_path: core_path.clone(),
             replay_output_directory: replay_dir.clone(),
             replay_fixture: fixture,
             fps: 59.94,
@@ -58,7 +84,15 @@ impl Harness {
             sources: vec![(SOURCE_NAME.into(), "test_input".into())],
         });
 
-        ge_rust::ge_rust_start();
+        // Normally set by core.c's ge_core_load (see lib.rs::core_path); the
+        // harness calls ge_rust_start() directly, bypassing that C layer
+        // entirely, so it has to set this itself -- and must do so on every
+        // call (not just once), since this same process runs multiple tests
+        // that each want their own isolated path.
+        let core_path_c = std::ffi::CString::new(core_path.to_string_lossy().into_owned()).unwrap();
+        unsafe { ge_rust::ge_rust_set_core_path(core_path_c.as_ptr()) };
+
+        assert!(ge_rust::ge_rust_start(), "server failed to start");
         let client = reqwest::Client::new();
         wait_for_server(&client).await;
 
@@ -124,7 +158,14 @@ impl Drop for Harness {
     fn drop(&mut self) {
         // ge_rust_stop drops its own Tokio runtime, which Tokio rejects from an
         // async worker. Run it on a plain thread and wait for full teardown.
+        // Any in-flight update check is torn down along with it, so it's safe
+        // to clear the env var below without racing a still-running fetch.
         std::thread::spawn(|| ge_rust::ge_rust_stop()).join().unwrap();
+
+        // Undoes whichever of {our default mock, a test's own override} was in
+        // effect, so a later test in the same process doesn't inherit a URL
+        // pointing at a mock server that no longer exists.
+        unsafe { std::env::remove_var("GE_UPDATE_CHECK_URL") };
 
         if std::env::var_os("GE_KEEP_INTEGRATION_OUTPUTS").is_some() {
             eprintln!("kept integration outputs at {}", self.temp.display());
@@ -280,6 +321,30 @@ fn output_clip(dir: &Path) -> Option<PathBuf> {
         .flatten()
         .map(|entry| entry.path())
         .find(|path| path.extension().and_then(|value| value.to_str()) == Some("mp4"))
+}
+
+/// Serves a GitHub-releases-shaped "nothing new" response (`tag_name` equal to
+/// this build's own version, so `updates::update_from_release` finds it not
+/// newer) on an ephemeral local port, for tests that don't care about the
+/// update flow. Never explicitly shut down -- it's spawned on the calling
+/// `#[tokio::test]`'s own runtime, which aborts it along with every other task
+/// when that runtime drops at the end of the test.
+async fn start_local_update_mock() -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = Router::new().route("/latest", get(no_update_available));
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    format!("http://{addr}/latest")
+}
+
+async fn no_update_available() -> axum::Json<Value> {
+    axum::Json(json!({
+        "tag_name": env!("GE_PLUGIN_VERSION"),
+        "html_url": "https://github.com/acheronfail/the_golden_eye/releases",
+        "assets": []
+    }))
 }
 
 async fn wait_for_server(client: &reqwest::Client) {
