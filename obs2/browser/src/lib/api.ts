@@ -270,6 +270,17 @@ export const checkForUpdateNow = async (): Promise<{ update: PluginUpdate | null
 	return res.json();
 };
 
+/** Downloads, verifies, and stages the latest release, resolving only once
+ * it's ready to apply. This is the explicit-download path (the "Download now"
+ * button and the "download and install" notice), so it works regardless of the
+ * auto-update setting. Throws with a message suitable for display when the
+ * plugin is already up to date (404). Follow with {@link applyUpdateNow}. */
+export const downloadUpdateNow = async (): Promise<void> => {
+	const res = await fetch(apiUrl('/api/v1/updates/download'), { method: 'POST' });
+	if (res.status === 404) throw new Error('No newer release is available to download.');
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+};
+
 /** Whether a verified update is currently staged and ready to apply. */
 export const getUpdateStatus = async (): Promise<{ staged: boolean }> => {
 	const res = await fetch(apiUrl('/api/v1/updates/status'));

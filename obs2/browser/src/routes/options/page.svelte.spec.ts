@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => {
 		getReplayBufferStatus: vi.fn(),
 		getSettingsStatus: vi.fn(),
 		getUpdateStatus: vi.fn(),
+		checkForUpdateNow: vi.fn(),
+		downloadUpdateNow: vi.fn(),
+		applyUpdateNow: vi.fn(),
 		putSettings: vi.fn()
 	};
 	return {
@@ -58,6 +61,9 @@ vi.mock('$lib/api', async (importOriginal) => {
 		getReplayBufferStatus: mocks.api.getReplayBufferStatus,
 		getSettingsStatus: mocks.api.getSettingsStatus,
 		getUpdateStatus: mocks.api.getUpdateStatus,
+		checkForUpdateNow: mocks.api.checkForUpdateNow,
+		downloadUpdateNow: mocks.api.downloadUpdateNow,
+		applyUpdateNow: mocks.api.applyUpdateNow,
 		putSettings: mocks.api.putSettings
 	};
 });
@@ -114,6 +120,9 @@ beforeEach(() => {
 	});
 	mocks.api.putSettings.mockImplementation(async (next: Settings) => next);
 	mocks.api.getUpdateStatus.mockResolvedValue({ staged: false });
+	mocks.api.checkForUpdateNow.mockResolvedValue({ update: null });
+	mocks.api.downloadUpdateNow.mockResolvedValue(undefined);
+	mocks.api.applyUpdateNow.mockResolvedValue(undefined);
 });
 
 describe('/options', () => {
@@ -169,6 +178,39 @@ describe('/options', () => {
 		await waitFor(() =>
 			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ updateCheckInterval: 'daily' }))
 		);
+	});
+
+	it('checks, then offers an explicit download and apply when auto-install is off', async () => {
+		mocks.api.checkForUpdateNow.mockResolvedValue({
+			update: { currentVersion: 'v1.0.0', latestVersion: 'v1.1.0', releaseUrl: 'https://example.com/release' }
+		});
+		const user = userEvent.setup();
+		render(OptionsPageHarness);
+
+		const checkButton = await screen.findByRole('button', { name: /^Check now$/i });
+		await waitFor(() => expect(checkButton).toBeEnabled());
+		await user.click(checkButton);
+
+		// Auto-install is off, so a found update surfaces an explicit "Download
+		// now" rather than downloading on its own.
+		const downloadButton = await screen.findByRole('button', { name: /^Download now$/i });
+		expect(mocks.api.checkForUpdateNow).toHaveBeenCalled();
+		expect(mocks.api.downloadUpdateNow).not.toHaveBeenCalled();
+
+		await user.click(downloadButton);
+
+		// Once the download finishes staging, the button becomes "Apply update now".
+		await screen.findByRole('button', { name: /^Apply update now$/i });
+		expect(mocks.api.downloadUpdateNow).toHaveBeenCalled();
+	});
+
+	it('shows "Apply update now" when an update is already staged', async () => {
+		mocks.api.getUpdateStatus.mockResolvedValue({ staged: true });
+		render(OptionsPageHarness);
+
+		const applyButton = await screen.findByRole('button', { name: /^Apply update now$/i });
+		expect(applyButton).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /^Check now$/i })).not.toBeInTheDocument();
 	});
 
 	it('shows and persists the first-run welcome acknowledgement', async () => {
