@@ -717,7 +717,10 @@
 							{:else if failedValidation && settings.failedOutputPath.trim()}
 								<p class={pathStatusClass}>{folderStatusMessage(failedValidation)}</p>
 							{:else}
-								<p class={hintClass}>Defaults to a folder named after the completed-run clip folder with " - failed" appended, alongside it.</p>
+								<p class={hintClass}>
+									Defaults to a folder named after the completed-run clip folder with " - failed" appended, alongside
+									it.
+								</p>
 							{/if}
 						</div>
 
