@@ -2,6 +2,8 @@
 
 This is a plugin for OBS Studio that assists with Goldeneye N64 speed-running.
 
+<iframe width="560" height="315" src="https://www.youtube.com/embed/6b3fiWz1XPY?si=WsDBIZARyldSb8Kh" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
 ## OBS compatibility
 
 The recommended minimum OBS Studio version is `31.1.0`, but the plugin should work on OBS `31.0.0` and later.
