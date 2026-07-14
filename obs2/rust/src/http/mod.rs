@@ -253,9 +253,11 @@ impl RecordingStateStore {
     pub fn set(&self, status: RecordingStatus) -> u64 {
         let generation = {
             let mut state = self.lock_state();
+            let previous = state.status;
             state.generation += 1;
             state.status = Some(status);
             self.tx.send_replace(state.status);
+            tracing::info!(?previous, new = ?status, generation = state.generation, "recording phase set");
             state.generation
         };
 
@@ -274,9 +276,11 @@ impl RecordingStateStore {
 
     pub fn clear(&self) {
         let mut state = self.lock_state();
+        let previous = state.status;
         state.generation += 1;
         state.status = None;
         self.tx.send_replace(state.status);
+        tracing::info!(?previous, generation = state.generation, "recording phase cleared");
     }
 
     fn clear_after(&self, generation: u64, duration: Duration) {
@@ -297,9 +301,15 @@ impl RecordingStateStore {
     pub fn clear_if_generation(&self, generation: u64) {
         let mut state = self.lock_state();
         if state.generation == generation {
+            let previous = state.status;
             state.generation += 1;
             state.status = None;
             self.tx.send_replace(state.status);
+            tracing::info!(
+                ?previous,
+                cleared_generation = generation,
+                "recording phase cleared (timed out / save done)"
+            );
         }
     }
 
