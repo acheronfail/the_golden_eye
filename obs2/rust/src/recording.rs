@@ -614,6 +614,9 @@ impl RecordingState {
     /// Update the ROM/template language attached to future clip metadata. Used
     /// when monitor language auto-correction detects the other ROM language.
     pub fn set_rom_language(&mut self, rom_language: String) {
+        if self.rom_language != rom_language {
+            tracing::info!(from = %self.rom_language, to = %rom_language, "recording ROM language changed");
+        }
         self.rom_language = rom_language;
     }
 
