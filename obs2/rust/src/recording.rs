@@ -120,20 +120,29 @@ impl RecordingOptions {
     }
 }
 
-/// The latest replay-saved event, published by the OBS frontend callback and awaited
-/// by the save thread. `generation` ticks per event so a waiter can tell fresh from
-/// stale; `last_path` is the file OBS just wrote (or `None` if it reported none).
-/// `pending_requests` counts plugin-initiated saves still awaiting their event; when
-/// it is zero a saved event is the user's own manual save, which we leave untouched.
+/// The latest replay-saved event, published by the OBS frontend callback and
+/// awaited by the save thread.
 struct ReplaySaved {
+    /// Ticks per event so a waiter can tell a fresh event from a stale one.
     generation: u64,
+    /// The file OBS just wrote, or `None` if it reported none.
     last_path: Option<String>,
+    /// Plugin-initiated saves still awaiting their event; when zero, a saved
+    /// event is the user's own manual save, which we leave untouched.
     pending_requests: u32,
 }
 
 static REPLAY_SAVED: Mutex<ReplaySaved> =
     Mutex::new(ReplaySaved { generation: 0, last_path: None, pending_requests: 0 });
 static REPLAY_SAVED_CV: Condvar = Condvar::new();
+
+/// Serializes plugin-initiated saves so at most one is ever outstanding. OBS's
+/// saved event carries no identity, so two saves in flight at once (e.g. two runs
+/// finishing within a long post-run padding window) would otherwise both wake on
+/// the same event and trim the same file; held one-at-a-time keeps it event->save
+/// 1:1. Only the save request + wait need it, not the subsequent trim.
+#[cfg(not(test))]
+static REPLAY_SAVE_SERIALIZE: Mutex<()> = Mutex::new(());
 
 struct ReplayBufferLifecycle {
     starting: bool,
@@ -993,19 +1002,25 @@ struct TrimClipRequest<'a> {
 
 #[cfg(not(test))]
 fn save_and_trim(job: SaveAndTrimJob) {
-    // Register the request (and snapshot the generation to wait past) before
-    // triggering the save, so we only wake on the event this save produces and
-    // `on_replay_saved` can distinguish it from the user's own manual saves.
-    let since = begin_replay_save_request();
-    tracing::info!("saving replay buffer");
-    unsafe { crate::ffi::obs_frontend_replay_buffer_save() };
+    // Hold the serialize lock across the request+wait so no second plugin save
+    // races this one for OBS's identity-less saved event; released before the
+    // trim, which is slow and safe to run concurrently on its own file.
+    let path = {
+        let _serialize = REPLAY_SAVE_SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+        // Register the request (and snapshot the generation to wait past) before
+        // triggering the save, so we only wake on the event this save produces and
+        // `on_replay_saved` can distinguish it from the user's own manual saves.
+        let since = begin_replay_save_request();
+        tracing::info!("saving replay buffer");
+        unsafe { crate::ffi::obs_frontend_replay_buffer_save() };
 
-    // Block on the OBS replay-saved event (no polling); it carries the path.
-    let path = match wait_for_replay_saved(since, REPLAY_SAVE_TIMEOUT) {
-        Some(path) => path,
-        None => {
-            tracing::error!("replay buffer save did not complete in time");
-            return;
+        // Block on the OBS replay-saved event (no polling); it carries the path.
+        match wait_for_replay_saved(since, REPLAY_SAVE_TIMEOUT) {
+            Some(path) => path,
+            None => {
+                tracing::error!("replay buffer save did not complete in time");
+                return;
+            }
         }
     };
 

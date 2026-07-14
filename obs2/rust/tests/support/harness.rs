@@ -81,6 +81,7 @@ impl Harness {
             replay_active: false,
             replay_max_seconds: 60,
             replay_stop_delay,
+            replay_save_delay: Duration::ZERO,
             sources: vec![(SOURCE_NAME.into(), "test_input".into())],
         });
 
