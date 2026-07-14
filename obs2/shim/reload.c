@@ -71,6 +71,29 @@ static bool dirname_of(const char *path, char *out, size_t out_size) {
   return true;
 }
 
+/* See reload.h. macOS: core in Contents/MacOS -> data in ../Resources. Linux/
+ * Windows: core in bin/<arch> -> data in ../../data. Kept in lockstep with
+ * resolve_cv_template_dir() in rust/src/lib.rs. */
+bool ge_core_data_dir_dest(ge_install_layout layout, const char *canonical_path, const char *leaf, char *out,
+                           size_t out_size) {
+  char core_dir[PATH_MAX];
+  if (!dirname_of(canonical_path, core_dir, sizeof(core_dir))) {
+    return false;
+  }
+  if (layout == GE_INSTALL_LAYOUT_MACOS_BUNDLE) {
+    char contents_dir[PATH_MAX];
+    char resources_dir[PATH_MAX];
+    return dirname_of(core_dir, contents_dir, sizeof(contents_dir)) &&
+           join_path(resources_dir, sizeof(resources_dir), contents_dir, "Resources") &&
+           join_path(out, out_size, resources_dir, leaf);
+  }
+  char bin_dir[PATH_MAX];
+  char entry_dir[PATH_MAX];
+  char data_dir[PATH_MAX];
+  return dirname_of(core_dir, bin_dir, sizeof(bin_dir)) && dirname_of(bin_dir, entry_dir, sizeof(entry_dir)) &&
+         join_path(data_dir, sizeof(data_dir), entry_dir, "data") && join_path(out, out_size, data_dir, leaf);
+}
+
 /* ---------------------------------------------------------------------- */
 /* Temp-copy-then-open: never dlopen the canonical path directly. A fresh, */
 /* never-before-used path can never be a stale cached image, on any       */
@@ -304,16 +327,14 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
     }
 
     char data_err[256] = {0};
-    char canonical_dir[PATH_MAX];
-    if (dirname_of(canonical_path, canonical_dir, sizeof(canonical_dir))) {
-      char templates_dir[PATH_MAX];
-      if (join_path(templates_dir, sizeof(templates_dir), canonical_dir, "cv_templates")) {
-        sync_data_dir_best_effort(staged_dir, "cv_templates", templates_dir, data_err, sizeof(data_err));
-      }
-      char locale_dir[PATH_MAX];
-      if (join_path(locale_dir, sizeof(locale_dir), canonical_dir, "locale")) {
-        sync_data_dir_best_effort(staged_dir, "locale", locale_dir, data_err, sizeof(data_err));
-      }
+    char templates_dir[PATH_MAX];
+    if (ge_core_data_dir_dest(GE_HOST_INSTALL_LAYOUT, canonical_path, "cv_templates", templates_dir,
+                              sizeof(templates_dir))) {
+      sync_data_dir_best_effort(staged_dir, "cv_templates", templates_dir, data_err, sizeof(data_err));
+    }
+    char locale_dir[PATH_MAX];
+    if (ge_core_data_dir_dest(GE_HOST_INSTALL_LAYOUT, canonical_path, "locale", locale_dir, sizeof(locale_dir))) {
+      sync_data_dir_best_effort(staged_dir, "locale", locale_dir, data_err, sizeof(data_err));
     }
 
     ge_platform_remove_dir_recursive(staged_dir);
