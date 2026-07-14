@@ -19,6 +19,7 @@
 		DEFAULT_PRE_RUN_PADDING_SECS,
 		DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE,
 		DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE,
+		Select,
 		settings,
 		type UpdateCheckInterval
 	} from '$lib';
@@ -62,8 +63,8 @@
 		});
 	};
 
-	const onSectionChange = (event: Event) => {
-		selectTab((event.currentTarget as HTMLSelectElement).value as OptionsTab);
+	const onSectionChange = (value: string) => {
+		selectTab(value as OptionsTab);
 	};
 
 	const panelClass = 'obs-panel grid gap-3 rounded px-4 py-4';
@@ -120,8 +121,8 @@
 		{ value: 'never', label: 'Never' }
 	];
 
-	const onUpdateCheckIntervalChange = (event: Event) => {
-		settings.updateCheckInterval = (event.currentTarget as HTMLSelectElement).value as UpdateCheckInterval;
+	const onUpdateCheckIntervalChange = (value: string) => {
+		settings.updateCheckInterval = value as UpdateCheckInterval;
 	};
 
 	// Drives the update button's label and click action: check (idle), checking,
@@ -509,32 +510,26 @@
 
 	<div class="flex items-center gap-3">
 		<label for="options-section" class="obs-dim shrink-0 font-mono text-xs tracking-wide uppercase">Section</label>
-		<select
+		<Select
 			id="options-section"
-			class="obs-select min-w-0 flex-1 font-mono text-sm sm:max-w-60"
+			class="min-w-0 flex-1 font-mono text-sm sm:max-w-60"
 			value={activeTab}
-			onchange={onSectionChange}
-		>
-			{#each optionSections as section}
-				<option value={section.value}>{section.label}</option>
-			{/each}
-		</select>
+			onChange={onSectionChange}
+			options={optionSections}
+		/>
 	</div>
 
 	<fieldset disabled={!settings.canEdit} class="flex flex-col gap-4 border-0 p-0">
 		{#if activeTab === 'general'}
 			<section class={panelClass}>
 				<label class={labelClass} for="update-check-interval">Check for plugin updates</label>
-				<select
+				<Select
 					id="update-check-interval"
-					class="obs-select font-mono text-sm"
+					class="font-mono text-sm"
 					value={settings.updateCheckInterval}
-					onchange={onUpdateCheckIntervalChange}
-				>
-					{#each updateCheckIntervals as interval}
-						<option value={interval.value}>{interval.label}</option>
-					{/each}
-				</select>
+					onChange={onUpdateCheckIntervalChange}
+					options={updateCheckIntervals}
+				/>
 				<p class={hintClass}>
 					Checks GitHub releases on app startup and shows a notice to download and install a newer version when one
 					exists.

@@ -7,6 +7,7 @@
 		type AnnotationSet,
 		type LevelMatch
 	} from '$lib/api';
+	import { Select } from '$lib';
 	import { triggerKiaDeathOverlay } from '$lib/monitor.svelte';
 	import { addNotificationFlag } from '$lib/notifications.svelte';
 
@@ -263,6 +264,7 @@
 	}
 
 	let annotationSets = $derived<AnnotationSet[]>(matchResult?.annotation_sets ?? []);
+	let annotationSetOptions = $derived(annotationSets.map((set) => ({ value: set.id, label: set.label })));
 	let selectedAnnotationSet = $derived<AnnotationSet | null>(
 		annotationSets.find((set) => set.id === selectedAnnotationSetId) ?? annotationSets[0] ?? null
 	);
@@ -570,15 +572,12 @@
 					<div class="flex min-w-0 flex-col gap-2">
 						<label class="grid gap-1 text-sm sm:max-w-72">
 							<span class="obs-muted">Annotation set</span>
-							<select
-								class="obs-select w-full text-sm"
+							<Select
+								class="w-full text-sm"
 								value={selectedAnnotationSet.id}
-								onchange={(event) => (selectedAnnotationSetId = (event.currentTarget as HTMLSelectElement).value)}
-							>
-								{#each annotationSets as set}
-									<option value={set.id}>{set.label}</option>
-								{/each}
-							</select>
+								onChange={(value) => (selectedAnnotationSetId = value)}
+								options={annotationSetOptions}
+							/>
 						</label>
 						<div class="grid gap-2 text-sm">
 							<div class="flex items-center justify-between gap-3">

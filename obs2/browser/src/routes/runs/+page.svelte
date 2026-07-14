@@ -13,6 +13,7 @@
 		type RunDirectoryScan,
 		type RunsResponse
 	} from '$lib/api';
+	import { Select } from '$lib';
 	import { settings } from '$lib/settings.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
@@ -30,6 +31,8 @@
 		type RunFilters
 	} from '$lib/runsView';
 	import { onDestroy, onMount } from 'svelte';
+
+	const levelSelectOptions = LEVEL_OPTIONS.map((level) => ({ value: level, label: level }));
 
 	let runs = $state<RunsResponse | null>(null);
 	let loading = $state(false);
@@ -519,36 +522,36 @@
 				/>
 				<div class="grid grid-cols-2 gap-2">
 					<label class="sr-only" for="runs-level">Level</label>
-					<select id="runs-level" class="obs-select w-full text-xs" bind:value={levelFilter}>
-						<option value="">all levels</option>
-						{#each LEVEL_OPTIONS as level}
-							<option value={level}>{level}</option>
-						{/each}
-					</select>
+					<Select
+						id="runs-level"
+						class="w-full text-xs"
+						bind:value={levelFilter}
+						options={[{ value: '', label: 'all levels' }, ...levelSelectOptions]}
+					/>
 
 					<label class="sr-only" for="runs-difficulty">Difficulty</label>
-					<select id="runs-difficulty" class="obs-select w-full text-xs" bind:value={difficultyFilter}>
-						<option value="">all difficulties</option>
-						{#each DIFFICULTY_OPTIONS as option}
-							<option value={option.value}>{option.label}</option>
-						{/each}
-					</select>
+					<Select
+						id="runs-difficulty"
+						class="w-full text-xs"
+						bind:value={difficultyFilter}
+						options={[{ value: '', label: 'all difficulties' }, ...DIFFICULTY_OPTIONS]}
+					/>
 
 					<label class="sr-only" for="runs-status">Status</label>
-					<select id="runs-status" class="obs-select w-full text-xs" bind:value={statusFilter}>
-						<option value="">all statuses</option>
-						{#each STATUS_OPTIONS as option}
-							<option value={option.value}>{option.label}</option>
-						{/each}
-					</select>
+					<Select
+						id="runs-status"
+						class="w-full text-xs"
+						bind:value={statusFilter}
+						options={[{ value: '', label: 'all statuses' }, ...STATUS_OPTIONS]}
+					/>
 
 					<label class="sr-only" for="runs-language">Language</label>
-					<select id="runs-language" class="obs-select w-full text-xs" bind:value={languageFilter}>
-						<option value="">all languages</option>
-						{#each LANGUAGE_OPTIONS as option}
-							<option value={option.value}>{option.label}</option>
-						{/each}
-					</select>
+					<Select
+						id="runs-language"
+						class="w-full text-xs"
+						bind:value={languageFilter}
+						options={[{ value: '', label: 'all languages' }, ...LANGUAGE_OPTIONS]}
+					/>
 				</div>
 				<div class="grid grid-cols-2 gap-2">
 					<label class="sr-only" for="runs-min-time">Minimum time</label>
@@ -784,25 +787,21 @@
 					<div class="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
 						<label class="flex min-w-0 flex-col gap-1">
 							<span class="obs-dim font-mono text-xs">Level</span>
-							<select class="obs-select w-full" bind:value={metadataDraft.level}>
-								{#if !metadataDraft.level}
-									<option value="" disabled>select level</option>
-								{/if}
-								{#each LEVEL_OPTIONS as level}
-									<option value={level}>{level}</option>
-								{/each}
-							</select>
+							<Select
+								class="w-full"
+								placeholder="select level"
+								bind:value={metadataDraft.level}
+								options={levelSelectOptions}
+							/>
 						</label>
 						<label class="flex min-w-0 flex-col gap-1">
 							<span class="obs-dim font-mono text-xs">ROM language</span>
-							<select class="obs-select w-full" bind:value={metadataDraft.romLanguage}>
-								{#if !metadataDraft.romLanguage}
-									<option value="" disabled>select language</option>
-								{/if}
-								{#each LANGUAGE_OPTIONS as option}
-									<option value={option.value}>{option.label}</option>
-								{/each}
-							</select>
+							<Select
+								class="w-full"
+								placeholder="select language"
+								bind:value={metadataDraft.romLanguage}
+								options={LANGUAGE_OPTIONS}
+							/>
 						</label>
 						<label class="flex min-w-0 flex-col gap-1">
 							<span class="obs-dim font-mono text-xs">Time</span>
@@ -817,25 +816,21 @@
 						</label>
 						<label class="flex min-w-0 flex-col gap-1">
 							<span class="obs-dim font-mono text-xs">Difficulty</span>
-							<select class="obs-select w-full" bind:value={metadataDraft.difficulty}>
-								{#if !metadataDraft.difficulty}
-									<option value="" disabled>select difficulty</option>
-								{/if}
-								{#each DIFFICULTY_OPTIONS as option}
-									<option value={option.value}>{option.label}</option>
-								{/each}
-							</select>
+							<Select
+								class="w-full"
+								placeholder="select difficulty"
+								bind:value={metadataDraft.difficulty}
+								options={DIFFICULTY_OPTIONS}
+							/>
 						</label>
 						<label class="flex min-w-0 flex-col gap-1">
 							<span class="obs-dim font-mono text-xs">Status</span>
-							<select class="obs-select w-full" bind:value={metadataDraft.status}>
-								{#if !metadataDraft.status}
-									<option value="" disabled>select status</option>
-								{/if}
-								{#each STATUS_OPTIONS as option}
-									<option value={option.value}>{option.label}</option>
-								{/each}
-							</select>
+							<Select
+								class="w-full"
+								placeholder="select status"
+								bind:value={metadataDraft.status}
+								options={STATUS_OPTIONS}
+							/>
 						</label>
 					</div>
 

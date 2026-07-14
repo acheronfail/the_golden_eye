@@ -173,7 +173,8 @@ describe('/options', () => {
 
 		const select = await screen.findByRole('combobox', { name: /Check for plugin updates/i });
 		await waitFor(() => expect(select).toBeEnabled());
-		await user.selectOptions(select, 'daily');
+		await user.click(select);
+		await user.click(await screen.findByRole('option', { name: /^Daily$/i }));
 
 		await waitFor(() =>
 			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ updateCheckInterval: 'daily' }))
