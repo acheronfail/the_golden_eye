@@ -1487,6 +1487,10 @@ mod tests {
         (recording, event_rx)
     }
 
+    fn test_recording_saving_short_failed_runs() -> (RecordingState, tokio::sync::broadcast::Receiver<MonitorEvent>) {
+        test_recording(RecordingOptions { minimum_failed_run_length_secs: 0.0, ..RecordingOptions::default() })
+    }
+
     fn sample_clip() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/clips/sample_clip.mov")
     }
@@ -1703,7 +1707,7 @@ mod tests {
 
     #[test]
     fn single_stats_frame_trusts_its_reading() {
-        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let (mut recording, mut events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
 
         recording.on_frame(start, &match_for_screen(Screen::Start));
@@ -1718,7 +1722,7 @@ mod tests {
 
     #[test]
     fn first_stats_frame_misread_is_corrected_by_later_frames() {
-        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let (mut recording, mut events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
         let stats_at = start + Duration::from_secs(10);
 
@@ -1741,7 +1745,7 @@ mod tests {
 
     #[test]
     fn two_stats_frames_trust_the_second_reading() {
-        let (mut recording, _events) = test_recording(RecordingOptions::default());
+        let (mut recording, _events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
         let stats_at = start + Duration::from_secs(10);
 
@@ -1759,7 +1763,7 @@ mod tests {
         // The misread spans several frames (as it can live, where the transitional
         // overlay frame is matched more than once), yet the stable reading fills the
         // rest of the window and wins -- there is no fixed sampling cap to defeat.
-        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let (mut recording, mut events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
         let mut at = start + Duration::from_secs(10);
 
@@ -1785,7 +1789,7 @@ mod tests {
 
     #[test]
     fn pending_notification_is_reissued_when_the_voted_time_changes() {
-        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let (mut recording, mut events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
         let stats_at = start + Duration::from_secs(10);
 
@@ -1810,7 +1814,7 @@ mod tests {
 
     #[test]
     fn leaving_the_stats_screen_locks_the_voted_time() {
-        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let (mut recording, mut events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
         let stats_at = start + Duration::from_secs(10);
 
@@ -1830,7 +1834,7 @@ mod tests {
 
     #[test]
     fn poll_pending_waits_for_the_padding_window_before_firing() {
-        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let (mut recording, mut events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
         let stats_at = start + Duration::from_secs(10);
 
