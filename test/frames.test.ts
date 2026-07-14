@@ -111,14 +111,20 @@ async function mapConcurrent<T, R>(
   return results;
 }
 
-const check = (value: any, expected: any, pass: boolean): CheckResult => ({ value, expected, pass });
+const check = (value: any, expected: any, pass: boolean): CheckResult => ({
+  value,
+  expected,
+  pass,
+});
 
 function passed(checks: Record<string, CheckResult | undefined>): number {
   return Object.values(checks).filter((result) => result?.pass).length;
 }
 
 function failedEntries(checks: Record<string, CheckResult | undefined>): [string, CheckResult][] {
-  return Object.entries(checks).filter((entry): entry is [string, CheckResult] => entry[1]?.pass === false);
+  return Object.entries(checks).filter(
+    (entry): entry is [string, CheckResult] => entry[1]?.pass === false,
+  );
 }
 
 function tableValue(result: CheckResult | undefined): any {
@@ -198,7 +204,10 @@ async function appendGithubSummary() {
   await fs.appendFile(summaryPath, `${lines.join("\n")}\n`, "utf-8");
 }
 
-async function evaluateScreenshotTest(runner: Runner, screenshot: ScreenshotInfo): Promise<EvaluatedTest> {
+async function evaluateScreenshotTest(
+  runner: Runner,
+  screenshot: ScreenshotInfo,
+): Promise<EvaluatedTest> {
   const { stdout } = await execCommand(runner.command(screenshot.filePath, screenshot.lang));
   const result = JSON.parse(stdout);
   const checks: Record<string, CheckResult | undefined> = {};
@@ -227,15 +236,26 @@ async function evaluateScreenshotTest(runner: Runner, screenshot: ScreenshotInfo
       const ss = digits.slice(2, 4);
       return parseInt(mm, 10) * 60 + parseInt(ss, 10);
     });
-    checks.times = check(result.raw_times, times, JSON.stringify(result.raw_times) === JSON.stringify(times));
+    checks.times = check(
+      result.raw_times,
+      times,
+      JSON.stringify(result.raw_times) === JSON.stringify(times),
+    );
   } else {
-    checks.times = check(result.raw_times, [], Array.isArray(result.raw_times) && result.raw_times.length === 0);
+    checks.times = check(
+      result.raw_times,
+      [],
+      Array.isArray(result.raw_times) && result.raw_times.length === 0,
+    );
   }
 
   return { name: `${screenshot.tag}: ${screenshot.name}`, checks };
 }
 
-async function evaluateLanguageMismatchTest(runner: Runner, mismatch: LanguageMismatchCase): Promise<EvaluatedTest> {
+async function evaluateLanguageMismatchTest(
+  runner: Runner,
+  mismatch: LanguageMismatchCase,
+): Promise<EvaluatedTest> {
   const filePath = path.join(testRoot, mismatch.filePath);
   const { stdout } = await execCommand(runner.command(filePath, mismatch.configuredLang));
   const result = JSON.parse(stdout);
@@ -244,7 +264,11 @@ async function evaluateLanguageMismatchTest(runner: Runner, mismatch: LanguageMi
     name: mismatch.name,
     checks: {
       lang: check(result.lang, mismatch.configuredLang, result.lang === mismatch.configuredLang),
-      detectedLang: check(result.detected_lang, mismatch.detectedLang, result.detected_lang === mismatch.detectedLang),
+      detectedLang: check(
+        result.detected_lang,
+        mismatch.detectedLang,
+        result.detected_lang === mismatch.detectedLang,
+      ),
       screen: check(result.screen, "unknown", result.screen === "unknown"),
       times: check(
         result.raw_times,
@@ -284,7 +308,9 @@ for (const runner of runners) {
   ];
 
   let completedTests = 0;
-  const spinner = ora(chalk.blue(progressText(completedTests, testCases.length, runner, activeJobs))).start();
+  const spinner = ora(
+    chalk.blue(progressText(completedTests, testCases.length, runner, activeJobs)),
+  ).start();
   let evaluated: EvaluatedTest[];
   try {
     evaluated = await mapConcurrent(testCases, testJobs, async (testCase) => {
@@ -297,10 +323,14 @@ for (const runner of runners) {
       return result;
     });
     spinner.succeed(
-      chalk.blue(`Finished ${completedTests}/${testCases.length} tests for ${chalk.cyan.bold(runner.name)}`),
+      chalk.blue(
+        `Finished ${completedTests}/${testCases.length} tests for ${chalk.cyan.bold(runner.name)}`,
+      ),
     );
   } catch (error) {
-    spinner.fail(chalk.red(`Failed after ${completedTests}/${testCases.length} tests for ${runner.name}`));
+    spinner.fail(
+      chalk.red(`Failed after ${completedTests}/${testCases.length} tests for ${runner.name}`),
+    );
     throw error;
   }
 
@@ -334,14 +364,21 @@ for (const runner of runners) {
   }
 
   results[runner.name] = runnerResults;
-  const pct = runnerResults.totalChecks === 0 ? 100 : (runnerResults.passedChecks / runnerResults.totalChecks) * 100;
+  const pct =
+    runnerResults.totalChecks === 0
+      ? 100
+      : (runnerResults.passedChecks / runnerResults.totalChecks) * 100;
   const pctStr = (pct === 100 ? chalk.green : chalk.red)(`${pct.toFixed(2)}%`);
   console.log(
     chalk.blue(
       `Passed ${chalk.green.bold(runnerResults.passedChecks)} out of ${chalk.bold(runnerResults.totalChecks)} checks: ${pctStr}`,
     ),
   );
-  console.log(chalk.blue(`Total tests run: ${runnerResults.totalTests} (skipped: ${runnerResults.skippedTests})`));
+  console.log(
+    chalk.blue(
+      `Total tests run: ${runnerResults.totalTests} (skipped: ${runnerResults.skippedTests})`,
+    ),
+  );
   console.log();
 }
 

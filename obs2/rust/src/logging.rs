@@ -1,11 +1,7 @@
 //! Tracing setup for the core.
 //!
-//! Events fan out to two sinks at once:
-//! - **stdout, with ANSI colours** -- visible when OBS is launched from a
-//!   terminal (`just obs` / `just dev` on unix), handy for local debugging.
-//! - **OBS's own log via `blog`** (see [`ffi::ge_obs_blog`]) -- so the core's
-//!   logs land in the OBS log file on every platform, including Windows where
-//!   stdout is never surfaced.
+//! Events are logged to OBS's own log via `blog` (see [`ffi::ge_obs_blog`])
+//! so the core's logs land in the OBS log file on every platform.
 
 use std::ffi::CString;
 use std::fmt;

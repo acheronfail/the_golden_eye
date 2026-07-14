@@ -63,7 +63,9 @@ export const getScreenshots = async () => {
     .then((paths) => paths.filter((p) => p.isDir).map((p) => p.fullPath));
 
   const allScreenshotPaths = await Promise.all(
-    screenshotDirs.map((dir) => fsp.readdir(dir).then((entries) => entries.map((entry) => path.join(dir, entry)))),
+    screenshotDirs.map((dir) =>
+      fsp.readdir(dir).then((entries) => entries.map((entry) => path.join(dir, entry))),
+    ),
   );
 
   return allScreenshotPaths.flat().map((filePath): ScreenshotInfo => {
