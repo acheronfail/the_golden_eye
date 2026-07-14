@@ -110,6 +110,13 @@ pub enum MonitorEvent {
         #[serde(rename = "saveId")]
         save_id: u64,
     },
+    /// A failed run reached an ending screen but no clip was written for it
+    /// (failed-run saving is disabled, or the run was shorter than the
+    /// configured minimum). Unlike a recording-phase transition this is a
+    /// one-off notification that never touches the retained recorder phase, so a
+    /// discard that fires late -- e.g. on the save timer, after a new run has
+    /// already started -- can't knock the new run out of its "recording" state.
+    FailedRunNotSaved { reason: FailedRunNotSavedReason },
     /// Monitoring stopped, either from a user request or an external OBS event.
     MonitorStopped { reason: MonitorStoppedReason },
     /// The settings JSON file changed on disk and was reloaded successfully.
@@ -154,6 +161,17 @@ pub enum MonitorStoppedReason {
     ReplayBufferStopped,
 }
 
+/// Why a failed run reached an ending screen without a clip being written.
+/// Serialized as a plain string inside [`MonitorEvent::FailedRunNotSaved`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FailedRunNotSavedReason {
+    /// Failed-run saving is disabled in the active recording options.
+    SavingDisabled,
+    /// The run was shorter than the configured minimum failed-run length.
+    TooShort,
+}
+
 /// Monitor throughput sampled by the worker thread and pushed to the frontend
 /// while monitoring is active.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -193,10 +211,6 @@ pub enum RecordingStatus {
     /// bypassing the stats screen. The clip is still saved and a
     /// [`MonitorEvent::RecordingSaved`] follows. (A failed run does this normally.)
     StatsSkipped,
-    /// A failed run reached an ending screen, but the active recording config
-    /// says not to save it (failed-run saving disabled, or the run time is
-    /// shorter than the configured minimum failed-run length).
-    FailedDiscarded,
     /// A run ended at the stats screen (or, via `StatsSkipped`, the report
     /// screen): a save has been scheduled and will fire a few seconds later. A
     /// [`MonitorEvent::RecordingSaved`] follows once the clip is written.
@@ -233,7 +247,10 @@ impl RecordingStateStore {
         self.lock_state().status
     }
 
-    pub fn set(&self, status: RecordingStatus) {
+    /// Set the retained phase, returning the generation this write landed on.
+    /// Pass it to [`Self::clear_if_generation`] to later clear *this* transition
+    /// specifically, rather than whatever the phase happens to be by then.
+    pub fn set(&self, status: RecordingStatus) -> u64 {
         let generation = {
             let mut state = self.lock_state();
             state.generation += 1;
@@ -243,7 +260,7 @@ impl RecordingStateStore {
         };
 
         match status {
-            RecordingStatus::Cancelled | RecordingStatus::FailedDiscarded => {
+            RecordingStatus::Cancelled => {
                 self.clear_after(generation, Self::CANCELLED_LINGER);
             }
             RecordingStatus::SavePending | RecordingStatus::StatsSkipped => {
@@ -251,6 +268,8 @@ impl RecordingStateStore {
             }
             _ => {}
         }
+
+        generation
     }
 
     pub fn clear(&self) {
@@ -258,15 +277,6 @@ impl RecordingStateStore {
         state.generation += 1;
         state.status = None;
         self.tx.send_replace(state.status);
-    }
-
-    pub fn clear_if_save_pending(&self) {
-        let mut state = self.lock_state();
-        if matches!(state.status, Some(RecordingStatus::SavePending | RecordingStatus::StatsSkipped)) {
-            state.generation += 1;
-            state.status = None;
-            self.tx.send_replace(state.status);
-        }
     }
 
     fn clear_after(&self, generation: u64, duration: Duration) {
@@ -280,7 +290,11 @@ impl RecordingStateStore {
         }
     }
 
-    fn clear_if_generation(&self, generation: u64) {
+    /// Clear the phase only if it's still on transition `generation` -- i.e.
+    /// nothing has `set`/`clear`'d it since. Stops a slow async save from
+    /// clearing a newer, unrelated run's phase that happens to hold the same
+    /// status value (e.g. two runs both showing `SavePending`).
+    pub fn clear_if_generation(&self, generation: u64) {
         let mut state = self.lock_state();
         if state.generation == generation {
             state.generation += 1;
@@ -602,11 +616,19 @@ mod tests {
         store.set(RecordingStatus::Started);
         assert_eq!(store.current(), Some(RecordingStatus::Started));
 
-        store.set(RecordingStatus::SavePending);
+        // A stale generation (superseded by a later transition) must not clear
+        // the phase, even though its captured value matches the current one.
+        let stale_generation = store.set(RecordingStatus::SavePending);
         store.set(RecordingStatus::Started);
-        store.clear_if_save_pending();
+        store.clear_if_generation(stale_generation);
         assert_eq!(store.current(), Some(RecordingStatus::Started));
 
+        // The current generation clears normally.
+        let current_generation = store.set(RecordingStatus::SavePending);
+        store.clear_if_generation(current_generation);
+        assert_eq!(store.current(), None);
+
+        store.set(RecordingStatus::Started);
         store.clear();
         assert_eq!(store.current(), None);
     }

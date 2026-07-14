@@ -14,7 +14,14 @@ use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::cv::{LevelMatch, Screen};
-use crate::http::{MonitorEvent, RecordingSavePending, RecordingSaved, RecordingStateStore, RecordingStatus};
+use crate::http::{
+    FailedRunNotSavedReason,
+    MonitorEvent,
+    RecordingSavePending,
+    RecordingSaved,
+    RecordingStateStore,
+    RecordingStatus,
+};
 use crate::{ffmpeg, ge};
 
 /// Default filename template for trimmed clips. Uses platform-native separators
@@ -409,6 +416,10 @@ struct PendingSave {
     /// Tracked so it is only sent once the run is savable, and reliably cleared if
     /// the save is later discarded.
     notified: bool,
+    /// The phase-store generation of this save's own `SavePending`/`StatsSkipped`
+    /// transition, if it emitted one. Its completion/discard clears exactly that
+    /// transition, not a quick-restarted run's identical-looking phase.
+    phase_generation: Option<u64>,
 }
 
 /// Whether the pending save currently passes the save criteria. Failed runs
@@ -587,11 +598,17 @@ impl RecordingState {
         }
     }
 
-    /// Publish a recorder state transition to the backend-retained phase store.
-    /// WebSocket clients receive the same retained value through the monitor
-    /// route's watch subscription.
-    fn emit(&self, status: RecordingStatus) {
-        self.recording_state.set(status);
+    /// Publish a recorder state transition to the backend-retained phase store
+    /// (WebSocket clients see it via the monitor route's watch subscription).
+    /// For `SavePending`/`StatsSkipped`, records the generation on the pending
+    /// save so its completion/discard can clear that exact transition later.
+    fn emit(&mut self, status: RecordingStatus) {
+        let generation = self.recording_state.set(status);
+        if matches!(status, RecordingStatus::SavePending | RecordingStatus::StatsSkipped)
+            && let Some(pending) = self.pending.as_mut()
+        {
+            pending.phase_generation = Some(generation);
+        }
     }
 
     /// Update the ROM/template language attached to future clip metadata. Used
@@ -610,6 +627,12 @@ impl RecordingState {
             tracing::info!("failed run reached an ending screen but failed-run saving is disabled");
             self.status = None;
             self.report = None;
+            // The run is over and nothing will be saved, so drop the phase back to
+            // idle ("waiting") and surface the outcome as a one-off notification
+            // rather than a lingering "failed run not saved" phase.
+            self.recording_state.clear();
+            let _ =
+                self.event_tx.send(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::SavingDisabled });
             return false;
         }
 
@@ -629,6 +652,7 @@ impl RecordingState {
             stats_vote_best_count: 0,
             stats_vote_closed: false,
             notified: false,
+            phase_generation: None,
         };
         self.pending = Some(pending);
         self.sync_pending_notification(now, true);
@@ -673,12 +697,19 @@ impl RecordingState {
                 minimum_failed_run_length_secs = self.options.minimum_failed_run_length_secs(),
                 "failed run reached an ending screen but was shorter than the configured minimum"
             );
-            self.emit(RecordingStatus::FailedDiscarded);
+            // This can fire on the save timer long after the run ended, by which
+            // point a new run may already be recording. Surface the outcome as a
+            // notification, and clear only this save's own phase transition -- not
+            // the current value, which the new run may already own.
+            if let Some(generation) = pending.phase_generation {
+                self.recording_state.clear_if_generation(generation);
+            }
             // Guarantees the sticky "saving" toast is cleared even if this save
             // was never reconciled to unsavable earlier (normally already done).
             if pending.notified {
                 let _ = self.event_tx.send(MonitorEvent::RecordingSaveDiscarded { save_id: pending.save_id });
             }
+            let _ = self.event_tx.send(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort });
             return None;
         }
 
@@ -698,6 +729,7 @@ impl RecordingState {
             rom_language: pending.rom_language,
             event_tx: self.event_tx.clone(),
             recording_state: self.recording_state.clone(),
+            phase_generation: pending.phase_generation,
         })
     }
 
@@ -796,19 +828,19 @@ impl RecordingState {
                         // the report. Capture `status` first: `schedule_save` clears it.
                         let status = self.status.unwrap_or(RunStatus::Complete);
                         tracing::info!("stats screen skipped (report -> level select)");
-                        let scheduled = self.schedule_save(now, start, Some(report));
-                        // Backing out to the grid is the *normal* ending for a failed
-                        // run, so don't flag "skipped stats". Only a completed run whose
-                        // stats screen was bypassed counts as skipped.
-                        self.emit(if scheduled {
-                            if status.is_failed() {
+                        // A discarded failed run (saving disabled) is handled inside
+                        // `schedule_save`, which clears the phase and notifies; only
+                        // emit a phase here when a save was actually scheduled.
+                        if self.schedule_save(now, start, Some(report)) {
+                            // Backing out to the grid is the *normal* ending for a failed
+                            // run, so don't flag "skipped stats". Only a completed run whose
+                            // stats screen was bypassed counts as skipped.
+                            self.emit(if status.is_failed() {
                                 RecordingStatus::SavePending
                             } else {
                                 RecordingStatus::StatsSkipped
-                            }
-                        } else {
-                            RecordingStatus::FailedDiscarded
-                        });
+                            });
+                        }
                     } else {
                         // No report screen was seen: the run was abandoned mid-play,
                         // so there's nothing worth saving.
@@ -860,9 +892,9 @@ impl RecordingState {
                             record_stats_vote(pending, m);
                         }
                         self.emit(RecordingStatus::SavePending);
-                    } else {
-                        self.emit(RecordingStatus::FailedDiscarded);
                     }
+                    // A discarded failed run (saving disabled) is handled inside
+                    // `schedule_save`, which clears the phase and notifies.
                 } else {
                     // Still on the stats screen with the save in flight: keep voting
                     // the whole window so a multi-frame first misread is outvoted by
@@ -916,6 +948,8 @@ struct SaveAndTrimJob {
     rom_language: String,
     event_tx: broadcast::Sender<MonitorEvent>,
     recording_state: RecordingStateStore,
+    /// See [`PendingSave::phase_generation`].
+    phase_generation: Option<u64>,
 }
 
 struct TrimClipRequest<'a> {
@@ -965,7 +999,11 @@ fn save_and_trim(job: SaveAndTrimJob) {
             // Ignore send errors: with no WebSocket clients there are no
             // subscribers, but the save still succeeded.
             let _ = job.event_tx.send(MonitorEvent::RecordingSaved(saved));
-            job.recording_state.clear_if_save_pending();
+            // Clear only this save's own phase transition, not the current value,
+            // which a quick-restarted run may legitimately share for its own save.
+            if let Some(generation) = job.phase_generation {
+                job.recording_state.clear_if_generation(generation);
+            }
         }
         Err(err) => tracing::error!("failed to trim replay clip: {err:#}"),
     }
@@ -1865,8 +1903,92 @@ mod tests {
         assert_eq!(recording.status, None);
         assert!(recording.report.is_none());
         assert!(recording.pending.is_none());
-        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::FailedDiscarded));
+        // The run is over and nothing is saved: the phase returns to idle and the
+        // outcome is surfaced as a one-off notification rather than a phase.
+        assert_eq!(recording.recording_state.current(), None);
+        assert!(matches!(
+            events.try_recv(),
+            Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::SavingDisabled })
+        ));
         assert_no_monitor_event(&mut events);
+    }
+
+    #[test]
+    fn late_discard_does_not_knock_a_newly_started_run_out_of_recording() {
+        // Reproduces the quick-restart bug: a failed run is aborted, then the user
+        // restarts before the earlier run's (too-short) save timer fires. When it
+        // does fire, its discard must not clobber the new run's "recording" phase.
+        let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
+        let (mut recording, mut events) = test_recording(options);
+        let start = Instant::now();
+
+        // Run 1: a short KIA'd run whose save will be discarded when it fires.
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Kia));
+        recording.on_frame(start + Duration::from_secs(6), &stats_match(5));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
+        assert!(recording.pending.is_some());
+
+        // Run 2 starts (quick restart) before run 1's save timer (~11.5s) fires.
+        recording.on_frame(start + Duration::from_secs(7), &match_for_screen(Screen::Start));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Started));
+
+        // Run 1's save timer fires while run 2 is recording: the too-short run is
+        // discarded, but the phase must stay "recording", not fall back to idle.
+        recording.on_frame(start + Duration::from_secs(12), &match_for_screen(Screen::Start));
+
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Started));
+        assert_eq!(recording.clip_start, Some(start + Duration::from_secs(7)));
+        assert!(recording.pending.is_none());
+        assert!(matches!(
+            events.try_recv(),
+            Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })
+        ));
+        assert_no_monitor_event(&mut events);
+
+        // Retire the still-active run 2 so the test-mode Drop check (no pending) passes.
+        recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Levels));
+    }
+
+    #[test]
+    fn late_save_completion_does_not_clear_a_second_runs_matching_phase() {
+        // Two completed runs that both skip stats land on the same phase value
+        // (`StatsSkipped`). Run 1's save completing late must not clear run 2's
+        // still-in-flight phase -- only run 2's own save completing should.
+        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let start = Instant::now();
+
+        // Run 1: completes, skips stats (backs out via the grid).
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(10), &match_for_screen(Screen::Complete));
+        recording.on_frame(start + Duration::from_secs(12), &match_for_screen(Screen::Levels));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::StatsSkipped));
+        let _ = pending_save_event(&mut events);
+
+        // Take run 1's job directly (as the save timer would), without going
+        // through the real save thread, so nothing flushes automatically below.
+        let job1 = recording.take_pending_job(start + Duration::from_secs(17)).expect("run 1 save job");
+        let generation1 = job1.phase_generation.expect("run 1 emitted a phase generation");
+
+        // Run 2 starts (quick restart) and also completes, skipping stats too --
+        // landing on the same `StatsSkipped` value, with a newer generation.
+        recording.on_frame(start + Duration::from_secs(13), &match_for_screen(Screen::Start));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Started));
+        recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Complete));
+        recording.on_frame(start + Duration::from_secs(22), &match_for_screen(Screen::Levels));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::StatsSkipped));
+        let _ = pending_save_event(&mut events);
+
+        // Run 1's save completes late: clearing by its own (stale) generation
+        // must leave run 2's `StatsSkipped` phase untouched.
+        recording.recording_state.clear_if_generation(generation1);
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::StatsSkipped));
+
+        // Run 2's own save completing does clear it.
+        let job2 = recording.take_pending_job(start + Duration::from_secs(27)).expect("run 2 save job");
+        let generation2 = job2.phase_generation.expect("run 2 emitted a phase generation");
+        recording.recording_state.clear_if_generation(generation2);
+        assert_eq!(recording.recording_state.current(), None);
     }
 
     #[test]
@@ -1960,6 +2082,8 @@ mod tests {
 
             let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
             assert_eq!(job.status, run_status);
+            // The emitted `SavePending` phase is tracked by generation for cleanup.
+            assert!(job.phase_generation.is_some());
         }
     }
 
@@ -2098,8 +2222,14 @@ mod tests {
 
         assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_none());
         assert!(recording.pending.is_none());
+        // A too-short run is dropped at save time and surfaced as a notification;
+        // the phase is left untouched (here it was never set off this direct call).
+        assert!(matches!(
+            events.try_recv(),
+            Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })
+        ));
         assert_no_monitor_event(&mut events);
-        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::FailedDiscarded));
+        assert_eq!(recording.recording_state.current(), None);
     }
 
     #[test]
@@ -2139,8 +2269,14 @@ mod tests {
 
         assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_none());
         assert!(recording.pending.is_none());
+        // The voted stats time is below the minimum, so the run is dropped at save
+        // time and surfaced as a notification, leaving the phase untouched.
+        assert!(matches!(
+            events.try_recv(),
+            Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })
+        ));
         assert_no_monitor_event(&mut events);
-        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::FailedDiscarded));
+        assert_eq!(recording.recording_state.current(), None);
     }
 
     #[test]
@@ -2191,7 +2327,13 @@ mod tests {
             other => panic!("expected discard event, got {other:?}"),
         }
         assert!(recording.take_pending_job(stats_at + Duration::from_secs(1)).is_none());
-        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::FailedDiscarded));
+        // The discard fires a notification; because this save's own `SavePending`
+        // phase is still showing (no new run took over), it is cleared to idle.
+        assert!(matches!(
+            events.try_recv(),
+            Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })
+        ));
+        assert_eq!(recording.recording_state.current(), None);
     }
 
     #[test]

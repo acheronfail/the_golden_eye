@@ -1,5 +1,6 @@
 import {
 	getMonitorStatus,
+	type FailedRunNotSavedReason,
 	type LevelMatch,
 	type MonitorFps,
 	type MonitorStatus,
@@ -84,15 +85,6 @@ export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseSt
 				tag: 'obs-phase-danger-text',
 				button: 'obs-phase-danger-button',
 				dot: 'obs-phase-danger-dot'
-			};
-		case 'failedDiscarded':
-			return {
-				title: 'failed run not saved',
-				border: 'obs-phase-neutral-border',
-				heading: 'obs-phase-neutral-text',
-				tag: 'obs-phase-neutral-text',
-				button: 'obs-phase-neutral-button',
-				dot: 'obs-phase-neutral-dot'
 			};
 		case null:
 		default:
@@ -243,6 +235,27 @@ export const applyRecordingSaveDiscarded = (discarded: RecordingSaveDiscarded): 
 	if (flagId === undefined) return;
 	pendingSaveNotificationIds.delete(discarded.saveId);
 	dismissNotificationFlag(flagId);
+};
+
+const failedRunNotSavedDetail = (reason: FailedRunNotSavedReason): string => {
+	switch (reason) {
+		case 'savingDisabled':
+			return 'Saving failed runs is turned off in options.';
+		case 'tooShort':
+			return 'The run was shorter than the minimum failed-run length.';
+	}
+};
+
+/** A failed run reached an ending but wasn't saved. Shown as a transient
+ * notification -- never as a recorder phase, so a late-firing discard from an
+ * earlier run can't knock a newly-started run out of its "recording" state. */
+export const applyFailedRunNotSaved = (reason: FailedRunNotSavedReason): void => {
+	addNotificationFlag({
+		title: 'Failed run not saved',
+		detail: failedRunNotSavedDetail(reason),
+		tone: 'info',
+		sticky: false
+	});
 };
 
 export const applyRecordingSaved = (saved: RecordingSaved): void => {
