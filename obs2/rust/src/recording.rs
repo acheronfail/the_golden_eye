@@ -2,7 +2,7 @@
 //! session and save/trim (via [`crate::ffmpeg`]) a window out of it per run, rather
 //! than start/stop per run. Padding is anchored to the save moment (file ends at ~now).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, c_char};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -120,16 +120,27 @@ impl RecordingOptions {
     }
 }
 
-/// The latest replay-saved event, published by the OBS frontend callback and awaited
-/// by the save thread. `generation` ticks per event so a waiter can tell fresh from
-/// stale; `last_path` is the file OBS just wrote (or `None` if it reported none).
+/// The latest replay-saved event, published by the OBS frontend callback and
+/// awaited by the save thread.
 struct ReplaySaved {
+    /// Ticks per event so a waiter can tell a fresh event from a stale one.
     generation: u64,
+    /// The file OBS just wrote, or `None` if it reported none.
     last_path: Option<String>,
+    /// Plugin-initiated saves still awaiting their event; when zero, a saved
+    /// event is the user's own manual save, which we leave untouched.
+    pending_requests: u32,
 }
 
-static REPLAY_SAVED: Mutex<ReplaySaved> = Mutex::new(ReplaySaved { generation: 0, last_path: None });
+static REPLAY_SAVED: Mutex<ReplaySaved> =
+    Mutex::new(ReplaySaved { generation: 0, last_path: None, pending_requests: 0 });
 static REPLAY_SAVED_CV: Condvar = Condvar::new();
+
+/// Serializes plugin-initiated saves so at most one is outstanding: OBS's saved
+/// event has no identity, so two in flight could both wake on it and trim the same
+/// file. Only the request + wait need it (one at a time), not the subsequent trim.
+#[cfg(not(test))]
+static REPLAY_SAVE_SERIALIZE: Mutex<()> = Mutex::new(());
 
 struct ReplayBufferLifecycle {
     starting: bool,
@@ -147,6 +158,14 @@ static REPLAY_BUFFER_ENSURE: Mutex<()> = Mutex::new(());
 /// callback when `OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED` fires.
 pub fn on_replay_saved(path: Option<String>) {
     let mut guard = REPLAY_SAVED.lock().unwrap_or_else(|p| p.into_inner());
+    // No plugin save is outstanding, so this is the user saving the buffer
+    // themselves. Leave it alone: don't record it as ours, so no save thread
+    // ever trims or deletes a file the user asked OBS to keep.
+    if guard.pending_requests == 0 {
+        tracing::debug!(?path, "ignoring user-initiated replay buffer save");
+        return;
+    }
+    guard.pending_requests -= 1;
     guard.generation = guard.generation.wrapping_add(1);
     guard.last_path = path;
     drop(guard);
@@ -205,11 +224,14 @@ pub fn on_replay_buffer_stopped() {
     REPLAY_BUFFER_LIFECYCLE_CV.notify_all();
 }
 
-/// The current event generation. Snapshotted *before* triggering a save so the
-/// subsequent wait only resolves on a new event, never one already delivered.
+/// Register a pending plugin save and return the generation to wait past.
+/// Incrementing before the save call (so an immediate event still counts as ours)
+/// lets [`on_replay_saved`] tell our saves from the user's manual ones.
 #[cfg(not(test))]
-fn replay_saved_generation() -> u64 {
-    REPLAY_SAVED.lock().unwrap_or_else(|p| p.into_inner()).generation
+fn begin_replay_save_request() -> u64 {
+    let mut guard = REPLAY_SAVED.lock().unwrap_or_else(|p| p.into_inner());
+    guard.pending_requests = guard.pending_requests.saturating_add(1);
+    guard.generation
 }
 
 /// Block until a replay-saved event newer than `since` arrives, returning the
@@ -221,11 +243,16 @@ fn wait_for_replay_saved(since: u64, timeout: Duration) -> Option<String> {
     while guard.generation == since {
         let elapsed = start.elapsed();
         if elapsed >= timeout {
+            // Our event never arrived; release the request so a later user save
+            // isn't mistaken for it. `on_replay_saved` holds the same lock, so a
+            // just-claimed event would have advanced `generation` and exited above.
+            guard.pending_requests = guard.pending_requests.saturating_sub(1);
             return None;
         }
         let (next, res) = REPLAY_SAVED_CV.wait_timeout(guard, timeout - elapsed).unwrap_or_else(|p| p.into_inner());
         guard = next;
-        if res.timed_out() {
+        if res.timed_out() && guard.generation == since {
+            guard.pending_requests = guard.pending_requests.saturating_sub(1);
             return None;
         }
     }
@@ -971,21 +998,43 @@ struct TrimClipRequest<'a> {
 
 #[cfg(not(test))]
 fn save_and_trim(job: SaveAndTrimJob) {
-    // Snapshot the event generation before triggering the save so we only
-    // wake on the event this save produces, not one already delivered.
-    let since = replay_saved_generation();
-    tracing::info!("saving replay buffer");
-    unsafe { crate::ffi::obs_frontend_replay_buffer_save() };
+    let output_directory = replay_buffer_output_directory();
+    // Hold the serialize lock across the request+wait so no second plugin save
+    // races this one for OBS's identity-less saved event; released before the
+    // trim, which is slow and safe to run concurrently on its own file.
+    let resolved = {
+        let _serialize = REPLAY_SAVE_SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+        // Snapshot the replay dir before saving so we can tell which file our save
+        // wrote by what newly appears -- otherwise a user manual-save in this same
+        // window could have us trim (and delete) their file instead of ours.
+        let before = output_directory.as_deref().map(snapshot_replay_files);
+        // Register the request (and snapshot the generation to wait past) before
+        // triggering the save, so we only wake on the event this save produces and
+        // `on_replay_saved` can distinguish it from the user's own manual saves.
+        let since = begin_replay_save_request();
+        tracing::info!("saving replay buffer");
+        unsafe { crate::ffi::obs_frontend_replay_buffer_save() };
 
-    // Block on the OBS replay-saved event (no polling); it carries the path.
-    let path = match wait_for_replay_saved(since, REPLAY_SAVE_TIMEOUT) {
-        Some(path) => path,
-        None => {
-            tracing::error!("replay buffer save did not complete in time");
-            return;
+        // Block on the OBS replay-saved event (no polling); it carries the path.
+        let event_path = match wait_for_replay_saved(since, REPLAY_SAVE_TIMEOUT) {
+            Some(path) => path,
+            None => {
+                tracing::error!("replay buffer save did not complete in time");
+                return;
+            }
+        };
+
+        match (output_directory.as_deref(), before) {
+            (Some(dir), Some(before)) => {
+                let new_files = new_replay_files(dir, &before, &event_path);
+                resolve_saved_replay(event_path, new_files)
+            }
+            // No known output directory to diff against: trust OBS's reported path.
+            _ => ResolvedReplay { path: event_path, safe_to_delete: true },
         }
     };
 
+    let ResolvedReplay { path, safe_to_delete } = resolved;
     match trim_clip(TrimClipRequest {
         save_id: job.save_id,
         replay_path: &path,
@@ -999,7 +1048,15 @@ fn save_and_trim(job: SaveAndTrimJob) {
         rom_language: &job.rom_language,
     }) {
         Ok(saved) => {
-            remove_replay_file_after_trim(&path, &saved.path);
+            if safe_to_delete {
+                remove_replay_file_after_trim(&path, &saved.path);
+            } else {
+                tracing::warn!(
+                    path = %path,
+                    "keeping replay source: another replay save (e.g. the user's own) landed while this \
+                     one was in flight, so the file that is ours can't be told apart"
+                );
+            }
             // Ignore send errors: with no WebSocket clients there are no
             // subscribers, but the save still succeeded.
             let _ = job.event_tx.send(MonitorEvent::RecordingSaved(saved));
@@ -1011,6 +1068,48 @@ fn save_and_trim(job: SaveAndTrimJob) {
         }
         Err(err) => tracing::error!("failed to trim replay clip: {err:#}"),
     }
+}
+
+/// The replay file a completed save should trim, and whether removing it
+/// afterwards is safe.
+struct ResolvedReplay {
+    path: String,
+    safe_to_delete: bool,
+}
+
+/// All regular files currently in `dir`, used as a before/after baseline to spot
+/// the file a save wrote. Any read error yields an empty set (nothing looks new).
+fn snapshot_replay_files(dir: &Path) -> HashSet<PathBuf> {
+    let mut files = HashSet::new();
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if entry.file_type().is_ok_and(|kind| kind.is_file()) {
+                files.insert(entry.path());
+            }
+        }
+    }
+    files
+}
+
+/// Files that appeared in `dir` since `before`, restricted to the saved file's
+/// extension so unrelated churn (a concurrent trim output, say) is ignored.
+fn new_replay_files(dir: &Path, before: &HashSet<PathBuf>, event_path: &str) -> Vec<PathBuf> {
+    let extension = Path::new(event_path).extension().map(ToOwned::to_owned);
+    snapshot_replay_files(dir)
+        .into_iter()
+        .filter(|path| !before.contains(path))
+        .filter(|path| extension.is_none() || path.extension() == extension.as_deref())
+        .collect()
+}
+
+/// Pick the file to trim from the saved event and the files that appeared during
+/// the save. Exactly one new file is unambiguously ours (trust it, delete after);
+/// zero or many means a concurrent save, so use OBS's path but never delete.
+fn resolve_saved_replay(event_path: String, new_files: Vec<PathBuf>) -> ResolvedReplay {
+    if let [only] = new_files.as_slice() {
+        return ResolvedReplay { path: only.to_string_lossy().into_owned(), safe_to_delete: true };
+    }
+    ResolvedReplay { path: event_path, safe_to_delete: false }
 }
 
 #[cfg(test)]
@@ -2465,6 +2564,54 @@ mod tests {
         remove_replay_file_after_trim(&saved.to_string_lossy(), &saved.to_string_lossy());
 
         assert!(saved.exists());
+    }
+
+    #[test]
+    fn new_replay_files_reports_only_matching_files_added_after_the_snapshot() {
+        let dir = TestDir::new("new-replay-files");
+        let existing = dir.join("existing.mp4");
+        write_file(&existing);
+
+        let before = snapshot_replay_files(dir.path());
+        let added = dir.join("obs-replay.mp4");
+        let other_ext = dir.join("notes.txt");
+        write_file(&added);
+        write_file(&other_ext);
+
+        let new_files = new_replay_files(dir.path(), &before, &added.to_string_lossy());
+
+        // Only the newly-added file with the saved file's extension counts: the
+        // pre-existing file and the unrelated `.txt` are both excluded.
+        assert_eq!(new_files, vec![added]);
+    }
+
+    #[test]
+    fn resolve_saved_replay_trusts_the_single_new_file_over_the_event_path() {
+        let event_path = "/replays/user-save.mp4".to_owned();
+        let ours = PathBuf::from("/replays/our-save.mp4");
+
+        let resolved = resolve_saved_replay(event_path, vec![ours.clone()]);
+
+        assert_eq!(resolved.path, ours.to_string_lossy());
+        assert!(resolved.safe_to_delete);
+    }
+
+    #[test]
+    fn resolve_saved_replay_keeps_source_when_a_concurrent_save_is_ambiguous() {
+        let event_path = "/replays/reported.mp4".to_owned();
+        let a = PathBuf::from("/replays/a.mp4");
+        let b = PathBuf::from("/replays/b.mp4");
+
+        // Two files appeared, so we can't tell ours from the user's: fall back to
+        // OBS's reported path but never delete it.
+        let resolved = resolve_saved_replay(event_path.clone(), vec![a, b]);
+        assert_eq!(resolved.path, event_path);
+        assert!(!resolved.safe_to_delete);
+
+        // No new file at all is treated the same conservative way.
+        let resolved = resolve_saved_replay(event_path.clone(), vec![]);
+        assert_eq!(resolved.path, event_path);
+        assert!(!resolved.safe_to_delete);
     }
 
     #[test]

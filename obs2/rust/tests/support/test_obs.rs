@@ -43,6 +43,10 @@ pub struct Config {
     pub replay_active: bool,
     pub replay_max_seconds: i64,
     pub replay_stop_delay: Duration,
+    /// Delay between a save request and its saved event firing. Zero fires
+    /// synchronously (default); nonzero fires from a background thread, modelling
+    /// OBS's asynchronous save so overlapping saves can be exercised.
+    pub replay_save_delay: Duration,
     pub sources: Vec<(String, String)>,
 }
 
@@ -75,6 +79,7 @@ impl Default for State {
                 replay_active: false,
                 replay_max_seconds: 60,
                 replay_stop_delay: Duration::ZERO,
+                replay_save_delay: Duration::ZERO,
                 sources: Vec::new(),
             },
             calls: Calls::default(),
@@ -111,6 +116,19 @@ impl TestObs {
 
     pub fn set_sources(&self, sources: Vec<(String, String)>) {
         STATE.lock().unwrap().config.sources = sources;
+    }
+
+    pub fn set_replay_save_delay(&self, delay: Duration) {
+        STATE.lock().unwrap().config.replay_save_delay = delay;
+    }
+
+    /// Simulate the user saving the replay buffer themselves (OBS hotkey/button):
+    /// OBS writes a file and fires the saved event without the plugin asking, so no
+    /// `replay_save` is counted. The plugin must leave it alone. Returns the path.
+    pub fn user_replay_save(&self) -> PathBuf {
+        let path = write_replay_file("user-replay");
+        fire_replay_saved(&path);
+        path
     }
 
     pub fn render(&self, frame: Frame) {
@@ -214,16 +232,37 @@ fn finish_replay_buffer_stop() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn obs_frontend_replay_buffer_save() {
-    let saved = {
+    let delay = {
         let mut state = STATE.lock().unwrap();
         state.calls.replay_save += 1;
-        state.replay_serial += 1;
-        let path = state.config.replay_output_directory.join(format!("obs-replay-{}.mp4", state.replay_serial));
-        std::fs::create_dir_all(&state.config.replay_output_directory).unwrap();
-        std::fs::copy(&state.config.replay_fixture, &path).unwrap();
-        path
+        state.config.replay_save_delay
     };
-    let saved = CString::new(saved.to_string_lossy().as_bytes()).unwrap();
+    let path = write_replay_file("obs-replay");
+    if delay.is_zero() {
+        fire_replay_saved(&path);
+    } else {
+        // Model OBS's asynchronous save: the request returns immediately and the
+        // saved event fires later, opening the window an overlapping save needs.
+        std::thread::spawn(move || {
+            std::thread::sleep(delay);
+            fire_replay_saved(&path);
+        });
+    }
+}
+
+/// Write a copy of the replay fixture into the output directory with a unique
+/// serialized name, returning its path. Shared by plugin- and user-initiated saves.
+fn write_replay_file(prefix: &str) -> PathBuf {
+    let mut state = STATE.lock().unwrap();
+    state.replay_serial += 1;
+    let path = state.config.replay_output_directory.join(format!("{prefix}-{}.mp4", state.replay_serial));
+    std::fs::create_dir_all(&state.config.replay_output_directory).unwrap();
+    std::fs::copy(&state.config.replay_fixture, &path).unwrap();
+    path
+}
+
+fn fire_replay_saved(path: &Path) {
+    let saved = CString::new(path.to_string_lossy().as_bytes()).unwrap();
     // SAFETY: saved remains alive for the duration of the callback.
     unsafe { ge_rust::ge_replay_buffer_saved(saved.as_ptr()) };
 }
