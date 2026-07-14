@@ -3,7 +3,7 @@
 This is a plugin for OBS Studio that assists with Goldeneye N64 speed-running.
 
 
-<video src="https://raw.githubusercontent.com/acheronfail/the_golden_eye/master/docs/assets/demo.mp4" width="100%" controls></video>
+<video src="https://github.com/user-attachments/assets/ddbf02d2-f8ce-4b24-bffc-7ef6d9348752" controls></video>
 
 
 ## OBS compatibility
