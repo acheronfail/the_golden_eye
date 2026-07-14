@@ -412,6 +412,14 @@ export interface RecordingSaved {
 	stats?: LevelMatch;
 }
 
+/** A scheduled save that was dropped before any clip was written (e.g. a failed
+ * run shorter than the configured minimum), so no `RecordingSaved` follows.
+ * Mirrors the Rust `MonitorEvent::RecordingSaveDiscarded`. */
+export interface RecordingSaveDiscarded {
+	/** Identifier of the pending save that was discarded. */
+	saveId: number;
+}
+
 /** Details of a clip save that has been scheduled after a run ending was seen.
  * Mirrors the Rust `RecordingSavePending`. */
 export interface RecordingSavePending {
@@ -486,6 +494,7 @@ export type AppSocketEvent =
 	| ({ type: 'monitorFps' } & MonitorFps)
 	| ({ type: 'recordingSavePending' } & RecordingSavePending)
 	| ({ type: 'recordingSaved' } & RecordingSaved)
+	| ({ type: 'recordingSaveDiscarded' } & RecordingSaveDiscarded)
 	| { type: 'monitorStopped'; reason: MonitorStoppedReason }
 	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
 	| { type: 'settingsInvalid'; configPath: string; error: string }
@@ -511,6 +520,9 @@ export interface AppSocketHandlers {
 	onRecordingSavePending?: (pending: RecordingSavePending) => void;
 	/** A run's clip was saved out of the replay buffer and trimmed. */
 	onRecordingSaved?: (saved: RecordingSaved) => void;
+	/** A scheduled save was discarded before writing a clip, so any pending-save
+	 * notification for it should be cleared. */
+	onRecordingSaveDiscarded?: (discarded: RecordingSaveDiscarded) => void;
 	/** Monitoring stopped in the backend. */
 	onMonitorStopped?: (reason: MonitorStoppedReason) => void;
 	/** Settings JSON was reloaded from disk. */
@@ -586,6 +598,9 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 				break;
 			case 'recordingSaved':
 				handlers.onRecordingSaved?.(msg);
+				break;
+			case 'recordingSaveDiscarded':
+				handlers.onRecordingSaveDiscarded?.(msg);
 				break;
 			case 'monitorStopped':
 				handlers.onMonitorStopped?.(msg.reason);

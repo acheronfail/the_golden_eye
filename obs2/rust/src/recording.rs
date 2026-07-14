@@ -405,6 +405,21 @@ struct PendingSave {
     /// Set once the screen leaves stats: the vote is locked so a later run's stats
     /// screen (within the padding window) can't fold into this save.
     stats_vote_closed: bool,
+    /// Whether a "saving recording" notification is currently shown for this save.
+    /// Tracked so it is only sent once the run is savable, and reliably cleared if
+    /// the save is later discarded.
+    notified: bool,
+}
+
+/// Whether the pending save currently passes the save criteria. Failed runs
+/// shorter than the configured minimum are dropped; everything else is savable.
+/// Uses the stats-screen time when present, otherwise the wall-clock run length.
+fn pending_is_savable(options: &RecordingOptions, pending: &PendingSave) -> bool {
+    if !pending.status.is_failed() {
+        return true;
+    }
+    let length_secs = failed_run_length_secs(pending.finish_at, pending.clip_start, pending.stats.as_ref());
+    length_secs >= options.minimum_failed_run_length_secs()
 }
 
 /// Record one stats reading and adopt it as `stats` when it becomes the most-seen
@@ -613,14 +628,33 @@ impl RecordingState {
             stats_vote_counts: HashMap::new(),
             stats_vote_best_count: 0,
             stats_vote_closed: false,
+            notified: false,
         };
-        let _ =
-            self.event_tx.send(MonitorEvent::RecordingSavePending(save_pending_event(&pending, &self.options, now)));
         self.pending = Some(pending);
+        self.sync_pending_notification(now, true);
         self.status = None;
         self.report = None;
         tracing::info!(?save_delay, "recording save scheduled");
         true
+    }
+
+    /// Reconcile the pending-save notification with the run's current savability:
+    /// show or refresh it while savable (`time_changed` forces a refresh), and
+    /// dismiss it once it isn't so the sticky toast can't outlive a discarded run.
+    fn sync_pending_notification(&mut self, now: Instant, time_changed: bool) {
+        let Some(pending) = self.pending.as_ref() else {
+            return;
+        };
+        if pending_is_savable(&self.options, pending) {
+            if !pending.notified || time_changed {
+                let event = save_pending_event(pending, &self.options, now);
+                let _ = self.event_tx.send(MonitorEvent::RecordingSavePending(event));
+                self.pending.as_mut().unwrap().notified = true;
+            }
+        } else if pending.notified {
+            let _ = self.event_tx.send(MonitorEvent::RecordingSaveDiscarded { save_id: pending.save_id });
+            self.pending.as_mut().unwrap().notified = false;
+        }
     }
 
     /// Build a save+trim job for the pending clip, if any, anchored to `now` as
@@ -632,18 +666,20 @@ impl RecordingState {
         // Enforce the minimum failed-run length against the canonical time now
         // settled on `pending.stats`, so a first-frame misread can't rescue a
         // too-short run or discard a long enough one. Measured from run finish.
-        if pending.status.is_failed() {
-            let measured_failed_run_length_secs =
-                failed_run_length_secs(pending.finish_at, pending.clip_start, pending.stats.as_ref());
-            if measured_failed_run_length_secs < self.options.minimum_failed_run_length_secs() {
-                tracing::info!(
-                    failed_run_length_secs = measured_failed_run_length_secs,
-                    minimum_failed_run_length_secs = self.options.minimum_failed_run_length_secs(),
-                    "failed run reached an ending screen but was shorter than the configured minimum"
-                );
-                self.emit(RecordingStatus::FailedDiscarded);
-                return None;
+        if !pending_is_savable(&self.options, &pending) {
+            tracing::info!(
+                failed_run_length_secs =
+                    failed_run_length_secs(pending.finish_at, pending.clip_start, pending.stats.as_ref()),
+                minimum_failed_run_length_secs = self.options.minimum_failed_run_length_secs(),
+                "failed run reached an ending screen but was shorter than the configured minimum"
+            );
+            self.emit(RecordingStatus::FailedDiscarded);
+            // Guarantees the sticky "saving" toast is cleared even if this save
+            // was never reconciled to unsavable earlier (normally already done).
+            if pending.notified {
+                let _ = self.event_tx.send(MonitorEvent::RecordingSaveDiscarded { save_id: pending.save_id });
             }
+            return None;
         }
 
         let start_before_save_secs =
@@ -687,20 +723,20 @@ impl RecordingState {
         }
     }
 
-    /// Fold another stats reading into the in-flight save and, when the winning
-    /// time changes, re-emit the pending notification so clients replace the
-    /// first-frame value. A no-op once the vote is closed or for non-stats saves.
+    /// Fold another stats reading into the in-flight save and reconcile the pending
+    /// notification: refresh it on a time change, or drop it once the refined time
+    /// falls below the failed-run minimum. No-op for closed votes / non-stats saves.
     fn refine_stats_vote(&mut self, now: Instant, m: &LevelMatch) {
-        let Some(pending) = self.pending.as_mut() else {
-            return;
+        let time_changed = {
+            let Some(pending) = self.pending.as_mut() else {
+                return;
+            };
+            if pending.stats_vote_counts.is_empty() || pending.stats_vote_closed {
+                return;
+            }
+            record_stats_vote(pending, m)
         };
-        if pending.stats_vote_counts.is_empty() || pending.stats_vote_closed {
-            return;
-        }
-        if record_stats_vote(pending, m) {
-            let event = save_pending_event(pending, &self.options, now);
-            let _ = self.event_tx.send(MonitorEvent::RecordingSavePending(event));
-        }
+        self.sync_pending_notification(now, time_changed);
     }
 
     /// Save and trim the pending clip synchronously during shutdown, preserving
@@ -2053,14 +2089,16 @@ mod tests {
         let start = Instant::now();
         let failed_at = start + Duration::from_secs(19);
 
-        // The run is still scheduled up front; the length gate is applied when
+        // The run is still scheduled up front, but it is already too short to save,
+        // so no "saving" notification is shown; the length gate is re-applied when
         // the save fires, once the canonical time is known.
         recording.status = Some(RunStatus::Failed);
         assert!(recording.schedule_save(failed_at, start, Some(match_without_time())));
-        let _ = pending_save_event(&mut events);
+        assert_no_monitor_event(&mut events);
 
         assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_none());
         assert!(recording.pending.is_none());
+        assert_no_monitor_event(&mut events);
         assert_eq!(recording.recording_state.current(), Some(RecordingStatus::FailedDiscarded));
     }
 
@@ -2093,13 +2131,15 @@ mod tests {
         stats.times = Some(Times { time: 19, target_time: None, best_time: None });
 
         // Wall-clock length is 25s, but the stats time (19s) is what counts and it
-        // is below the 20s minimum, so the run is discarded when the save fires.
+        // is below the 20s minimum, so no notification is shown and the run is
+        // discarded when the save fires.
         recording.status = Some(RunStatus::Failed);
         assert!(recording.schedule_save(failed_at, start, Some(stats)));
-        let _ = pending_save_event(&mut events);
+        assert_no_monitor_event(&mut events);
 
         assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_none());
         assert!(recording.pending.is_none());
+        assert_no_monitor_event(&mut events);
         assert_eq!(recording.recording_state.current(), Some(RecordingStatus::FailedDiscarded));
     }
 
@@ -2138,11 +2178,18 @@ mod tests {
         recording.on_frame(start, &match_for_screen(Screen::Start));
         recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Kia));
         recording.on_frame(stats_at, &stats_match(374));
-        let _ = pending_save_event(&mut events);
+        // The misread (374s) clears the minimum, so a "saving" notification shows.
+        let pending = pending_save_event(&mut events);
         recording.on_frame(stats_at + Duration::from_millis(16), &stats_match(14));
         recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(14));
         assert_eq!(pending_stats_time(&recording), Some(14));
 
+        // Once the voted time (14s) drops below the minimum, that notification is
+        // withdrawn rather than left stuck, and no save is written.
+        match events.try_recv().expect("discard event") {
+            MonitorEvent::RecordingSaveDiscarded { save_id } => assert_eq!(save_id, pending.save_id),
+            other => panic!("expected discard event, got {other:?}"),
+        }
         assert!(recording.take_pending_job(stats_at + Duration::from_secs(1)).is_none());
         assert_eq!(recording.recording_state.current(), Some(RecordingStatus::FailedDiscarded));
     }
@@ -2158,11 +2205,16 @@ mod tests {
 
         recording.on_frame(start, &match_for_screen(Screen::Start));
         recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Kia));
+        // The first frame (5s) is below the minimum, so no notification is shown yet.
         recording.on_frame(stats_at, &stats_match(5));
-        let _ = pending_save_event(&mut events);
+        assert_no_monitor_event(&mut events);
         recording.on_frame(stats_at + Duration::from_millis(16), &stats_match(30));
         recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(30));
         assert_eq!(pending_stats_time(&recording), Some(30));
+
+        // Once the voted time (30s) clears the minimum, the notification appears.
+        let pending = pending_save_event(&mut events);
+        assert_eq!(pending.time_secs, Some(30));
 
         let job = recording.take_pending_job(stats_at + Duration::from_secs(1)).expect("save job");
         assert_eq!(job.status, RunStatus::Kia);
