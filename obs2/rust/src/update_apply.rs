@@ -5,6 +5,7 @@
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -18,6 +19,11 @@ const DOWNLOAD_DIR_NAME: &str = ".ge_update_staged.download";
 const CHECKSUMS_ASSET_NAME: &str = "checksums.txt";
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 const AUTO_APPLY_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Serializes staging: concurrent callers (e.g. startup auto-check plus a manual
+/// "check now") share the single `.ge_update_staged{,.download}` dirs, so without
+/// this one run could clobber the other mid-copy and leave nothing staged.
+static STAGE_LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 /// The exact `<platform>-<arch>` suffix `Package.cmake` bakes into release zip names
 /// (`the_golden_eye-<suffix>.zip`), including its `aarch64` -> `arm64` normalization
@@ -100,6 +106,7 @@ pub async fn auto_apply_when_safe(state: AppState) {
 /// `.ge_update_staged/` holds a checksum-verified core plus best-effort
 /// `cv_templates`/`locale`, ready for `trigger_apply`. `assets` is reused from `updates.rs`.
 pub async fn download_verify_and_stage(update: &PluginUpdate, assets: Vec<GithubAsset>) -> anyhow::Result<()> {
+    let _stage_guard = STAGE_LOCK.lock().await;
     let install_dir = install_dir()?;
     let core_leaf_name =
         canonical_core_path()?.file_name().context("core binary path has no file name")?.to_os_string();

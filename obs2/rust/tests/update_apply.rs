@@ -289,6 +289,11 @@ async fn check_now_auto_stages_when_auto_update_enabled() {
     let harness = Harness::start(Duration::ZERO).await;
     let core_path = harness.temp.join(core_leaf);
 
+    // Let the background startup check finish (recording its check time with
+    // auto-update still off, so it won't stage) before flipping the setting --
+    // otherwise it can stage concurrently with the manual check below.
+    wait_for_last_check_time(&harness).await;
+
     // Opt into automatic installs, then a manual check should download and
     // stage on its own.
     harness.put_settings(json!({ "autoUpdateEnabled": true })).await;
