@@ -123,12 +123,16 @@ impl RecordingOptions {
 /// The latest replay-saved event, published by the OBS frontend callback and awaited
 /// by the save thread. `generation` ticks per event so a waiter can tell fresh from
 /// stale; `last_path` is the file OBS just wrote (or `None` if it reported none).
+/// `pending_requests` counts plugin-initiated saves still awaiting their event; when
+/// it is zero a saved event is the user's own manual save, which we leave untouched.
 struct ReplaySaved {
     generation: u64,
     last_path: Option<String>,
+    pending_requests: u32,
 }
 
-static REPLAY_SAVED: Mutex<ReplaySaved> = Mutex::new(ReplaySaved { generation: 0, last_path: None });
+static REPLAY_SAVED: Mutex<ReplaySaved> =
+    Mutex::new(ReplaySaved { generation: 0, last_path: None, pending_requests: 0 });
 static REPLAY_SAVED_CV: Condvar = Condvar::new();
 
 struct ReplayBufferLifecycle {
@@ -147,6 +151,14 @@ static REPLAY_BUFFER_ENSURE: Mutex<()> = Mutex::new(());
 /// callback when `OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED` fires.
 pub fn on_replay_saved(path: Option<String>) {
     let mut guard = REPLAY_SAVED.lock().unwrap_or_else(|p| p.into_inner());
+    // No plugin save is outstanding, so this is the user saving the buffer
+    // themselves. Leave it alone: don't record it as ours, so no save thread
+    // ever trims or deletes a file the user asked OBS to keep.
+    if guard.pending_requests == 0 {
+        tracing::debug!(?path, "ignoring user-initiated replay buffer save");
+        return;
+    }
+    guard.pending_requests -= 1;
     guard.generation = guard.generation.wrapping_add(1);
     guard.last_path = path;
     drop(guard);
@@ -205,11 +217,16 @@ pub fn on_replay_buffer_stopped() {
     REPLAY_BUFFER_LIFECYCLE_CV.notify_all();
 }
 
-/// The current event generation. Snapshotted *before* triggering a save so the
-/// subsequent wait only resolves on a new event, never one already delivered.
+/// Register that the plugin is about to request a replay-buffer save, returning
+/// the current generation to wait past. Incrementing `pending_requests` here
+/// (before the save call, so an immediate event still counts as ours) lets
+/// [`on_replay_saved`] tell our saves from the user's; balanced when the event
+/// is claimed there, or on timeout in [`wait_for_replay_saved`].
 #[cfg(not(test))]
-fn replay_saved_generation() -> u64 {
-    REPLAY_SAVED.lock().unwrap_or_else(|p| p.into_inner()).generation
+fn begin_replay_save_request() -> u64 {
+    let mut guard = REPLAY_SAVED.lock().unwrap_or_else(|p| p.into_inner());
+    guard.pending_requests = guard.pending_requests.saturating_add(1);
+    guard.generation
 }
 
 /// Block until a replay-saved event newer than `since` arrives, returning the
@@ -221,11 +238,16 @@ fn wait_for_replay_saved(since: u64, timeout: Duration) -> Option<String> {
     while guard.generation == since {
         let elapsed = start.elapsed();
         if elapsed >= timeout {
+            // Our event never arrived; release the request so a later user save
+            // isn't mistaken for it. `on_replay_saved` holds the same lock, so a
+            // just-claimed event would have advanced `generation` and exited above.
+            guard.pending_requests = guard.pending_requests.saturating_sub(1);
             return None;
         }
         let (next, res) = REPLAY_SAVED_CV.wait_timeout(guard, timeout - elapsed).unwrap_or_else(|p| p.into_inner());
         guard = next;
-        if res.timed_out() {
+        if res.timed_out() && guard.generation == since {
+            guard.pending_requests = guard.pending_requests.saturating_sub(1);
             return None;
         }
     }
@@ -971,9 +993,10 @@ struct TrimClipRequest<'a> {
 
 #[cfg(not(test))]
 fn save_and_trim(job: SaveAndTrimJob) {
-    // Snapshot the event generation before triggering the save so we only
-    // wake on the event this save produces, not one already delivered.
-    let since = replay_saved_generation();
+    // Register the request (and snapshot the generation to wait past) before
+    // triggering the save, so we only wake on the event this save produces and
+    // `on_replay_saved` can distinguish it from the user's own manual saves.
+    let since = begin_replay_save_request();
     tracing::info!("saving replay buffer");
     unsafe { crate::ffi::obs_frontend_replay_buffer_save() };
 
