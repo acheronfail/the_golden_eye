@@ -346,6 +346,42 @@ body {
 	color: var(--obs-text);
 }
 
+/* Placeholder text on the custom Select trigger (no value chosen yet). */
+.obs-select-placeholder {
+	color: var(--obs-text-dim);
+}
+
+/* Popup list for the custom Select (portaled to <body>, so it needs its own
+   background/border rather than inheriting a container's). */
+.obs-select-menu {
+	margin: 0;
+	padding: 0.25rem;
+	list-style: none;
+	background: var(--obs-panel);
+	border: 1px solid var(--obs-border-soft);
+	box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+	color: var(--obs-text);
+}
+
+.obs-select-option {
+	border-radius: 3px;
+	cursor: pointer;
+	color: var(--obs-text);
+}
+
+.obs-select-option-active {
+	background: var(--obs-control-hover);
+}
+
+.obs-select-option[aria-selected='true'] {
+	color: var(--obs-gold-hover);
+}
+
+.obs-select-option-disabled {
+	color: var(--obs-text-dim);
+	cursor: default;
+}
+
 .obs-alert-warning,
 .obs-alert-error {
 	border: 1px solid var(--obs-border);
