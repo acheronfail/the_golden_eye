@@ -563,10 +563,10 @@ fn handle_detected_language(
         }
     }
 
-    if !*language_notified {
-        *language_notified = true;
-        let _ = event_tx.send(MonitorEvent::LanguageDetected { lang: active_lang.clone() });
-    }
+    // A real language switch is always worth re-notifying, even if we already
+    // notified for the previous language this session.
+    *language_notified = true;
+    let _ = event_tx.send(MonitorEvent::LanguageDetected { lang: active_lang.clone() });
 
     true
 }
@@ -1336,7 +1336,8 @@ mod tests {
         );
         assert!(switched_to_jp, "language change should switch after notification");
         assert_eq!(active_lang, "jp");
-        assert!(matches!(event_rx.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+        let event = event_rx.try_recv().expect("language detected event on switch");
+        assert!(matches!(event, MonitorEvent::LanguageDetected { lang } if lang == "jp"));
 
         let en_mismatch = session.match_frame(&en_b, en_w, en_h).expect("en mismatch match");
         assert_eq!(en_mismatch.detected_lang.as_deref(), Some("en"));
@@ -1351,7 +1352,8 @@ mod tests {
         );
         assert!(switched_back_to_en, "a second language change should still switch");
         assert_eq!(active_lang, "en");
-        assert!(matches!(event_rx.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+        let event = event_rx.try_recv().expect("language detected event on switch back");
+        assert!(matches!(event, MonitorEvent::LanguageDetected { lang } if lang == "en"));
     }
 
     #[test]
