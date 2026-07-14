@@ -13,6 +13,7 @@ import {
 	applyMonitorMatch,
 	applyMonitorStopped,
 	applyRecordingSaved,
+	applyRecordingSaveDiscarded,
 	applyRecordingSavePending,
 	applyRecordingState
 } from './monitor.svelte';
@@ -111,6 +112,7 @@ const connect = (): void => {
 		onMonitorFps: applyMonitorFps,
 		onRecordingSavePending: applyRecordingSavePending,
 		onRecordingSaved: applyRecordingSaved,
+		onRecordingSaveDiscarded: applyRecordingSaveDiscarded,
 		onMonitorStopped: (reason) => {
 			applyMonitorStopped(reason);
 			void refreshReplayBuffer();

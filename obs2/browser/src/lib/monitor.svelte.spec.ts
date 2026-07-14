@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { RecordingSaved, RecordingSavePending } from './api';
-import { applyRecordingSaved, applyRecordingSavePending } from './monitor.svelte';
+import { applyRecordingSaved, applyRecordingSaveDiscarded, applyRecordingSavePending } from './monitor.svelte';
 import { notifications } from './notifications.svelte';
 
 const pending = (overrides: Partial<RecordingSavePending> = {}): RecordingSavePending => ({
@@ -52,5 +52,18 @@ describe('recording save notifications', () => {
 		expect(notifications.flags).toHaveLength(1);
 		expect(notifications.flags[0].id).toBe(pendingId);
 		expect(notifications.flags[0].title).toBe('Clip saved');
+	});
+
+	it('dismisses the pending notification when the save is discarded', () => {
+		applyRecordingSavePending(pending());
+		expect(notifications.flags).toHaveLength(1);
+
+		applyRecordingSaveDiscarded({ saveId: 1 });
+		expect(notifications.flags).toHaveLength(0);
+	});
+
+	it('ignores a discard for a save with no pending notification', () => {
+		applyRecordingSaveDiscarded({ saveId: 99 });
+		expect(notifications.flags).toHaveLength(0);
 	});
 });

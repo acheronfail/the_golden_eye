@@ -103,6 +103,13 @@ pub enum MonitorEvent {
     RecordingSavePending(RecordingSavePending),
     /// A run's clip was saved out of the replay buffer and trimmed.
     RecordingSaved(RecordingSaved),
+    /// A scheduled save was dropped before any clip was written (e.g. a failed
+    /// run shorter than the configured minimum), so no `RecordingSaved` follows.
+    /// Clients use it to clear the pending "saving" notification for this save.
+    RecordingSaveDiscarded {
+        #[serde(rename = "saveId")]
+        save_id: u64,
+    },
     /// Monitoring stopped, either from a user request or an external OBS event.
     MonitorStopped { reason: MonitorStoppedReason },
     /// The settings JSON file changed on disk and was reloaded successfully.
@@ -540,6 +547,15 @@ mod tests {
         assert_eq!(json["estimatedDurationSecs"], 74.5);
         assert_eq!(json["timeSecs"], 69);
         assert!(json.get("bestTimeSecs").is_none());
+    }
+
+    #[test]
+    fn recording_save_discarded_event_uses_frontend_field_names() {
+        let event = MonitorEvent::RecordingSaveDiscarded { save_id: 7 };
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["type"], "recordingSaveDiscarded");
+        assert_eq!(json["saveId"], 7);
     }
 
     #[test]

@@ -4,11 +4,12 @@ import {
 	type MonitorFps,
 	type MonitorStatus,
 	type MonitorStoppedReason,
+	type RecordingSaveDiscarded,
 	type RecordingSavePending,
 	type RecordingSaved,
 	type RecordingStatus
 } from './api';
-import { addNotificationFlag, replaceNotificationFlag } from './notifications.svelte';
+import { addNotificationFlag, dismissNotificationFlag, replaceNotificationFlag } from './notifications.svelte';
 
 export interface MonitorPhaseStyle {
 	title: string;
@@ -235,6 +236,13 @@ export const applyRecordingSavePending = (pending: RecordingSavePending): void =
 	}
 	const flag = addNotificationFlag(notification);
 	pendingSaveNotificationIds.set(pending.saveId, flag.id);
+};
+
+export const applyRecordingSaveDiscarded = (discarded: RecordingSaveDiscarded): void => {
+	const flagId = pendingSaveNotificationIds.get(discarded.saveId);
+	if (flagId === undefined) return;
+	pendingSaveNotificationIds.delete(discarded.saveId);
+	dismissNotificationFlag(flagId);
 };
 
 export const applyRecordingSaved = (saved: RecordingSaved): void => {
