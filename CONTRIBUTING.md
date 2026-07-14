@@ -124,3 +124,7 @@ git push --tags
 
 Pushing a `vX.Y.Z` tag starts the release workflow, which builds packages and creates the GitHub release with generated notes and assets.
 Any release with a hyphen (e.g., `vX.Y.Z-beta`) will trigger a pre-release version.
+
+macOS release packages are code-signed and notarized so Gatekeeper accepts them.
+The required Apple credentials, repository secrets, and how to sign locally are
+documented in [docs/signing-macos.md](docs/signing-macos.md).

@@ -254,12 +254,14 @@ make-release: configure-release
 make-package-dist: configure-package
     cmake -E rm -rf obs2/build/package
     cmake --build obs2/build --target package-plugin
+    bash obs2/scripts/macos_codesign.sh obs2/build
 
 # package the plugin with the normal Rust release profile
 [macos]
 make-package: configure-release
     cmake -E rm -rf obs2/build/package
     cmake --build obs2/build --target package-plugin
+    bash obs2/scripts/macos_codesign.sh obs2/build
 
 # package the plugin with the slower Rust dist profile
 [linux]

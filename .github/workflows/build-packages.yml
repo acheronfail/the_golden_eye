@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      require-macos-signing:
+        description: Fail (instead of warn) if macOS signing/notarization can't run. Releases pass true.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -145,6 +150,11 @@ jobs:
     name: macOS ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
 
+    # When true, the packaging script turns "no signing identity / no notary
+    # credentials" from a warning into a hard error (release builds pass true).
+    env:
+      GE_CODESIGN_REQUIRED: ${{ inputs.require-macos-signing && '1' || '' }}
+
     strategy:
       fail-fast: false
       matrix:
@@ -212,6 +222,53 @@ jobs:
 
       - name: Run Integration tests
         run: just test-integration
+
+      # Imports the Developer ID Application cert into a throwaway keychain (codesign
+      # can only read the key from a keychain). No-ops with an unsigned package when
+      # the secret is absent (fork PRs), unless GE_CODESIGN_REQUIRED forces a failure.
+      - name: Import macOS signing certificate
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MACOS_CERTIFICATE_P12}" ]; then
+            echo "No MACOS_CERTIFICATE_P12 secret; package will be unsigned."
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/ge-signing.keychain-db"
+          cert="$RUNNER_TEMP/certificate.p12"
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$cert"
+          security create-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$keychain"
+          security import "$cert" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_KEYCHAIN_PASSWORD" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | sed 's/"//g')
+          rm -f "$cert"
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/Developer ID Application/ {print $2; exit}')"
+          echo "GE_CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "GE_CODESIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+      # Materializes the App Store Connect API key to the ephemeral runner temp dir
+      # (notarytool --key takes only a file path). No-ops when the secret is absent.
+      - name: Prepare notary credentials
+        env:
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MACOS_NOTARY_KEY}" ]; then
+            echo "No MACOS_NOTARY_KEY secret; package will be signed but not notarized."
+            exit 0
+          fi
+          key="$RUNNER_TEMP/notary-key.p8"
+          echo "$MACOS_NOTARY_KEY" | base64 --decode > "$key"
+          echo "GE_NOTARY_KEY=$key" >> "$GITHUB_ENV"
+          echo "GE_NOTARY_KEY_ID=$MACOS_NOTARY_KEY_ID" >> "$GITHUB_ENV"
+          echo "GE_NOTARY_ISSUER=$MACOS_NOTARY_ISSUER" >> "$GITHUB_ENV"
 
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}

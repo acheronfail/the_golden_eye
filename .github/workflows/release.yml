@@ -17,9 +17,11 @@ jobs:
   build:
     name: Build
     uses: ./.github/workflows/build-packages.yml
+    secrets: inherit
     with:
       fetch-depth: 0
       package-profile: true
+      require-macos-signing: true
 
   release:
     name: GitHub Release

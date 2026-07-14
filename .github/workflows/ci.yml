@@ -17,3 +17,5 @@ jobs:
   build:
     name: Build
     uses: ./.github/workflows/build-packages.yml
+    # No secrets inherited here on purpose: ordinary CI builds stay fast and
+    # unsigned. Only release.yml passes signing secrets + require-macos-signing.
