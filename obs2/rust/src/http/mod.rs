@@ -247,7 +247,10 @@ impl RecordingStateStore {
         self.lock_state().status
     }
 
-    pub fn set(&self, status: RecordingStatus) {
+    /// Set the retained phase, returning the generation this write landed on.
+    /// Pass it to [`Self::clear_if_generation`] to later clear *this* transition
+    /// specifically, rather than whatever the phase happens to be by then.
+    pub fn set(&self, status: RecordingStatus) -> u64 {
         let generation = {
             let mut state = self.lock_state();
             state.generation += 1;
@@ -265,6 +268,8 @@ impl RecordingStateStore {
             }
             _ => {}
         }
+
+        generation
     }
 
     pub fn clear(&self) {
@@ -272,15 +277,6 @@ impl RecordingStateStore {
         state.generation += 1;
         state.status = None;
         self.tx.send_replace(state.status);
-    }
-
-    pub fn clear_if_save_pending(&self) {
-        let mut state = self.lock_state();
-        if matches!(state.status, Some(RecordingStatus::SavePending | RecordingStatus::StatsSkipped)) {
-            state.generation += 1;
-            state.status = None;
-            self.tx.send_replace(state.status);
-        }
     }
 
     fn clear_after(&self, generation: u64, duration: Duration) {
@@ -294,7 +290,11 @@ impl RecordingStateStore {
         }
     }
 
-    fn clear_if_generation(&self, generation: u64) {
+    /// Clear the phase only if it's still on transition `generation` -- i.e.
+    /// nothing has `set`/`clear`'d it since. Stops a slow async save from
+    /// clearing a newer, unrelated run's phase that happens to hold the same
+    /// status value (e.g. two runs both showing `SavePending`).
+    pub fn clear_if_generation(&self, generation: u64) {
         let mut state = self.lock_state();
         if state.generation == generation {
             state.generation += 1;
@@ -616,11 +616,19 @@ mod tests {
         store.set(RecordingStatus::Started);
         assert_eq!(store.current(), Some(RecordingStatus::Started));
 
-        store.set(RecordingStatus::SavePending);
+        // A stale generation (superseded by a later transition) must not clear
+        // the phase, even though its captured value matches the current one.
+        let stale_generation = store.set(RecordingStatus::SavePending);
         store.set(RecordingStatus::Started);
-        store.clear_if_save_pending();
+        store.clear_if_generation(stale_generation);
         assert_eq!(store.current(), Some(RecordingStatus::Started));
 
+        // The current generation clears normally.
+        let current_generation = store.set(RecordingStatus::SavePending);
+        store.clear_if_generation(current_generation);
+        assert_eq!(store.current(), None);
+
+        store.set(RecordingStatus::Started);
         store.clear();
         assert_eq!(store.current(), None);
     }
