@@ -96,8 +96,8 @@ const availableReplayBuffer = {
 	active: true,
 	maxSeconds: 1200,
 	outputDirectory: '/captures',
-	defaultCompletedOutputPath: '/captures/Goldeneye',
-	defaultFailedOutputPath: '/captures/Goldeneye/failed'
+	defaultCompletedOutputPath: '/captures/GoldenEye',
+	defaultFailedOutputPath: '/captures/GoldenEye/failed'
 };
 
 beforeEach(() => {

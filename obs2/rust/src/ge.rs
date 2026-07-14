@@ -1,4 +1,4 @@
-//! Goldeneye's stats screen shows 1-3 times. The first (top to bottom, left to
+//! GoldenEye's stats screen shows 1-3 times. The first (top to bottom, left to
 //! right) is always the time, the 2nd is the target (if applicable) and the 3rd
 //! the best time (if one is present).
 

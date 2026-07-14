@@ -328,9 +328,9 @@
 
 	const completedDefaultOutputPath = (): string =>
 		replayBuffer.status?.defaultCompletedOutputPath ??
-		(replayBuffer.status?.outputDirectory ? joinPath(replayBuffer.status.outputDirectory, 'Goldeneye') : '');
+		(replayBuffer.status?.outputDirectory ? joinPath(replayBuffer.status.outputDirectory, 'GoldenEye') : '');
 
-	let completedOutputPathPlaceholder = $derived(completedDefaultOutputPath() || 'OBS replay folder/Goldeneye');
+	let completedOutputPathPlaceholder = $derived(completedDefaultOutputPath() || 'OBS replay folder/GoldenEye');
 	let failedOutputPathPlaceholder = $derived(
 		joinPath(settings.completedOutputPath.trim() || completedOutputPathPlaceholder, 'failed') ||
 			replayBuffer.status?.defaultFailedOutputPath ||
@@ -661,7 +661,7 @@
 				{:else if completedValidation && settings.completedOutputPath.trim()}
 					<p class={pathStatusClass}>{folderStatusMessage(completedValidation)}</p>
 				{:else}
-					<p class={hintClass}>Defaults to a Goldeneye folder inside OBS's replay-buffer output folder.</p>
+					<p class={hintClass}>Defaults to a GoldenEye folder inside OBS's replay-buffer output folder.</p>
 				{/if}
 			</section>
 

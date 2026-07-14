@@ -24,7 +24,7 @@ use crate::stream_notifier::{DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE, DEFAULT
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const LEGACY_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suffix}{failed_suffix}";
 pub const DEFAULT_UPDATE_CHECK_INTERVAL: UpdateCheckInterval = UpdateCheckInterval::Weekly;
-pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "Goldeneye";
+pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "GoldenEye";
 pub const DEFAULT_FAILED_OUTPUT_DIR_NAME: &str = "failed";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -694,7 +694,7 @@ mod tests {
         let replay_dir = PathBuf::from("/tmp/obs-replays");
         let settings = AppSettings::from_json_value(json!({})).with_default_output_paths(Some(&replay_dir));
 
-        let default_completed = replay_dir.join("Goldeneye");
+        let default_completed = replay_dir.join("GoldenEye");
         assert_eq!(settings.completed_output_path, default_completed.to_string_lossy());
         assert_eq!(settings.failed_output_path, default_completed.join("failed").to_string_lossy());
 
