@@ -118,6 +118,9 @@ dev:
 simulate-update:
     python3 obs2/scripts/simulate_update.py
 
+test-package-contract build_dir:
+    python3 obs2/scripts/check_package_contract.py "{{ build_dir }}"
+
 # runs the rust tests
 test-rust *args:
     #!/usr/bin/env bash

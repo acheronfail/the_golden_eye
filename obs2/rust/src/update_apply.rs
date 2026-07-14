@@ -26,10 +26,10 @@ const AUTO_APPLY_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 static STAGE_LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 /// The exact `<platform>-<arch>` suffix `Package.cmake` bakes into release zip names
-/// (`the_golden_eye-<suffix>.zip`), including its `aarch64` -> `arm64` normalization
-/// (Rust's `std::env::consts::ARCH` reports `"aarch64"`, which wouldn't match).
-fn platform_arch_suffix() -> Option<&'static str> {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
+/// (`the_golden_eye-<version>-<suffix>.zip`), including its `aarch64` -> `arm64`
+/// normalization (Rust reports `"aarch64"`, while release assets use `"arm64"`).
+fn platform_arch_suffix_for(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
         ("macos", "aarch64") => Some("macos-arm64"),
         ("macos", "x86_64") => Some("macos-x86_64"),
         ("windows", "x86_64") => Some("windows-x86_64"),
@@ -39,9 +39,23 @@ fn platform_arch_suffix() -> Option<&'static str> {
     }
 }
 
-fn asset_zip_name() -> anyhow::Result<String> {
-    let suffix = platform_arch_suffix().context("unsupported OS/arch for auto-update")?;
-    Ok(format!("the_golden_eye-{suffix}.zip"))
+#[cfg(test)]
+fn platform_arch_suffix() -> Option<&'static str> {
+    platform_arch_suffix_for(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+fn release_version_for_asset(version: &str) -> String {
+    version.trim().trim_start_matches('v').to_owned()
+}
+
+fn asset_zip_name_for(version: &str, os: &str, arch: &str) -> Option<String> {
+    let suffix = platform_arch_suffix_for(os, arch)?;
+    Some(format!("the_golden_eye-{}-{suffix}.zip", release_version_for_asset(version)))
+}
+
+fn asset_zip_name(update: &PluginUpdate) -> anyhow::Result<String> {
+    asset_zip_name_for(&update.latest_version, std::env::consts::OS, std::env::consts::ARCH)
+        .context("unsupported OS/arch for auto-update")
 }
 
 /// The shim's canonical on-disk path for this core library, set by `ge_core_load` via
@@ -113,7 +127,7 @@ pub async fn download_verify_and_stage(update: &PluginUpdate, assets: Vec<Github
 
     let client = reqwest::Client::builder().timeout(DOWNLOAD_TIMEOUT).build()?;
 
-    let zip_name = asset_zip_name()?;
+    let zip_name = asset_zip_name(update)?;
     let zip_asset = assets
         .iter()
         .find(|asset| asset.name == zip_name)
@@ -267,11 +281,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn platform_arch_suffix_matches_package_cmake_normalization() {
-        // Package.cmake normalizes aarch64 -> arm64; this is the one mapping
-        // most likely to silently drift out of sync since std::env::consts
-        // reports "aarch64" on every platform, not "arm64".
+    fn current_platform_is_supported_when_the_arch_can_be_packaged() {
         assert_eq!(platform_arch_suffix().is_some(), matches!(std::env::consts::ARCH, "aarch64" | "x86_64"));
+    }
+
+    #[test]
+    fn asset_zip_names_match_the_package_contract() {
+        let cases = [
+            ("v1.2.3", "macos", "aarch64", "the_golden_eye-1.2.3-macos-arm64.zip"),
+            ("1.2.3", "macos", "x86_64", "the_golden_eye-1.2.3-macos-x86_64.zip"),
+            ("v1.2.3-beta.1", "linux", "x86_64", "the_golden_eye-1.2.3-beta.1-linux-x86_64.zip"),
+            ("v1.2.3+build.4", "linux", "aarch64", "the_golden_eye-1.2.3+build.4-linux-arm64.zip"),
+            ("v1.2.3", "windows", "x86_64", "the_golden_eye-1.2.3-windows-x86_64.zip"),
+        ];
+
+        for (version, os, arch, expected) in cases {
+            assert_eq!(asset_zip_name_for(version, os, arch).as_deref(), Some(expected));
+        }
+        assert_eq!(asset_zip_name_for("v1.2.3", "windows", "aarch64"), None);
+        assert_eq!(asset_zip_name_for("v1.2.3", "freebsd", "x86_64"), None);
     }
 
     #[test]

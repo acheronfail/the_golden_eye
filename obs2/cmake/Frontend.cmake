@@ -34,7 +34,7 @@ else()
   # back to the standard build output when CMake is invoked directly (without
   # the justfile env). Passed on to the frontend build (svelte.config.js reads
   # $BROWSER_BUNDLE to decide its output location) and to the Rust build
-  # (include_str!(env!("BROWSER_BUNDLE"))). The generated VERSION file is a
+  # (include_str!(env!("BROWSER_BUNDLE"))). The generated version stamp is a
   # dependency so changing the canonical plugin version rebuilds the embedded
   # HTML.
   if(DEFINED ENV{BROWSER_BUNDLE})
@@ -55,7 +55,7 @@ else()
         "${BROWSER_DIR}/svelte.config.js"
         "${BROWSER_DIR}/tsconfig.json"
         "${BROWSER_DIR}/vite.config.ts"
-        "${GE_PLUGIN_VERSION_FILE}"
+        "${GE_PLUGIN_VERSION_STAMP}"
     )
 
   if(GE_REUSE_HOST_BUILD_INPUTS)
