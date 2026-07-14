@@ -122,10 +122,9 @@ impl TestObs {
         STATE.lock().unwrap().config.replay_save_delay = delay;
     }
 
-    /// Simulate the user saving the replay buffer themselves (the OBS hotkey or
-    /// button): OBS writes a file and fires the saved event without the plugin
-    /// having requested it, so no `replay_save` call is counted. The plugin must
-    /// leave this file alone. Returns the path OBS "wrote".
+    /// Simulate the user saving the replay buffer themselves (OBS hotkey/button):
+    /// OBS writes a file and fires the saved event without the plugin asking, so no
+    /// `replay_save` is counted. The plugin must leave it alone. Returns the path.
     pub fn user_replay_save(&self) -> PathBuf {
         let path = write_replay_file("user-replay");
         fire_replay_saved(&path);

@@ -88,9 +88,8 @@ async fn user_save_does_not_disrupt_a_following_run() {
 }
 
 /// Two runs finishing close together each get their own clip. OBS's saved event
-/// has no identity, so without serialization both save threads would wake on the
-/// same event and trim the same file. A slow (asynchronous) save keeps both
-/// in flight at once so this exercises that serialization.
+/// has no identity, so without serialization both saves would wake on the same
+/// event and trim the same file; a slow async save keeps both in flight to test it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn overlapping_plugin_saves_each_get_their_own_clip() {
@@ -128,6 +127,77 @@ async fn overlapping_plugin_saves_each_get_their_own_clip() {
 
     assert_eq!(clip_count(&completed), 2, "each run should produce its own clip");
     assert_eq!(harness.obs.calls().replay_save, 2);
+
+    harness.stop_monitor().await.error_for_status().unwrap();
+}
+
+/// The ordinary case still cleans up: with only the plugin's own save in the
+/// window, the resolved file is unambiguous and its replay source is deleted
+/// after trimming.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn normal_run_deletes_its_own_replay_source() {
+    let harness = Harness::start(Duration::ZERO).await;
+    let completed = harness.temp.join("completed");
+    let failed = harness.temp.join("failed");
+    harness.put_settings(recording_settings(&completed, &failed)).await;
+    harness.start_monitor().await.error_for_status().unwrap();
+
+    run_to_stats(
+        &harness,
+        "test/screenshots-av2hdmi/en - start - 03 - Agent.png",
+        "test/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
+        "test/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png",
+    )
+    .await;
+
+    wait_for_clip(&completed).await;
+    assert_eq!(clip_count(&completed), 1);
+    // The single replay source we wrote was trimmed and then removed.
+    assert_eq!(clip_count(&harness.replay_dir), 0, "the plugin's own replay source should be deleted after trimming");
+
+    harness.stop_monitor().await.error_for_status().unwrap();
+}
+
+/// A user manual-save landing *while the plugin's own save is in flight* (so OBS's
+/// event may report the user's file) must not be deleted: two files appear and the
+/// plugin can't tell them apart, so it still clips but leaves both files on disk.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn concurrent_user_save_during_a_plugin_save_is_not_deleted() {
+    let harness = Harness::start(Duration::ZERO).await;
+    let completed = harness.temp.join("completed");
+    let failed = harness.temp.join("failed");
+    harness.put_settings(recording_settings(&completed, &failed)).await;
+    harness.start_monitor().await.error_for_status().unwrap();
+
+    // Make the plugin's save slow so it is still in flight when the user saves.
+    harness.obs.set_replay_save_delay(Duration::from_secs(2));
+
+    run_to_stats(
+        &harness,
+        "test/screenshots-av2hdmi/en - start - 03 - Agent.png",
+        "test/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
+        "test/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png",
+    )
+    .await;
+
+    // Wait until the plugin has issued its (slow) save, then interleave a user
+    // save while it is still waiting for OBS's event.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while harness.obs.calls().replay_save == 0 {
+        assert!(std::time::Instant::now() < deadline, "plugin never issued its save");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let user_file = harness.obs.user_replay_save();
+
+    wait_for_clip(&completed).await;
+
+    assert!(user_file.is_file(), "the user's concurrent manual save was deleted");
+    assert_eq!(clip_count(&completed), 1, "the run should still produce a clip");
+    // Ambiguous window: both replay files (the plugin's and the user's) are kept.
+    assert_eq!(clip_count(&harness.replay_dir), 2, "neither replay source should be deleted when ambiguous");
 
     harness.stop_monitor().await.error_for_status().unwrap();
 }
