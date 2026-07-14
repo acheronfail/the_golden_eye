@@ -305,7 +305,11 @@ impl RecordingStateStore {
             state.generation += 1;
             state.status = None;
             self.tx.send_replace(state.status);
-            tracing::info!(?previous, cleared_generation = generation, "recording phase cleared (timed out / save done)");
+            tracing::info!(
+                ?previous,
+                cleared_generation = generation,
+                "recording phase cleared (timed out / save done)"
+            );
         }
     }
 
