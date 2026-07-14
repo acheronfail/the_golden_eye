@@ -14,7 +14,14 @@ use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::cv::{LevelMatch, Screen};
-use crate::http::{MonitorEvent, RecordingSavePending, RecordingSaved, RecordingStateStore, RecordingStatus};
+use crate::http::{
+    FailedRunNotSavedReason,
+    MonitorEvent,
+    RecordingSavePending,
+    RecordingSaved,
+    RecordingStateStore,
+    RecordingStatus,
+};
 use crate::{ffmpeg, ge};
 
 /// Default filename template for trimmed clips. Uses platform-native separators
@@ -610,6 +617,12 @@ impl RecordingState {
             tracing::info!("failed run reached an ending screen but failed-run saving is disabled");
             self.status = None;
             self.report = None;
+            // The run is over and nothing will be saved, so drop the phase back to
+            // idle ("waiting") and surface the outcome as a one-off notification
+            // rather than a lingering "failed run not saved" phase.
+            self.recording_state.clear();
+            let _ =
+                self.event_tx.send(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::SavingDisabled });
             return false;
         }
 
@@ -673,12 +686,19 @@ impl RecordingState {
                 minimum_failed_run_length_secs = self.options.minimum_failed_run_length_secs(),
                 "failed run reached an ending screen but was shorter than the configured minimum"
             );
-            self.emit(RecordingStatus::FailedDiscarded);
+            // This discard can fire on the save timer long after the run ended, by
+            // which point a *new* run may already be recording. Only clear a phase
+            // that is still this save's own `SavePending`; never overwrite it
+            // unconditionally, or a late discard would knock an active run out of
+            // its "recording" state (and back to "waiting"). The outcome is
+            // surfaced as a notification instead of a phase.
+            self.recording_state.clear_if_save_pending();
             // Guarantees the sticky "saving" toast is cleared even if this save
             // was never reconciled to unsavable earlier (normally already done).
             if pending.notified {
                 let _ = self.event_tx.send(MonitorEvent::RecordingSaveDiscarded { save_id: pending.save_id });
             }
+            let _ = self.event_tx.send(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort });
             return None;
         }
 
@@ -796,19 +816,19 @@ impl RecordingState {
                         // the report. Capture `status` first: `schedule_save` clears it.
                         let status = self.status.unwrap_or(RunStatus::Complete);
                         tracing::info!("stats screen skipped (report -> level select)");
-                        let scheduled = self.schedule_save(now, start, Some(report));
-                        // Backing out to the grid is the *normal* ending for a failed
-                        // run, so don't flag "skipped stats". Only a completed run whose
-                        // stats screen was bypassed counts as skipped.
-                        self.emit(if scheduled {
-                            if status.is_failed() {
+                        // A discarded failed run (saving disabled) is handled inside
+                        // `schedule_save`, which clears the phase and notifies; only
+                        // emit a phase here when a save was actually scheduled.
+                        if self.schedule_save(now, start, Some(report)) {
+                            // Backing out to the grid is the *normal* ending for a failed
+                            // run, so don't flag "skipped stats". Only a completed run whose
+                            // stats screen was bypassed counts as skipped.
+                            self.emit(if status.is_failed() {
                                 RecordingStatus::SavePending
                             } else {
                                 RecordingStatus::StatsSkipped
-                            }
-                        } else {
-                            RecordingStatus::FailedDiscarded
-                        });
+                            });
+                        }
                     } else {
                         // No report screen was seen: the run was abandoned mid-play,
                         // so there's nothing worth saving.
@@ -860,9 +880,9 @@ impl RecordingState {
                             record_stats_vote(pending, m);
                         }
                         self.emit(RecordingStatus::SavePending);
-                    } else {
-                        self.emit(RecordingStatus::FailedDiscarded);
                     }
+                    // A discarded failed run (saving disabled) is handled inside
+                    // `schedule_save`, which clears the phase and notifies.
                 } else {
                     // Still on the stats screen with the save in flight: keep voting
                     // the whole window so a multi-frame first misread is outvoted by
@@ -1865,8 +1885,51 @@ mod tests {
         assert_eq!(recording.status, None);
         assert!(recording.report.is_none());
         assert!(recording.pending.is_none());
-        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::FailedDiscarded));
+        // The run is over and nothing is saved: the phase returns to idle and the
+        // outcome is surfaced as a one-off notification rather than a phase.
+        assert_eq!(recording.recording_state.current(), None);
+        assert!(matches!(
+            events.try_recv(),
+            Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::SavingDisabled })
+        ));
         assert_no_monitor_event(&mut events);
+    }
+
+    #[test]
+    fn late_discard_does_not_knock_a_newly_started_run_out_of_recording() {
+        // Reproduces the quick-restart bug: a failed run is aborted, then the user
+        // restarts before the earlier run's (too-short) save timer fires. When it
+        // does fire, its discard must not clobber the new run's "recording" phase.
+        let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
+        let (mut recording, mut events) = test_recording(options);
+        let start = Instant::now();
+
+        // Run 1: a short KIA'd run whose save will be discarded when it fires.
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Kia));
+        recording.on_frame(start + Duration::from_secs(6), &stats_match(5));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
+        assert!(recording.pending.is_some());
+
+        // Run 2 starts (quick restart) before run 1's save timer (~11.5s) fires.
+        recording.on_frame(start + Duration::from_secs(7), &match_for_screen(Screen::Start));
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Started));
+
+        // Run 1's save timer fires while run 2 is recording: the too-short run is
+        // discarded, but the phase must stay "recording", not fall back to idle.
+        recording.on_frame(start + Duration::from_secs(12), &match_for_screen(Screen::Start));
+
+        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Started));
+        assert_eq!(recording.clip_start, Some(start + Duration::from_secs(7)));
+        assert!(recording.pending.is_none());
+        assert!(matches!(
+            events.try_recv(),
+            Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })
+        ));
+        assert_no_monitor_event(&mut events);
+
+        // Retire the still-active run 2 so the test-mode Drop check (no pending) passes.
+        recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Levels));
     }
 
     #[test]
@@ -2098,8 +2161,14 @@ mod tests {
 
         assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_none());
         assert!(recording.pending.is_none());
+        // A too-short run is dropped at save time and surfaced as a notification;
+        // the phase is left untouched (here it was never set off this direct call).
+        assert!(matches!(
+            events.try_recv(),
+            Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })
+        ));
         assert_no_monitor_event(&mut events);
-        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::FailedDiscarded));
+        assert_eq!(recording.recording_state.current(), None);
     }
 
     #[test]
@@ -2139,8 +2208,14 @@ mod tests {
 
         assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_none());
         assert!(recording.pending.is_none());
+        // The voted stats time is below the minimum, so the run is dropped at save
+        // time and surfaced as a notification, leaving the phase untouched.
+        assert!(matches!(
+            events.try_recv(),
+            Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })
+        ));
         assert_no_monitor_event(&mut events);
-        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::FailedDiscarded));
+        assert_eq!(recording.recording_state.current(), None);
     }
 
     #[test]
@@ -2191,7 +2266,13 @@ mod tests {
             other => panic!("expected discard event, got {other:?}"),
         }
         assert!(recording.take_pending_job(stats_at + Duration::from_secs(1)).is_none());
-        assert_eq!(recording.recording_state.current(), Some(RecordingStatus::FailedDiscarded));
+        // The discard fires a notification; because this save's own `SavePending`
+        // phase is still showing (no new run took over), it is cleared to idle.
+        assert!(matches!(
+            events.try_recv(),
+            Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })
+        ));
+        assert_eq!(recording.recording_state.current(), None);
     }
 
     #[test]

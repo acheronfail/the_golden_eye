@@ -471,8 +471,11 @@ export type RecordingStatus =
 	| 'kia'
 	| 'complete'
 	| 'statsSkipped'
-	| 'failedDiscarded'
 	| 'savePending';
+
+/** Why a failed run reached an ending screen without a clip being saved.
+ * Mirrors the Rust `FailedRunNotSavedReason`. */
+export type FailedRunNotSavedReason = 'savingDisabled' | 'tooShort';
 
 /** Why the backend stopped monitoring. Mirrors the Rust `MonitorStoppedReason`. */
 export type MonitorStoppedReason = 'userStopped' | 'replayBufferStopped';
@@ -495,6 +498,7 @@ export type AppSocketEvent =
 	| ({ type: 'recordingSavePending' } & RecordingSavePending)
 	| ({ type: 'recordingSaved' } & RecordingSaved)
 	| ({ type: 'recordingSaveDiscarded' } & RecordingSaveDiscarded)
+	| { type: 'failedRunNotSaved'; reason: FailedRunNotSavedReason }
 	| { type: 'monitorStopped'; reason: MonitorStoppedReason }
 	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
 	| { type: 'settingsInvalid'; configPath: string; error: string }
@@ -523,6 +527,9 @@ export interface AppSocketHandlers {
 	/** A scheduled save was discarded before writing a clip, so any pending-save
 	 * notification for it should be cleared. */
 	onRecordingSaveDiscarded?: (discarded: RecordingSaveDiscarded) => void;
+	/** A failed run reached an ending but no clip was saved (saving disabled, or
+	 * the run was too short). Surfaced as a transient notification. */
+	onFailedRunNotSaved?: (reason: FailedRunNotSavedReason) => void;
 	/** Monitoring stopped in the backend. */
 	onMonitorStopped?: (reason: MonitorStoppedReason) => void;
 	/** Settings JSON was reloaded from disk. */
@@ -601,6 +608,9 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 				break;
 			case 'recordingSaveDiscarded':
 				handlers.onRecordingSaveDiscarded?.(msg);
+				break;
+			case 'failedRunNotSaved':
+				handlers.onFailedRunNotSaved?.(msg.reason);
 				break;
 			case 'monitorStopped':
 				handlers.onMonitorStopped?.(msg.reason);

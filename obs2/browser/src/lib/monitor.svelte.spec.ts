@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { RecordingSaved, RecordingSavePending } from './api';
-import { applyRecordingSaved, applyRecordingSaveDiscarded, applyRecordingSavePending } from './monitor.svelte';
+import {
+	applyFailedRunNotSaved,
+	applyRecordingSaved,
+	applyRecordingSaveDiscarded,
+	applyRecordingSavePending
+} from './monitor.svelte';
 import { notifications } from './notifications.svelte';
 
 const pending = (overrides: Partial<RecordingSavePending> = {}): RecordingSavePending => ({
@@ -65,5 +70,18 @@ describe('recording save notifications', () => {
 	it('ignores a discard for a save with no pending notification', () => {
 		applyRecordingSaveDiscarded({ saveId: 99 });
 		expect(notifications.flags).toHaveLength(0);
+	});
+
+	it('surfaces a failed-run-not-saved outcome as a transient notification', () => {
+		applyFailedRunNotSaved('tooShort');
+		expect(notifications.flags).toHaveLength(1);
+		expect(notifications.flags[0].title).toBe('Failed run not saved');
+		expect(notifications.flags[0].detail).toContain('minimum');
+		// Auto-dismissing, not a sticky phase indicator.
+		expect(notifications.flags[0].timeoutMs).toBeGreaterThan(0);
+
+		applyFailedRunNotSaved('savingDisabled');
+		expect(notifications.flags).toHaveLength(2);
+		expect(notifications.flags[1].detail).toContain('turned off');
 	});
 });

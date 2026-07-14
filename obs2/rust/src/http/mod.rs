@@ -110,6 +110,13 @@ pub enum MonitorEvent {
         #[serde(rename = "saveId")]
         save_id: u64,
     },
+    /// A failed run reached an ending screen but no clip was written for it
+    /// (failed-run saving is disabled, or the run was shorter than the
+    /// configured minimum). Unlike a recording-phase transition this is a
+    /// one-off notification that never touches the retained recorder phase, so a
+    /// discard that fires late -- e.g. on the save timer, after a new run has
+    /// already started -- can't knock the new run out of its "recording" state.
+    FailedRunNotSaved { reason: FailedRunNotSavedReason },
     /// Monitoring stopped, either from a user request or an external OBS event.
     MonitorStopped { reason: MonitorStoppedReason },
     /// The settings JSON file changed on disk and was reloaded successfully.
@@ -154,6 +161,17 @@ pub enum MonitorStoppedReason {
     ReplayBufferStopped,
 }
 
+/// Why a failed run reached an ending screen without a clip being written.
+/// Serialized as a plain string inside [`MonitorEvent::FailedRunNotSaved`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FailedRunNotSavedReason {
+    /// Failed-run saving is disabled in the active recording options.
+    SavingDisabled,
+    /// The run was shorter than the configured minimum failed-run length.
+    TooShort,
+}
+
 /// Monitor throughput sampled by the worker thread and pushed to the frontend
 /// while monitoring is active.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -193,10 +211,6 @@ pub enum RecordingStatus {
     /// bypassing the stats screen. The clip is still saved and a
     /// [`MonitorEvent::RecordingSaved`] follows. (A failed run does this normally.)
     StatsSkipped,
-    /// A failed run reached an ending screen, but the active recording config
-    /// says not to save it (failed-run saving disabled, or the run time is
-    /// shorter than the configured minimum failed-run length).
-    FailedDiscarded,
     /// A run ended at the stats screen (or, via `StatsSkipped`, the report
     /// screen): a save has been scheduled and will fire a few seconds later. A
     /// [`MonitorEvent::RecordingSaved`] follows once the clip is written.
@@ -243,7 +257,7 @@ impl RecordingStateStore {
         };
 
         match status {
-            RecordingStatus::Cancelled | RecordingStatus::FailedDiscarded => {
+            RecordingStatus::Cancelled => {
                 self.clear_after(generation, Self::CANCELLED_LINGER);
             }
             RecordingStatus::SavePending | RecordingStatus::StatsSkipped => {

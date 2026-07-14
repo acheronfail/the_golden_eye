@@ -8,6 +8,7 @@ import {
 	type PluginUpdate
 } from './api';
 import {
+	applyFailedRunNotSaved,
 	applyLanguageDetected,
 	applyMonitorFps,
 	applyMonitorMatch,
@@ -113,6 +114,7 @@ const connect = (): void => {
 		onRecordingSavePending: applyRecordingSavePending,
 		onRecordingSaved: applyRecordingSaved,
 		onRecordingSaveDiscarded: applyRecordingSaveDiscarded,
+		onFailedRunNotSaved: applyFailedRunNotSaved,
 		onMonitorStopped: (reason) => {
 			applyMonitorStopped(reason);
 			void refreshReplayBuffer();
