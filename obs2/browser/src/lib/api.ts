@@ -193,6 +193,7 @@ export const getSettings = async (): Promise<Settings> => {
 
 export interface SettingsStatus {
 	settings: Settings;
+	defaults: Settings;
 	configPath: string;
 	fileError?: string | null;
 }

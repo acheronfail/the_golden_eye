@@ -13,6 +13,7 @@ use serde_json::Value;
 
 use crate::recording::{
     DEFAULT_CLIP_FILENAME_TEMPLATE,
+    DEFAULT_FAILED_RUN_LIMIT,
     DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
     DEFAULT_POST_RUN_PADDING_SECS,
     DEFAULT_PRE_RUN_PADDING_SECS,
@@ -23,7 +24,7 @@ use crate::stream_notifier::{DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE, DEFAULT
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const LEGACY_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suffix}{failed_suffix}";
 pub const DEFAULT_UPDATE_CHECK_INTERVAL: UpdateCheckInterval = UpdateCheckInterval::Weekly;
-pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "Goldeneye";
+pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "GoldenEye";
 pub const DEFAULT_FAILED_OUTPUT_DIR_NAME: &str = "failed";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -98,7 +99,7 @@ impl Default for AppSettings {
             completed_output_path: String::new(),
             save_failed_runs: true,
             failed_output_path: String::new(),
-            failed_run_limit: 0,
+            failed_run_limit: DEFAULT_FAILED_RUN_LIMIT,
             minimum_failed_run_length_secs: DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
             pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
@@ -236,6 +237,7 @@ struct SettingsState {
 #[serde(rename_all = "camelCase")]
 pub struct SettingsStatus {
     pub settings: AppSettings,
+    pub defaults: AppSettings,
     pub config_path: String,
     pub file_error: Option<String>,
 }
@@ -279,6 +281,7 @@ impl SettingsStore {
         let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         SettingsStatus {
             settings: apply_runtime_output_path_defaults(state.settings.clone()),
+            defaults: apply_runtime_output_path_defaults(AppSettings::default()),
             config_path: self.path.to_string_lossy().into_owned(),
             file_error: state.file_error.clone(),
         }
@@ -617,6 +620,7 @@ mod tests {
     #[test]
     fn default_settings_use_five_second_pre_run_padding() {
         assert_eq!(AppSettings::default().pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
+        assert_eq!(AppSettings::default().failed_run_limit, DEFAULT_FAILED_RUN_LIMIT);
         assert_eq!(AppSettings::default().minimum_failed_run_length_secs, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS);
         assert!(!AppSettings::default().stop_replay_buffer_when_monitor_stopped);
         assert!(!AppSettings::default().show_monitor_fps);
@@ -625,6 +629,7 @@ mod tests {
         assert_eq!(AppSettings::default().update_check_interval, UpdateCheckInterval::Weekly);
         assert_eq!(AppSettings::default().last_update_check_time, None);
         assert_eq!(AppSettings::from_json_value(json!({})).pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
+        assert_eq!(AppSettings::from_json_value(json!({})).failed_run_limit, DEFAULT_FAILED_RUN_LIMIT);
         assert_eq!(
             AppSettings::from_json_value(json!({})).minimum_failed_run_length_secs,
             DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS
@@ -689,7 +694,7 @@ mod tests {
         let replay_dir = PathBuf::from("/tmp/obs-replays");
         let settings = AppSettings::from_json_value(json!({})).with_default_output_paths(Some(&replay_dir));
 
-        let default_completed = replay_dir.join("Goldeneye");
+        let default_completed = replay_dir.join("GoldenEye");
         assert_eq!(settings.completed_output_path, default_completed.to_string_lossy());
         assert_eq!(settings.failed_output_path, default_completed.join("failed").to_string_lossy());
 
@@ -697,6 +702,16 @@ mod tests {
             AppSettings::from_json_value(json!({ "completedOutputPath": "/runs" })).with_default_output_paths(None);
         assert_eq!(custom_completed.completed_output_path, "/runs");
         assert_eq!(custom_completed.failed_output_path, Path::new("/runs").join("failed").to_string_lossy());
+    }
+
+    #[test]
+    fn status_includes_backend_defaults() {
+        let dir = TestDir::new("status-defaults");
+        let store = SettingsStore::load_from_path(dir.join("settings.json"));
+        let status = store.status();
+
+        assert_eq!(status.defaults.failed_run_limit, DEFAULT_FAILED_RUN_LIMIT);
+        assert_eq!(status.defaults.minimum_failed_run_length_secs, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS);
     }
 
     #[test]

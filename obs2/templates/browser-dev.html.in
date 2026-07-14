@@ -2,7 +2,7 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
-		<title>Goldeneye (dev)</title>
+		<title>The Golden Eye (dev)</title>
 		<!-- Configured by CMake (BROWSER_DEV): this stand-in is embedded in the
 		     plugin instead of the real SPA bundle so the frontend can be served
 		     by the Vite dev server (with hot reload) without rebuilding the

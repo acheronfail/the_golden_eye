@@ -12,17 +12,7 @@
 	} from '$lib/api';
 	import { addNotificationFlag, dismissNotificationFlagsByKey } from '$lib/notifications.svelte';
 	import { replayBuffer } from '$lib/replayBuffer.svelte';
-	import {
-		DEFAULT_CLIP_FILENAME_TEMPLATE,
-		DEFAULT_MIN_FAILED_RUN_LEN_SECS,
-		DEFAULT_POST_RUN_PADDING_SECS,
-		DEFAULT_PRE_RUN_PADDING_SECS,
-		DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE,
-		DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE,
-		Select,
-		settings,
-		type UpdateCheckInterval
-	} from '$lib';
+	import { Select, settings, type UpdateCheckInterval } from '$lib';
 
 	type OptionsTab = 'general' | 'recording' | 'notifications';
 	type PathKind = 'completed' | 'failed';
@@ -273,17 +263,19 @@
 
 	const normalizeMinimumFailedRunLength = () => {
 		const value = Number(settings.minimumFailedRunLengthSecs);
-		settings.minimumFailedRunLengthSecs = Number.isFinite(value) ? Math.max(0, value) : DEFAULT_MIN_FAILED_RUN_LEN_SECS;
+		settings.minimumFailedRunLengthSecs = Number.isFinite(value)
+			? Math.max(0, value)
+			: settings.defaults.minimumFailedRunLengthSecs;
 	};
 
 	const normalizePreRunPadding = () => {
 		const value = Number(settings.preRunPaddingSecs);
-		settings.preRunPaddingSecs = Number.isFinite(value) ? Math.max(0, value) : DEFAULT_PRE_RUN_PADDING_SECS;
+		settings.preRunPaddingSecs = Number.isFinite(value) ? Math.max(0, value) : settings.defaults.preRunPaddingSecs;
 	};
 
 	const normalizePostRunPadding = () => {
 		const value = Number(settings.postRunPaddingSecs);
-		settings.postRunPaddingSecs = Number.isFinite(value) ? Math.max(0, value) : DEFAULT_POST_RUN_PADDING_SECS;
+		settings.postRunPaddingSecs = Number.isFinite(value) ? Math.max(0, value) : settings.defaults.postRunPaddingSecs;
 	};
 
 	const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -336,9 +328,9 @@
 
 	const completedDefaultOutputPath = (): string =>
 		replayBuffer.status?.defaultCompletedOutputPath ??
-		(replayBuffer.status?.outputDirectory ? joinPath(replayBuffer.status.outputDirectory, 'Goldeneye') : '');
+		(replayBuffer.status?.outputDirectory ? joinPath(replayBuffer.status.outputDirectory, 'GoldenEye') : '');
 
-	let completedOutputPathPlaceholder = $derived(completedDefaultOutputPath() || 'OBS replay folder/Goldeneye');
+	let completedOutputPathPlaceholder = $derived(completedDefaultOutputPath() || 'OBS replay folder/GoldenEye');
 	let failedOutputPathPlaceholder = $derived(
 		joinPath(settings.completedOutputPath.trim() || completedOutputPathPlaceholder, 'failed') ||
 			replayBuffer.status?.defaultFailedOutputPath ||
@@ -609,7 +601,7 @@
 					type="text"
 					value={settings.clipFilenameTemplate}
 					oninput={(event) => setClipFilenameTemplate((event.currentTarget as HTMLInputElement).value)}
-					placeholder={DEFAULT_CLIP_FILENAME_TEMPLATE}
+					placeholder={settings.defaults.clipFilenameTemplate}
 					aria-invalid={Boolean(clipTemplateError)}
 					class={inputClass}
 				/>
@@ -669,7 +661,7 @@
 				{:else if completedValidation && settings.completedOutputPath.trim()}
 					<p class={pathStatusClass}>{folderStatusMessage(completedValidation)}</p>
 				{:else}
-					<p class={hintClass}>Defaults to a Goldeneye folder inside OBS's replay-buffer output folder.</p>
+					<p class={hintClass}>Defaults to a GoldenEye folder inside OBS's replay-buffer output folder.</p>
 				{/if}
 			</section>
 
@@ -827,7 +819,7 @@
 						id="streaming-started-message-template"
 						rows="3"
 						bind:value={settings.streamingStartedMessageTemplate}
-						placeholder={DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE}
+						placeholder={settings.defaults.streamingStartedMessageTemplate}
 						class={textareaClass}
 					></textarea>
 					<p class={hintClass}>Available tokens</p>
@@ -850,7 +842,7 @@
 						id="streaming-stopped-message-template"
 						rows="3"
 						bind:value={settings.streamingStoppedMessageTemplate}
-						placeholder={DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE}
+						placeholder={settings.defaults.streamingStoppedMessageTemplate}
 						class={textareaClass}
 					></textarea>
 					<p class={hintClass}>Available tokens</p>

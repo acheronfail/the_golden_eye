@@ -8,40 +8,31 @@ import {
 	type SettingsStatus
 } from './api';
 
-export const DEFAULT_CLIP_FILENAME_TEMPLATE = '{level}/{difficulty}/{time} - {timestamp_local}';
-export const DEFAULT_PRE_RUN_PADDING_SECS = 5;
-export const DEFAULT_POST_RUN_PADDING_SECS = 5;
-export const DEFAULT_MIN_FAILED_RUN_LEN_SECS = 10;
-export const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE = '\u{1f7e2} Bond is now streaming at: {broadcast_url}';
-export const DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE =
-	'\u{1f534} Bond stopped streaming at <t:{unix_seconds}:F>: {broadcast_url}';
-export const DEFAULT_UPDATE_CHECK_INTERVAL = 'weekly';
 const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
 const UpdateCheckIntervalSchema = z.enum(['monthly', 'weekly', 'daily', 'never']);
+export type UpdateCheckInterval = z.infer<typeof UpdateCheckIntervalSchema>;
 
-const SettingsSchema = z.object({
-	stopReplayBufferWhenMonitorStopped: z.boolean().catch(false),
-	showMonitorFps: z.boolean().catch(false),
-	showDeveloperSettings: z.boolean().catch(false),
-	welcomeModalShown: z.boolean().catch(false),
-	completedOutputPath: z.string().catch(''),
-	saveFailedRuns: z.boolean().catch(true),
-	failedOutputPath: z.string().catch(''),
-	failedRunLimit: z.coerce.number().int().min(0).catch(0),
-	minimumFailedRunLengthSecs: z.coerce.number().min(0).catch(DEFAULT_MIN_FAILED_RUN_LEN_SECS),
-	clipFilenameTemplate: z.string().catch(DEFAULT_CLIP_FILENAME_TEMPLATE),
-	preRunPaddingSecs: z.coerce.number().min(0).catch(DEFAULT_PRE_RUN_PADDING_SECS),
-	postRunPaddingSecs: z.coerce.number().min(0).catch(DEFAULT_POST_RUN_PADDING_SECS),
-	discordNotificationsEnabled: z.boolean().catch(true),
-	discordWebhookUrl: z.string().catch(''),
-	streamingStartedMessageTemplate: z.string().catch(DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE),
-	streamingStoppedMessageTemplate: z.string().catch(DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE),
-	updateCheckInterval: UpdateCheckIntervalSchema.catch(DEFAULT_UPDATE_CHECK_INTERVAL),
-	lastUpdateCheckTime: z.coerce.number().int().min(0).nullable().catch(null),
-	autoUpdateEnabled: z.boolean().catch(false)
-});
-export type Settings = z.infer<typeof SettingsSchema>;
-export type UpdateCheckInterval = Settings['updateCheckInterval'];
+export interface Settings {
+	stopReplayBufferWhenMonitorStopped: boolean;
+	showMonitorFps: boolean;
+	showDeveloperSettings: boolean;
+	welcomeModalShown: boolean;
+	completedOutputPath: string;
+	saveFailedRuns: boolean;
+	failedOutputPath: string;
+	failedRunLimit: number;
+	minimumFailedRunLengthSecs: number;
+	clipFilenameTemplate: string;
+	preRunPaddingSecs: number;
+	postRunPaddingSecs: number;
+	discordNotificationsEnabled: boolean;
+	discordWebhookUrl: string;
+	streamingStartedMessageTemplate: string;
+	streamingStoppedMessageTemplate: string;
+	updateCheckInterval: UpdateCheckInterval;
+	lastUpdateCheckTime: number | null;
+	autoUpdateEnabled: boolean;
+}
 
 export interface RecordingOptions {
 	completedOutputPath: string;
@@ -54,9 +45,9 @@ export interface RecordingOptions {
 	postRunPaddingSecs: number;
 }
 
-const nonNegativeInt = (value: unknown): number => {
+const nonNegativeInt = (value: unknown, fallback = 0): number => {
 	const n = Number(value);
-	return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+	return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : fallback;
 };
 
 const nonNegativeNumber = (value: unknown, fallback = 0): number => {
@@ -64,8 +55,53 @@ const nonNegativeNumber = (value: unknown, fallback = 0): number => {
 	return Number.isFinite(n) ? Math.max(0, n) : fallback;
 };
 
-const normalizeClipFilenameTemplate = (value: string | undefined): string => {
-	if (!value || value === LEGACY_CLIP_FILENAME_TEMPLATE) return DEFAULT_CLIP_FILENAME_TEMPLATE;
+const bootstrapSettings: Settings = {
+	stopReplayBufferWhenMonitorStopped: false,
+	showMonitorFps: false,
+	showDeveloperSettings: false,
+	welcomeModalShown: false,
+	completedOutputPath: '',
+	saveFailedRuns: true,
+	failedOutputPath: '',
+	failedRunLimit: 0,
+	minimumFailedRunLengthSecs: 0,
+	clipFilenameTemplate: '',
+	preRunPaddingSecs: 0,
+	postRunPaddingSecs: 0,
+	discordNotificationsEnabled: true,
+	discordWebhookUrl: '',
+	streamingStartedMessageTemplate: '',
+	streamingStoppedMessageTemplate: '',
+	updateCheckInterval: 'weekly',
+	lastUpdateCheckTime: null,
+	autoUpdateEnabled: false
+};
+
+const settingsSchema = (defaults: Settings) =>
+	z.object({
+		stopReplayBufferWhenMonitorStopped: z.boolean().catch(defaults.stopReplayBufferWhenMonitorStopped),
+		showMonitorFps: z.boolean().catch(defaults.showMonitorFps),
+		showDeveloperSettings: z.boolean().catch(defaults.showDeveloperSettings),
+		welcomeModalShown: z.boolean().catch(defaults.welcomeModalShown),
+		completedOutputPath: z.string().catch(defaults.completedOutputPath),
+		saveFailedRuns: z.boolean().catch(defaults.saveFailedRuns),
+		failedOutputPath: z.string().catch(defaults.failedOutputPath),
+		failedRunLimit: z.coerce.number().int().min(0).catch(defaults.failedRunLimit),
+		minimumFailedRunLengthSecs: z.coerce.number().min(0).catch(defaults.minimumFailedRunLengthSecs),
+		clipFilenameTemplate: z.string().catch(defaults.clipFilenameTemplate),
+		preRunPaddingSecs: z.coerce.number().min(0).catch(defaults.preRunPaddingSecs),
+		postRunPaddingSecs: z.coerce.number().min(0).catch(defaults.postRunPaddingSecs),
+		discordNotificationsEnabled: z.boolean().catch(defaults.discordNotificationsEnabled),
+		discordWebhookUrl: z.string().catch(defaults.discordWebhookUrl),
+		streamingStartedMessageTemplate: z.string().catch(defaults.streamingStartedMessageTemplate),
+		streamingStoppedMessageTemplate: z.string().catch(defaults.streamingStoppedMessageTemplate),
+		updateCheckInterval: UpdateCheckIntervalSchema.catch(defaults.updateCheckInterval),
+		lastUpdateCheckTime: z.coerce.number().int().min(0).nullable().catch(defaults.lastUpdateCheckTime),
+		autoUpdateEnabled: z.boolean().catch(defaults.autoUpdateEnabled)
+	});
+
+const normalizeClipFilenameTemplate = (value: string | undefined, fallback: string): string => {
+	if (!value || value === LEGACY_CLIP_FILENAME_TEMPLATE) return fallback;
 	return value;
 };
 
@@ -74,29 +110,31 @@ const normalizeMessageTemplate = (value: string | undefined, fallback: string): 
 	return value;
 };
 
-const parseSettings = (value: unknown): Settings => {
-	const parsed = SettingsSchema.parse(value);
+const parseSettings = (value: unknown, defaults = bootstrapSettings): Settings => {
+	const parsed = settingsSchema(defaults).parse(value);
 	return {
 		...parsed,
-		failedRunLimit: nonNegativeInt(parsed.failedRunLimit),
-		minimumFailedRunLengthSecs: nonNegativeNumber(parsed.minimumFailedRunLengthSecs, DEFAULT_MIN_FAILED_RUN_LEN_SECS),
-		clipFilenameTemplate: normalizeClipFilenameTemplate(parsed.clipFilenameTemplate),
-		preRunPaddingSecs: nonNegativeNumber(parsed.preRunPaddingSecs, DEFAULT_PRE_RUN_PADDING_SECS),
-		postRunPaddingSecs: nonNegativeNumber(parsed.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS),
+		failedRunLimit: nonNegativeInt(parsed.failedRunLimit, defaults.failedRunLimit),
+		minimumFailedRunLengthSecs: nonNegativeNumber(
+			parsed.minimumFailedRunLengthSecs,
+			defaults.minimumFailedRunLengthSecs
+		),
+		clipFilenameTemplate: normalizeClipFilenameTemplate(parsed.clipFilenameTemplate, defaults.clipFilenameTemplate),
+		preRunPaddingSecs: nonNegativeNumber(parsed.preRunPaddingSecs, defaults.preRunPaddingSecs),
+		postRunPaddingSecs: nonNegativeNumber(parsed.postRunPaddingSecs, defaults.postRunPaddingSecs),
 		streamingStartedMessageTemplate: normalizeMessageTemplate(
 			parsed.streamingStartedMessageTemplate,
-			DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE
+			defaults.streamingStartedMessageTemplate
 		),
 		streamingStoppedMessageTemplate: normalizeMessageTemplate(
 			parsed.streamingStoppedMessageTemplate,
-			DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE
+			defaults.streamingStoppedMessageTemplate
 		)
 	};
 };
 
-const defaultSettings = (): Settings => parseSettings({});
 const serializeSettings = (settings: Settings): string => JSON.stringify(settings);
-const initialSettings = defaultSettings();
+const initialSettings = parseSettings(bootstrapSettings);
 const initialSavedState = serializeSettings(initialSettings);
 
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -113,6 +151,7 @@ export const settings = new (class {
 	configPath = $state('');
 	fileError = $state<string | null>(null);
 	lastSavedState = $state(initialSavedState);
+	defaults = $state(initialSettings);
 
 	private loadPromise: Promise<void> | null = null;
 	private savePromise: Promise<void> | null = null;
@@ -157,10 +196,13 @@ export const settings = new (class {
 		saveFailedRuns: this.saveFailedRuns,
 		failedOutputPath: this.failedOutputPath.trim(),
 		failedRunLimit: nonNegativeInt(this.failedRunLimit),
-		minimumFailedRunLengthSecs: nonNegativeNumber(this.minimumFailedRunLengthSecs, DEFAULT_MIN_FAILED_RUN_LEN_SECS),
-		clipFilenameTemplate: this.clipFilenameTemplate.trim() || DEFAULT_CLIP_FILENAME_TEMPLATE,
-		preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs, DEFAULT_PRE_RUN_PADDING_SECS),
-		postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS)
+		minimumFailedRunLengthSecs: nonNegativeNumber(
+			this.minimumFailedRunLengthSecs,
+			this.defaults.minimumFailedRunLengthSecs
+		),
+		clipFilenameTemplate: this.clipFilenameTemplate.trim() || this.defaults.clipFilenameTemplate,
+		preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs, this.defaults.preRunPaddingSecs),
+		postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, this.defaults.postRunPaddingSecs)
 	});
 
 	//
@@ -177,10 +219,13 @@ export const settings = new (class {
 			saveFailedRuns: this.saveFailedRuns,
 			failedOutputPath: this.failedOutputPath,
 			failedRunLimit: nonNegativeInt(this.failedRunLimit),
-			minimumFailedRunLengthSecs: nonNegativeNumber(this.minimumFailedRunLengthSecs, DEFAULT_MIN_FAILED_RUN_LEN_SECS),
+			minimumFailedRunLengthSecs: nonNegativeNumber(
+				this.minimumFailedRunLengthSecs,
+				this.defaults.minimumFailedRunLengthSecs
+			),
 			clipFilenameTemplate: this.clipFilenameTemplate,
-			preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs, DEFAULT_PRE_RUN_PADDING_SECS),
-			postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, DEFAULT_POST_RUN_PADDING_SECS),
+			preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs, this.defaults.preRunPaddingSecs),
+			postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, this.defaults.postRunPaddingSecs),
 			discordNotificationsEnabled: this.discordNotificationsEnabled,
 			discordWebhookUrl: this.discordWebhookUrl,
 			streamingStartedMessageTemplate: this.streamingStartedMessageTemplate,
@@ -203,7 +248,8 @@ export const settings = new (class {
 		this.loadPromise = (async () => {
 			try {
 				const status = await getSettingsStatus();
-				const remote = parseSettings(status.settings);
+				this.defaults = parseSettings(status.defaults);
+				const remote = parseSettings(status.settings, this.defaults);
 
 				this.configPath = status.configPath;
 				this.fileError = status.fileError ?? null;
@@ -255,7 +301,7 @@ export const settings = new (class {
 		this.saveError = null;
 		this.savePromise = (async () => {
 			try {
-				const saved = parseSettings(await putSettings(snapshot));
+				const saved = parseSettings(await putSettings(snapshot), this.defaults);
 				const savedState = serializeSettings(saved);
 				this.fileError = null;
 
@@ -283,10 +329,11 @@ export const settings = new (class {
 		}
 	}
 
-	applyReloaded(next: Settings, configPath: string): void {
+	applyReloaded(next: Settings, configPath: string, defaults = this.defaults): void {
 		this.configPath = configPath;
 		this.fileError = null;
-		this.apply(parseSettings(next));
+		this.defaults = parseSettings(defaults);
+		this.apply(parseSettings(next, this.defaults));
 		this.lastSavedState = this.savedState;
 		this.loaded = true;
 		this.saveError = null;
@@ -299,7 +346,7 @@ export const settings = new (class {
 	}
 
 	async resetToDefaults(): Promise<void> {
-		const reset = parseSettings(await resetSettingsToDefaults());
+		const reset = parseSettings(await resetSettingsToDefaults(), this.defaults);
 		this.apply(reset);
 		this.lastSavedState = this.savedState;
 		this.fileError = null;
@@ -310,12 +357,13 @@ export const settings = new (class {
 	async revealConfigFile(): Promise<void> {
 		await revealSettingsConfig();
 		const status: SettingsStatus = await getSettingsStatus();
+		this.defaults = parseSettings(status.defaults);
 		this.configPath = status.configPath;
 		this.fileError = status.fileError ?? null;
 	}
 
 	private snapshot(): Settings {
-		return parseSettings(JSON.parse(this.savedState));
+		return parseSettings(JSON.parse(this.savedState), this.defaults);
 	}
 
 	private apply(next: Settings): void {
@@ -331,18 +379,21 @@ export const settings = new (class {
 		this.failedOutputPath = next.failedOutputPath;
 		this.failedRunLimit = next.failedRunLimit;
 		this.minimumFailedRunLengthSecs = next.minimumFailedRunLengthSecs;
-		this.clipFilenameTemplate = normalizeClipFilenameTemplate(next.clipFilenameTemplate);
+		this.clipFilenameTemplate = normalizeClipFilenameTemplate(
+			next.clipFilenameTemplate,
+			this.defaults.clipFilenameTemplate
+		);
 		this.preRunPaddingSecs = next.preRunPaddingSecs;
 		this.postRunPaddingSecs = next.postRunPaddingSecs;
 		this.discordNotificationsEnabled = next.discordNotificationsEnabled;
 		this.discordWebhookUrl = next.discordWebhookUrl;
 		this.streamingStartedMessageTemplate = normalizeMessageTemplate(
 			next.streamingStartedMessageTemplate,
-			DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE
+			this.defaults.streamingStartedMessageTemplate
 		);
 		this.streamingStoppedMessageTemplate = normalizeMessageTemplate(
 			next.streamingStoppedMessageTemplate,
-			DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE
+			this.defaults.streamingStoppedMessageTemplate
 		);
 	}
 })();

@@ -32,7 +32,8 @@ pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level}\\{difficulty}\\{time} 
 pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level}/{difficulty}/{time} - {timestamp_local}";
 pub const DEFAULT_PRE_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
-pub const DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS: f64 = 10.0;
+pub const DEFAULT_FAILED_RUN_LIMIT: usize = 10;
+pub const DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS: f64 = 20.0;
 /// Internal safety margin added to both the pre- and post-run padding, on top of
 /// the user's configured values and hidden from them, so a single-frame timing
 /// window can't drop the level-start briefing or stats overlay (e.g. padding 0).
@@ -83,7 +84,7 @@ impl Default for RecordingOptions {
             completed_output_path: String::new(),
             save_failed_runs: true,
             failed_output_path: String::new(),
-            failed_run_limit: 0,
+            failed_run_limit: DEFAULT_FAILED_RUN_LIMIT,
             minimum_failed_run_length_secs: DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
             pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
@@ -1486,6 +1487,10 @@ mod tests {
         (recording, event_rx)
     }
 
+    fn test_recording_saving_short_failed_runs() -> (RecordingState, tokio::sync::broadcast::Receiver<MonitorEvent>) {
+        test_recording(RecordingOptions { minimum_failed_run_length_secs: 0.0, ..RecordingOptions::default() })
+    }
+
     fn sample_clip() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/clips/sample_clip.mov")
     }
@@ -1599,6 +1604,7 @@ mod tests {
         let default = RecordingOptions::default();
         assert_eq!(default.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
         assert_eq!(default.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS);
+        assert_eq!(default.failed_run_limit, DEFAULT_FAILED_RUN_LIMIT);
         assert_eq!(default.minimum_failed_run_length_secs, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS);
         assert_eq!(default.pre_run_padding_secs(), DEFAULT_PRE_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
         assert_eq!(default.post_run_padding_secs(), DEFAULT_POST_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
@@ -1701,7 +1707,7 @@ mod tests {
 
     #[test]
     fn single_stats_frame_trusts_its_reading() {
-        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let (mut recording, mut events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
 
         recording.on_frame(start, &match_for_screen(Screen::Start));
@@ -1716,7 +1722,7 @@ mod tests {
 
     #[test]
     fn first_stats_frame_misread_is_corrected_by_later_frames() {
-        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let (mut recording, mut events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
         let stats_at = start + Duration::from_secs(10);
 
@@ -1739,7 +1745,7 @@ mod tests {
 
     #[test]
     fn two_stats_frames_trust_the_second_reading() {
-        let (mut recording, _events) = test_recording(RecordingOptions::default());
+        let (mut recording, _events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
         let stats_at = start + Duration::from_secs(10);
 
@@ -1757,7 +1763,7 @@ mod tests {
         // The misread spans several frames (as it can live, where the transitional
         // overlay frame is matched more than once), yet the stable reading fills the
         // rest of the window and wins -- there is no fixed sampling cap to defeat.
-        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let (mut recording, mut events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
         let mut at = start + Duration::from_secs(10);
 
@@ -1783,7 +1789,7 @@ mod tests {
 
     #[test]
     fn pending_notification_is_reissued_when_the_voted_time_changes() {
-        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let (mut recording, mut events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
         let stats_at = start + Duration::from_secs(10);
 
@@ -1808,7 +1814,7 @@ mod tests {
 
     #[test]
     fn leaving_the_stats_screen_locks_the_voted_time() {
-        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let (mut recording, mut events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
         let stats_at = start + Duration::from_secs(10);
 
@@ -1828,7 +1834,7 @@ mod tests {
 
     #[test]
     fn poll_pending_waits_for_the_padding_window_before_firing() {
-        let (mut recording, mut events) = test_recording(RecordingOptions::default());
+        let (mut recording, mut events) = test_recording_saving_short_failed_runs();
         let start = Instant::now();
         let stats_at = start + Duration::from_secs(10);
 
