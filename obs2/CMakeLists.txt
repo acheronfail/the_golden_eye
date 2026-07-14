@@ -38,12 +38,8 @@ if(NOT GE_PLUGIN_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\
 endif()
 message(STATUS "The Golden Eye plugin version: ${GE_PLUGIN_VERSION}")
 
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/templates/VERSION.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/VERSION"
-    @ONLY
-)
-set(GE_PLUGIN_VERSION_FILE "${CMAKE_CURRENT_BINARY_DIR}/VERSION")
+set(GE_PLUGIN_VERSION_STAMP "${CMAKE_CURRENT_BINARY_DIR}/plugin-version.stamp")
+file(WRITE "${GE_PLUGIN_VERSION_STAMP}" "${GE_PLUGIN_VERSION}\n")
 
 option(GE_REUSE_HOST_BUILD_INPUTS "Reuse browser and Rust artifacts from an earlier host build" OFF)
 option(GE_RUST_PACKAGE_PROFILE "Build Rust with the size-optimized packaging cargo profile" OFF)

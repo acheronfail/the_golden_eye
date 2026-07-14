@@ -14,6 +14,7 @@ use support::harness::{API, Harness};
 use tokio::sync::oneshot;
 
 const LATEST_VERSION: &str = "v999.0.0";
+const LATEST_ASSET_VERSION: &str = "999.0.0";
 const RELEASE_URL: &str = "https://github.com/acheronfail/the_golden_eye/releases/tag/v999.0.0";
 const CORE_MARKER_CONTENT: &[u8] = b"fake newer core library contents";
 
@@ -22,6 +23,10 @@ const CORE_MARKER_CONTENT: &[u8] = b"fake newer core library contents";
 // test's own OS/arch maps to keeps the test itself platform-independent.
 const PLATFORM_ARCH_SUFFIXES: &[&str] =
     &["macos-arm64", "macos-x86_64", "linux-x86_64", "linux-arm64", "windows-x86_64"];
+
+fn asset_name(suffix: &str) -> String {
+    format!("the_golden_eye-{LATEST_ASSET_VERSION}-{suffix}.zip")
+}
 
 struct MockState {
     base_url: String,
@@ -56,7 +61,7 @@ async fn latest_release(State(state): State<Arc<MockState>>) -> axum::Json<Value
         .iter()
         .map(|suffix| {
             json!({
-                "name": format!("the_golden_eye-{suffix}.zip"),
+                "name": asset_name(suffix),
                 "browser_download_url": format!("{}/asset.zip", state.base_url)
             })
         })
@@ -92,7 +97,7 @@ async fn start_mock_github(
     let hash = if correct_checksum { real_hash } else { "0".repeat(64) };
     let mut checksums_text = String::new();
     for suffix in PLATFORM_ARCH_SUFFIXES {
-        checksums_text.push_str(&format!("{hash}  the_golden_eye-{suffix}.zip\n"));
+        checksums_text.push_str(&format!("{hash}  {}\n", asset_name(suffix)));
     }
 
     let state = Arc::new(MockState { base_url: base_url.clone(), zip_bytes, checksums_text });
@@ -134,7 +139,7 @@ async fn sequenced_latest_release(State(state): State<Arc<SequencedMockState>>) 
         .iter()
         .map(|suffix| {
             json!({
-                "name": format!("the_golden_eye-{suffix}.zip"),
+                "name": asset_name(suffix),
                 "browser_download_url": format!("{}/asset.zip", state.base_url)
             })
         })
@@ -163,7 +168,7 @@ async fn start_sequenced_mock_github(core_leaf: &str) -> (String, oneshot::Sende
     let hash = sha256_hex(&zip_bytes);
     let mut checksums_text = String::new();
     for suffix in PLATFORM_ARCH_SUFFIXES {
-        checksums_text.push_str(&format!("{hash}  the_golden_eye-{suffix}.zip\n"));
+        checksums_text.push_str(&format!("{hash}  {}\n", asset_name(suffix)));
     }
 
     let state = Arc::new(SequencedMockState {

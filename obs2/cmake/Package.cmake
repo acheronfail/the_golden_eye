@@ -25,11 +25,12 @@ endif()
 
 set(GE_PACKAGE_OBS_ARCH_DIR "${GE_OBS_ARCH_DIR}")
 
-set(GE_PACKAGE_BASENAME "${PLUGIN_NAME}-${GE_PACKAGE_PLATFORM}-${GE_PACKAGE_ARCH}")
+set(GE_PACKAGE_PAYLOAD_BASENAME "${PLUGIN_NAME}-${GE_PACKAGE_PLATFORM}-${GE_PACKAGE_ARCH}")
+set(GE_PACKAGE_ZIP_BASENAME "${PLUGIN_NAME}-${GE_PLUGIN_VERSION}-${GE_PACKAGE_PLATFORM}-${GE_PACKAGE_ARCH}")
 set(GE_PACKAGE_WORK_DIR "${CMAKE_CURRENT_BINARY_DIR}/package")
-set(GE_PACKAGE_STAGE "${GE_PACKAGE_WORK_DIR}/${GE_PACKAGE_BASENAME}")
+set(GE_PACKAGE_STAGE "${GE_PACKAGE_WORK_DIR}/${GE_PACKAGE_PAYLOAD_BASENAME}")
 set(GE_PACKAGE_DIST_DIR "${CMAKE_CURRENT_BINARY_DIR}/dist")
-set(GE_PACKAGE_ZIP "${GE_PACKAGE_DIST_DIR}/${GE_PACKAGE_BASENAME}.zip")
+set(GE_PACKAGE_ZIP "${GE_PACKAGE_DIST_DIR}/${GE_PACKAGE_ZIP_BASENAME}.zip")
 
 set(GE_PACKAGE_STRIP_ENABLED OFF)
 set(GE_PACKAGE_STRIP_ARGS "")
@@ -73,6 +74,7 @@ endif()
 if(APPLE)
   set(GE_PACKAGE_ENTRY "${PLUGIN_NAME}.plugin")
   set(GE_PACKAGE_ENTRY_PATH "${GE_PACKAGE_STAGE}/${GE_PACKAGE_ENTRY}")
+  set(GE_PACKAGE_LOCALE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/locale")
 
   add_custom_target(stage-plugin
       COMMAND ${CMAKE_COMMAND} -E rm -rf "${GE_PACKAGE_STAGE}"
@@ -80,9 +82,9 @@ if(APPLE)
       COMMAND ${CMAKE_COMMAND} -E copy_directory
               "$<TARGET_BUNDLE_DIR:${PLUGIN_NAME}>"
               "${GE_PACKAGE_ENTRY_PATH}"
-      COMMAND ${CMAKE_COMMAND} -E copy
-              "${GE_PLUGIN_VERSION_FILE}"
-              "${GE_PACKAGE_ENTRY_PATH}/VERSION"
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+              "${GE_PACKAGE_LOCALE_DIR}"
+              "${GE_PACKAGE_ENTRY_PATH}/Contents/Resources/locale"
       COMMAND ${CMAKE_COMMAND} -E rm -f "${GE_PACKAGE_ENTRY_PATH}/Contents/Resources/cv_templates/.stamp"
       COMMAND ${CMAKE_COMMAND}
               "-DGE_STRIP_ENABLED=${GE_PACKAGE_STRIP_ENABLED}"
@@ -96,7 +98,7 @@ if(APPLE)
               "-DGE_STRIP_ARGS=${GE_PACKAGE_STRIP_ARGS}"
               "-DGE_STRIP_FILE=${GE_PACKAGE_ENTRY_PATH}/Contents/MacOS/$<TARGET_FILE_NAME:${PLUGIN_NAME}>"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/strip-if-enabled.cmake"
-      COMMENT "Staging ${GE_PACKAGE_BASENAME}"
+      COMMENT "Staging ${GE_PACKAGE_PAYLOAD_BASENAME}"
       VERBATIM
   )
 else()
@@ -114,7 +116,6 @@ else()
       COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${CORE_NAME}>" "${GE_PACKAGE_BIN_DIR}/"
       COMMAND ${CMAKE_COMMAND} -E copy_directory "${GE_PACKAGE_LOCALE_DIR}" "${GE_PACKAGE_DATA_DIR}/locale"
       COMMAND ${CMAKE_COMMAND} -E copy_directory "${GE_BUNDLED_TEMPLATE_DIR}" "${GE_PACKAGE_DATA_DIR}/cv_templates"
-      COMMAND ${CMAKE_COMMAND} -E copy "${GE_PLUGIN_VERSION_FILE}" "${GE_PACKAGE_ENTRY_PATH}/VERSION"
       COMMAND ${CMAKE_COMMAND} -E rm -f "${GE_PACKAGE_DATA_DIR}/cv_templates/.stamp"
       COMMAND ${CMAKE_COMMAND}
               "-DGE_STRIP_ENABLED=${GE_PACKAGE_STRIP_ENABLED}"
@@ -128,7 +129,7 @@ else()
               "-DGE_STRIP_ARGS=${GE_PACKAGE_STRIP_ARGS}"
               "-DGE_STRIP_FILE=${GE_PACKAGE_BIN_DIR}/$<TARGET_FILE_NAME:${PLUGIN_NAME}>"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/strip-if-enabled.cmake"
-      COMMENT "Staging ${GE_PACKAGE_BASENAME}"
+      COMMENT "Staging ${GE_PACKAGE_PAYLOAD_BASENAME}"
       VERBATIM
   )
 endif()
@@ -137,11 +138,15 @@ add_dependencies(stage-plugin ${PLUGIN_NAME})
 
 add_custom_target(package-plugin
     COMMAND ${CMAKE_COMMAND} -E make_directory "${GE_PACKAGE_DIST_DIR}"
+    COMMAND ${CMAKE_COMMAND}
+            "-DGE_PACKAGE_DIST_DIR=${GE_PACKAGE_DIST_DIR}"
+            "-DGE_PACKAGE_PREFIX=${PLUGIN_NAME}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/clean-package-dist.cmake"
     COMMAND ${CMAKE_COMMAND} -E rm -f "${GE_PACKAGE_ZIP}"
     COMMAND ${CMAKE_COMMAND} -E chdir "${GE_PACKAGE_STAGE}"
             ${CMAKE_COMMAND} -E tar cf "${GE_PACKAGE_ZIP}" --format=zip -- "${GE_PACKAGE_ENTRY}"
     COMMAND ${CMAKE_COMMAND} -E echo "Wrote ${GE_PACKAGE_ZIP}"
-    COMMENT "Packaging ${GE_PACKAGE_BASENAME}"
+    COMMENT "Packaging ${GE_PACKAGE_ZIP_BASENAME}"
     VERBATIM
 )
 add_dependencies(package-plugin stage-plugin)

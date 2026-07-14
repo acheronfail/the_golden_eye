@@ -130,6 +130,9 @@ jobs:
       - name: Build Linux package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
 
+      - name: Check Linux package contract
+        run: just test-package-contract obs2/build-flatpak
+
       - name: Determine package name
         id: package
         run: echo "basename=$(basename obs2/build-flatpak/dist/*.zip .zip)" >> "$GITHUB_OUTPUT"
@@ -215,6 +218,9 @@ jobs:
 
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
+
+      - name: Check macOS package contract
+        run: just test-package-contract obs2/build
 
       - name: Determine package name
         id: package
@@ -388,6 +394,10 @@ jobs:
       - name: Build Windows package
         shell: bash
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
+
+      - name: Check Windows package contract
+        shell: bash
+        run: just test-package-contract obs2/build
 
       - name: Determine package name
         id: package
