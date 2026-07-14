@@ -74,7 +74,7 @@ To read them:
   - Linux (Flatpak): `~/.var/app/com.obsproject.Studio/config/obs-studio/logs/`
   - Windows: `%APPDATA%\obs-studio\logs\`
 - **In the terminal:** when OBS is launched from a shell (`just obs` / `just dev` on macOS and
-  Linux), the same lines are also printed to stdout with ANSI colours.
+  Linux), the same lines are also printed to stdout (look for `[the_golden_eye]`).
 
 Verbosity is controlled by the `RUST_LOG` environment variable (a
 [`tracing` filter](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html);
