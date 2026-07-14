@@ -25,7 +25,7 @@ To fix it, you'll need to run the following in Terminal:
 ```sh
 #                              ↓↓↓ make sure this path is where your plugin file is!
 #                              ↓↓↓ you can drag and drop the plugin onto Terminal to get the right path
-xattr -d com.apple.quarantine ~/Library/Application Support/obs-studio/plugins/the_golden_eye.plugin
+xattr -d com.apple.quarantine "~/Library/Application Support/obs-studio/plugins/the_golden_eye.plugin"
 ```
 
 ### Start up OBS
