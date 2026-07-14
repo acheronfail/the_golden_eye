@@ -13,6 +13,27 @@
 // still inside the core, so it must ONLY wake the worker -- never dlopen/recurse.
 typedef void (*ge_request_reload_fn)(void);
 
+// Where bundled data dirs (cv_templates, locale) sit relative to the core lib:
+// macOS bundles keep data in Contents/Resources (core in Contents/MacOS);
+// Linux/Windows use a sibling data/ (core in bin/<arch>). See rust/src/lib.rs.
+typedef enum {
+  GE_INSTALL_LAYOUT_MACOS_BUNDLE,
+  GE_INSTALL_LAYOUT_OBS_PLUGIN_DIR,
+} ge_install_layout;
+
+// The install layout this shim was built for.
+#if defined(__APPLE__)
+#define GE_HOST_INSTALL_LAYOUT GE_INSTALL_LAYOUT_MACOS_BUNDLE
+#else
+#define GE_HOST_INSTALL_LAYOUT GE_INSTALL_LAYOUT_OBS_PLUGIN_DIR
+#endif
+
+// On-disk destination for a bundled data dir `leaf` (e.g. "cv_templates") under
+// `layout`, relative to the core's `canonical_path`. Exposed for cross-platform
+// tests; ge_core_reload passes GE_HOST_INSTALL_LAYOUT. False if it won't fit `out`.
+bool ge_core_data_dir_dest(ge_install_layout layout, const char *canonical_path, const char *leaf, char *out,
+                           size_t out_size);
+
 // Opaque handle to an open core library: its dynlib handle, the temp-copy
 // path it was actually dlopen'd from (removed on close), and its resolved
 // entry points.

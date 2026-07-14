@@ -59,8 +59,55 @@ int main(int argc, char **argv) {
   test_join(log_path, sizeof(log_path), work_dir, "fixture.log");
   test_set_env("GE_FIXTURE_LOG", log_path);
 
+  // --- Scenario 0 (pure, host-independent): ge_core_data_dir_dest must map a
+  // --- core library path to the right bundled-data location for EVERY layout,
+  // --- not just this host's -- so `just test-shim` on any one OS still covers
+  // --- all three. Regression for the auto-update bug where cv_templates/locale
+  // --- landed next to the core binary (Contents/MacOS, bin/<arch>) instead of
+  // --- the real data dir. Mirrors resolve_cv_template_dir() in rust/src/lib.rs.
+  {
+    char dest[PATH_MAX];
+    const char *mac_core = "/Library/plugins/the_golden_eye.plugin/Contents/MacOS/golden_core.dylib";
+    CHECK(ge_core_data_dir_dest(GE_INSTALL_LAYOUT_MACOS_BUNDLE, mac_core, "cv_templates", dest, sizeof(dest)) &&
+              strcmp(dest, "/Library/plugins/the_golden_eye.plugin/Contents/Resources/cv_templates") == 0,
+          "macOS cv_templates should land in Contents/Resources, got '%s'", dest);
+    CHECK(ge_core_data_dir_dest(GE_INSTALL_LAYOUT_MACOS_BUNDLE, mac_core, "locale", dest, sizeof(dest)) &&
+              strcmp(dest, "/Library/plugins/the_golden_eye.plugin/Contents/Resources/locale") == 0,
+          "macOS locale should land in Contents/Resources, got '%s'", dest);
+
+    const char *linux_core = "/home/u/.config/obs-studio/plugins/the_golden_eye/bin/64bit/golden_core.so";
+    CHECK(ge_core_data_dir_dest(GE_INSTALL_LAYOUT_OBS_PLUGIN_DIR, linux_core, "cv_templates", dest, sizeof(dest)) &&
+              strcmp(dest, "/home/u/.config/obs-studio/plugins/the_golden_eye/data/cv_templates") == 0,
+          "Linux cv_templates should land in the sibling data/ dir, got '%s'", dest);
+    CHECK(ge_core_data_dir_dest(GE_INSTALL_LAYOUT_OBS_PLUGIN_DIR, linux_core, "locale", dest, sizeof(dest)) &&
+              strcmp(dest, "/home/u/.config/obs-studio/plugins/the_golden_eye/data/locale") == 0,
+          "Linux locale should land in the sibling data/ dir, got '%s'", dest);
+
+    const char *win_core = "C:/ProgramData/obs-studio/plugins/the_golden_eye/bin/64bit/golden_core.dll";
+    CHECK(ge_core_data_dir_dest(GE_INSTALL_LAYOUT_OBS_PLUGIN_DIR, win_core, "cv_templates", dest, sizeof(dest)) &&
+              strcmp(dest, "C:/ProgramData/obs-studio/plugins/the_golden_eye/data/cv_templates") == 0,
+          "Windows cv_templates should land in the sibling data/ dir, got '%s'", dest);
+  }
+
+  // Build a realistic per-host install layout inside work_dir so the end-to-end
+  // reloads below sync cv_templates/locale into the same place a real plugin
+  // would (core dir and data dir are NOT the same directory on any platform).
+  char core_dir[PATH_MAX];
+  char data_dir[PATH_MAX];
+#if defined(__APPLE__)
+  CHECK(test_make_dirs(work_dir, "the_golden_eye.plugin/Contents/MacOS", core_dir, sizeof(core_dir)),
+        "failed to create the macOS core dir");
+  CHECK(test_make_dirs(work_dir, "the_golden_eye.plugin/Contents/Resources", data_dir, sizeof(data_dir)),
+        "failed to create the macOS data dir");
+#else
+  CHECK(test_make_dirs(work_dir, "the_golden_eye/bin/64bit", core_dir, sizeof(core_dir)),
+        "failed to create the plugin bin dir");
+  CHECK(test_make_dirs(work_dir, "the_golden_eye/data", data_dir, sizeof(data_dir)),
+        "failed to create the plugin data dir");
+#endif
+
   char canonical[PATH_MAX];
-  test_join(canonical, sizeof(canonical), work_dir, GE_CORE_LEAF);
+  test_join(canonical, sizeof(canonical), core_dir, GE_CORE_LEAF);
   CHECK(test_copy_file(fixture_v1, canonical), "failed to seed canonical core from fixture_v1");
 
   ge_core_handle *handle = NULL;
@@ -103,7 +150,7 @@ int main(int argc, char **argv) {
   CHECK(test_write_file(staged_locale_marker, "v2-locale"), "failed to write staged locale marker");
 
   char canonical_templates[PATH_MAX];
-  CHECK(test_make_subdir(work_dir, "cv_templates", canonical_templates, sizeof(canonical_templates)),
+  CHECK(test_make_subdir(data_dir, "cv_templates", canonical_templates, sizeof(canonical_templates)),
         "failed to create canonical cv_templates");
   char canonical_templates_marker[PATH_MAX];
   test_join(canonical_templates_marker, sizeof(canonical_templates_marker), canonical_templates, "marker.txt");
@@ -153,7 +200,7 @@ int main(int argc, char **argv) {
   free(templates_content);
 
   char canonical_locale_dir[PATH_MAX];
-  test_join(canonical_locale_dir, sizeof(canonical_locale_dir), work_dir, "locale");
+  test_join(canonical_locale_dir, sizeof(canonical_locale_dir), data_dir, "locale");
   char canonical_locale_marker[PATH_MAX];
   test_join(canonical_locale_marker, sizeof(canonical_locale_marker), canonical_locale_dir, "marker.txt");
   char *locale_content = test_read_file(canonical_locale_marker);

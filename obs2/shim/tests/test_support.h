@@ -13,6 +13,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <errno.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -43,6 +44,36 @@ static inline bool test_make_subdir(const char *parent, const char *leaf, char *
   return CreateDirectoryA(out, NULL) != 0;
 #else
   return mkdir(out, 0700) == 0;
+#endif
+}
+
+// Like test_make_subdir but `relpath` may contain '/' separators, creating each
+// intermediate component -- for building a realistic nested plugin install layout
+// (e.g. "Contents/MacOS", "bin/64bit"). `parent` must already exist.
+static inline bool test_make_dirs(const char *parent, const char *relpath, char *out, size_t out_size) {
+  if (!test_join(out, out_size, parent, relpath)) {
+    return false;
+  }
+  char buf[PATH_MAX];
+  if ((size_t)snprintf(buf, sizeof(buf), "%s", out) >= sizeof(buf)) {
+    return false;
+  }
+  for (char *p = buf + strlen(parent) + 1; *p; ++p) {
+    if (*p != '/') {
+      continue;
+    }
+    *p = '\0';
+#ifdef _WIN32
+    CreateDirectoryA(buf, NULL);
+#else
+    mkdir(buf, 0700);
+#endif
+    *p = '/';
+  }
+#ifdef _WIN32
+  return CreateDirectoryA(buf, NULL) != 0 || GetLastError() == ERROR_ALREADY_EXISTS;
+#else
+  return mkdir(buf, 0700) == 0 || errno == EEXIST;
 #endif
 }
 
