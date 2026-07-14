@@ -65,7 +65,8 @@ async function execCommand(command: string, env: NodeJS.ProcessEnv) {
   }
 }
 
-const scenarioKey = (screenshot: ScreenshotInfo): string => `${screenshot.tag}/${screenshot.lang}/${screenshot.screen}`;
+const scenarioKey = (screenshot: ScreenshotInfo): string =>
+  `${screenshot.tag}/${screenshot.lang}/${screenshot.screen}`;
 const fileName = (screenshot: ScreenshotInfo): string => path.basename(screenshot.filePath, ".png");
 const overlayScreens = new Set(["abort", "complete", "failed", "kia", "start", "stats"]);
 const preferredWarmScreens = ["start", "stats", "complete", "failed", "abort", "kia"];
@@ -78,7 +79,10 @@ function chooseWarmFrame(target: ScreenshotInfo): ScreenshotInfo | null {
     preferredWarmScreens
       .map((screen) =>
         screenshots.find(
-          (candidate) => candidate.tag === target.tag && candidate.lang === target.lang && candidate.screen === screen,
+          (candidate) =>
+            candidate.tag === target.tag &&
+            candidate.lang === target.lang &&
+            candidate.screen === screen,
         ),
       )
       .find(Boolean) ?? null
@@ -140,9 +144,12 @@ function latencySummary(task: Bench["tasks"][number]) {
   };
 }
 
-function sortBySlowest<T extends { key: string; stats: { mean?: number } | null }>(items: readonly T[]): T[] {
+function sortBySlowest<T extends { key: string; stats: { mean?: number } | null }>(
+  items: readonly T[],
+): T[] {
   return [...items].sort(
-    (a, b) => (b.stats?.mean ?? -Infinity) - (a.stats?.mean ?? -Infinity) || a.key.localeCompare(b.key),
+    (a, b) =>
+      (b.stats?.mean ?? -Infinity) - (a.stats?.mean ?? -Infinity) || a.key.localeCompare(b.key),
   );
 }
 
@@ -202,7 +209,10 @@ async function runMatcherBenchmark(runner: Runner, scenario: Scenario): Promise<
     env.GE_CV_BENCH_WARM = scenario.warm.filePath;
   }
 
-  const { stdout } = await execCommand(runner.command(scenario.target.filePath, scenario.target.lang), env);
+  const { stdout } = await execCommand(
+    runner.command(scenario.target.filePath, scenario.target.lang),
+    env,
+  );
   return JSON.parse(stdout);
 }
 
@@ -212,9 +222,16 @@ printConfigHints(scenarios.length);
 const results: Record<string, { scenarios: any[] }> = {};
 for (const runner of runners) {
   const payloads: BenchmarkPayload[] = [];
-  const bench = new Bench({ iterations: samplesPerScenario, retainSamples: true, time: 0, warmup: false });
+  const bench = new Bench({
+    iterations: samplesPerScenario,
+    retainSamples: true,
+    time: 0,
+    warmup: false,
+  });
   let completedScenarios = 0;
-  const spinner = ora(chalk.blue(progressText(completedScenarios, scenarios.length, runner))).start();
+  const spinner = ora(
+    chalk.blue(progressText(completedScenarios, scenarios.length, runner)),
+  ).start();
 
   try {
     for (const scenario of scenarios) {
@@ -223,7 +240,9 @@ for (const runner of runners) {
       let index = 0;
 
       payloads.push(payload);
-      bench.add(scenario.key, () => ({ overriddenDuration: runtimes[index++ % runtimes.length] }), { async: false });
+      bench.add(scenario.key, () => ({ overriddenDuration: runtimes[index++ % runtimes.length] }), {
+        async: false,
+      });
       completedScenarios += 1;
       spinner.text = chalk.blue(progressText(completedScenarios, scenarios.length, runner));
     }
@@ -234,7 +253,9 @@ for (const runner of runners) {
     );
   } catch (error) {
     spinner.fail(
-      chalk.red(`Failed after ${completedScenarios}/${scenarios.length} benchmark scenarios for ${runner.name}`),
+      chalk.red(
+        `Failed after ${completedScenarios}/${scenarios.length} benchmark scenarios for ${runner.name}`,
+      ),
     );
     throw error;
   }

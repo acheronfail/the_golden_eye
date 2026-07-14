@@ -2,9 +2,23 @@
 
 ## Requirements
 
-It's recommended that you install and use the flatpak version of OBS Studio, as this is the recommended install method from the OBS developers. The flatpak version also includes the embedded browser which this plugin needs for its UI to work inside of OBS.
+It's recommended that you install and use the flatpak version of OBS Studio, this is also the
+recommended install method from the OBS developers. The flatpak version also includes the embedded
+browser which this plugin needs for its UI to work inside of OBS.
 
-If you're using a Wayland window server (if you don't know what this is, you probably are) you also need to make sure that OBS runs in X11 mode. OBS's embedded browser doesn't work in Wayland, so it will disable a bunch of functionality that this plugin also needs.
+### Using without flatpak OBS
+
+You can use this plugin without the flatpak version, but you'll need to have the plugin's UI open in
+a browser rather than inside OBS itself. OBS won't have browser docks and thus the plugin won't be
+visible inside OBS.
+
+The flatpak really is the better option for now (use it!).
+
+### Using with flatpak OBS
+
+If you're using a Wayland window server (if you don't know what this is, you probably are) you also
+need to make sure that OBS runs in X11 mode. OBS's embedded browser doesn't work in Wayland - you
+can't have the plugin UI inside OBS without it.
 
 The easiest way to do this is to install Flatseal and configure OBS like so:
 
@@ -18,17 +32,23 @@ flatpak run --socket=x11 --nosocket=wayland --nosocket=fallback-x11 com.obsproje
 
 ## Installing the plugin
 
-Download the latest release from the [releases page](https://github.com/acheronfail/the_golden_eye/releases) and extract it and copy the `the_golden_eye` folder to your OBS Studio plugins directory.
+Download the latest release from the
+[releases page](https://github.com/acheronfail/the_golden_eye/releases) and extract it and copy the
+`the_golden_eye` folder to your OBS Studio plugins directory.
 
-For the flatpak installation, this is usually: `$HOME/.var/app/com.obsproject.Studio/config/obs-studio/plugins/`
+For the flatpak installation, this is usually:
+`$HOME/.var/app/com.obsproject.Studio/config/obs-studio/plugins/`
 
-Now open OBS Studio or restart it, and the plugin should appear as an integrated window.
-If it doesn't appear, open the `Docks` menu item and make sure that `The Golden Eye` is checked:
+Now open OBS Studio or restart it, and the plugin should appear as an integrated window. If it
+doesn't appear, open the `Docks` menu item and make sure that `The Golden Eye` is checked:
 
 ![Showing the plugin's item in OBS's Docks menu](assets/linux-browser-dock.png)
 
 ## Uninstalling the plugin
 
-To uninstall the plugin, simply delete the `the_golden_eye` folder from your OBS Studio plugins directory. This is usually at `$HOME/.var/app/com.obsproject.Studio/config/obs-studio/plugins/`, and then restart OBS Studio.
+To uninstall the plugin, simply delete the `the_golden_eye` folder from your OBS Studio plugins
+directory. This is usually at `$HOME/.var/app/com.obsproject.Studio/config/obs-studio/plugins/`, and
+then restart OBS Studio.
 
-Open `Docks` -> `Custom Browser Docks` and remove the entry for `The Golden Eye` if it is still present.
+Open `Docks` -> `Custom Browser Docks` and remove the entry for `The Golden Eye` if it is still
+present.

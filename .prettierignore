@@ -12,3 +12,4 @@ obs2/rust/target/
 esp32-input-monitor/.pio/
 models/
 llama/
+AGENTS.md
