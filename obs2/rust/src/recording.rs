@@ -32,7 +32,8 @@ pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level}\\{difficulty}\\{time} 
 pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level}/{difficulty}/{time} - {timestamp_local}";
 pub const DEFAULT_PRE_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
-pub const DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS: f64 = 10.0;
+pub const DEFAULT_FAILED_RUN_LIMIT: usize = 10;
+pub const DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS: f64 = 20.0;
 /// Internal safety margin added to both the pre- and post-run padding, on top of
 /// the user's configured values and hidden from them, so a single-frame timing
 /// window can't drop the level-start briefing or stats overlay (e.g. padding 0).
@@ -83,7 +84,7 @@ impl Default for RecordingOptions {
             completed_output_path: String::new(),
             save_failed_runs: true,
             failed_output_path: String::new(),
-            failed_run_limit: 0,
+            failed_run_limit: DEFAULT_FAILED_RUN_LIMIT,
             minimum_failed_run_length_secs: DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
             pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
@@ -1599,6 +1600,7 @@ mod tests {
         let default = RecordingOptions::default();
         assert_eq!(default.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
         assert_eq!(default.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS);
+        assert_eq!(default.failed_run_limit, DEFAULT_FAILED_RUN_LIMIT);
         assert_eq!(default.minimum_failed_run_length_secs, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS);
         assert_eq!(default.pre_run_padding_secs(), DEFAULT_PRE_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
         assert_eq!(default.post_run_padding_secs(), DEFAULT_POST_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);

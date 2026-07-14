@@ -11,7 +11,8 @@ import {
 export const DEFAULT_CLIP_FILENAME_TEMPLATE = '{level}/{difficulty}/{time} - {timestamp_local}';
 export const DEFAULT_PRE_RUN_PADDING_SECS = 5;
 export const DEFAULT_POST_RUN_PADDING_SECS = 5;
-export const DEFAULT_MIN_FAILED_RUN_LEN_SECS = 10;
+export const DEFAULT_FAILED_RUN_LIMIT = 10;
+export const DEFAULT_MIN_FAILED_RUN_LEN_SECS = 20;
 export const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE = '\u{1f7e2} Bond is now streaming at: {broadcast_url}';
 export const DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE =
 	'\u{1f534} Bond stopped streaming at <t:{unix_seconds}:F>: {broadcast_url}';
@@ -27,7 +28,7 @@ const SettingsSchema = z.object({
 	completedOutputPath: z.string().catch(''),
 	saveFailedRuns: z.boolean().catch(true),
 	failedOutputPath: z.string().catch(''),
-	failedRunLimit: z.coerce.number().int().min(0).catch(0),
+	failedRunLimit: z.coerce.number().int().min(0).catch(DEFAULT_FAILED_RUN_LIMIT),
 	minimumFailedRunLengthSecs: z.coerce.number().min(0).catch(DEFAULT_MIN_FAILED_RUN_LEN_SECS),
 	clipFilenameTemplate: z.string().catch(DEFAULT_CLIP_FILENAME_TEMPLATE),
 	preRunPaddingSecs: z.coerce.number().min(0).catch(DEFAULT_PRE_RUN_PADDING_SECS),
@@ -54,9 +55,9 @@ export interface RecordingOptions {
 	postRunPaddingSecs: number;
 }
 
-const nonNegativeInt = (value: unknown): number => {
+const nonNegativeInt = (value: unknown, fallback = 0): number => {
 	const n = Number(value);
-	return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+	return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : fallback;
 };
 
 const nonNegativeNumber = (value: unknown, fallback = 0): number => {
@@ -78,7 +79,7 @@ const parseSettings = (value: unknown): Settings => {
 	const parsed = SettingsSchema.parse(value);
 	return {
 		...parsed,
-		failedRunLimit: nonNegativeInt(parsed.failedRunLimit),
+		failedRunLimit: nonNegativeInt(parsed.failedRunLimit, DEFAULT_FAILED_RUN_LIMIT),
 		minimumFailedRunLengthSecs: nonNegativeNumber(parsed.minimumFailedRunLengthSecs, DEFAULT_MIN_FAILED_RUN_LEN_SECS),
 		clipFilenameTemplate: normalizeClipFilenameTemplate(parsed.clipFilenameTemplate),
 		preRunPaddingSecs: nonNegativeNumber(parsed.preRunPaddingSecs, DEFAULT_PRE_RUN_PADDING_SECS),
