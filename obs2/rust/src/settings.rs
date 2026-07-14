@@ -237,6 +237,7 @@ struct SettingsState {
 #[serde(rename_all = "camelCase")]
 pub struct SettingsStatus {
     pub settings: AppSettings,
+    pub defaults: AppSettings,
     pub config_path: String,
     pub file_error: Option<String>,
 }
@@ -280,6 +281,7 @@ impl SettingsStore {
         let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         SettingsStatus {
             settings: apply_runtime_output_path_defaults(state.settings.clone()),
+            defaults: apply_runtime_output_path_defaults(AppSettings::default()),
             config_path: self.path.to_string_lossy().into_owned(),
             file_error: state.file_error.clone(),
         }
@@ -700,6 +702,16 @@ mod tests {
             AppSettings::from_json_value(json!({ "completedOutputPath": "/runs" })).with_default_output_paths(None);
         assert_eq!(custom_completed.completed_output_path, "/runs");
         assert_eq!(custom_completed.failed_output_path, Path::new("/runs").join("failed").to_string_lossy());
+    }
+
+    #[test]
+    fn status_includes_backend_defaults() {
+        let dir = TestDir::new("status-defaults");
+        let store = SettingsStore::load_from_path(dir.join("settings.json"));
+        let status = store.status();
+
+        assert_eq!(status.defaults.failed_run_limit, DEFAULT_FAILED_RUN_LIMIT);
+        assert_eq!(status.defaults.minimum_failed_run_length_secs, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS);
     }
 
     #[test]

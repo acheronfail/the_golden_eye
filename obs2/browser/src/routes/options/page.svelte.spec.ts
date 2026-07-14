@@ -109,12 +109,13 @@ beforeEach(() => {
 	monitor.loaded = true;
 	monitor.match = null;
 	monitor.recordingState = null;
-	settings.applyReloaded(defaultSettings, '/tmp/the-golden-eye/settings.json');
+	settings.applyReloaded(defaultSettings, '/tmp/the-golden-eye/settings.json', defaultSettings);
 	settings.loaded = true;
 	mocks.api.getMonitorStatus.mockResolvedValue({ enabled: false, recordingState: null });
 	mocks.api.getReplayBufferStatus.mockResolvedValue(availableReplayBuffer);
 	mocks.api.getSettingsStatus.mockResolvedValue({
 		settings: defaultSettings,
+		defaults: defaultSettings,
 		configPath: '/tmp/the-golden-eye/settings.json',
 		fileError: null
 	});
@@ -218,6 +219,7 @@ describe('/options', () => {
 		const user = userEvent.setup();
 		mocks.api.getSettingsStatus.mockResolvedValue({
 			settings: { ...defaultSettings, welcomeModalShown: false },
+			defaults: defaultSettings,
 			configPath: '/tmp/the-golden-eye/settings.json',
 			fileError: null
 		});
