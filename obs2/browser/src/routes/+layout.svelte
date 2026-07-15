@@ -1,7 +1,7 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
-	import { settings, VERSION } from '$lib';
+	import { settings } from '$lib';
 	import { monitor, monitorHref, monitorPhaseStyle } from '$lib/monitor.svelte';
 	import { startAppSocket, stopAppSocket } from '$lib/appSocket.svelte';
 	import KiaDeathOverlay from '$lib/KiaDeathOverlay.svelte';
@@ -169,7 +169,7 @@
 		...(settings.showDeveloperSettings ? [{ href: '/developer', label: 'Developer' }] : [])
 	]);
 
-	const pluginVersion = VERSION;
+	const pluginVersion = $derived(settings.pluginVersion);
 	const activeMonitorHref = $derived(monitorHref(monitor.status));
 	const activeMonitorStyle = $derived(monitorPhaseStyle(monitor.recordingState));
 	const showWelcomeModal = $derived(settings.loaded && settings.fileError === null && !settings.welcomeModalShown);

@@ -150,6 +150,7 @@ export const settings = new (class {
 	saveError = $state<string | null>(null);
 	configPath = $state('');
 	fileError = $state<string | null>(null);
+	pluginVersion = $state('0.0.0-unknown');
 	lastSavedState = $state(initialSavedState);
 	defaults = $state(initialSettings);
 
@@ -332,6 +333,7 @@ export const settings = new (class {
 	applyStatus(status: SettingsStatus): void {
 		this.configPath = status.configPath;
 		this.fileError = status.fileError ?? null;
+		this.pluginVersion = status.pluginVersion;
 		this.defaults = parseSettings(status.defaults);
 		this.apply(parseSettings(status.settings, this.defaults));
 		this.lastSavedState = this.savedState;
@@ -370,6 +372,7 @@ export const settings = new (class {
 		this.defaults = parseSettings(status.defaults);
 		this.configPath = status.configPath;
 		this.fileError = status.fileError ?? null;
+		this.pluginVersion = status.pluginVersion;
 	}
 
 	private snapshot(): Settings {

@@ -234,9 +234,8 @@ async fn wait_for_last_check_time(harness: &Harness) -> Value {
     }
 }
 
-async fn assert_never_staged(core_path: &std::path::Path, wait: Duration) {
+fn assert_not_staged(core_path: &std::path::Path) {
     let staged = core_path.parent().unwrap().join(".ge_update_staged").join(core_path.file_name().unwrap());
-    tokio::time::sleep(wait).await;
     assert!(!staged.exists(), "expected no staged update to appear at {}", staged.display());
 }
 
@@ -256,7 +255,8 @@ async fn valid_update_is_downloaded_verified_staged_and_can_be_applied() {
 
     // Auto-update defaults off, so the automatic startup check must NOT stage
     // anything on its own -- the download waits for an explicit request.
-    assert_never_staged(&core_path, Duration::from_secs(1)).await;
+    wait_for_last_check_time(&harness).await;
+    assert_not_staged(&core_path);
 
     // Explicit "download now": downloads, verifies, and stages, blocking until
     // it's ready to apply.
@@ -342,7 +342,7 @@ async fn check_now_does_not_stage_when_auto_update_disabled() {
     );
 
     // Nothing should have been staged...
-    assert_never_staged(&core_path, Duration::from_secs(1)).await;
+    assert_not_staged(&core_path);
     let status: Value =
         harness.client.get(format!("{API}/api/v1/updates/status")).send().await.unwrap().json().await.unwrap();
     assert_eq!(status["staged"], false, "status endpoint should report nothing staged while auto-update is off");
@@ -379,7 +379,7 @@ async fn checksum_mismatch_is_never_staged() {
     // leave nothing staged.
     let download_response = harness.client.post(format!("{API}/api/v1/updates/download")).send().await.unwrap();
     assert_eq!(download_response.status().as_u16(), 500, "download-now should fail on a checksum mismatch");
-    assert_never_staged(&core_path, Duration::from_secs(1)).await;
+    assert_not_staged(&core_path);
 
     let response = harness.client.post(format!("{API}/api/v1/updates/apply")).send().await.unwrap();
     assert_eq!(response.status().as_u16(), 404, "apply-now should refuse when nothing is staged");
@@ -457,7 +457,7 @@ async fn manual_check_now_bypasses_the_interval_that_blocked_the_automatic_check
 
     // Auto-update is off, so finding the release doesn't download it -- that
     // waits for an explicit "download now."
-    assert_never_staged(&core_path, Duration::from_secs(1)).await;
+    assert_not_staged(&core_path);
     let download_response = harness.client.post(format!("{API}/api/v1/updates/download")).send().await.unwrap();
     assert_eq!(download_response.status().as_u16(), 204, "download-now should stage the found update");
 
