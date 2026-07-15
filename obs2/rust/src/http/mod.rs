@@ -170,8 +170,8 @@ pub struct StreamMessage {
 }
 
 /// Messages pushed to app WebSocket clients, internally tagged by `type` for
-/// the SPA. Some variants ride watch channels (latest-wins, replayed on
-/// connect); others ride `event_tx` (one-off, only to connected clients).
+/// the SPA. Retained state is carried by `Snapshot`; the other variants are
+/// one-off events sent only to connected clients.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum MonitorEvent {
@@ -184,7 +184,7 @@ pub enum MonitorEvent {
     },
     /// The complete retained app/session state. Sent on connect and after every
     /// retained-state change so new tabs sync to the backend source of truth.
-    Snapshot { state: AppSnapshot },
+    Snapshot { state: Box<AppSnapshot> },
     /// The source showed a ROM language-specific marker. The monitor uses this
     /// to keep its active matcher and recording metadata aligned automatically.
     LanguageDetected { lang: String },
@@ -272,9 +272,9 @@ pub struct MonitorFps {
     pub source_fps: f64,
 }
 
-/// A transition in the recorder's per-run state, broadcast so the SPA can
-/// reflect where a run is in its lifecycle. Serialized as a plain string (e.g.
-/// `"started"`) inside the enclosing [`MonitorEvent::RecordingState`].
+/// A transition in the recorder's per-run state, retained in [`AppSnapshot`] so
+/// the SPA can reflect where a run is in its lifecycle. Serialized as a plain
+/// string, e.g. `"started"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RecordingStatus {
@@ -308,9 +308,9 @@ pub enum RecordingStatus {
     SavePending,
 }
 
-/// Retained recorder phase shared by the monitor worker, status endpoint, and
-/// WebSocket clients. Transient phases are cleared here so the backend owns the
-/// same lifecycle the UI displays.
+/// Retained recorder phase shared by the monitor worker and app snapshot.
+/// Transient phases are cleared here so the backend owns the same lifecycle the
+/// UI displays.
 #[derive(Clone)]
 pub struct RecordingStateStore {
     snapshot: SharedStateStore,
@@ -636,7 +636,7 @@ mod tests {
 
     #[test]
     fn snapshot_event_contains_retained_app_state() {
-        let event = MonitorEvent::Snapshot { state: test_snapshot() };
+        let event = MonitorEvent::Snapshot { state: Box::new(test_snapshot()) };
         let json = serde_json::to_value(event).unwrap();
 
         assert_eq!(json["type"], "snapshot");

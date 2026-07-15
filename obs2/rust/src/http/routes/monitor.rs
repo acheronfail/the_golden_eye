@@ -696,8 +696,8 @@ fn log_level_match(info: &LevelMatch) {
 
 #[axum::debug_handler]
 pub async fn handle_start(State(state): State<AppState>, Json(params): Json<StartParams>) -> Result<impl IntoResponse> {
-    // Keep the original strings for the status endpoint; `source_name` is also
-    // converted to a CString below for the C capture bridge.
+    // Keep the original source name for the app snapshot; it is also converted
+    // to a CString below for the C capture bridge.
     let status_source_name = params.source_name.clone();
     let recording_options = state.settings.get_recording_options();
     let source_name =
@@ -1187,7 +1187,7 @@ async fn send_current_snapshot(
     socket: &mut WebSocket,
     rx: &mut watch::Receiver<crate::http::AppSnapshot>,
 ) -> Result<(), axum::Error> {
-    let state = rx.borrow_and_update().clone();
+    let state = Box::new(rx.borrow_and_update().clone());
     send_event(socket, &MonitorEvent::Snapshot { state }).await?;
     Ok(())
 }

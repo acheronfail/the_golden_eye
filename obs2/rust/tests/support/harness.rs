@@ -9,9 +9,12 @@ use ffmpeg_next::frame::Video;
 use ffmpeg_next::software::scaling::context::Context as ScalingContext;
 use ffmpeg_next::software::scaling::flag::Flags as ScalingFlags;
 use ffmpeg_next::{codec, format, media};
+use futures_util::StreamExt;
 use opencv::prelude::*;
 use opencv::{imgcodecs, imgproc};
 use serde_json::{Value, json};
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::Message;
 
 use super::test_obs::{Config, Frame, TestObs};
 
@@ -129,20 +132,34 @@ impl Harness {
     }
 
     pub async fn wait_for_status(&self, predicate: impl Fn(&Value) -> bool) -> Value {
-        wait_for_json(&self.client, "/api/v1/monitor/status", predicate).await
+        wait_for_monitor_snapshot(predicate).await
     }
 
     pub async fn render_until_state(&self, frame: &Frame, expected: &str) {
+        let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap();
         let deadline = Instant::now() + Duration::from_secs(10);
+        let mut last_status = Value::Null;
         loop {
             self.obs.render(frame.clone());
-            tokio::time::sleep(Duration::from_millis(120)).await;
-            let status: Value =
-                self.client.get(format!("{API}/api/v1/monitor/status")).send().await.unwrap().json().await.unwrap();
-            if status["recordingState"] == expected {
-                return;
+            match tokio::time::timeout(Duration::from_millis(120), ws.next()).await {
+                Ok(Some(Ok(message))) => {
+                    if let Some(snapshot) = snapshot_from_message(message) {
+                        last_status = snapshot["state"]["monitor"].clone();
+                        if snapshot["state"]["recordingState"] == expected {
+                            return;
+                        }
+                    }
+                }
+                Ok(Some(Err(err))) => {
+                    panic!("monitor websocket failed while waiting for recording state {expected}: {err}")
+                }
+                Ok(None) => panic!("monitor websocket ended while waiting for recording state {expected}"),
+                Err(_) => {}
             }
-            assert!(Instant::now() < deadline, "timed out waiting for recording state {expected}; last: {status}");
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for recording state {expected}; last monitor: {last_status}"
+            );
         }
     }
 
@@ -404,7 +421,7 @@ async fn no_update_available() -> axum::Json<Value> {
 async fn wait_for_server(client: &reqwest::Client) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
-        if client.get(format!("{API}/api/v1/monitor/status")).send().await.is_ok() {
+        if client.get(format!("{API}/api/v1/settings/status")).send().await.is_ok() {
             return;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -412,14 +429,35 @@ async fn wait_for_server(client: &reqwest::Client) {
     panic!("test plugin HTTP server did not start");
 }
 
-async fn wait_for_json(client: &reqwest::Client, path: &str, predicate: impl Fn(&Value) -> bool) -> Value {
+async fn wait_for_monitor_snapshot(predicate: impl Fn(&Value) -> bool) -> Value {
+    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(15);
+    let mut last_status = Value::Null;
     loop {
-        let value: Value = client.get(format!("{API}{path}")).send().await.unwrap().json().await.unwrap();
-        if predicate(&value) {
-            return value;
+        match tokio::time::timeout(Duration::from_millis(200), ws.next()).await {
+            Ok(Some(Ok(message))) => {
+                if let Some(snapshot) = snapshot_from_message(message) {
+                    let status = snapshot["state"]["monitor"].clone();
+                    last_status = status.clone();
+                    if predicate(&status) {
+                        return status;
+                    }
+                }
+            }
+            Ok(Some(Err(err))) => panic!("monitor websocket failed while waiting for status: {err}"),
+            Ok(None) => panic!("monitor websocket ended while waiting for status"),
+            Err(_) => {}
         }
-        assert!(Instant::now() < deadline, "timed out waiting for {path}; last response: {value}");
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(Instant::now() < deadline, "timed out waiting for monitor status; last: {last_status}");
     }
+}
+
+fn snapshot_from_message(message: Message) -> Option<Value> {
+    let value: Value = match message {
+        Message::Text(text) => serde_json::from_str(&text).unwrap(),
+        Message::Binary(bytes) => serde_json::from_slice(&bytes).unwrap(),
+        Message::Close(frame) => panic!("monitor websocket closed while waiting for snapshot: {frame:?}"),
+        _ => return None,
+    };
+    (value["type"] == "snapshot").then_some(value)
 }

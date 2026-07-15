@@ -20,11 +20,8 @@ async fn monitor_detects_rom_language_and_switches_matchers_back_and_forth() {
     let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap();
 
     let en_start = harness.frame("test/screenshots-emu/en - start - 01 - Agent.png");
-    let en_match = render_until_match(&harness, &mut ws, &en_start, "initial en start", |m| {
-        is_match(m, "Start", 1, 1, 0, Some("en"))
-    })
-    .await;
-    assert_eq!(en_match["type"], "match");
+    render_until_match(&harness, &mut ws, &en_start, "initial en start", |m| is_match(m, "Start", 1, 1, 0, Some("en")))
+        .await;
 
     let jp_start = harness.frame("test/screenshots-emu/jp - start - 01 - Agent.png");
     let jp_switch = render_until_match(&harness, &mut ws, &jp_start, "jp language switch", |m| {
@@ -71,19 +68,21 @@ async fn render_until_match(
         match tokio::time::timeout(Duration::from_millis(120), ws.next()).await {
             Ok(Some(Ok(Message::Text(text)))) => {
                 let value: Value = serde_json::from_str(&text).unwrap();
-                if value["type"] == "match" {
-                    last_match = Some(value.clone());
-                    if predicate(&value) {
-                        return value;
+                if value["type"] == "snapshot" && !value["state"]["match"].is_null() {
+                    let matched = value["state"]["match"].clone();
+                    last_match = Some(matched.clone());
+                    if predicate(&matched) {
+                        return matched;
                     }
                 }
             }
             Ok(Some(Ok(Message::Binary(bytes)))) => {
                 let value: Value = serde_json::from_slice(&bytes).unwrap();
-                if value["type"] == "match" {
-                    last_match = Some(value.clone());
-                    if predicate(&value) {
-                        return value;
+                if value["type"] == "snapshot" && !value["state"]["match"].is_null() {
+                    let matched = value["state"]["match"].clone();
+                    last_match = Some(matched.clone());
+                    if predicate(&matched) {
+                        return matched;
                     }
                 }
             }
@@ -111,8 +110,7 @@ fn is_match(
     difficulty: i64,
     detected_lang: Option<&str>,
 ) -> bool {
-    value["type"] == "match"
-        && value["screen"] == screen
+    value["screen"] == screen
         && value["mission"] == mission
         && value["part"] == part
         && value["difficulty"] == difficulty
