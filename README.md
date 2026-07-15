@@ -2,7 +2,7 @@
 
 This is a plugin for OBS Studio that assists with GoldenEye N64 speed-running.
 
-<video src="https://github.com/user-attachments/assets/6c1780fe-547a-41b1-81b1-653454c6e774" controls></video>
+<video src="https://github.com/user-attachments/assets/7721bc3c-38cb-4363-b76b-4148b23c33c4" controls></video>
 
 ## OBS compatibility
 
