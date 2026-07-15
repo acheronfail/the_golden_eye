@@ -181,3 +181,88 @@ function compareRunClips(a: RunClip, b: RunClip): number {
 		b.path.localeCompare(a.path)
 	);
 }
+export function runDetail(clip: RunClip): string {
+	const parts = [
+		levelLabel(clip),
+		romLanguageLabel(clip.metadata.romLanguage),
+		clip.metadata.time,
+		clip.metadata.difficulty,
+		statusLabel(clip.metadata.status),
+		formatDate(clip.metadata.timestamp)
+	];
+	return parts.filter(Boolean).join(' | ');
+}
+
+export function statusTone(status: string): string {
+	switch (status === 'completed' ? 'complete' : status) {
+		case 'complete':
+			return 'border-[color-mix(in_srgb,var(--obs-success),var(--obs-border)_35%)] bg-[var(--obs-success-surface)] text-[var(--obs-success)]';
+		case 'failed':
+		case 'abort':
+		case 'kia':
+			return 'border-[color-mix(in_srgb,var(--obs-danger),var(--obs-border)_35%)] bg-[var(--obs-danger-surface)] text-[var(--obs-danger)]';
+		default:
+			return 'obs-token';
+	}
+}
+
+export function runMetaChips(clip: RunClip): { label: string; class: string }[] {
+	const status = statusLabel(clip.metadata.status);
+	return [
+		{ label: levelLabel(clip), class: 'obs-token' },
+		{ label: clip.metadata.time ?? '', class: 'obs-token' },
+		{ label: clip.metadata.difficulty ?? '', class: 'obs-token' },
+		{ label: romLanguageLabel(clip.metadata.romLanguage) ?? '', class: 'obs-token' },
+		{ label: status, class: statusTone(clip.metadata.status) }
+	].filter((chip) => chip.label);
+}
+
+export function activeRunFilterLabels(filters: RunFilters): string[] {
+	return [
+		filters.search.trim() ? `search: ${filters.search.trim()}` : '',
+		filters.level ? `level: ${filters.level}` : '',
+		filters.difficulty ? `difficulty: ${filters.difficulty}` : '',
+		filters.status ? `status: ${statusLabel(filters.status)}` : '',
+		filters.language ? `language: ${romLanguageLabel(filters.language) ?? filters.language}` : '',
+		filters.minTime ? `min: ${filters.minTime}` : '',
+		filters.maxTime ? `max: ${filters.maxTime}` : ''
+	].filter((label) => label);
+}
+
+export function formatDate(value: string): string {
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+export function formatDuration(seconds?: number | null): string | null {
+	if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return null;
+	const rounded = Math.max(0, Math.round(seconds));
+	const minutes = Math.floor(rounded / 60);
+	const secs = rounded % 60;
+	return `${minutes}:${secs.toString().padStart(2, '0')}`;
+}
+
+export function formatBytes(bytes: number): string {
+	if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+	const units = ['B', 'KB', 'MB', 'GB'];
+	let value = bytes;
+	let unit = 0;
+	while (value >= 1024 && unit < units.length - 1) {
+		value /= 1024;
+		unit++;
+	}
+	return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+export function fileRows(clip: RunClip): { label: string; value: string | null | undefined }[] {
+	return [
+		{ label: 'Run timestamp', value: formatDate(clip.metadata.timestamp) },
+		{ label: 'Duration', value: formatDuration(clip.durationSecs) },
+		{ label: 'Size', value: formatBytes(clip.sizeBytes) },
+		{ label: 'Created by', value: clip.metadata.comment }
+	];
+}
+
+export function directoryPath(directory: { path: string } | undefined): string {
+	return directory?.path ?? 'Not configured';
+}
