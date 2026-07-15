@@ -1034,17 +1034,33 @@ fn find_times_band(frame: &Mat, glyphs: &ScaledGlyphs) -> Result<Vec<FoundTime>>
             continue;
         }
 
-        // Re-read each located digit with the variance-weighted discriminator so a
-        // near-tie between look-alike glyphs (e.g. 8 vs 0/6/9) is settled on the
-        // pixels that distinguish them rather than the noisy whole-glyph score.
-        let read = |d: &Detection| -> Result<i32> {
-            match &glyphs.discriminator {
-                Some(disc) => Ok(disc.classify(frame, Rect::new(d.x, d.y, d.w, d.h))?.unwrap_or(d.value)),
-                None => Ok(d.value),
+        // Per-frame detection positions are accurate, so read each digit there.
+        // But the two OUTER digits (tens-min `l1`, units-sec `r1`) are the ones a
+        // between-digit phantom peak shadows -- so for them also read the colon-
+        // anchored fixed slot and keep whichever the discriminator is surer of. The
+        // detection wins when it is well-aligned (per-frame accurate); the anchor
+        // only wins when detection landed on a low-confidence phantom.
+        let colon_cx = colon.x as f64 + colon_w as f64 / 2.0;
+        let digit_y = colon.y + (colon_h - digit_h) / 2;
+        let read_at = |rect: Rect, fallback: i32| -> Result<(i32, f64)> {
+            match glyphs.discriminator.as_ref() {
+                Some(disc) => {
+                    let (v, c) = disc.classify(frame, rect)?;
+                    Ok(if v >= 0 { (v, c) } else { (fallback, -1.0) })
+                }
+                None => Ok((fallback, 1.0)),
             }
         };
-        let minutes = read(&l1)? * 10 + read(&l0)?;
-        let seconds = read(&r0)? * 10 + read(&r1)?;
+        // Read a digit at its own detection.
+        let read_det = |d: &Detection| -> Result<i32> { Ok(read_at(Rect::new(d.x, d.y, d.w, d.h), d.value)?.0) };
+        let read_outer = |d: &Detection, offset: f64| -> Result<i32> {
+            let (det_v, det_c) = read_at(Rect::new(d.x, d.y, d.w, d.h), d.value)?;
+            let anchor_x = (colon_cx + offset * digit_w as f64 - digit_w as f64 / 2.0).round() as i32;
+            let (anc_v, anc_c) = read_at(Rect::new(anchor_x, digit_y, digit_w, digit_h), det_v)?;
+            Ok(if anc_c >= ANCHOR_ACCEPT && anc_c > det_c { anc_v } else { det_v })
+        };
+        let minutes = read_outer(&l1, SLOT_OFFSETS[0])? * 10 + read_det(&l0)?;
+        let seconds = read_det(&r0)? * 10 + read_outer(&r1, SLOT_OFFSETS[3])?;
         // A time is "mm:ss" capped at 0x3ff (1023) s, so seconds are 0-59 and
         // minutes <= 17. A phantom colon reads glyphs out of order into an
         // impossible field; rejecting out-of-range values drops the bogus reading.
@@ -1169,9 +1185,12 @@ impl DigitDiscriminator {
         Ok(Some(Self { box_w, box_h, templates, weights, weight_sum }))
     }
 
-    // Returns the best-scoring digit value for the patch at `rect` in `frame`.
-    fn classify(&self, frame: &Mat, rect: Rect) -> Result<Option<i32>> {
-        let Some(rect) = clamp_rect(rect, frame.cols(), frame.rows()) else { return Ok(None) };
+    // Scores the patch at `rect` against every glyph, returning the best (value,
+    // score). The score doubles as a confidence: a well-aligned real digit scores
+    // ~0.9, while a patch straddling two glyphs (a phantom between-digit peak)
+    // scores far lower, which lets callers reject phantoms.
+    fn classify(&self, frame: &Mat, rect: Rect) -> Result<(i32, f64)> {
+        let Some(rect) = clamp_rect(rect, frame.cols(), frame.rows()) else { return Ok((-1, -1.0)) };
         let mut patch = resize_to_box(&frame.roi(rect)?, self.box_w, self.box_h)?;
         mean_center(&mut patch);
         let mut best = (-2.0f64, -1i32);
@@ -1181,9 +1200,21 @@ impl DigitDiscriminator {
                 best = (score, v as i32);
             }
         }
-        Ok(if best.1 >= 0 { Some(best.1) } else { None })
+        Ok((best.1, best.0))
     }
 }
+
+// Digit-slot centres relative to the colon centre, in digit-widths, for the fixed
+// "mm:ss" stats layout: [tens-min, units-min, tens-sec, units-sec]. Measured to be
+// consistent across capture sources and scales, so the colon (a stable, distinctive
+// anchor) positions the digits far more reliably than per-digit detection.
+const SLOT_OFFSETS: [f64; 4] = [-2.0, -0.85, 0.80, 2.0];
+
+// Confidence the colon-anchored slot read must clear to override an outer digit's
+// own detection: high enough that only a well-aligned real glyph wins (a phantom
+// or a blurry off-slot read stays below it), so it corrects a shadowed digit
+// without overriding an accurate per-frame detection.
+const ANCHOR_ACCEPT: f64 = 0.90;
 
 // Resizes a single-channel glyph to `box_w x box_h` and returns its pixels as f32.
 fn resize_to_box(src: &(impl MatTraitConst + ToInputArray), box_w: i32, box_h: i32) -> Result<Vec<f32>> {
