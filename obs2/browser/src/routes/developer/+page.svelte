@@ -31,8 +31,8 @@
 	let matchResult = $state<LevelMatch | null>(null);
 	let annotationMode = $state(false);
 	let annotationsEnabled = $state(false);
-	// Transient (not persisted), like annotation mode: dumps live monitor frames
-	// to disk while enabled so a live feed can be compared against a recorded file.
+	// Transient (not persisted), like annotation mode: dumps the selected source's
+	// frames to disk (independent of the monitor) to compare live vs recorded input.
 	let frameDumpMode = $state(false);
 	let selectedAnnotationSetId = $state<string | null>(null);
 	let hiddenAnnotationIds = $state<string[]>([]);
@@ -126,6 +126,8 @@
 	const closeSource = () => {
 		stopScreenshotting();
 		selectedSource = null;
+		// Turn the dump off explicitly so it doesn't silently resume on a new source.
+		frameDumpMode = false;
 		clearImageData();
 		clearMatchResult();
 	};
@@ -193,17 +195,21 @@
 		updateMonitorAnnotations(annotationMode);
 	});
 
-	const updateFrameDump = (enabled: boolean) => {
+	const updateFrameDump = (enabled: boolean, source: string | null) => {
 		frameDumpUpdateAbort?.abort();
 		frameDumpUpdateAbort = new AbortController();
-		void setMonitorFrameDump(enabled, { signal: frameDumpUpdateAbort.signal }).catch((err) => {
+		void setMonitorFrameDump(enabled, source, { signal: frameDumpUpdateAbort.signal }).catch((err) => {
 			if (err instanceof DOMException && err.name === 'AbortError') return;
 			console.warn('Failed to update monitor frame dump', err);
 		});
 	};
 
+	// The dump needs a source; enabling without one is disabled in the UI, and
+	// clearing the source (or closing it) turns the dump off. Re-runs on either
+	// change, restarting the dump against the new source.
 	$effect(() => {
-		updateFrameDump(frameDumpMode);
+		const source = selectedSource?.name ?? null;
+		updateFrameDump(frameDumpMode && source !== null, source);
 	});
 
 	const addTestNotification = () => {
@@ -503,13 +509,18 @@
 
 	<fieldset class="obs-panel rounded px-4 py-3" aria-labelledby="developer-frame-dump-heading">
 		<h2 id="developer-frame-dump-heading" class="mb-2 font-semibold">Frame Dump</h2>
-		<label class="flex items-center gap-2 pl-4">
-			<input class="obs-checkbox" type="checkbox" bind:checked={frameDumpMode} />
-			<span>Save monitor frames to disk</span>
+		<label class="flex items-center gap-2 pl-4" class:opacity-50={!selectedSource}>
+			<input class="obs-checkbox" type="checkbox" bind:checked={frameDumpMode} disabled={!selectedSource} />
+			<span>Save frames from the selected source to disk</span>
 		</label>
 		<p class="obs-muted mt-2 pl-4 text-sm">
-			Writes each captured frame to a temp folder while monitoring (logged to the OBS log). Not persisted — turns off on
-			reload.
+			{#if selectedSource}
+				Dumps <code>{selectedSource.name}</code>'s frames to a temp folder (path logged to the OBS log), independent of
+				the monitor. Not persisted — turns off on reload or when the source is closed.
+			{:else}
+				Select a source in the Source panel to enable. Captures that source's frames to disk independent of the monitor,
+				for comparing a live feed against a recorded file.
+			{/if}
 		</p>
 	</fieldset>
 

@@ -203,7 +203,7 @@ pub extern "C" fn ge_rust_start() -> bool {
         event_tx,
         recording_state,
         monitor_annotations_enabled: AtomicBool::new(false),
-        monitor_frame_dump_enabled: AtomicBool::new(false),
+        frame_dump: std::sync::Mutex::new(None),
         source_tx,
         update_tx: tokio::sync::watch::channel(None).0,
         settings,

@@ -396,16 +396,19 @@ export const setMonitorMatcherAnnotations = async (
 	return data.annotationsEnabled;
 };
 
-/** Toggles the transient developer switch that dumps live monitor frames to a
- * temp directory on disk (the backend logs the directory when dumping starts). */
+/** Toggles the transient developer frame dump for `source`, which captures that
+ * source's frames to a temp directory on disk independent of the monitor (the
+ * backend logs the directory when dumping starts). `source` may be null when
+ * disabling. */
 export const setMonitorFrameDump = async (
 	enabled: boolean,
+	source: string | null,
 	options: { signal?: AbortSignal; keepalive?: boolean } = {}
 ): Promise<boolean> => {
 	const res = await fetch(apiUrl('/api/v1/monitor/frame-dump'), {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ enabled }),
+		body: JSON.stringify({ enabled, source }),
 		signal: options.signal,
 		keepalive: options.keepalive
 	});

@@ -49,10 +49,10 @@ pub struct AppStateInner {
     /// matcher regions and annotation sets in its debug/info payloads. This is
     /// intentionally not part of persisted settings.
     pub monitor_annotations_enabled: AtomicBool,
-    /// Developer-only, in-memory switch that makes the live monitor dump every
-    /// captured (matcher-input) frame to a temp directory for offline inspection.
-    /// Intentionally transient (not persisted), like `monitor_annotations_enabled`.
-    pub monitor_frame_dump_enabled: AtomicBool,
+    /// Developer-only, transient (not persisted) standalone frame dump: captures a
+    /// chosen source's frames to a temp directory independent of the monitor. See
+    /// `routes::monitor::start_frame_dump`.
+    pub frame_dump: std::sync::Mutex<Option<routes::monitor::FrameDumpHandle>>,
     /// Latest OBS video-source list, broadcast to browser clients whenever OBS
     /// reports source creation/removal/update/rename. Retained so a page load
     /// receives the current source picker state immediately.
@@ -469,7 +469,7 @@ pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state
         .route("/api/v1/screenshot", get(routes::screenshot::handler))
         .route("/api/v1/match", post(routes::matcher::handler))
         .route("/api/v1/match/annotations", post(routes::matcher::handle_annotations))
-        .route("/api/v1/monitor/frame-dump", post(routes::matcher::handle_frame_dump))
+        .route("/api/v1/monitor/frame-dump", post(routes::monitor::handle_frame_dump))
         .route(OAUTH_CALLBACK_PATH, get(routes::oauth::handle_callback))
         .route("/", get(routes::index::handler))
         // fallback for frontend spa

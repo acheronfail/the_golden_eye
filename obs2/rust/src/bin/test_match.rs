@@ -86,7 +86,7 @@ fn result_json(result: &ge_rust::cv::LevelMatch) -> serde_json::Value {
 fn run() -> Result<i32> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        eprintln!("usage: {} <lang> path/to/png [templates_dir]", args[0]);
+        eprintln!("usage: {} <lang> path/to/image.{{png,bmp,...}} [templates_dir]", args[0]);
         return Ok(2);
     }
 
