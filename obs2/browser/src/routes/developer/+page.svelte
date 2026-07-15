@@ -203,8 +203,7 @@
 			matchFrameHeight = result.frameHeight;
 			// Default to the digit-slot diagnostics — the reason to drop a frame here.
 			const sets = result.match.annotation_sets ?? [];
-			selectedAnnotationSetId =
-				sets.find((set) => set.id === 'time_digits')?.id ?? sets[0]?.id ?? null;
+			selectedAnnotationSetId = sets.find((set) => set.id === 'time_digits')?.id ?? sets[0]?.id ?? null;
 			hiddenAnnotationIds = [];
 		} catch (err) {
 			matchError = err instanceof Error ? err.message : 'failed to match uploaded image';
@@ -566,8 +565,7 @@
 		<h2 class="text-xl font-semibold">Match a frame from disk</h2>
 		<p class="obs-muted text-sm">
 			Drop or select a dumped frame (png/bmp) to match it with annotations. The <code>Time digits</code>
-			set shows where each digit was read from — a detection box offset from its colon-anchored slot is a
-			misalignment.
+			set shows where each digit was read from — a detection box offset from its colon-anchored slot is a misalignment.
 		</p>
 		<button
 			type="button"
@@ -638,9 +636,8 @@
 						{/if}
 
 						{#if frameDumpMode}
-							<button
-								class="obs-button obs-button-danger px-2 py-1 text-sm"
-								onclick={() => (frameDumpMode = false)}>stop frame dump</button
+							<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={() => (frameDumpMode = false)}
+								>stop frame dump</button
 							>
 						{:else}
 							<button

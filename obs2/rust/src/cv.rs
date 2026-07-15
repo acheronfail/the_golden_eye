@@ -2022,7 +2022,8 @@ impl CvMatcher {
             if detected_lang != self.lang {
                 dbg_cv!("[language] configured={} detected={detected_lang}; rejecting wrong-language frame", self.lang);
                 result.match_regions = match_regions;
-                result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region, Vec::new());
+                result.annotation_sets =
+                    annotation_sets(&result.match_regions, search_regions, folder_region, Vec::new());
                 result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
                 return Ok(result);
             }
@@ -2277,7 +2278,14 @@ impl CvMatcher {
             .iter()
             .map(|(label, rect)| {
                 let region = mapper.work_to_source(*rect);
-                AnnotationRect { label: label.clone(), x: region.x, y: region.y, w: region.w, h: region.h, score: Some(region.score) }
+                AnnotationRect {
+                    label: label.clone(),
+                    x: region.x,
+                    y: region.y,
+                    w: region.w,
+                    h: region.h,
+                    score: Some(region.score),
+                }
             })
             .collect();
         let times: Vec<i32> = found_times.into_iter().map(|t| t.seconds).collect();

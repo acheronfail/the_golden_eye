@@ -12,9 +12,8 @@ use support::harness::{API, Harness};
 #[ignore = "run explicitly with `just test-integration`"]
 async fn match_upload_reads_a_dropped_frame_with_diagnostics() {
     let harness = Harness::start(Duration::ZERO).await;
-    let fixture = harness
-        .root
-        .join("test/screenshots-rt4kce/en - stats - 3 - Agent - 0028_0500_0028 - flicker-004.png");
+    let fixture =
+        harness.root.join("test/screenshots-rt4kce/en - stats - 3 - Agent - 0028_0500_0028 - flicker-004.png");
     let bytes = std::fs::read(&fixture).expect("read fixture");
 
     let body: Value = harness
@@ -37,10 +36,7 @@ async fn match_upload_reads_a_dropped_frame_with_diagnostics() {
 
     // The digit-slot diagnostics set is present so the dev overlay can show it.
     let sets = body["match"]["annotation_sets"].as_array().expect("annotation sets");
-    assert!(
-        sets.iter().any(|set| set["id"] == "time_digits"),
-        "expected a `time_digits` annotation set, got {sets:?}"
-    );
+    assert!(sets.iter().any(|set| set["id"] == "time_digits"), "expected a `time_digits` annotation set, got {sets:?}");
 }
 
 /// A non-image body is rejected rather than panicking the matcher.

@@ -66,10 +66,7 @@ pub struct UploadParams {
 /// Matches an image uploaded in the request body (PNG/BMP), for the developer
 /// tool's drag-and-drop frame inspector. Coordinates in the result/annotations
 /// are in the uploaded image's pixel space.
-pub async fn handle_upload(
-    Query(params): Query<UploadParams>,
-    body: Bytes,
-) -> Result<Json<MatchResponse>> {
+pub async fn handle_upload(Query(params): Query<UploadParams>, body: Bytes) -> Result<Json<MatchResponse>> {
     if body.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "empty image body").into());
     }
