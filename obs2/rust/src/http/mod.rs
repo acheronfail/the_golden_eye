@@ -468,6 +468,11 @@ pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state
         .route("/api/v1/sources", get(routes::sources::handler))
         .route("/api/v1/screenshot", get(routes::screenshot::handler))
         .route("/api/v1/match", post(routes::matcher::handler))
+        .route(
+            "/api/v1/match/upload",
+            // Raise the body limit above Axum's 2 MB default for full-res frames.
+            post(routes::matcher::handle_upload).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
         .route("/api/v1/match/annotations", post(routes::matcher::handle_annotations))
         .route("/api/v1/monitor/frame-dump", post(routes::monitor::handle_frame_dump))
         .route(OAUTH_CALLBACK_PATH, get(routes::oauth::handle_callback))

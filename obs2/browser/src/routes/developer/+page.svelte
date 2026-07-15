@@ -2,6 +2,7 @@
 	import {
 		apiUrl,
 		matchSource,
+		matchUpload,
 		setMonitorFrameDump,
 		setMonitorMatcherAnnotations,
 		type AnnotationRect,
@@ -11,6 +12,7 @@
 	import { Select } from '$lib';
 	import { triggerKiaDeathOverlay } from '$lib/monitor.svelte';
 	import { addNotificationFlag } from '$lib/notifications.svelte';
+	import { onDestroy } from 'svelte';
 
 	const knownVideoSourceIds = [
 		'screen_capture',
@@ -29,6 +31,8 @@
 	let matchError = $state<string | null>(null);
 	let matchLoading = $state(false);
 	let matchResult = $state<LevelMatch | null>(null);
+	let dragOver = $state(false);
+	let fileInput = $state<HTMLInputElement | null>(null);
 	let annotationMode = $state(false);
 	let annotationsEnabled = $state(false);
 	// Transient (not persisted), like annotation mode: dumps the selected source's
@@ -182,6 +186,48 @@
 		}
 	};
 
+	// Match a frame dropped in / picked from disk (e.g. a dumped bmp), always with
+	// annotations so the digit slot diagnostics render.
+	const matchFile = async (file: File) => {
+		matchLoading = true;
+		matchError = null;
+		try {
+			const result = await matchUpload(file, screenshotLang, { annotations: true });
+			// Show the dropped image itself under the annotation overlay.
+			const old = imageData;
+			imageData = URL.createObjectURL(file);
+			if (old) URL.revokeObjectURL(old);
+			matchResult = result.match;
+			annotationsEnabled = result.annotationsEnabled;
+			matchFrameWidth = result.frameWidth;
+			matchFrameHeight = result.frameHeight;
+			// Default to the digit-slot diagnostics — the reason to drop a frame here.
+			const sets = result.match.annotation_sets ?? [];
+			selectedAnnotationSetId =
+				sets.find((set) => set.id === 'time_digits')?.id ?? sets[0]?.id ?? null;
+			hiddenAnnotationIds = [];
+		} catch (err) {
+			matchError = err instanceof Error ? err.message : 'failed to match uploaded image';
+		} finally {
+			matchLoading = false;
+		}
+	};
+
+	const onDropFiles = (event: DragEvent) => {
+		event.preventDefault();
+		dragOver = false;
+		const file = event.dataTransfer?.files?.[0];
+		if (file) void matchFile(file);
+	};
+
+	const onPickFile = (event: Event) => {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (file) void matchFile(file);
+		// Reset so re-selecting the same file fires change again.
+		input.value = '';
+	};
+
 	const updateMonitorAnnotations = (enabled: boolean) => {
 		annotationUpdateAbort?.abort();
 		annotationUpdateAbort = new AbortController();
@@ -210,6 +256,15 @@
 	$effect(() => {
 		const source = selectedSource?.name ?? null;
 		updateFrameDump(frameDumpMode && source !== null, source);
+	});
+
+	// Stop the transient frame dump when leaving the page. `keepalive` lets the
+	// request outlive the unloading document.
+	onDestroy(() => {
+		if (frameDumpMode) {
+			frameDumpUpdateAbort?.abort();
+			void setMonitorFrameDump(false, null, { keepalive: true }).catch(() => {});
+		}
 	});
 
 	const addTestNotification = () => {
@@ -507,22 +562,38 @@
 		</label>
 	</fieldset>
 
-	<fieldset class="obs-panel rounded px-4 py-3" aria-labelledby="developer-frame-dump-heading">
-		<h2 id="developer-frame-dump-heading" class="mb-2 font-semibold">Frame Dump</h2>
-		<label class="flex items-center gap-2 pl-4" class:opacity-50={!selectedSource}>
-			<input class="obs-checkbox" type="checkbox" bind:checked={frameDumpMode} disabled={!selectedSource} />
-			<span>Save frames from the selected source to disk</span>
-		</label>
-		<p class="obs-muted mt-2 pl-4 text-sm">
-			{#if selectedSource}
-				Dumps <code>{selectedSource.name}</code>'s frames to a temp folder (path logged to the OBS log), independent of
-				the monitor. Not persisted — turns off on reload or when the source is closed.
-			{:else}
-				Select a source in the Source panel to enable. Captures that source's frames to disk independent of the monitor,
-				for comparing a live feed against a recorded file.
-			{/if}
+	<div class="obs-panel flex flex-col gap-2 rounded px-4 py-3">
+		<h2 class="text-xl font-semibold">Match a frame from disk</h2>
+		<p class="obs-muted text-sm">
+			Drop or select a dumped frame (png/bmp) to match it with annotations. The <code>Time digits</code>
+			set shows where each digit was read from — a detection box offset from its colon-anchored slot is a
+			misalignment.
 		</p>
-	</fieldset>
+		<button
+			type="button"
+			class="obs-preview flex min-h-28 w-full flex-col items-center justify-center gap-1 rounded border-2 border-dashed px-4 py-6 text-sm transition-colors {dragOver
+				? 'border-white/70 bg-white/5'
+				: 'border-white/20'}"
+			class:opacity-70={matchLoading}
+			ondragover={(e) => {
+				e.preventDefault();
+				dragOver = true;
+			}}
+			ondragleave={() => (dragOver = false)}
+			ondrop={onDropFiles}
+			onclick={() => fileInput?.click()}
+		>
+			<span class="font-semibold">{matchLoading ? 'matching…' : 'Click to select, or drop an image here'}</span>
+			<span class="obs-dim text-xs">png / bmp — matched with {screenshotLang} templates</span>
+		</button>
+		<input
+			bind:this={fileInput}
+			type="file"
+			accept="image/png,image/bmp,.png,.bmp"
+			class="hidden"
+			onchange={onPickFile}
+		/>
+	</div>
 
 	<div class="obs-panel flex flex-col gap-4 rounded px-4 py-3">
 		<div class="flex flex-row gap-2">
@@ -563,6 +634,19 @@
 								class="obs-button obs-button-gold px-2 py-1 text-sm"
 								disabled={!!screenshottingSource}
 								onclick={startScreenshotting(selectedSource.name)}>start screenshotting</button
+							>
+						{/if}
+
+						{#if frameDumpMode}
+							<button
+								class="obs-button obs-button-danger px-2 py-1 text-sm"
+								onclick={() => (frameDumpMode = false)}>stop frame dump</button
+							>
+						{:else}
+							<button
+								class="obs-button px-2 py-1 text-sm"
+								title="Dump this source's frames to a temp folder (path logged to the OBS log), independent of the monitor. Stops on reload or when the source is closed."
+								onclick={() => (frameDumpMode = true)}>start frame dump</button
 							>
 						{/if}
 					</div>

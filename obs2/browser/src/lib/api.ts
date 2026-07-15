@@ -380,6 +380,25 @@ export const matchSource = async (
 	return res.json();
 };
 
+/** Matches an image file (png/bmp) uploaded in the request body, for the
+ * developer frame inspector. Coordinates are in the uploaded image's pixel space. */
+export const matchUpload = async (
+	file: Blob,
+	lang: 'en' | 'jp',
+	options: { annotations?: boolean } = {}
+): Promise<MatchSourceResponse> => {
+	const params = new URLSearchParams({
+		lang,
+		annotations: options.annotations ? 'true' : 'false'
+	});
+	const res = await fetch(apiUrl(`/api/v1/match/upload?${params.toString()}`), {
+		method: 'POST',
+		body: file
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
 export const setMonitorMatcherAnnotations = async (
 	annotations: boolean,
 	options: { signal?: AbortSignal; keepalive?: boolean } = {}
