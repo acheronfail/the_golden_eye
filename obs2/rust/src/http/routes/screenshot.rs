@@ -42,7 +42,11 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
 /// `frame` must point to at least `width * height * 4` valid bytes.
 fn encode_bmp(frame: *const u8, width: u32, height: u32) -> std::io::Result<Vec<u8>> {
     let pixels = unsafe { std::slice::from_raw_parts(frame, (width * height * 4) as usize) };
+    encode_bmp_bgra(pixels, width, height)
+}
 
+/// Copies a `width * height` BGRA slice into a BMP-encoded byte vector.
+pub(crate) fn encode_bmp_bgra(pixels: &[u8], width: u32, height: u32) -> std::io::Result<Vec<u8>> {
     let mut image = bmp::Image::new(width, height);
     for y in 0..height {
         for x in 0..width {

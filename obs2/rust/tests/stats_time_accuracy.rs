@@ -72,6 +72,69 @@ async fn first_stats_frame_misread_does_not_poison_the_saved_run_time() {
     harness.stop_monitor().await.error_for_status().unwrap();
 }
 
+/// Replaying a real RT4K capture-card clip (`test/clips/rt4kce-completed.mp4`,
+/// a completed Runway run whose stats overlay reads 0:28 / 5:00 / best 0:28)
+/// through the whole native pipeline must record the run as complete with its
+/// real 28s time. Guards the variance-weighted digit reader (which distinguishes
+/// the look-alike stats glyphs) plus the per-field stats vote, end to end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn rt4k_completed_run_records_the_correct_stats_time() {
+    let harness = Harness::start(Duration::ZERO).await;
+    let completed_dir = harness.temp.join("completed");
+    let failed_dir = harness.temp.join("failed");
+
+    harness
+        .put_settings(json!({
+            "completedOutputPath": completed_dir,
+            "failedOutputPath": failed_dir,
+            "saveFailedRuns": true,
+            "minimumFailedRunLengthSecs": 0,
+            "failedRunLimit": 0,
+            "clipFilenameTemplate": "stats-{status}-{time}",
+            "preRunPaddingSecs": 0,
+            "postRunPaddingSecs": 1,
+            "discordNotificationsEnabled": false
+        }))
+        .await;
+    harness.start_monitor().await.error_for_status().unwrap();
+
+    // Real capture-card frames, English overlay. The clip leads with a start
+    // screen so the monitor auto-detects the ROM language, then runs complete ->
+    // stats -> select, scheduling a completed save off the stats screen; pace
+    // renders so the capacity-1 mailbox keeps up.
+    let frames = decode_bgra_frames(&harness.root.join("test/clips/rt4kce-completed.mp4"));
+    assert!(frames.len() > 1, "expected a multi-frame clip");
+    for frame in frames {
+        harness.obs.render(frame);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let saved = wait_for_clip(&completed_dir).await;
+    assert!(saved.starts_with(&completed_dir), "a completed run lands in the completed directory");
+
+    let runs: Value = harness
+        .client
+        .get(format!("{API}/api/v1/runs"))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let clips = runs["clips"].as_array().expect("clips array");
+    assert_eq!(clips.len(), 1, "expected exactly one saved run");
+    assert_eq!(clips[0]["metadata"]["status"], "complete");
+    assert_eq!(
+        clips[0]["metadata"]["timeSeconds"], 28,
+        "saved run time should be the 28s read off the RT4K stats overlay"
+    );
+
+    harness.stop_monitor().await.error_for_status().unwrap();
+}
+
 /// The minimum-failed-run-length gate must use the corrected time too: with a
 /// 100s minimum, the KIA run (real 14s) is discarded despite the 374s first-frame
 /// misread. Guards the deferred gate in `RecordingState::take_pending_job`.

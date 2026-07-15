@@ -396,6 +396,24 @@ export const setMonitorMatcherAnnotations = async (
 	return data.annotationsEnabled;
 };
 
+/** Toggles the transient developer switch that dumps live monitor frames to a
+ * temp directory on disk (the backend logs the directory when dumping starts). */
+export const setMonitorFrameDump = async (
+	enabled: boolean,
+	options: { signal?: AbortSignal; keepalive?: boolean } = {}
+): Promise<boolean> => {
+	const res = await fetch(apiUrl('/api/v1/monitor/frame-dump'), {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ enabled }),
+		signal: options.signal,
+		keepalive: options.keepalive
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	const data = (await res.json()) as { frameDumpEnabled: boolean };
+	return data.frameDumpEnabled;
+};
+
 /** Details of a clip the backend saved out of the replay buffer at the end of a
  * run. Mirrors the Rust `RecordingSaved`. */
 export interface RecordingSaved {

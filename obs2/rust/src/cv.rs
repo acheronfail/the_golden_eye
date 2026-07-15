@@ -919,7 +919,9 @@ fn find_mission_from_colons(
     Ok(best)
 }
 
-fn find_times_band(frame: &Mat, colon_tmpl: &Mat, digit_tmpls: &[Mat]) -> Result<Vec<FoundTime>> {
+fn find_times_band(frame: &Mat, glyphs: &ScaledGlyphs) -> Result<Vec<FoundTime>> {
+    let colon_tmpl = &glyphs.colon;
+    let digit_tmpls = &glyphs.digits;
     if colon_tmpl.empty() || digit_tmpls.len() < 10 {
         return Ok(Vec::new());
     }
@@ -1032,8 +1034,17 @@ fn find_times_band(frame: &Mat, colon_tmpl: &Mat, digit_tmpls: &[Mat]) -> Result
             continue;
         }
 
-        let minutes = l1.value * 10 + l0.value;
-        let seconds = r0.value * 10 + r1.value;
+        // Re-read each located digit with the variance-weighted discriminator so a
+        // near-tie between look-alike glyphs (e.g. 8 vs 0/6/9) is settled on the
+        // pixels that distinguish them rather than the noisy whole-glyph score.
+        let read = |d: &Detection| -> Result<i32> {
+            match &glyphs.discriminator {
+                Some(disc) => Ok(disc.classify(frame, Rect::new(d.x, d.y, d.w, d.h))?.unwrap_or(d.value)),
+                None => Ok(d.value),
+            }
+        };
+        let minutes = read(&l1)? * 10 + read(&l0)?;
+        let seconds = read(&r0)? * 10 + read(&r1)?;
         // A time is "mm:ss" capped at 0x3ff (1023) s, so seconds are 0-59 and
         // minutes <= 17. A phantom colon reads glyphs out of order into an
         // impossible field; rejecting out-of-range values drops the bogus reading.
@@ -1107,6 +1118,115 @@ struct ScaleCache {
 struct ScaledGlyphs {
     colon: Mat,
     digits: Vec<Mat>,
+    // Discriminative digit reader (see `DigitDiscriminator`), built from `digits`.
+    // None when a template is missing so callers fall back to plain matching.
+    discriminator: Option<DigitDiscriminator>,
+}
+
+// Re-classifies an already-located digit by weighting the correlation towards the
+// pixels where the ten glyphs actually differ (an `8`'s middle bar, a `6`/`9`
+// opening). Whole-glyph correlation drowns those few pixels in the shared outer
+// ring, leaving `0/6/8/9` a hair apart; weighting by inter-glyph variance widens
+// that margin ~3x, so per-frame capture noise no longer flips the winner.
+struct DigitDiscriminator {
+    box_w: i32,
+    box_h: i32,
+    // Each glyph resized to the common box, then mean-centred (see `mean_center`).
+    templates: Vec<Vec<f32>>,
+    // Per-pixel variance across the ten glyphs: the discriminating weight.
+    weights: Vec<f32>,
+    weight_sum: f32,
+}
+
+impl DigitDiscriminator {
+    // Builds the common-box templates and variance weights from scaled glyphs.
+    fn build(digits: &[Mat]) -> Result<Option<Self>> {
+        if digits.len() < 10 || digits.iter().take(10).any(|d| d.empty()) {
+            return Ok(None);
+        }
+        let box_w = digits.iter().take(10).map(|d| d.cols()).max().unwrap_or(0);
+        let box_h = digits.iter().take(10).map(|d| d.rows()).max().unwrap_or(0);
+        if box_w < 2 || box_h < 2 {
+            return Ok(None);
+        }
+        let n = (box_w * box_h) as usize;
+        let mut templates = Vec::with_capacity(10);
+        for d in digits.iter().take(10) {
+            templates.push(resize_to_box(d, box_w, box_h)?);
+        }
+        let mut weights = vec![0f32; n];
+        for i in 0..n {
+            let mean = templates.iter().map(|t| t[i]).sum::<f32>() / 10.0;
+            weights[i] = templates.iter().map(|t| (t[i] - mean).powi(2)).sum::<f32>() / 10.0;
+        }
+        let weight_sum: f32 = weights.iter().sum();
+        if weight_sum <= f32::EPSILON {
+            return Ok(None);
+        }
+        for t in &mut templates {
+            mean_center(t);
+        }
+        Ok(Some(Self { box_w, box_h, templates, weights, weight_sum }))
+    }
+
+    // Returns the best-scoring digit value for the patch at `rect` in `frame`.
+    fn classify(&self, frame: &Mat, rect: Rect) -> Result<Option<i32>> {
+        let Some(rect) = clamp_rect(rect, frame.cols(), frame.rows()) else { return Ok(None) };
+        let mut patch = resize_to_box(&frame.roi(rect)?, self.box_w, self.box_h)?;
+        mean_center(&mut patch);
+        let mut best = (-2.0f64, -1i32);
+        for (v, tmpl) in self.templates.iter().enumerate() {
+            let score = weighted_ncc(&patch, tmpl, &self.weights, self.weight_sum);
+            if score > best.0 {
+                best = (score, v as i32);
+            }
+        }
+        Ok(if best.1 >= 0 { Some(best.1) } else { None })
+    }
+}
+
+// Resizes a single-channel glyph to `box_w x box_h` and returns its pixels as f32.
+fn resize_to_box(src: &(impl MatTraitConst + ToInputArray), box_w: i32, box_h: i32) -> Result<Vec<f32>> {
+    let mut resized = Mat::default();
+    let interp = if src.cols() > box_w { imgproc::INTER_AREA } else { imgproc::INTER_LINEAR };
+    imgproc::resize(src, &mut resized, Size::new(box_w, box_h), 0.0, 0.0, interp)?;
+    let mut f = Mat::default();
+    resized.convert_to(&mut f, core::CV_32F, 1.0, 0.0)?;
+    Ok(f.data_typed::<f32>()?.to_vec())
+}
+
+// Subtracts the mean in place so `weighted_ncc` compares shape, not brightness.
+fn mean_center(v: &mut [f32]) {
+    let mean = v.iter().sum::<f32>() / v.len() as f32;
+    for x in v.iter_mut() {
+        *x -= mean;
+    }
+}
+
+// Variance-weighted normalised cross-correlation of two mean-centred vectors.
+fn weighted_ncc(a: &[f32], b: &[f32], w: &[f32], wsum: f32) -> f64 {
+    let wa: f32 = a.iter().zip(w).map(|(x, wi)| x * wi).sum::<f32>() / wsum;
+    let wb: f32 = b.iter().zip(w).map(|(x, wi)| x * wi).sum::<f32>() / wsum;
+    let mut num = 0f64;
+    let mut da = 0f64;
+    let mut db = 0f64;
+    for ((&ai, &bi), &wi) in a.iter().zip(b).zip(w) {
+        let (ca, cb) = ((ai - wa) as f64, (bi - wb) as f64);
+        num += wi as f64 * ca * cb;
+        da += wi as f64 * ca * ca;
+        db += wi as f64 * cb * cb;
+    }
+    let den = (da * db).sqrt();
+    if den > 0.0 { num / den } else { -1.0 }
+}
+
+// Clamps `rect` to the frame, returning None if it falls entirely outside.
+fn clamp_rect(rect: Rect, cols: i32, rows: i32) -> Option<Rect> {
+    let x = rect.x.clamp(0, cols);
+    let y = rect.y.clamp(0, rows);
+    let w = (rect.x + rect.width).min(cols) - x;
+    let h = (rect.y + rect.height).min(rows) - y;
+    if w >= 2 && h >= 2 { Some(Rect::new(x, y, w, h)) } else { None }
 }
 
 // Aspect correction learned for a source resolution: the horizontal window
@@ -1362,7 +1482,8 @@ impl CvMatcher {
         for digit in &self.digits {
             digits.push(scaled(digit, scale)?);
         }
-        let glyphs = Arc::new(ScaledGlyphs { colon, digits });
+        let discriminator = DigitDiscriminator::build(&digits)?;
+        let glyphs = Arc::new(ScaledGlyphs { colon, digits, discriminator });
         cache.push((key, Arc::clone(&glyphs)));
         Ok(glyphs)
     }
@@ -2060,7 +2181,7 @@ impl CvMatcher {
                     (COLON_REGION_X, COLON_REGION_Y, COLON_REGION_W, COLON_REGION_H),
                 ),
             );
-            find_times_band(&frame, colon_tmpl, digit_tmpls)?
+            find_times_band(&frame, &glyphs)?
         };
         for t in &found_times {
             self.push_work_region(&mut match_regions, &mapper, format!("time {}", format_seconds(t.seconds)), t.colon);

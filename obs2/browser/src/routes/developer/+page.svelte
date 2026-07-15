@@ -2,6 +2,7 @@
 	import {
 		apiUrl,
 		matchSource,
+		setMonitorFrameDump,
 		setMonitorMatcherAnnotations,
 		type AnnotationRect,
 		type AnnotationSet,
@@ -30,6 +31,9 @@
 	let matchResult = $state<LevelMatch | null>(null);
 	let annotationMode = $state(false);
 	let annotationsEnabled = $state(false);
+	// Transient (not persisted), like annotation mode: dumps live monitor frames
+	// to disk while enabled so a live feed can be compared against a recorded file.
+	let frameDumpMode = $state(false);
 	let selectedAnnotationSetId = $state<string | null>(null);
 	let hiddenAnnotationIds = $state<string[]>([]);
 	let matchFrameWidth = $state(0);
@@ -40,6 +44,7 @@
 	let notificationTestCount = 0;
 	let screenshotLang = $state<'en' | 'jp'>('en');
 	let annotationUpdateAbort: AbortController | null = null;
+	let frameDumpUpdateAbort: AbortController | null = null;
 
 	let allStartScreenNames = $derived.by(() => {
 		const values: string[] = [];
@@ -186,6 +191,19 @@
 
 	$effect(() => {
 		updateMonitorAnnotations(annotationMode);
+	});
+
+	const updateFrameDump = (enabled: boolean) => {
+		frameDumpUpdateAbort?.abort();
+		frameDumpUpdateAbort = new AbortController();
+		void setMonitorFrameDump(enabled, { signal: frameDumpUpdateAbort.signal }).catch((err) => {
+			if (err instanceof DOMException && err.name === 'AbortError') return;
+			console.warn('Failed to update monitor frame dump', err);
+		});
+	};
+
+	$effect(() => {
+		updateFrameDump(frameDumpMode);
 	});
 
 	const addTestNotification = () => {
@@ -481,6 +499,18 @@
 			<input class="obs-checkbox" type="checkbox" bind:checked={annotationMode} />
 			<span>Include matcher annotations</span>
 		</label>
+	</fieldset>
+
+	<fieldset class="obs-panel rounded px-4 py-3" aria-labelledby="developer-frame-dump-heading">
+		<h2 id="developer-frame-dump-heading" class="mb-2 font-semibold">Frame Dump</h2>
+		<label class="flex items-center gap-2 pl-4">
+			<input class="obs-checkbox" type="checkbox" bind:checked={frameDumpMode} />
+			<span>Save monitor frames to disk</span>
+		</label>
+		<p class="obs-muted mt-2 pl-4 text-sm">
+			Writes each captured frame to a temp folder while monitoring (logged to the OBS log). Not persisted — turns off on
+			reload.
+		</p>
 	</fieldset>
 
 	<div class="obs-panel flex flex-col gap-4 rounded px-4 py-3">

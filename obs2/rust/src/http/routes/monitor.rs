@@ -1,10 +1,12 @@
+use std::collections::VecDeque;
 use std::env;
 use std::ffi::{CString, c_void};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::Json;
 use axum::extract::State;
@@ -14,15 +16,103 @@ use axum::response::{IntoResponse, Response, Result};
 use serde::Deserialize;
 use tokio::sync::{broadcast, watch};
 
-use crate::cv::{CaptureRegion, CvMatcher, LevelMatch};
+use crate::cv::{CaptureRegion, CvMatcher, LevelMatch, Screen};
+use crate::ge;
 use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason, RecordingStatus};
 
 const DEFAULT_MONITOR_LANGUAGE: &str = "jp";
 const MONITOR_FPS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
+/// Frames voted over to steady the stats times shown live. The per-frame matcher
+/// can misread a look-alike digit on a single noisy capture frame; ~7 frames at
+/// 60fps hides that (~0.1s lag) without noticeably delaying a real change.
+const MONITOR_TIME_SMOOTHING_WINDOW: usize = 7;
 /// How long after an applied update a newly-connecting client still gets the
 /// one-off "plugin updated" notice. Long enough to cover the 1s WebSocket
 /// reconnect retry, short enough to avoid a stale notice much later.
 const UPDATE_APPLIED_NOTICE_WINDOW: Duration = Duration::from_secs(60);
+
+/// Sliding-window majority vote over the stats times shown live, voting each
+/// field (run / target / best) independently so a single-frame digit misread is
+/// outvoted before it reaches the UI. The window resets whenever the on-screen
+/// level/screen identity changes, so a lone frame of a fast transition is still
+/// shown as-is (it simply votes with a window of one).
+struct DisplayTimeSmoother {
+    key: Option<(Screen, i32, i32, i32)>,
+    window: VecDeque<ge::Times>,
+}
+
+impl DisplayTimeSmoother {
+    fn new() -> Self {
+        Self { key: None, window: VecDeque::with_capacity(MONITOR_TIME_SMOOTHING_WINDOW) }
+    }
+
+    /// Feeds one frame's reading in and returns the smoothed times to display.
+    fn smooth(&mut self, m: &LevelMatch) -> Option<ge::Times> {
+        let key = Some((m.screen, m.mission, m.part, m.difficulty));
+        if key != self.key {
+            self.key = key;
+            self.window.clear();
+        }
+        let Some(times) = m.times else {
+            self.window.clear();
+            return None;
+        };
+        if self.window.len() == MONITOR_TIME_SMOOTHING_WINDOW {
+            self.window.pop_front();
+        }
+        self.window.push_back(times);
+        Some(ge::Times {
+            time: self.majority(|t| t.time)?,
+            target_time: self.majority(|t| t.target_time)?,
+            best_time: self.majority(|t| t.best_time)?,
+        })
+    }
+
+    /// Most-common value of `field` across the window, ties to the newest frame.
+    fn majority<T: PartialEq + Copy>(&self, field: impl Fn(&ge::Times) -> T) -> Option<T> {
+        let mut best: Option<(T, usize)> = None;
+        for cand in self.window.iter().rev() {
+            let v = field(cand);
+            let count = self.window.iter().filter(|t| field(t) == v).count();
+            if best.is_none_or(|(_, bc)| count > bc) {
+                best = Some((v, count));
+            }
+        }
+        best.map(|(v, _)| v)
+    }
+}
+
+/// Developer diagnostic: dumps each captured (matcher-input) frame to a temp
+/// directory as BMP so a live capture-card feed can be compared pixel-for-pixel
+/// against the same content played from a file. Created when the transient
+/// switch turns on and dropped when it turns off.
+struct FrameDump {
+    dir: PathBuf,
+    index: u64,
+}
+
+impl FrameDump {
+    fn new() -> std::io::Result<Self> {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        let dir = env::temp_dir().join(format!("ge-frames-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        tracing::info!(dir = %dir.display(), "dumping monitor frames to disk");
+        Ok(Self { dir, index: 0 })
+    }
+
+    fn write(&mut self, bytes: &[u8], width: u32, height: u32) {
+        let path = self.dir.join(format!("frame-{:06}.bmp", self.index));
+        self.index += 1;
+        match crate::http::routes::screenshot::encode_bmp_bgra(bytes, width, height) {
+            Ok(data) => {
+                if let Err(e) = std::fs::write(&path, data) {
+                    tracing::warn!("failed to write dumped frame: {e}");
+                }
+            }
+            Err(e) => tracing::warn!("failed to encode dumped frame: {e}"),
+        }
+    }
+}
 
 /// A running monitor. OBS pushes captured frames into `mailbox` (keyed by the
 /// leaked `producer`); the worker `thread` matches them. Stopping unregisters
@@ -686,6 +776,8 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         let mut active_lang = recording_lang.clone();
         let mut language_notified = false;
         let mut last: Option<LevelMatch> = None;
+        let mut display_smoother = DisplayTimeSmoother::new();
+        let mut frame_dump: Option<FrameDump> = None;
         let mut last_diagnostics_enabled = false;
         let mut last_fps_emit = Instant::now();
         let mut last_frame_completed: Option<Instant> = None;
@@ -709,11 +801,24 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                 last = None;
             }
             session.set_diagnostics(diagnostics_enabled);
+            // Start/stop the transient frame dump as the developer switch flips.
+            let dump_enabled = monitor_annotations_state.monitor_frame_dump_enabled.load(Ordering::Acquire);
+            match (dump_enabled, frame_dump.is_some()) {
+                (true, false) => match FrameDump::new() {
+                    Ok(dump) => frame_dump = Some(dump),
+                    Err(e) => tracing::warn!("failed to start frame dump: {e}"),
+                },
+                (false, true) => frame_dump = None,
+                _ => {}
+            }
             // Wake by the pending save's fire time even if no frame arrives, so a
             // paused/stalled source can't stall (and eventually roll out of the
             // replay buffer) a scheduled save.
             let deadline = recording.pending_fire_at();
             let (result, match_ms, stats) = match source.capture_with_stats_until(deadline, |bytes, w, h| {
+                if let Some(dump) = frame_dump.as_mut() {
+                    dump.write(bytes, w, h);
+                }
                 if timing_enabled {
                     let match_started = Instant::now();
                     let result = session.match_frame(bytes, w, h);
@@ -769,15 +874,19 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                         last = None;
                     }
 
+                    // The recorder votes over raw per-frame readings itself, so it
+                    // must see the unsmoothed match; only the live display is voted.
                     recording.on_frame(now, &info);
-                    let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&info));
+                    let mut display = info;
+                    display.times = display_smoother.smooth(&display);
+                    let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&display));
                     if changed {
-                        log_level_match(&info);
-                        last = Some(info.clone());
+                        log_level_match(&display);
+                        last = Some(display.clone());
                         // Ignore send errors: with no subscribers there is no
                         // receiver, but `watch` still retains the value for the
                         // next client to connect.
-                        let _ = match_tx.send(Some(info));
+                        let _ = match_tx.send(Some(display));
                     }
                 }
                 Err(e) => {
@@ -1081,6 +1190,65 @@ mod tests {
         let (w, h) = (bgra.cols() as u32, bgra.rows() as u32);
         let bytes = bgra.data_bytes().expect("data_bytes").to_vec();
         (bytes, w, h)
+    }
+
+    // A minimal stats-screen match for the display smoother; only the identity
+    // fields and `times` matter to it.
+    fn stats_frame(mission: i32, times: Option<Times>) -> LevelMatch {
+        LevelMatch {
+            screen: Screen::Stats,
+            mission,
+            part: 1,
+            difficulty: 2,
+            detected_lang: None,
+            times,
+            raw_times: Vec::new(),
+            match_regions: Vec::new(),
+            annotation_sets: Vec::new(),
+            runtime_ms: 0.0,
+        }
+    }
+
+    #[test]
+    fn display_smoother_outvotes_a_single_frame_best_time_flicker() {
+        let mut smoother = DisplayTimeSmoother::new();
+        let mut out = None;
+        // 28 is stable apart from a lone 20 flicker; the majority holds even on the
+        // flicker frame and at the end (whose last frame also read 20).
+        for best in [Some(28), Some(28), Some(20), Some(28), Some(28), Some(20)] {
+            out = smoother.smooth(&stats_frame(1, times(28, Some(300), best)));
+        }
+        assert_eq!(out, times(28, Some(300), Some(28)));
+    }
+
+    #[test]
+    fn display_smoother_passes_a_lone_frame_through() {
+        // A fast transition may only ever yield one frame; it is shown as read.
+        let mut smoother = DisplayTimeSmoother::new();
+        let out = smoother.smooth(&stats_frame(1, times(28, Some(300), Some(20))));
+        assert_eq!(out, times(28, Some(300), Some(20)));
+    }
+
+    #[test]
+    fn display_smoother_resets_on_level_change() {
+        let mut smoother = DisplayTimeSmoother::new();
+        for _ in 0..4 {
+            smoother.smooth(&stats_frame(1, times(28, Some(300), Some(28))));
+        }
+        // A different level's window must start fresh, not inherit the old votes.
+        let out = smoother.smooth(&stats_frame(2, times(50, Some(300), Some(40))));
+        assert_eq!(out, times(50, Some(300), Some(40)));
+    }
+
+    #[test]
+    fn display_smoother_votes_each_field_independently() {
+        let mut smoother = DisplayTimeSmoother::new();
+        let mut out = None;
+        // Run time flickers while best/target stay put: only the run time is voted.
+        for time in [28, 28, 61, 28, 28] {
+            out = smoother.smooth(&stats_frame(1, times(time, Some(300), Some(28))));
+        }
+        assert_eq!(out, times(28, Some(300), Some(28)));
     }
 
     /// Frame source that replays decoded fixtures, returning `None` once the

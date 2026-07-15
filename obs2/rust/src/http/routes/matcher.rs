@@ -53,6 +53,27 @@ pub async fn handle_annotations(
     Json(AnnotationResponse { annotations_enabled: params.annotations })
 }
 
+#[derive(Deserialize)]
+pub struct FrameDumpParams {
+    enabled: bool,
+}
+
+#[derive(Serialize)]
+pub struct FrameDumpResponse {
+    #[serde(rename = "frameDumpEnabled")]
+    frame_dump_enabled: bool,
+}
+
+/// Toggles the transient developer switch that dumps live monitor frames to a
+/// temp directory (logged by the monitor when it starts dumping).
+pub async fn handle_frame_dump(
+    State(state): State<AppState>,
+    Json(params): Json<FrameDumpParams>,
+) -> Json<FrameDumpResponse> {
+    state.monitor_frame_dump_enabled.store(params.enabled, Ordering::Release);
+    Json(FrameDumpResponse { frame_dump_enabled: params.enabled })
+}
+
 pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> {
     let source_name =
         CString::new(params.source).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;

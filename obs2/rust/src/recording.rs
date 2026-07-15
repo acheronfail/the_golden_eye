@@ -428,15 +428,15 @@ struct PendingSave {
     completed_at: SystemTime,
     /// ROM/template language active when this save was scheduled.
     rom_language: String,
-    /// The stats-screen match, kept for naming the output clip. Refined toward the
-    /// most-seen run time as stats frames arrive (see `stats_vote_counts`).
+    /// The stats-screen match, kept for naming the output clip. Its `times` are
+    /// overwritten with the per-field vote winners as stats frames arrive.
     stats: Option<LevelMatch>,
-    /// Per-run-time frame counts across the stats screen, used to settle `stats`
-    /// on the most-seen (i.e. stable) reading. Empty for saves not scheduled off
-    /// the stats screen (e.g. a report -> level select exit).
-    stats_vote_counts: HashMap<Option<i32>, u32>,
-    /// The winning count so far, i.e. the frame count of the time in `stats`.
-    stats_vote_best_count: u32,
+    /// Independent per-field vote over the stats times, so a look-alike-digit
+    /// misread on one field (often the dimmer best-time row) can't corrupt the
+    /// others. Empty for saves not scheduled off the stats screen.
+    time_vote: FieldVote,
+    target_vote: FieldVote,
+    best_vote: FieldVote,
     /// Set once the screen leaves stats: the vote is locked so a later run's stats
     /// screen (within the padding window) can't fold into this save.
     stats_vote_closed: bool,
@@ -461,20 +461,52 @@ fn pending_is_savable(options: &RecordingOptions, pending: &PendingSave) -> bool
     length_secs >= options.minimum_failed_run_length_secs()
 }
 
-/// Record one stats reading and adopt it as `stats` when it becomes the most-seen
-/// (ties resolving to this newer reading), so the brief first-frame misread is
-/// outvoted by the stable one. Returns whether the winning run time changed.
-fn record_stats_vote(pending: &mut PendingSave, m: &LevelMatch) -> bool {
-    let time = m.times.map(|t| t.time);
-    let count = pending.stats_vote_counts.entry(time).or_insert(0);
-    *count += 1;
-    if *count < pending.stats_vote_best_count {
-        return false;
+/// Frame-count vote for one stats-time field. The most-seen value wins, ties
+/// resolving to the newest reading, so a brief first-frame misread is outvoted
+/// by the stable one.
+#[derive(Default)]
+struct FieldVote {
+    counts: HashMap<Option<i32>, u32>,
+    best_count: u32,
+    winner: Option<i32>,
+}
+
+impl FieldVote {
+    /// Records one reading; returns whether the winning value changed.
+    fn record(&mut self, value: Option<i32>) -> bool {
+        let count = {
+            let c = self.counts.entry(value).or_insert(0);
+            *c += 1;
+            *c
+        };
+        if count < self.best_count {
+            return false;
+        }
+        let changed = self.winner != value;
+        self.best_count = count;
+        self.winner = value;
+        changed
     }
-    let previous_time = pending.stats.as_ref().and_then(|s| s.times).map(|t| t.time);
-    pending.stats_vote_best_count = *count;
-    pending.stats = Some(m.clone());
-    previous_time != time
+}
+
+/// Record one stats reading, voting each time field independently, and refresh
+/// the stored match with the per-field winners. Returns whether any voted field
+/// changed (so the pending notification can be reissued).
+fn record_stats_vote(pending: &mut PendingSave, m: &LevelMatch) -> bool {
+    let times = m.times;
+    let mut changed = pending.time_vote.record(times.map(|t| t.time));
+    changed |= pending.target_vote.record(times.and_then(|t| t.target_time));
+    changed |= pending.best_vote.record(times.and_then(|t| t.best_time));
+    // Keep the newest frame as the naming/level source, then overwrite its times
+    // with the voted winners so downstream naming/metadata use the stable values.
+    let mut stats = m.clone();
+    stats.times = pending.time_vote.winner.map(|time| crate::ge::Times {
+        time,
+        target_time: pending.target_vote.winner,
+        best_time: pending.best_vote.winner,
+    });
+    pending.stats = Some(stats);
+    changed
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -679,8 +711,9 @@ impl RecordingState {
             completed_at: SystemTime::now(),
             rom_language: self.rom_language.clone(),
             stats,
-            stats_vote_counts: HashMap::new(),
-            stats_vote_best_count: 0,
+            time_vote: FieldVote::default(),
+            target_vote: FieldVote::default(),
+            best_vote: FieldVote::default(),
             stats_vote_closed: false,
             notified: false,
             phase_generation: None,
@@ -794,7 +827,7 @@ impl RecordingState {
             let Some(pending) = self.pending.as_mut() else {
                 return;
             };
-            if pending.stats_vote_counts.is_empty() || pending.stats_vote_closed {
+            if pending.time_vote.counts.is_empty() || pending.stats_vote_closed {
                 return;
             }
             record_stats_vote(pending, m)
@@ -1640,8 +1673,19 @@ mod tests {
         m
     }
 
+    fn stats_match_full(time: i32, target_time: Option<i32>, best_time: Option<i32>) -> LevelMatch {
+        let mut m = match_with_time();
+        m.times = Some(Times { time, target_time, best_time });
+        m.raw_times = vec![time];
+        m
+    }
+
     fn pending_stats_time(recording: &RecordingState) -> Option<i32> {
-        recording.pending.as_ref().and_then(|p| p.stats.as_ref()).and_then(|m| m.times).map(|times| times.time)
+        pending_stats_times(recording).map(|times| times.time)
+    }
+
+    fn pending_stats_times(recording: &RecordingState) -> Option<Times> {
+        recording.pending.as_ref().and_then(|p| p.stats.as_ref()).and_then(|m| m.times)
     }
 
     fn match_without_time() -> LevelMatch {
@@ -1854,6 +1898,52 @@ mod tests {
         recording.on_frame(stats_at + Duration::from_millis(16), &stats_match(14));
 
         assert_eq!(pending_stats_time(&recording), Some(14));
+        recording.pending = None;
+    }
+
+    #[test]
+    fn best_time_flicker_is_outvoted_independently_of_the_run_time() {
+        // The dimmer best-time row flickers between the true 28 and a 20 misread
+        // while the run time and target stay steady. Each field votes on its own,
+        // so best-time settles on the majority 28 even though the final frame read
+        // 20 -- the exact live capture-card symptom this guards against.
+        let (mut recording, _events) = test_recording_saving_short_failed_runs();
+        let start = Instant::now();
+        let mut at = start + Duration::from_secs(10);
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Kia));
+
+        for best in [Some(28), Some(28), Some(20), Some(28), Some(28), Some(20)] {
+            recording.on_frame(at, &stats_match_full(28, Some(300), best));
+            at += Duration::from_millis(16);
+        }
+
+        let times = pending_stats_times(&recording).expect("stats times");
+        assert_eq!(times.time, 28);
+        assert_eq!(times.target_time, Some(300));
+        assert_eq!(times.best_time, Some(28), "majority best-time wins, not the last flicker frame");
+        recording.pending = None;
+    }
+
+    #[test]
+    fn run_time_flicker_does_not_disturb_the_voted_best_time() {
+        // The reverse independence: a flickering run time must not drag the stable
+        // best/target with it when the newest frame becomes the naming source.
+        let (mut recording, _events) = test_recording_saving_short_failed_runs();
+        let start = Instant::now();
+        let mut at = start + Duration::from_secs(10);
+        recording.on_frame(start, &match_for_screen(Screen::Start));
+        recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Kia));
+
+        for time in [123, 123, 999, 123, 999, 123] {
+            recording.on_frame(at, &stats_match_full(time, Some(100), Some(130)));
+            at += Duration::from_millis(16);
+        }
+
+        let times = pending_stats_times(&recording).expect("stats times");
+        assert_eq!(times.time, 123);
+        assert_eq!(times.target_time, Some(100));
+        assert_eq!(times.best_time, Some(130));
         recording.pending = None;
     }
 
