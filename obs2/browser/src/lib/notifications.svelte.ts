@@ -10,6 +10,7 @@ export interface NotificationFlag {
 	timeoutMs?: number;
 	href?: string;
 	action?: () => void | Promise<void>;
+	onDismiss?: () => void;
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -32,12 +33,18 @@ const scheduleNotificationTimeout = (flag: NotificationFlag): void => {
 };
 
 export const dismissNotificationFlag = (id: number): void => {
+	removeNotificationFlag(id, true);
+};
+
+export const removeNotificationFlag = (id: number, notifyDismiss = false): void => {
+	const flag = notifications.flags.find((item) => item.id === id);
 	const timeout = timeouts.get(id);
 	if (timeout) {
 		clearTimeout(timeout);
 		timeouts.delete(id);
 	}
-	notifications.flags = notifications.flags.filter((flag) => flag.id !== id);
+	notifications.flags = notifications.flags.filter((item) => item.id !== id);
+	if (notifyDismiss) flag?.onDismiss?.();
 };
 
 interface NotificationFlagOptions {
@@ -50,19 +57,10 @@ interface NotificationFlagOptions {
 	sticky?: boolean;
 	href?: string;
 	action?: () => void | Promise<void>;
+	onDismiss?: () => void;
 }
 
-export const addNotificationFlag = (options: {
-	key?: string;
-	title: string;
-	detail?: string;
-	meta?: string;
-	tone?: NotificationTone;
-	timeoutMs?: number;
-	sticky?: boolean;
-	href?: string;
-	action?: () => void | Promise<void>;
-}): NotificationFlag => {
+export const addNotificationFlag = (options: NotificationFlagOptions): NotificationFlag => {
 	const timeoutMs = options.sticky ? undefined : (options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 	const flag: NotificationFlag = {
 		id: nextId++,
@@ -73,7 +71,8 @@ export const addNotificationFlag = (options: {
 		tone: options.tone ?? 'info',
 		timeoutMs,
 		href: options.href,
-		action: options.action
+		action: options.action,
+		onDismiss: options.onDismiss
 	};
 
 	notifications.flags = [...notifications.flags, flag];
@@ -103,7 +102,8 @@ export const replaceNotificationFlag = (id: number, options: NotificationFlagOpt
 		tone: options.tone ?? 'info',
 		timeoutMs,
 		href: options.href,
-		action: options.action
+		action: options.action,
+		onDismiss: options.onDismiss
 	};
 
 	notifications.flags = notifications.flags.map((item) => (item.id === id ? flag : item));

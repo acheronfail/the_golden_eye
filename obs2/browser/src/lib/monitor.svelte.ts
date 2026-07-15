@@ -1,5 +1,5 @@
 import {
-	getMonitorStatus,
+	type AppSnapshot,
 	type FailedRunNotSavedReason,
 	type LevelMatch,
 	type MonitorFps,
@@ -163,15 +163,21 @@ const savePendingMeta = (pending: RecordingSavePending): string => {
 	return parts.join(' | ');
 };
 
-export const applyMonitorMatch = (match: LevelMatch): void => {
-	monitor.match = match;
-};
+export const monitorStatusFromSnapshot = (snapshot: AppSnapshot): MonitorStatus =>
+	snapshot.monitor.enabled && snapshot.monitor.sourceName
+		? { enabled: true, sourceName: snapshot.monitor.sourceName, recordingState: snapshot.recordingState }
+		: { enabled: false, recordingState: null };
 
-export const applyRecordingState = (status: RecordingStatus | null): void => {
-	const previous = monitor.recordingState;
-	monitor.recordingState = visibleRecordingState(status);
-	if (status === 'kia' && previous !== 'kia') {
-		triggerKiaDeathOverlay();
+export const applyMonitorSnapshot = (snapshot: AppSnapshot): void => {
+	const nextStatus = monitorStatusFromSnapshot(snapshot);
+	const previousSource = monitor.status?.enabled ? monitor.status.sourceName : null;
+	const nextSource = nextStatus.enabled ? nextStatus.sourceName : null;
+	monitor.status = nextStatus;
+	monitor.loaded = true;
+	monitor.match = snapshot.match;
+	monitor.recordingState = nextStatus.enabled ? visibleRecordingState(snapshot.recordingState) : null;
+	if (!nextStatus.enabled || previousSource !== nextSource) {
+		monitor.fps = null;
 	}
 };
 
@@ -282,20 +288,10 @@ export const applyRecordingSaved = (saved: RecordingSaved): void => {
 	addNotificationFlag(notification);
 };
 
-export const setMonitorRunning = (sourceName: string): void => {
-	clearRunState();
-	monitor.status = { enabled: true, sourceName, recordingState: null };
-	monitor.loaded = true;
-};
-
-export const setMonitorStopped = (): void => {
+export const applyMonitorStopped = (reason: MonitorStoppedReason): void => {
 	clearRunState();
 	monitor.status = { enabled: false, recordingState: null };
 	monitor.loaded = true;
-};
-
-export const applyMonitorStopped = (reason: MonitorStoppedReason): void => {
-	setMonitorStopped();
 	if (reason === 'replayBufferStopped') {
 		addNotificationFlag({
 			title: 'Monitoring disabled',
@@ -304,26 +300,5 @@ export const applyMonitorStopped = (reason: MonitorStoppedReason): void => {
 			tone: 'error',
 			sticky: true
 		});
-	}
-};
-
-/** Re-query the backend for the current monitor status. */
-export const refreshMonitor = async (): Promise<MonitorStatus> => {
-	try {
-		const status = await getMonitorStatus();
-		const monitorChanged =
-			status.enabled && (!monitor.status?.enabled || monitor.status.sourceName !== status.sourceName);
-
-		monitor.status = status;
-		if (!status.enabled || monitorChanged) {
-			clearRunState();
-		}
-		monitor.recordingState = status.enabled ? visibleRecordingState(status.recordingState) : null;
-		return monitor.status;
-	} catch (err) {
-		monitor.status = null;
-		throw err;
-	} finally {
-		monitor.loaded = true;
 	}
 };

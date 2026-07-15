@@ -13,6 +13,11 @@ export const replayBuffer = $state<{ status: ReplayBufferStatus | null; loaded: 
 export const isReplayBufferAvailable = (): boolean => replayBuffer.status?.available === true;
 export const isReplayBufferEnabled = isReplayBufferAvailable;
 
+export const setReplayBufferStatus = (status: ReplayBufferStatus): void => {
+	replayBuffer.status = status;
+	replayBuffer.loaded = true;
+};
+
 /** Re-query the backend for the current replay-buffer status. */
 export const refreshReplayBuffer = async (): Promise<void> => {
 	try {

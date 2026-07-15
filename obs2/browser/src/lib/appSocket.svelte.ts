@@ -11,29 +11,30 @@ import {
 	applyFailedRunNotSaved,
 	applyLanguageDetected,
 	applyMonitorFps,
-	applyMonitorMatch,
+	applyMonitorSnapshot,
 	applyMonitorStopped,
 	applyRecordingSaved,
 	applyRecordingSaveDiscarded,
-	applyRecordingSavePending,
-	applyRecordingState
+	applyRecordingSavePending
 } from './monitor.svelte';
 import {
 	addNotificationFlag,
 	dismissNotificationFlag,
 	dismissNotificationFlagsByKey,
+	removeNotificationFlag,
 	replaceNotificationFlag
 } from './notifications.svelte';
-import { refreshReplayBuffer } from './replayBuffer.svelte';
+import { refreshReplayBuffer, setReplayBufferStatus } from './replayBuffer.svelte';
 import { settings } from './settings.svelte';
 import { setObsSources } from './sources.svelte';
+import type { AppSnapshot } from './api';
 
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let stopped = true;
 let settingsErrorNotificationId: number | null = null;
 let updateNotificationId: number | null = null;
-
+let dismissedUpdateVersion: string | null = null;
 const UPDATE_APPLIED_STORAGE_KEY = 'ge-update-applied-version';
 
 const showUpdateAppliedNotification = (version: string, releaseUrl?: string): void => {
@@ -87,6 +88,41 @@ const consumePendingUpdateAppliedNotification = (): void => {
 	}
 };
 
+const applyAppSnapshot = (snapshot: AppSnapshot): void => {
+	applyMonitorSnapshot(snapshot);
+	setObsSources(snapshot.sources);
+	setReplayBufferStatus(snapshot.replayBuffer);
+	if (!settings.dirty) settings.applyStatus(snapshot.settingsStatus);
+	if (snapshot.update) {
+		applyUpdateAvailable(snapshot.update);
+	} else {
+		dismissUpdateAvailableNotification();
+		dismissedUpdateVersion = null;
+	}
+};
+
+const dismissUpdateAvailableNotification = (): void => {
+	if (updateNotificationId === null) return;
+	removeNotificationFlag(updateNotificationId);
+	updateNotificationId = null;
+};
+
+const applyUpdateAvailable = (update: PluginUpdate): void => {
+	// With auto-update on, the plugin stages and reports back via the
+	// "update found" / "plugin updated" notices, so a sticky "open the
+	// release page" notice would just be noise suggesting a needless step.
+	if (settings.autoUpdateEnabled) {
+		dismissUpdateAvailableNotification();
+		return;
+	}
+	if (dismissedUpdateVersion === update.latestVersion) return;
+	const notification = updateNotification(update);
+	if (updateNotificationId !== null && replaceNotificationFlag(updateNotificationId, notification)) {
+		return;
+	}
+	updateNotificationId = addNotificationFlag(notification).id;
+};
+
 const clearReconnectTimer = (): void => {
 	if (reconnectTimer !== null) {
 		clearTimeout(reconnectTimer);
@@ -106,9 +142,7 @@ const connect = (): void => {
 	if (!browser || stopped || socket !== null) return;
 
 	const nextSocket = connectAppSocket({
-		onSources: setObsSources,
-		onMatch: applyMonitorMatch,
-		onRecordingState: applyRecordingState,
+		onSnapshot: applyAppSnapshot,
 		onLanguageDetected: applyLanguageDetected,
 		onMonitorFps: applyMonitorFps,
 		onRecordingSavePending: applyRecordingSavePending,
@@ -147,23 +181,6 @@ const connect = (): void => {
 				return;
 			}
 			settingsErrorNotificationId = addNotificationFlag(notification).id;
-		},
-		onUpdateAvailable: (update) => {
-			// With auto-update on, the plugin stages and reports back via the
-			// "update found" / "plugin updated" notices, so a sticky "open the
-			// release page" notice would just be noise suggesting a needless step.
-			if (settings.autoUpdateEnabled) {
-				if (updateNotificationId !== null) {
-					dismissNotificationFlag(updateNotificationId);
-					updateNotificationId = null;
-				}
-				return;
-			}
-			const notification = updateNotification(update);
-			if (updateNotificationId !== null && replaceNotificationFlag(updateNotificationId, notification)) {
-				return;
-			}
-			updateNotificationId = addNotificationFlag(notification).id;
 		},
 		onUpdateApplied: handleUpdateApplied,
 		onUpdateStagingFailed: (error) => {
@@ -221,11 +238,13 @@ const updateNotification = (update: PluginUpdate) => ({
 	meta: 'Click to download and install.',
 	tone: 'info' as const,
 	sticky: true,
+	onDismiss: () => {
+		if (updateNotificationId !== null) updateNotificationId = null;
+		dismissedUpdateVersion = update.latestVersion;
+	},
 	action: async () => {
-		if (updateNotificationId !== null) {
-			dismissNotificationFlag(updateNotificationId);
-			updateNotificationId = null;
-		}
+		dismissedUpdateVersion = update.latestVersion;
+		dismissUpdateAvailableNotification();
 		await downloadAndInstall(update);
 	}
 });

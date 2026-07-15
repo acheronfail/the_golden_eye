@@ -233,7 +233,7 @@ struct SettingsState {
     file_bytes: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsStatus {
     pub settings: AppSettings,
@@ -278,10 +278,20 @@ impl SettingsStore {
     }
 
     pub fn status(&self) -> SettingsStatus {
+        self.status_with(apply_runtime_output_path_defaults)
+    }
+
+    /// Status snapshot that avoids OBS FFI. Used during plugin load before OBS
+    /// frontend APIs are safe; replaced with `status()` after OBS post-load.
+    pub fn status_without_runtime_defaults(&self) -> SettingsStatus {
+        self.status_with(|settings| settings)
+    }
+
+    fn status_with(&self, apply_defaults: impl Fn(AppSettings) -> AppSettings) -> SettingsStatus {
         let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         SettingsStatus {
-            settings: apply_runtime_output_path_defaults(state.settings.clone()),
-            defaults: apply_runtime_output_path_defaults(AppSettings::default()),
+            settings: apply_defaults(state.settings.clone()),
+            defaults: apply_defaults(AppSettings::default()),
             config_path: self.path.to_string_lossy().into_owned(),
             file_error: state.file_error.clone(),
         }

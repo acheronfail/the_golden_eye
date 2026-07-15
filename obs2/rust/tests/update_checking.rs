@@ -131,29 +131,29 @@ async fn wait_for_update_available_event(harness: &Harness, calls: &Arc<AtomicUs
         match tokio::time::timeout(Duration::from_millis(200), ws.next()).await {
             Ok(Some(Ok(Message::Text(text)))) => {
                 let value: Value = serde_json::from_str(&text).unwrap();
-                if value["type"] == "updateAvailable" {
-                    return value;
+                if value["type"] == "snapshot" && !value["state"]["update"].is_null() {
+                    return value["state"]["update"].clone();
                 }
             }
             Ok(Some(Ok(Message::Binary(bytes)))) => {
                 let value: Value = serde_json::from_slice(&bytes).unwrap();
-                if value["type"] == "updateAvailable" {
-                    return value;
+                if value["type"] == "snapshot" && !value["state"]["update"].is_null() {
+                    return value["state"]["update"].clone();
                 }
             }
             Ok(Some(Ok(Message::Close(frame)))) => {
-                panic!("monitor websocket closed while waiting for updateAvailable: {frame:?}");
+                panic!("monitor websocket closed while waiting for snapshot update: {frame:?}");
             }
             Ok(Some(Ok(_))) | Err(_) => {}
-            Ok(Some(Err(err))) => panic!("monitor websocket failed while waiting for updateAvailable: {err}"),
-            Ok(None) => panic!("monitor websocket ended while waiting for updateAvailable"),
+            Ok(Some(Err(err))) => panic!("monitor websocket failed while waiting for snapshot update: {err}"),
+            Ok(None) => panic!("monitor websocket ended while waiting for snapshot update"),
         }
 
         if Instant::now() >= deadline {
             let status: Value =
                 harness.client.get(format!("{API}/api/v1/settings/status")).send().await.unwrap().json().await.unwrap();
             panic!(
-                "timed out waiting for updateAvailable event; release calls: {}; settings: {status}",
+                "timed out waiting for snapshot update; release calls: {}; settings: {status}",
                 calls.load(Ordering::SeqCst)
             );
         }

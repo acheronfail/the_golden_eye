@@ -61,9 +61,9 @@ pub async fn check_for_updates_on_startup(state: AppState) {
 
 /// Checks for an update now, bypassing the configured interval and dev skip. Shared by
 /// the startup check and the manual "check now" endpoint. Records the check time, pushes
-/// `UpdateAvailable`, and (if opted in) stages in the background. `Ok(None)` if up to date.
+/// the retained app snapshot, and (if opted in) stages in the background. `Ok(None)` if up to date.
 pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<PluginUpdate>> {
-    if state.settings.status().file_error.is_some() {
+    if state.settings.status_without_runtime_defaults().file_error.is_some() {
         tracing::info!("settings file is invalid; skipping plugin update check");
         return Ok(None);
     }
@@ -71,9 +71,11 @@ pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<Plu
     let checked_at = now_unix_seconds();
     let found = fetch_latest_update(crate::PLUGIN_VERSION).await?;
     state.settings.set_last_update_check_time(checked_at).context("saving last update check time")?;
+    state.snapshot.set_settings_status(state.settings.status_without_runtime_defaults());
 
     let Some((update, assets)) = found else {
         tracing::info!(version = crate::PLUGIN_VERSION, "plugin is up to date");
+        state.snapshot.set_update(None);
         return Ok(None);
     };
 
@@ -83,7 +85,7 @@ pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<Plu
         release_url = %update.release_url,
         "plugin update available"
     );
-    state.update_tx.send_replace(Some(update.clone()));
+    state.snapshot.set_update(Some(update.clone()));
 
     // Best-effort: this only feeds the "click to view the changelog" link on
     // the later "plugin updated" notice (see `routes::monitor::handle_socket`),

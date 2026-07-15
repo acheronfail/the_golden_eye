@@ -9,7 +9,6 @@ import { settings } from '$lib/settings.svelte';
 
 const mocks = vi.hoisted(() => {
 	const api = {
-		getMonitorStatus: vi.fn(),
 		getReplayBufferStatus: vi.fn(),
 		getSettingsStatus: vi.fn(),
 		getUpdateStatus: vi.fn(),
@@ -57,7 +56,6 @@ vi.mock('$lib/api', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/api')>();
 	return {
 		...actual,
-		getMonitorStatus: mocks.api.getMonitorStatus,
 		getReplayBufferStatus: mocks.api.getReplayBufferStatus,
 		getSettingsStatus: mocks.api.getSettingsStatus,
 		getUpdateStatus: mocks.api.getUpdateStatus,
@@ -111,7 +109,6 @@ beforeEach(() => {
 	monitor.recordingState = null;
 	settings.applyReloaded(defaultSettings, '/tmp/the-golden-eye/settings.json', defaultSettings);
 	settings.loaded = true;
-	mocks.api.getMonitorStatus.mockResolvedValue({ enabled: false, recordingState: null });
 	mocks.api.getReplayBufferStatus.mockResolvedValue(availableReplayBuffer);
 	mocks.api.getSettingsStatus.mockResolvedValue({
 		settings: defaultSettings,

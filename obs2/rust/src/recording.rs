@@ -1569,6 +1569,7 @@ mod tests {
 
     use super::*;
     use crate::ge::Times;
+    use crate::http::{AppSnapshot, MonitorSnapshot, SharedStateStore};
 
     static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -1610,10 +1611,34 @@ mod tests {
         fs::write(path, b"clip").unwrap();
     }
 
+    fn test_snapshot_store() -> SharedStateStore {
+        SharedStateStore::new(AppSnapshot {
+            monitor: MonitorSnapshot { enabled: true, source_name: Some("N64 Capture".to_owned()) },
+            level_match: None,
+            recording_state: None,
+            sources: Vec::new(),
+            replay_buffer: crate::http::ReplayBufferStatus {
+                enabled: true,
+                available: true,
+                active: true,
+                max_seconds: Some(1200),
+                output_directory: Some("/captures".to_owned()),
+                default_completed_output_path: Some("/captures/GoldenEye".to_owned()),
+                default_failed_output_path: Some("/captures/GoldenEye/failed".to_owned()),
+            },
+            settings_status: crate::settings::SettingsStatus {
+                settings: crate::settings::AppSettings::default(),
+                defaults: crate::settings::AppSettings::default(),
+                config_path: "/tmp/settings.json".to_owned(),
+                file_error: None,
+            },
+            update: None,
+        })
+    }
+
     fn test_recording(options: RecordingOptions) -> (RecordingState, tokio::sync::broadcast::Receiver<MonitorEvent>) {
         let (event_tx, event_rx) = tokio::sync::broadcast::channel(8);
-        let (recording_tx, _recording_rx) = tokio::sync::watch::channel(None);
-        let recording_state = RecordingStateStore::new(recording_tx);
+        let recording_state = RecordingStateStore::new(test_snapshot_store());
         let recording =
             RecordingState::new(event_tx, recording_state, options, "N64 Capture".to_owned(), "en".to_owned());
         (recording, event_rx)

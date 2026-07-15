@@ -2,7 +2,7 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { settings, VERSION } from '$lib';
-	import { monitor, monitorHref, monitorPhaseStyle, refreshMonitor } from '$lib/monitor.svelte';
+	import { monitor, monitorHref, monitorPhaseStyle } from '$lib/monitor.svelte';
 	import { startAppSocket, stopAppSocket } from '$lib/appSocket.svelte';
 	import KiaDeathOverlay from '$lib/KiaDeathOverlay.svelte';
 	import NotificationFlags from '$lib/NotificationFlags.svelte';
@@ -64,9 +64,6 @@
 	afterNavigate(() => {
 		pendingNavigation = null;
 		void refreshReplayBuffer();
-		void refreshMonitor().catch(() => {
-			// Keep the global indicator hidden if the backend is unavailable.
-		});
 	});
 
 	const navigate = (href: string, options: { replaceState?: boolean } = {}) => {
