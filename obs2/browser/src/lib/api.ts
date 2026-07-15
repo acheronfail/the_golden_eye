@@ -380,6 +380,25 @@ export const matchSource = async (
 	return res.json();
 };
 
+/** Matches an image file (png/bmp) uploaded in the request body, for the
+ * developer frame inspector. Coordinates are in the uploaded image's pixel space. */
+export const matchUpload = async (
+	file: Blob,
+	lang: 'en' | 'jp',
+	options: { annotations?: boolean } = {}
+): Promise<MatchSourceResponse> => {
+	const params = new URLSearchParams({
+		lang,
+		annotations: options.annotations ? 'true' : 'false'
+	});
+	const res = await fetch(apiUrl(`/api/v1/match/upload?${params.toString()}`), {
+		method: 'POST',
+		body: file
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
 export const setMonitorMatcherAnnotations = async (
 	annotations: boolean,
 	options: { signal?: AbortSignal; keepalive?: boolean } = {}
@@ -394,6 +413,27 @@ export const setMonitorMatcherAnnotations = async (
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 	const data = (await res.json()) as { annotationsEnabled: boolean };
 	return data.annotationsEnabled;
+};
+
+/** Toggles the transient developer frame dump for `source`, which captures that
+ * source's frames to a temp directory on disk independent of the monitor (the
+ * backend logs the directory when dumping starts). `source` may be null when
+ * disabling. */
+export const setMonitorFrameDump = async (
+	enabled: boolean,
+	source: string | null,
+	options: { signal?: AbortSignal; keepalive?: boolean } = {}
+): Promise<boolean> => {
+	const res = await fetch(apiUrl('/api/v1/monitor/frame-dump'), {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ enabled, source }),
+		signal: options.signal,
+		keepalive: options.keepalive
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	const data = (await res.json()) as { frameDumpEnabled: boolean };
+	return data.frameDumpEnabled;
 };
 
 /** Details of a clip the backend saved out of the replay buffer at the end of a

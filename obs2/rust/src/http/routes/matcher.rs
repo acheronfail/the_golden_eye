@@ -2,6 +2,7 @@ use std::ffi::CString;
 use std::sync::atomic::Ordering;
 
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
@@ -51,6 +52,42 @@ pub async fn handle_annotations(
 ) -> Json<AnnotationResponse> {
     state.monitor_annotations_enabled.store(params.annotations, Ordering::Release);
     Json(AnnotationResponse { annotations_enabled: params.annotations })
+}
+
+#[derive(Deserialize)]
+pub struct UploadParams {
+    /// Language of the templates to match against (e.g. `en`, `jp`).
+    lang: String,
+    /// Whether to include developer annotation sets in the match result.
+    #[serde(default)]
+    annotations: bool,
+}
+
+/// Matches an image uploaded in the request body (PNG/BMP), for the developer
+/// tool's drag-and-drop frame inspector. Coordinates in the result/annotations
+/// are in the uploaded image's pixel space.
+pub async fn handle_upload(Query(params): Query<UploadParams>, body: Bytes) -> Result<Json<MatchResponse>> {
+    if body.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "empty image body").into());
+    }
+    let Some(template_dir) = crate::cv::template_dir() else {
+        tracing::error!("CV template directory is not set");
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, "CV template directory is not set").into());
+    };
+    let matcher = crate::cv::CvMatcher::new(&params.lang, &template_dir)
+        .map_err(|err| {
+            tracing::error!("failed to init matcher: {err}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher")
+        })?
+        .with_diagnostics(params.annotations);
+    let annotations_enabled = matcher.diagnostics_enabled();
+
+    let (level_match, width, height) = matcher.match_level_from_encoded_image(&body).map_err(|err| {
+        tracing::error!("failed to decode/match uploaded image: {err}");
+        (StatusCode::BAD_REQUEST, "could not decode the uploaded image")
+    })?;
+
+    Ok(Json(MatchResponse { level_match, annotations_enabled, frame_width: width, frame_height: height }))
 }
 
 pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> {

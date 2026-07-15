@@ -1,10 +1,12 @@
+use std::collections::VecDeque;
 use std::env;
 use std::ffi::{CString, c_void};
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::Json;
 use axum::extract::State;
@@ -14,15 +16,127 @@ use axum::response::{IntoResponse, Response, Result};
 use serde::Deserialize;
 use tokio::sync::{broadcast, watch};
 
-use crate::cv::{CaptureRegion, CvMatcher, LevelMatch};
+use crate::cv::{CaptureRegion, CvMatcher, LevelMatch, Screen};
+use crate::ge;
 use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason, RecordingStatus};
 
 const DEFAULT_MONITOR_LANGUAGE: &str = "jp";
 const MONITOR_FPS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
+/// Frames voted over to steady the stats times shown live. The per-frame matcher
+/// can misread a look-alike digit on a single noisy capture frame; ~7 frames at
+/// 60fps hides that (~0.1s lag) without noticeably delaying a real change.
+const MONITOR_TIME_SMOOTHING_WINDOW: usize = 7;
 /// How long after an applied update a newly-connecting client still gets the
 /// one-off "plugin updated" notice. Long enough to cover the 1s WebSocket
 /// reconnect retry, short enough to avoid a stale notice much later.
 const UPDATE_APPLIED_NOTICE_WINDOW: Duration = Duration::from_secs(60);
+
+/// Sliding-window majority vote over the stats times shown live, voting each
+/// field (run / target / best) independently so a single-frame digit misread is
+/// outvoted before it reaches the UI. The window resets whenever the on-screen
+/// level/screen identity changes, so a lone frame of a fast transition is still
+/// shown as-is (it simply votes with a window of one).
+struct DisplayTimeSmoother {
+    key: Option<(Screen, i32, i32, i32)>,
+    window: VecDeque<ge::Times>,
+}
+
+impl DisplayTimeSmoother {
+    fn new() -> Self {
+        Self { key: None, window: VecDeque::with_capacity(MONITOR_TIME_SMOOTHING_WINDOW) }
+    }
+
+    /// Feeds one frame's reading in and returns the smoothed times to display.
+    fn smooth(&mut self, m: &LevelMatch) -> Option<ge::Times> {
+        let key = Some((m.screen, m.mission, m.part, m.difficulty));
+        if key != self.key {
+            self.key = key;
+            self.window.clear();
+        }
+        let Some(times) = m.times else {
+            self.window.clear();
+            return None;
+        };
+        if self.window.len() == MONITOR_TIME_SMOOTHING_WINDOW {
+            self.window.pop_front();
+        }
+        self.window.push_back(times);
+        Some(ge::Times {
+            time: self.majority(|t| t.time)?,
+            target_time: self.majority(|t| t.target_time)?,
+            best_time: self.majority(|t| t.best_time)?,
+        })
+    }
+
+    /// Most-common value of `field` across the window, ties to the newest frame.
+    fn majority<T: PartialEq + Copy>(&self, field: impl Fn(&ge::Times) -> T) -> Option<T> {
+        let mut best: Option<(T, usize)> = None;
+        for cand in self.window.iter().rev() {
+            let v = field(cand);
+            let count = self.window.iter().filter(|t| field(t) == v).count();
+            if best.is_none_or(|(_, bc)| count > bc) {
+                best = Some((v, count));
+            }
+        }
+        best.map(|(v, _)| v)
+    }
+}
+
+/// Developer diagnostic: dumps each captured (matcher-input) frame to a temp
+/// directory as BMP so a live capture-card feed can be compared pixel-for-pixel
+/// against the same content played from a file.
+struct FrameDump {
+    dir: PathBuf,
+    index: u64,
+}
+
+impl FrameDump {
+    fn new() -> std::io::Result<Self> {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        let dir = env::temp_dir().join(format!("ge-frames-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        // Inside the OBS Flatpak the sandbox path isn't where the user finds the
+        // files, so surface a best-effort host path alongside it when we can.
+        match flatpak_host_path(&dir) {
+            Some(host) => {
+                tracing::info!(sandbox_path = %dir.display(), host_path = %host, "dumping frames to disk (Flatpak)");
+            }
+            None => tracing::info!(dir = %dir.display(), "dumping frames to disk"),
+        }
+        Ok(Self { dir, index: 0 })
+    }
+
+    fn write(&mut self, bytes: &[u8], width: u32, height: u32) {
+        let path = self.dir.join(format!("frame-{:06}.bmp", self.index));
+        self.index += 1;
+        match crate::http::routes::screenshot::encode_bmp_bgra(bytes, width, height) {
+            Ok(data) => {
+                if let Err(e) = std::fs::write(&path, data) {
+                    tracing::warn!("failed to write dumped frame: {e}");
+                }
+            }
+            Err(e) => tracing::warn!("failed to encode dumped frame: {e}"),
+        }
+    }
+}
+
+/// Best-effort host path for a dump dir when running inside a Flatpak sandbox
+/// (e.g. the OBS Studio Flatpak on Linux). The sandbox remaps the filesystem, so
+/// the in-sandbox path the process sees isn't where the user finds the files;
+/// the sandbox `/tmp` is bind-mounted from `$XDG_RUNTIME_DIR/.flatpak/<app>/tmp`
+/// on the host. Returns None when not in a Flatpak or the mapping is unknown, so
+/// the caller just logs the raw path.
+fn flatpak_host_path(dir: &Path) -> Option<String> {
+    // `/.flatpak-info` exists only inside a Flatpak sandbox.
+    let info = std::fs::read_to_string("/.flatpak-info").ok()?;
+    let app_id = env::var("FLATPAK_ID").ok()?;
+    // The [Instance] section names the per-run instance; log it as a fallback hint.
+    let instance = info.lines().find_map(|l| l.trim().strip_prefix("instance-id=")).map(str::trim);
+    match (env::var("XDG_RUNTIME_DIR").ok(), dir.strip_prefix("/tmp").ok()) {
+        (Some(runtime), Some(rel)) => Some(format!("{runtime}/.flatpak/{app_id}/tmp/{}", rel.display())),
+        _ => Some(format!("under the host Flatpak runtime dir for {app_id} (instance {})", instance.unwrap_or("?"))),
+    }
+}
 
 /// A running monitor. OBS pushes captured frames into `mailbox` (keyed by the
 /// leaked `producer`); the worker `thread` matches them. Stopping unregisters
@@ -34,6 +148,9 @@ pub struct MonitorHandle {
     /// The source name this monitor uses, retained so `/api/v1/monitor/status`
     /// can report what is currently being monitored.
     source_name: String,
+    /// The latched capture transform, shared so a standalone frame dump on the
+    /// same source can crop/un-stretch its frames identically to the matcher.
+    region: Arc<Mutex<Option<CaptureRegion>>>,
 }
 
 /// The leaked `ProducerCtx` pointer, made `Send` so the handle can move to the
@@ -680,12 +797,15 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let recording_source_name = status_source_name.clone();
     let recording_lang = DEFAULT_MONITOR_LANGUAGE.to_owned();
     let source_fps = unsafe { crate::ffi::ge_obs_video_fps() };
+    // Kept for the handle so a standalone frame dump can share the latched region.
+    let handle_region = region.clone();
     let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
         let mut source = ObsSource { mailbox: worker_mailbox, region };
         let mut session = session;
         let mut active_lang = recording_lang.clone();
         let mut language_notified = false;
         let mut last: Option<LevelMatch> = None;
+        let mut display_smoother = DisplayTimeSmoother::new();
         let mut last_diagnostics_enabled = false;
         let mut last_fps_emit = Instant::now();
         let mut last_frame_completed: Option<Instant> = None;
@@ -769,15 +889,19 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                         last = None;
                     }
 
+                    // The recorder votes over raw per-frame readings itself, so it
+                    // must see the unsmoothed match; only the live display is voted.
                     recording.on_frame(now, &info);
-                    let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&info));
+                    let mut display = info;
+                    display.times = display_smoother.smooth(&display);
+                    let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&display));
                     if changed {
-                        log_level_match(&info);
-                        last = Some(info.clone());
+                        log_level_match(&display);
+                        last = Some(display.clone());
                         // Ignore send errors: with no subscribers there is no
                         // receiver, but `watch` still retains the value for the
                         // next client to connect.
-                        let _ = match_tx.send(Some(info));
+                        let _ = match_tx.send(Some(display));
                     }
                 }
                 Err(e) => {
@@ -799,7 +923,13 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         }
     };
 
-    *guard = Some(MonitorHandle { mailbox, producer: ProducerPtr(producer), thread, source_name: status_source_name });
+    *guard = Some(MonitorHandle {
+        mailbox,
+        producer: ProducerPtr(producer),
+        thread,
+        source_name: status_source_name,
+        region: handle_region,
+    });
     tracing::info!("monitor started");
 
     Ok(StatusCode::OK)
@@ -813,6 +943,141 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
     let _ = state.event_tx.send(MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::UserStopped });
 
     Ok(StatusCode::OK)
+}
+
+/// A running standalone frame dump. Mirrors [`MonitorHandle`]'s capture ownership
+/// (render callback + capture context + mailbox + worker thread), but its worker
+/// writes each frame to disk instead of matching. Independent of the monitor: it
+/// runs whenever the developer switch is on, whether or not a monitor is active.
+pub struct FrameDumpHandle {
+    mailbox: Arc<FrameMailbox>,
+    producer: ProducerPtr,
+    thread: JoinHandle<()>,
+    source_name: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct FrameDumpParams {
+    enabled: bool,
+    /// Source to dump; required when enabling. Ignored when disabling.
+    #[serde(default)]
+    source: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameDumpResponse {
+    frame_dump_enabled: bool,
+}
+
+/// Toggles the transient developer frame dump. Any existing dump is stopped
+/// first, so this also handles switching to a different source.
+#[axum::debug_handler]
+pub async fn handle_frame_dump(
+    State(state): State<AppState>,
+    Json(params): Json<FrameDumpParams>,
+) -> Result<Json<FrameDumpResponse>> {
+    stop_frame_dump(&state).await;
+    if params.enabled {
+        let source = params.source.ok_or((StatusCode::BAD_REQUEST, "source is required to enable the frame dump"))?;
+        start_frame_dump(&state, source)?;
+    }
+    Ok(Json(FrameDumpResponse { frame_dump_enabled: params.enabled }))
+}
+
+/// Small (status, message) error so the sync starter avoids the large boxed
+/// `axum` error type; `?` still lifts it into a handler's response.
+type StartResult = std::result::Result<(), (StatusCode, &'static str)>;
+
+/// Start dumping `source_name`'s frames to disk. When a monitor is already
+/// running the same source, its latched capture region is shared so dumped
+/// frames are cropped/un-stretched identically to what the matcher sees;
+/// otherwise the plain `WORK_HEIGHT` downscale is captured (uncalibrated).
+pub(crate) fn start_frame_dump(state: &AppState, source_name: String) -> StartResult {
+    let name =
+        CString::new(source_name.clone()).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
+
+    // Double-buffered so readback pipelines without stalling OBS's render thread.
+    let ctx = unsafe { crate::ffi::ge_capture_create(true) };
+    if ctx.is_null() {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to create capture context"));
+    }
+
+    let mailbox = Arc::new(FrameMailbox::new(FRAME_BUFFER_CAPACITY));
+    let region = {
+        let monitor = state.monitor.lock().unwrap_or_else(|p| p.into_inner());
+        match monitor.as_ref() {
+            Some(m) if m.source_name == source_name => m.region.clone(),
+            _ => Arc::new(Mutex::new(None)),
+        }
+    };
+    let producer =
+        Box::into_raw(Box::new(ProducerCtx { ctx, name, region, mailbox: mailbox.clone(), timing_enabled: false }));
+    unsafe { crate::ffi::ge_obs_register_frame_callback(ge_frame_callback, producer.cast()) };
+
+    // Write frames on a dedicated OS thread so disk I/O never runs on the OBS
+    // graphics thread (the callback) and never ties up the async runtime.
+    let worker_mailbox = mailbox.clone();
+    let thread = std::thread::Builder::new().name("ge-frame-dump".to_owned()).spawn(move || {
+        let mut dump = match FrameDump::new() {
+            Ok(dump) => dump,
+            Err(err) => {
+                tracing::error!("failed to create frame dump directory: {err}");
+                return;
+            }
+        };
+        loop {
+            match worker_mailbox.recv_until(None) {
+                MailboxRecv::Frame(frame) => dump.write(frame.buf.as_slice(), frame.width, frame.height),
+                MailboxRecv::Timeout => {}
+                MailboxRecv::Closed => break,
+            }
+        }
+        tracing::info!("frame dump loop exiting");
+    });
+    let thread = match thread {
+        Ok(thread) => thread,
+        Err(err) => {
+            tracing::error!("failed to spawn frame dump thread: {err}");
+            unsafe { crate::ffi::ge_obs_unregister_frame_callback(ge_frame_callback, producer.cast()) };
+            drop(unsafe { Box::from_raw(producer) });
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to spawn frame dump thread"));
+        }
+    };
+
+    let mut guard = state.frame_dump.lock().unwrap_or_else(|p| p.into_inner());
+    *guard = Some(FrameDumpHandle { mailbox, producer: ProducerPtr(producer), thread, source_name });
+    tracing::info!("frame dump started");
+    Ok(())
+}
+
+/// Stop the active frame dump, if any. Returns `false` when none was running.
+/// Teardown mirrors [`stop_monitor`]: unregister the callback (fences further
+/// callbacks), close the mailbox to wake+join the worker, then free the producer.
+pub(crate) async fn stop_frame_dump(state: &AppState) -> bool {
+    let handle = {
+        let mut guard = state.frame_dump.lock().unwrap_or_else(|p| p.into_inner());
+        guard.take()
+    };
+    let Some(handle) = handle else {
+        return false;
+    };
+
+    tokio::task::spawn_blocking(move || {
+        let FrameDumpHandle { mailbox, producer, thread, source_name } = handle;
+        let producer = producer.0;
+        unsafe { crate::ffi::ge_obs_unregister_frame_callback(ge_frame_callback, producer.cast()) };
+        mailbox.close();
+        if thread.join().is_err() {
+            tracing::error!("frame dump thread panicked");
+        }
+        drop(unsafe { Box::from_raw(producer) });
+        tracing::info!(source = %source_name, "frame dump stopped");
+    })
+    .await
+    .ok();
+
+    true
 }
 
 /// Stop the active monitor, if any, and clear all retained monitor/recording
@@ -1081,6 +1346,65 @@ mod tests {
         let (w, h) = (bgra.cols() as u32, bgra.rows() as u32);
         let bytes = bgra.data_bytes().expect("data_bytes").to_vec();
         (bytes, w, h)
+    }
+
+    // A minimal stats-screen match for the display smoother; only the identity
+    // fields and `times` matter to it.
+    fn stats_frame(mission: i32, times: Option<Times>) -> LevelMatch {
+        LevelMatch {
+            screen: Screen::Stats,
+            mission,
+            part: 1,
+            difficulty: 2,
+            detected_lang: None,
+            times,
+            raw_times: Vec::new(),
+            match_regions: Vec::new(),
+            annotation_sets: Vec::new(),
+            runtime_ms: 0.0,
+        }
+    }
+
+    #[test]
+    fn display_smoother_outvotes_a_single_frame_best_time_flicker() {
+        let mut smoother = DisplayTimeSmoother::new();
+        let mut out = None;
+        // 28 is stable apart from a lone 20 flicker; the majority holds even on the
+        // flicker frame and at the end (whose last frame also read 20).
+        for best in [Some(28), Some(28), Some(20), Some(28), Some(28), Some(20)] {
+            out = smoother.smooth(&stats_frame(1, times(28, Some(300), best)));
+        }
+        assert_eq!(out, times(28, Some(300), Some(28)));
+    }
+
+    #[test]
+    fn display_smoother_passes_a_lone_frame_through() {
+        // A fast transition may only ever yield one frame; it is shown as read.
+        let mut smoother = DisplayTimeSmoother::new();
+        let out = smoother.smooth(&stats_frame(1, times(28, Some(300), Some(20))));
+        assert_eq!(out, times(28, Some(300), Some(20)));
+    }
+
+    #[test]
+    fn display_smoother_resets_on_level_change() {
+        let mut smoother = DisplayTimeSmoother::new();
+        for _ in 0..4 {
+            smoother.smooth(&stats_frame(1, times(28, Some(300), Some(28))));
+        }
+        // A different level's window must start fresh, not inherit the old votes.
+        let out = smoother.smooth(&stats_frame(2, times(50, Some(300), Some(40))));
+        assert_eq!(out, times(50, Some(300), Some(40)));
+    }
+
+    #[test]
+    fn display_smoother_votes_each_field_independently() {
+        let mut smoother = DisplayTimeSmoother::new();
+        let mut out = None;
+        // Run time flickers while best/target stay put: only the run time is voted.
+        for time in [28, 28, 61, 28, 28] {
+            out = smoother.smooth(&stats_frame(1, times(time, Some(300), Some(28))));
+        }
+        assert_eq!(out, times(28, Some(300), Some(28)));
     }
 
     /// Frame source that replays decoded fixtures, returning `None` once the

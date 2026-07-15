@@ -385,6 +385,7 @@ fn annotation_sets(
     match_regions: &[MatchRegion],
     search_regions: Vec<AnnotationRect>,
     folder_region: Option<AnnotationRect>,
+    time_digits: Vec<AnnotationRect>,
 ) -> Vec<AnnotationSet> {
     let mut sets = Vec::new();
     if !match_regions.is_empty() {
@@ -392,6 +393,13 @@ fn annotation_sets(
             id: "template_matches".to_owned(),
             label: "Template matches".to_owned(),
             annotations: match_regions.iter().map(template_annotation).collect(),
+        });
+    }
+    if !time_digits.is_empty() {
+        sets.push(AnnotationSet {
+            id: "time_digits".to_owned(),
+            label: "Time digits".to_owned(),
+            annotations: time_digits,
         });
     }
     if !search_regions.is_empty() {
@@ -919,7 +927,16 @@ fn find_mission_from_colons(
     Ok(best)
 }
 
-fn find_times_band(frame: &Mat, colon_tmpl: &Mat, digit_tmpls: &[Mat]) -> Result<Vec<FoundTime>> {
+fn find_times_band(
+    frame: &Mat,
+    glyphs: &ScaledGlyphs,
+    // When Some, per-digit diagnostic boxes (label, work-coord rect) are collected
+    // for the developer overlay: each digit's own detection plus, for the two outer
+    // digits, the colon-anchored slot, so a detection/anchor divergence is visible.
+    mut diag: Option<&mut Vec<(String, MatchRect)>>,
+) -> Result<Vec<FoundTime>> {
+    let colon_tmpl = &glyphs.colon;
+    let digit_tmpls = &glyphs.digits;
     if colon_tmpl.empty() || digit_tmpls.len() < 10 {
         return Ok(Vec::new());
     }
@@ -1032,8 +1049,40 @@ fn find_times_band(frame: &Mat, colon_tmpl: &Mat, digit_tmpls: &[Mat]) -> Result
             continue;
         }
 
-        let minutes = l1.value * 10 + l0.value;
-        let seconds = r0.value * 10 + r1.value;
+        // Per-frame detection positions are accurate, so read each digit there.
+        // But the two OUTER digits (tens-min `l1`, units-sec `r1`) are the ones a
+        // between-digit phantom peak shadows -- so for them also read the colon-
+        // anchored fixed slot and keep whichever the discriminator is surer of. The
+        // detection wins when it is well-aligned (per-frame accurate); the anchor
+        // only wins when detection landed on a low-confidence phantom.
+        let colon_cx = colon.x as f64 + colon_w as f64 / 2.0;
+        let digit_y = colon.y + (colon_h - digit_h) / 2;
+        let anchor_x = |offset: f64| (colon_cx + offset * digit_w as f64 - digit_w as f64 / 2.0).round() as i32;
+
+        // Read every digit at its own (per-frame accurate) detection.
+        let (l1_det, l1_dc) = classify_box(frame, glyphs, Rect::new(l1.x, l1.y, l1.w, l1.h), l1.value)?;
+        let (l0_det, l0_dc) = classify_box(frame, glyphs, Rect::new(l0.x, l0.y, l0.w, l0.h), l0.value)?;
+        let (r0_det, r0_dc) = classify_box(frame, glyphs, Rect::new(r0.x, r0.y, r0.w, r0.h), r0.value)?;
+        let (r1_det, r1_dc) = classify_box(frame, glyphs, Rect::new(r1.x, r1.y, r1.w, r1.h), r1.value)?;
+        // For the phantom-prone outer digits, also read the colon-anchored slot and
+        // let it win only when clearly more confident than the detection.
+        let (l1_ax, r1_ax) = (anchor_x(SLOT_OFFSETS[0]), anchor_x(SLOT_OFFSETS[3]));
+        let (l1_anc, l1_ac) = classify_box(frame, glyphs, Rect::new(l1_ax, digit_y, digit_w, digit_h), l1_det)?;
+        let (r1_anc, r1_ac) = classify_box(frame, glyphs, Rect::new(r1_ax, digit_y, digit_w, digit_h), r1_det)?;
+        let l1v = if l1_ac >= ANCHOR_ACCEPT && l1_ac > l1_dc { l1_anc } else { l1_det };
+        let r1v = if r1_ac >= ANCHOR_ACCEPT && r1_ac > r1_dc { r1_anc } else { r1_det };
+        let minutes = l1v * 10 + l0_det;
+        let seconds = r0_det * 10 + r1v;
+
+        if let Some(diag) = diag.as_deref_mut() {
+            let rect = |x, y, w, h, score| MatchRect { x, y, w, h, score };
+            diag.push((format!("min-tens det {l1_det} ({l1_dc:.2})"), rect(l1.x, l1.y, l1.w, l1.h, l1_dc)));
+            diag.push((format!("min-tens slot {l1_anc} ({l1_ac:.2})"), rect(l1_ax, digit_y, digit_w, digit_h, l1_ac)));
+            diag.push((format!("min-units det {l0_det} ({l0_dc:.2})"), rect(l0.x, l0.y, l0.w, l0.h, l0_dc)));
+            diag.push((format!("sec-tens det {r0_det} ({r0_dc:.2})"), rect(r0.x, r0.y, r0.w, r0.h, r0_dc)));
+            diag.push((format!("sec-units det {r1_det} ({r1_dc:.2})"), rect(r1.x, r1.y, r1.w, r1.h, r1_dc)));
+            diag.push((format!("sec-units slot {r1_anc} ({r1_ac:.2})"), rect(r1_ax, digit_y, digit_w, digit_h, r1_ac)));
+        }
         // A time is "mm:ss" capped at 0x3ff (1023) s, so seconds are 0-59 and
         // minutes <= 17. A phantom colon reads glyphs out of order into an
         // impossible field; rejecting out-of-range values drops the bogus reading.
@@ -1107,6 +1156,143 @@ struct ScaleCache {
 struct ScaledGlyphs {
     colon: Mat,
     digits: Vec<Mat>,
+    // Discriminative digit reader (see `DigitDiscriminator`), built from `digits`.
+    // None when a template is missing so callers fall back to plain matching.
+    discriminator: Option<DigitDiscriminator>,
+}
+
+// Re-classifies an already-located digit by weighting the correlation towards the
+// pixels where the ten glyphs actually differ (an `8`'s middle bar, a `6`/`9`
+// opening). Whole-glyph correlation drowns those few pixels in the shared outer
+// ring, leaving `0/6/8/9` a hair apart; weighting by inter-glyph variance widens
+// that margin ~3x, so per-frame capture noise no longer flips the winner.
+struct DigitDiscriminator {
+    box_w: i32,
+    box_h: i32,
+    // Each glyph resized to the common box, then mean-centred (see `mean_center`).
+    templates: Vec<Vec<f32>>,
+    // Per-pixel variance across the ten glyphs: the discriminating weight.
+    weights: Vec<f32>,
+    weight_sum: f32,
+}
+
+impl DigitDiscriminator {
+    // Builds the common-box templates and variance weights from scaled glyphs.
+    fn build(digits: &[Mat]) -> Result<Option<Self>> {
+        if digits.len() < 10 || digits.iter().take(10).any(|d| d.empty()) {
+            return Ok(None);
+        }
+        let box_w = digits.iter().take(10).map(|d| d.cols()).max().unwrap_or(0);
+        let box_h = digits.iter().take(10).map(|d| d.rows()).max().unwrap_or(0);
+        if box_w < 2 || box_h < 2 {
+            return Ok(None);
+        }
+        let n = (box_w * box_h) as usize;
+        let mut templates = Vec::with_capacity(10);
+        for d in digits.iter().take(10) {
+            templates.push(resize_to_box(d, box_w, box_h)?);
+        }
+        let mut weights = vec![0f32; n];
+        for i in 0..n {
+            let mean = templates.iter().map(|t| t[i]).sum::<f32>() / 10.0;
+            weights[i] = templates.iter().map(|t| (t[i] - mean).powi(2)).sum::<f32>() / 10.0;
+        }
+        let weight_sum: f32 = weights.iter().sum();
+        if weight_sum <= f32::EPSILON {
+            return Ok(None);
+        }
+        for t in &mut templates {
+            mean_center(t);
+        }
+        Ok(Some(Self { box_w, box_h, templates, weights, weight_sum }))
+    }
+
+    // Scores the patch at `rect` against every glyph, returning the best (value,
+    // score). The score doubles as a confidence: a well-aligned real digit scores
+    // ~0.9, while a patch straddling two glyphs (a phantom between-digit peak)
+    // scores far lower, which lets callers reject phantoms.
+    fn classify(&self, frame: &Mat, rect: Rect) -> Result<(i32, f64)> {
+        let Some(rect) = clamp_rect(rect, frame.cols(), frame.rows()) else { return Ok((-1, -1.0)) };
+        let mut patch = resize_to_box(&frame.roi(rect)?, self.box_w, self.box_h)?;
+        mean_center(&mut patch);
+        let mut best = (-2.0f64, -1i32);
+        for (v, tmpl) in self.templates.iter().enumerate() {
+            let score = weighted_ncc(&patch, tmpl, &self.weights, self.weight_sum);
+            if score > best.0 {
+                best = (score, v as i32);
+            }
+        }
+        Ok((best.1, best.0))
+    }
+}
+
+// Digit-slot centres relative to the colon centre, in digit-widths, for the fixed
+// "mm:ss" stats layout: [tens-min, units-min, tens-sec, units-sec]. Measured to be
+// consistent across capture sources and scales, so the colon (a stable, distinctive
+// anchor) positions the digits far more reliably than per-digit detection.
+const SLOT_OFFSETS: [f64; 4] = [-2.0, -0.85, 0.80, 2.0];
+
+// Confidence the colon-anchored slot read must clear to override an outer digit's
+// own detection: high enough that only a well-aligned real glyph wins (a phantom
+// or a blurry off-slot read stays below it), so it corrects a shadowed digit
+// without overriding an accurate per-frame detection.
+const ANCHOR_ACCEPT: f64 = 0.90;
+
+// Classifies the digit in `rect` with the discriminator, returning (value,
+// confidence). Falls back to `fallback` (the plain detection value) when there is
+// no discriminator or the patch is off-frame.
+fn classify_box(frame: &Mat, glyphs: &ScaledGlyphs, rect: Rect, fallback: i32) -> Result<(i32, f64)> {
+    match glyphs.discriminator.as_ref() {
+        Some(disc) => {
+            let (value, conf) = disc.classify(frame, rect)?;
+            Ok(if value >= 0 { (value, conf) } else { (fallback, -1.0) })
+        }
+        None => Ok((fallback, 1.0)),
+    }
+}
+
+// Resizes a single-channel glyph to `box_w x box_h` and returns its pixels as f32.
+fn resize_to_box(src: &(impl MatTraitConst + ToInputArray), box_w: i32, box_h: i32) -> Result<Vec<f32>> {
+    let mut resized = Mat::default();
+    let interp = if src.cols() > box_w { imgproc::INTER_AREA } else { imgproc::INTER_LINEAR };
+    imgproc::resize(src, &mut resized, Size::new(box_w, box_h), 0.0, 0.0, interp)?;
+    let mut f = Mat::default();
+    resized.convert_to(&mut f, core::CV_32F, 1.0, 0.0)?;
+    Ok(f.data_typed::<f32>()?.to_vec())
+}
+
+// Subtracts the mean in place so `weighted_ncc` compares shape, not brightness.
+fn mean_center(v: &mut [f32]) {
+    let mean = v.iter().sum::<f32>() / v.len() as f32;
+    for x in v.iter_mut() {
+        *x -= mean;
+    }
+}
+
+// Variance-weighted normalised cross-correlation of two mean-centred vectors.
+fn weighted_ncc(a: &[f32], b: &[f32], w: &[f32], wsum: f32) -> f64 {
+    let wa: f32 = a.iter().zip(w).map(|(x, wi)| x * wi).sum::<f32>() / wsum;
+    let wb: f32 = b.iter().zip(w).map(|(x, wi)| x * wi).sum::<f32>() / wsum;
+    let mut num = 0f64;
+    let mut da = 0f64;
+    let mut db = 0f64;
+    for ((&ai, &bi), &wi) in a.iter().zip(b).zip(w) {
+        let (ca, cb) = ((ai - wa) as f64, (bi - wb) as f64);
+        num += wi as f64 * ca * cb;
+        da += wi as f64 * ca * ca;
+        db += wi as f64 * cb * cb;
+    }
+    let den = (da * db).sqrt();
+    if den > 0.0 { num / den } else { -1.0 }
+}
+
+// Clamps `rect` to the frame, returning None if it falls entirely outside.
+fn clamp_rect(rect: Rect, cols: i32, rows: i32) -> Option<Rect> {
+    let x = rect.x.clamp(0, cols);
+    let y = rect.y.clamp(0, rows);
+    let w = (rect.x + rect.width).min(cols) - x;
+    let h = (rect.y + rect.height).min(rows) - y;
+    if w >= 2 && h >= 2 { Some(Rect::new(x, y, w, h)) } else { None }
 }
 
 // Aspect correction learned for a source resolution: the horizontal window
@@ -1362,7 +1548,8 @@ impl CvMatcher {
         for digit in &self.digits {
             digits.push(scaled(digit, scale)?);
         }
-        let glyphs = Arc::new(ScaledGlyphs { colon, digits });
+        let discriminator = DigitDiscriminator::build(&digits)?;
+        let glyphs = Arc::new(ScaledGlyphs { colon, digits, discriminator });
         cache.push((key, Arc::clone(&glyphs)));
         Ok(glyphs)
     }
@@ -1685,6 +1872,22 @@ impl CvMatcher {
         self.match_level_from_bgra_frame(&bgra_frame)
     }
 
+    /// Decodes an encoded image (PNG/BMP/etc.) and matches it. Used by the
+    /// developer tool to match a dumped frame dropped in from disk. Returns the
+    /// match plus the decoded image's dimensions (annotations are in its coords).
+    pub fn match_level_from_encoded_image(&self, bytes: &[u8]) -> Result<(LevelMatch, u32, u32)> {
+        let buf = Mat::from_slice(bytes)?;
+        let bgr = imgcodecs::imdecode(&buf, imgcodecs::IMREAD_COLOR)?;
+        if bgr.empty() {
+            return Err(opencv::Error::new(core::StsError, "could not decode image".to_owned()));
+        }
+        let mut bgra = Mat::default();
+        imgproc::cvt_color_def(&bgr, &mut bgra, imgproc::COLOR_BGR2BGRA)?;
+        let (w, h) = (bgra.cols() as u32, bgra.rows() as u32);
+        let level_match = self.match_level_from_bgra_frame(&bgra)?;
+        Ok((level_match, w, h))
+    }
+
     pub fn match_level_from_bgra_frame(&self, bgra_frame: &impl ToInputArray) -> Result<LevelMatch> {
         let mut result = LevelMatch {
             screen: Screen::Unknown,
@@ -1700,6 +1903,9 @@ impl CvMatcher {
         };
         let mut match_regions = Vec::new();
         let mut search_regions = Vec::new();
+        // Per-digit diagnostic boxes (work coords) from the time reader, mapped to a
+        // developer "Time digits" annotation set below when diagnostics are on.
+        let mut time_digit_diag: Vec<(String, MatchRect)> = Vec::new();
         let mut timer = PhaseTimer::new();
 
         // Convert the BGRA frame to grayscale once; every template is matched
@@ -1799,7 +2005,7 @@ impl CvMatcher {
             dbg_cv!("[gate] no header; levels_score={levels_score:.3} => {:?}", result.screen);
             timer.lap("levels detect");
             result.match_regions = match_regions;
-            result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region);
+            result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region, Vec::new());
             result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
             return Ok(result);
         }
@@ -1816,7 +2022,8 @@ impl CvMatcher {
             if detected_lang != self.lang {
                 dbg_cv!("[language] configured={} detected={detected_lang}; rejecting wrong-language frame", self.lang);
                 result.match_regions = match_regions;
-                result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region);
+                result.annotation_sets =
+                    annotation_sets(&result.match_regions, search_regions, folder_region, Vec::new());
                 result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
                 return Ok(result);
             }
@@ -2060,11 +2267,27 @@ impl CvMatcher {
                     (COLON_REGION_X, COLON_REGION_Y, COLON_REGION_W, COLON_REGION_H),
                 ),
             );
-            find_times_band(&frame, colon_tmpl, digit_tmpls)?
+            find_times_band(&frame, &glyphs, self.diagnostics.then_some(&mut time_digit_diag))?
         };
         for t in &found_times {
             self.push_work_region(&mut match_regions, &mapper, format!("time {}", format_seconds(t.seconds)), t.colon);
         }
+        // Map the per-digit diagnostic boxes (work coords) into a source-space set
+        // so the developer overlay shows where each digit was read from.
+        let time_digits: Vec<AnnotationRect> = time_digit_diag
+            .iter()
+            .map(|(label, rect)| {
+                let region = mapper.work_to_source(*rect);
+                AnnotationRect {
+                    label: label.clone(),
+                    x: region.x,
+                    y: region.y,
+                    w: region.w,
+                    h: region.h,
+                    score: Some(region.score),
+                }
+            })
+            .collect();
         let times: Vec<i32> = found_times.into_iter().map(|t| t.seconds).collect();
         result.times = ge::Times::classify(result.mission, result.part, result.difficulty, &times);
         result.raw_times = times;
@@ -2094,7 +2317,7 @@ impl CvMatcher {
 
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
         result.match_regions = match_regions;
-        result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region);
+        result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region, time_digits);
 
         Ok(result)
     }
@@ -2103,6 +2326,24 @@ impl CvMatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TEMPLATES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../cv_templates");
+
+    // Decoding + matching an encoded image (the developer upload path) reads the
+    // same result as the file-based matcher; uses a committed flicker fixture.
+    #[test]
+    fn match_level_from_encoded_image_decodes_and_matches() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test/screenshots-rt4kce/en - stats - 3 - Agent - 0028_0500_0028 - flicker-004.png"
+        );
+        let bytes = std::fs::read(path).expect("read fixture");
+        let matcher = CvMatcher::new("en", TEMPLATES_DIR).expect("matcher");
+        let (m, w, h) = matcher.match_level_from_encoded_image(&bytes).expect("decode+match");
+        assert!(w > 0 && h > 0, "decoded dimensions");
+        assert_eq!(m.screen, Screen::Stats);
+        assert_eq!(m.times.map(|t| t.best_time), Some(Some(28)));
+    }
 
     fn level_match(screen: Screen, mission: i32, part: i32, difficulty: i32, raw_times: Vec<i32>) -> LevelMatch {
         LevelMatch {
