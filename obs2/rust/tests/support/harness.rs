@@ -13,8 +13,9 @@ use futures_util::StreamExt;
 use opencv::prelude::*;
 use opencv::{imgcodecs, imgproc};
 use serde_json::{Value, json};
-use tokio_tungstenite::connect_async;
+use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 use super::test_obs::{Config, Frame, TestObs};
 
@@ -169,6 +170,10 @@ impl Harness {
             assert!(Instant::now() < deadline, "timed out waiting for replay buffer to stop");
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
+    }
+
+    pub async fn connect_monitor_ws(&self) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
+        connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap().0
     }
 }
 
@@ -452,7 +457,24 @@ async fn wait_for_monitor_snapshot(predicate: impl Fn(&Value) -> bool) -> Value 
     }
 }
 
-fn snapshot_from_message(message: Message) -> Option<Value> {
+pub async fn next_monitor_snapshot(ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>, label: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match tokio::time::timeout(Duration::from_millis(200), ws.next()).await {
+            Ok(Some(Ok(message))) => {
+                if let Some(snapshot) = snapshot_from_message(message) {
+                    return snapshot;
+                }
+            }
+            Ok(Some(Err(err))) => panic!("monitor websocket failed while waiting for {label}: {err}"),
+            Ok(None) => panic!("monitor websocket ended while waiting for {label}"),
+            Err(_) => {}
+        }
+        assert!(Instant::now() < deadline, "timed out waiting for {label}");
+    }
+}
+
+pub fn snapshot_from_message(message: Message) -> Option<Value> {
     let value: Value = match message {
         Message::Text(text) => serde_json::from_str(&text).unwrap(),
         Message::Binary(bytes) => serde_json::from_slice(&bytes).unwrap(),
