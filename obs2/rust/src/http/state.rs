@@ -5,8 +5,7 @@ use std::time::Duration;
 use serde::Serialize;
 use tokio::sync::{Mutex, broadcast, oneshot, watch};
 
-use super::ReplayBufferStatus;
-use super::routes;
+use super::{ReplayBufferStatus, routes};
 use crate::cv::LevelMatch;
 
 pub struct AppStateInner {

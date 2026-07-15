@@ -20,7 +20,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use http::{
-    AppSnapshot, AppState, AppStateInner, MonitorEvent, MonitorSnapshot, MonitorStoppedReason, RecordingStateStore,
+    AppSnapshot,
+    AppState,
+    AppStateInner,
+    MonitorEvent,
+    MonitorSnapshot,
+    MonitorStoppedReason,
+    RecordingStateStore,
     SharedStateStore,
 };
 use tokio::runtime::Runtime;

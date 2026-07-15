@@ -5,13 +5,14 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::cv::{CaptureRegion, LevelMatch};
-use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason};
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
 use serde::Deserialize;
+
+use crate::cv::{CaptureRegion, LevelMatch};
+use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason};
 
 mod capture;
 mod frame_dump;
@@ -20,7 +21,13 @@ mod socket;
 
 pub use capture::MonitorHandle;
 use capture::{
-    CapturedFrameStats, FRAME_BUFFER_CAPACITY, FrameMailbox, MailboxRecv, ProducerCtx, ProducerPtr, ge_frame_callback,
+    CapturedFrameStats,
+    FRAME_BUFFER_CAPACITY,
+    FrameMailbox,
+    MailboxRecv,
+    ProducerCtx,
+    ProducerPtr,
+    ge_frame_callback,
 };
 pub use session::MonitorSession;
 use session::{DisplayTimeSmoother, handle_detected_language, log_level_match};

@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+
 use tokio::sync::broadcast;
 
 use crate::cv::{CaptureRegion, CvMatcher, LevelMatch, Screen};
