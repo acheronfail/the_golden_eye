@@ -8,7 +8,6 @@ import { obsSources } from '$lib/sources.svelte';
 
 const mocks = vi.hoisted(() => {
 	const api = {
-		getMonitorStatus: vi.fn(),
 		getReplayBufferStatus: vi.fn(),
 		startMonitor: vi.fn(),
 		stopMonitor: vi.fn()
@@ -45,7 +44,6 @@ vi.mock('$lib/api', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/api')>();
 	return {
 		...actual,
-		getMonitorStatus: mocks.api.getMonitorStatus,
 		getReplayBufferStatus: mocks.api.getReplayBufferStatus,
 		startMonitor: mocks.api.startMonitor,
 		stopMonitor: mocks.api.stopMonitor
@@ -66,11 +64,6 @@ beforeEach(() => {
 	monitor.match = null;
 	monitor.recordingState = null;
 	settings.loaded = true;
-	mocks.api.getMonitorStatus.mockResolvedValue({
-		enabled: true,
-		sourceName: 'N64 Capture',
-		recordingState: null
-	});
 	mocks.api.getReplayBufferStatus.mockResolvedValue({
 		enabled: true,
 		available: true,
@@ -93,7 +86,8 @@ describe('/sources/[sourceName]', () => {
 		await user.click(stopButton);
 
 		await waitFor(() => expect(mocks.api.stopMonitor).toHaveBeenCalledTimes(1));
-		expect(monitor.status).toEqual({ enabled: false, recordingState: null });
+		// Monitor status is now owned by backend snapshots; this page only
+		// performs the stop request and navigates away while the socket update lands.
 		expect(mocks.goto).toHaveBeenCalledWith('/', { replaceState: true });
 	});
 });

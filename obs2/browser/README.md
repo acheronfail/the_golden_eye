@@ -15,7 +15,7 @@ To recreate this project with the same configuration:
 
 ```sh
 # recreate this project
-npx sv@0.15.3 create --template minimal --types ts --add prettier vitest="usages:unit" playwright tailwindcss="plugins:typography,forms" sveltekit-adapter="adapter:node" --install npm frontend
+npx sv@0.15.3 create --template minimal --types ts --add prettier vitest="usages:unit" tailwindcss="plugins:typography,forms" sveltekit-adapter="adapter:node" --install npm frontend
 ```
 
 ## Developing

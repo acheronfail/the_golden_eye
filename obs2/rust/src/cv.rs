@@ -342,7 +342,7 @@ impl MatchRect {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MatchRegion {
     pub label: String,
     pub x: i32,
@@ -352,7 +352,7 @@ pub struct MatchRegion {
     pub score: f64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AnnotationRect {
     pub label: String,
     pub x: i32,
@@ -363,7 +363,7 @@ pub struct AnnotationRect {
     pub score: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AnnotationSet {
     pub id: String,
     pub label: String,
@@ -480,7 +480,7 @@ impl Screen {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LevelMatch {
     pub screen: Screen,
     pub mission: i32,

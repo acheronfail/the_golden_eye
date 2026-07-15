@@ -14,11 +14,9 @@
 		"format": "prettier --write .",
 		"format:repo": "prettier --write --ignore-path ../../.prettierignore \"../../**/*.{js,cjs,mjs,jsx,ts,tsx,svelte,css,html,md}\"",
 		"test:unit": "vitest",
-		"test": "npm run test:unit -- --run && npm run test:e2e",
-		"test:e2e": "playwright install && playwright test"
+		"test": "npm run test:unit -- --run"
 	},
 	"devDependencies": {
-		"@playwright/test": "^1.59.1",
 		"@sveltejs/adapter-node": "^5.5.4",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.57.0",

@@ -112,7 +112,10 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
     if (path) {
       bfree(path);
     }
-  } else if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING || event == OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED) {
+  } else if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING) {
+    ge_frontend_finished_loading();
+    ge_sources_changed();
+  } else if (event == OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED) {
     ge_sources_changed();
   }
 }

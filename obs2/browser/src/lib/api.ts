@@ -529,11 +529,24 @@ export interface MonitorFps {
 /** A message pushed over the app WebSocket. Mirrors the Rust `MonitorEvent`,
  * which is serialized internally tagged by `type`, so each variant is its
  * payload plus a discriminating `type` field. */
+export interface MonitorSnapshot {
+	enabled: boolean;
+	sourceName?: string;
+}
+
+export interface AppSnapshot {
+	monitor: MonitorSnapshot;
+	match: LevelMatch | null;
+	recordingState: RecordingStatus | null;
+	sources: ObsSource[];
+	replayBuffer: ReplayBufferStatus;
+	settingsStatus: SettingsStatus;
+	update: PluginUpdate | null;
+}
+
 export type AppSocketEvent =
 	| { type: 'version'; buildId: string }
-	| { type: 'sources'; sources: ObsSource[] }
-	| ({ type: 'match' } & LevelMatch)
-	| { type: 'recordingState'; status: RecordingStatus | null }
+	| { type: 'snapshot'; state: AppSnapshot }
 	| { type: 'languageDetected'; lang: 'en' | 'jp' }
 	| ({ type: 'monitorFps' } & MonitorFps)
 	| ({ type: 'recordingSavePending' } & RecordingSavePending)
@@ -543,20 +556,14 @@ export type AppSocketEvent =
 	| { type: 'monitorStopped'; reason: MonitorStoppedReason }
 	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
 	| { type: 'settingsInvalid'; configPath: string; error: string }
-	| ({ type: 'updateAvailable' } & PluginUpdate)
 	| { type: 'updateApplied'; version: string; releaseUrl?: string }
 	| { type: 'updateStagingFailed'; error: string };
 
 /** Handlers for the messages the app WebSocket can push. All are optional;
  * provide only the ones you care about. */
 export interface AppSocketHandlers {
-	/** The OBS renderable video-source list changed, or was replayed on connect. */
-	onSources?: (sources: ObsSource[]) => void;
-	/** The matched on-screen state changed (also fired once on connect with the
-	 * current match, if a monitor is running). */
-	onMatch?: (match: LevelMatch) => void;
-	/** The recorder's per-run state changed, or returned to idle (`null`). */
-	onRecordingState?: (status: RecordingStatus | null) => void;
+	/** Complete retained app/session state from the backend. */
+	onSnapshot?: (snapshot: AppSnapshot) => void;
 	/** The active source showed a ROM language marker. */
 	onLanguageDetected?: (lang: 'en' | 'jp') => void;
 	/** Periodic monitor throughput telemetry while a monitor is active. */
@@ -577,8 +584,6 @@ export interface AppSocketHandlers {
 	onSettingsReloaded?: (settings: Settings, configPath: string) => void;
 	/** Settings JSON changed but is invalid. */
 	onSettingsInvalid?: (error: string, configPath: string) => void;
-	/** A newer plugin release is available. */
-	onUpdateAvailable?: (update: PluginUpdate) => void;
 	/** The plugin just applied an update and is now running `version`. Fires once
 	 * per applied update. `releaseUrl` is present only when it's confidently the
 	 * changelog for the update just applied. */
@@ -622,18 +627,12 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 					console.warn('Ignoring malformed monitor version event', msg);
 				}
 				break;
-			case 'sources':
-				if (Array.isArray(msg.sources)) {
-					handlers.onSources?.(msg.sources);
+			case 'snapshot':
+				if (msg.state && typeof msg.state === 'object') {
+					handlers.onSnapshot?.(msg.state);
 				} else {
-					console.warn('Ignoring malformed sources event', msg);
+					console.warn('Ignoring malformed snapshot event', msg);
 				}
-				break;
-			case 'match':
-				handlers.onMatch?.(msg);
-				break;
-			case 'recordingState':
-				handlers.onRecordingState?.(msg.status);
 				break;
 			case 'languageDetected':
 				handlers.onLanguageDetected?.(msg.lang);
@@ -662,9 +661,6 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 			case 'settingsInvalid':
 				handlers.onSettingsInvalid?.(msg.error, msg.configPath);
 				break;
-			case 'updateAvailable':
-				handlers.onUpdateAvailable?.(msg);
-				break;
 			case 'updateApplied':
 				if (typeof msg.version === 'string') {
 					handlers.onUpdateApplied?.(msg.version, msg.releaseUrl);
@@ -681,19 +677,9 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 	return socket;
 };
 
-/** Current monitor status. `sourceName` present only when `enabled`;
- * `recordingState` is the recorder phase or `null`. Mirrors Rust `MonitorStatus`. */
 export type MonitorStatus =
 	| { enabled: false; recordingState?: null }
 	| { enabled: true; sourceName: string; recordingState: RecordingStatus | null };
-
-/** Fetch whether a monitor is running, and if so for which source.
- * Throws on a non-OK response. */
-export const getMonitorStatus = async (): Promise<MonitorStatus> => {
-	const res = await fetch(apiUrl('/api/v1/monitor/status'));
-	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
-	return res.json();
-};
 
 /** Start monitoring the given source. Recording options are read by the backend
  * from the persisted settings store. Throws on a non-OK response. */

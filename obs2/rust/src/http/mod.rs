@@ -13,6 +13,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::{get, post};
 pub(crate) use routes::monitor::stop_monitor;
+pub use routes::record::ReplayBufferStatus;
 use serde::Serialize;
 use tokio::net::{TcpListener, TcpSocket};
 use tokio::sync::{Mutex, broadcast, oneshot, watch};
@@ -31,19 +32,16 @@ pub struct AppStateInner {
     /// the stop handler can edit it in place rather than posting a new message.
     pub stream_message: Mutex<Option<StreamMessage>>,
     /// The currently running monitor, if any. Enforces a single monitor at a
-    /// time: `/api/v1/monitor/start` fails while this is `Some`.
+    /// time; serializable monitor state lives in `snapshot`.
     pub monitor: std::sync::Mutex<Option<routes::monitor::MonitorHandle>>,
-    /// Latest `LevelMatch` from the running monitor (`None` when stopped). A
-    /// `watch` channel: only sent when the matched state changes (ignoring
-    /// `runtime_ms`), and retained so a mid-run client sees the current match.
-    pub match_tx: watch::Sender<Option<LevelMatch>>,
+    /// The single retained app/session state object. New browser clients receive
+    /// this on connect, then every retained-state change as a fresh snapshot.
+    pub snapshot: SharedStateStore,
     /// One-off monitor events broadcast to connected WebSocket clients (e.g. a
-    /// clip being saved). A `broadcast` channel: discrete events, nothing retained
-    /// for late joiners. Send errors (no subscribers) are ignored at call sites.
+    /// clip being saved). Discrete events are not retained for late joiners.
     pub event_tx: broadcast::Sender<MonitorEvent>,
-    /// Latest recorder phase from the running monitor. This is retained so a
-    /// page reload or second browser can see "recording" / "saving" / etc.
-    /// immediately, instead of waiting for the next transition.
+    /// Latest recorder phase from the running monitor, with generation-aware
+    /// timeout clearing. Writes also update `snapshot.recording_state`.
     pub recording_state: RecordingStateStore,
     /// Developer-only, in-memory switch that makes the live monitor include
     /// matcher regions and annotation sets in its debug/info payloads. This is
@@ -53,19 +51,115 @@ pub struct AppStateInner {
     /// chosen source's frames to a temp directory independent of the monitor. See
     /// `routes::monitor::start_frame_dump`.
     pub frame_dump: std::sync::Mutex<Option<routes::monitor::FrameDumpHandle>>,
-    /// Latest OBS video-source list, broadcast to browser clients whenever OBS
-    /// reports source creation/removal/update/rename. Retained so a page load
-    /// receives the current source picker state immediately.
-    pub source_tx: watch::Sender<Vec<routes::sources::Source>>,
-    /// Latest plugin update detected at startup. Retained so a browser dock that
-    /// connects after the network check finishes still gets the sticky notice.
-    pub update_tx: watch::Sender<Option<crate::updates::PluginUpdate>>,
+    /// Signals when OBS has emitted `OBS_FRONTEND_EVENT_FINISHED_LOADING` and
+    /// frontend replay-buffer APIs are safe to query.
+    pub frontend_ready_tx: watch::Sender<bool>,
     /// Plugin-owned user settings, loaded from and persisted to JSON.
     pub settings: crate::settings::SettingsStore,
     /// `Some(start instant)` if this core load followed a successful update apply
     /// (see `crate::WAS_RELOADED`), so a client connecting within a grace period
     /// gets a one-off "plugin updated" notice (see `routes::monitor::handle_socket`).
     pub reloaded_at: Option<std::time::Instant>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorSnapshot {
+    pub enabled: bool,
+    #[serde(rename = "sourceName", skip_serializing_if = "Option::is_none")]
+    pub source_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSnapshot {
+    pub monitor: MonitorSnapshot,
+    #[serde(rename = "match")]
+    pub level_match: Option<LevelMatch>,
+    pub recording_state: Option<RecordingStatus>,
+    pub sources: Vec<routes::sources::Source>,
+    pub replay_buffer: ReplayBufferStatus,
+    pub settings_status: crate::settings::SettingsStatus,
+    pub update: Option<crate::updates::PluginUpdate>,
+}
+
+#[derive(Clone)]
+pub struct SharedStateStore {
+    tx: watch::Sender<AppSnapshot>,
+    state: Arc<StdMutex<AppSnapshot>>,
+}
+
+impl SharedStateStore {
+    pub fn new(initial: AppSnapshot) -> Self {
+        let (tx, _) = watch::channel(initial.clone());
+        Self { tx, state: Arc::new(StdMutex::new(initial)) }
+    }
+
+    pub fn subscribe(&self) -> watch::Receiver<AppSnapshot> {
+        self.tx.subscribe()
+    }
+
+    #[cfg(test)]
+    pub fn current(&self) -> AppSnapshot {
+        self.lock_state().clone()
+    }
+
+    pub fn set_monitor_running(&self, source_name: String) {
+        self.update(|state| {
+            state.monitor.enabled = true;
+            state.monitor.source_name = Some(source_name);
+        });
+    }
+
+    pub fn set_monitor_stopped(&self) {
+        self.update(|state| {
+            state.monitor.enabled = false;
+            state.monitor.source_name = None;
+            state.level_match = None;
+            state.recording_state = None;
+        });
+    }
+
+    pub fn set_match(&self, level_match: Option<LevelMatch>) {
+        self.update(|state| state.level_match = level_match);
+    }
+
+    pub fn set_recording_state(&self, recording_state: Option<RecordingStatus>) {
+        self.update(|state| state.recording_state = recording_state);
+    }
+
+    pub fn set_sources(&self, sources: Vec<routes::sources::Source>) {
+        self.update(|state| state.sources = sources);
+    }
+
+    pub fn set_replay_buffer(&self, replay_buffer: ReplayBufferStatus) {
+        self.update(|state| state.replay_buffer = replay_buffer);
+    }
+
+    pub fn set_settings_status(&self, settings_status: crate::settings::SettingsStatus) {
+        self.update(|state| state.settings_status = settings_status);
+    }
+
+    pub fn set_update(&self, update: Option<crate::updates::PluginUpdate>) {
+        self.update(|state| state.update = update);
+    }
+
+    fn update(&self, apply: impl FnOnce(&mut AppSnapshot)) {
+        let next = {
+            let mut state = self.lock_state();
+            let previous = state.clone();
+            apply(&mut state);
+            if *state == previous {
+                return;
+            }
+            state.clone()
+        };
+        self.tx.send_replace(next);
+    }
+
+    fn lock_state(&self) -> std::sync::MutexGuard<'_, AppSnapshot> {
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 /// A Discord webhook message we posted and may later edit.
@@ -88,14 +182,9 @@ pub enum MonitorEvent {
         #[serde(rename = "buildId")]
         build_id: String,
     },
-    /// The current OBS video-source list changed.
-    Sources { sources: Vec<routes::sources::Source> },
-    /// The matched on-screen state changed; carries the current match.
-    Match(LevelMatch),
-    /// The recorder's run state changed (a run began, was cancelled, saw a
-    /// failure screen, had its save scheduled, or returned to idle). Distinct
-    /// from `RecordingSaved`, which reports the final written clip.
-    RecordingState { status: Option<RecordingStatus> },
+    /// The complete retained app/session state. Sent on connect and after every
+    /// retained-state change so new tabs sync to the backend source of truth.
+    Snapshot { state: AppSnapshot },
     /// The source showed a ROM language-specific marker. The monitor uses this
     /// to keep its active matcher and recording metadata aligned automatically.
     LanguageDetected { lang: String },
@@ -135,8 +224,6 @@ pub enum MonitorEvent {
         config_path: String,
         error: String,
     },
-    /// A newer plugin release is available on GitHub.
-    UpdateAvailable(crate::updates::PluginUpdate),
     /// Sent once when a client connects shortly after this core was loaded via
     /// an applied update (dev hot-reload or a real auto-update), so the SPA
     /// can show a one-off "plugin updated" notice. See `AppStateInner::reloaded_at`.
@@ -226,7 +313,7 @@ pub enum RecordingStatus {
 /// same lifecycle the UI displays.
 #[derive(Clone)]
 pub struct RecordingStateStore {
-    tx: watch::Sender<Option<RecordingStatus>>,
+    snapshot: SharedStateStore,
     state: Arc<StdMutex<RecordingStateInner>>,
 }
 
@@ -239,12 +326,11 @@ impl RecordingStateStore {
     const CANCELLED_LINGER: Duration = Duration::from_secs(2);
     const SAVE_TIMEOUT: Duration = Duration::from_secs(30);
 
-    pub fn new(tx: watch::Sender<Option<RecordingStatus>>) -> Self {
-        RecordingStateStore { tx, state: Arc::new(StdMutex::new(RecordingStateInner { status: None, generation: 0 })) }
-    }
-
-    pub fn subscribe(&self) -> watch::Receiver<Option<RecordingStatus>> {
-        self.tx.subscribe()
+    pub fn new(snapshot: SharedStateStore) -> Self {
+        RecordingStateStore {
+            snapshot,
+            state: Arc::new(StdMutex::new(RecordingStateInner { status: None, generation: 0 })),
+        }
     }
 
     pub fn current(&self) -> Option<RecordingStatus> {
@@ -260,7 +346,7 @@ impl RecordingStateStore {
             let previous = state.status;
             state.generation += 1;
             state.status = Some(status);
-            self.tx.send_replace(state.status);
+            self.snapshot.set_recording_state(state.status);
             tracing::info!(?previous, new = ?status, generation = state.generation, "recording phase set");
             state.generation
         };
@@ -283,7 +369,7 @@ impl RecordingStateStore {
         let previous = state.status;
         state.generation += 1;
         state.status = None;
-        self.tx.send_replace(state.status);
+        self.snapshot.set_recording_state(state.status);
         tracing::info!(?previous, generation = state.generation, "recording phase cleared");
     }
 
@@ -308,7 +394,7 @@ impl RecordingStateStore {
             let previous = state.status;
             state.generation += 1;
             state.status = None;
-            self.tx.send_replace(state.status);
+            self.snapshot.set_recording_state(state.status);
             tracing::info!(
                 ?previous,
                 cleared_generation = generation,
@@ -388,6 +474,10 @@ pub fn collect_sources() -> Vec<routes::sources::Source> {
     routes::sources::collect_sources()
 }
 
+pub fn current_replay_buffer_status() -> routes::record::ReplayBufferStatus {
+    routes::record::current_replay_buffer_status()
+}
+
 /// Logs each request as it arrives and again once a response is produced.
 async fn log_requests(req: Request, next: Next) -> Response {
     let method = req.method().clone();
@@ -442,7 +532,6 @@ pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state
         .route("/api/v1/replay-buffer/status", get(routes::record::handle_replay_status))
         .route("/api/v1/monitor/start", post(routes::monitor::handle_start))
         .route("/api/v1/monitor/stop", post(routes::monitor::handle_stop))
-        .route("/api/v1/monitor/status", get(routes::monitor::handle_status))
         .route("/api/v1/monitor/ws", get(routes::monitor::handle_ws))
         .route("/api/v1/settings", get(routes::settings::handle_get).put(routes::settings::handle_put))
         .route("/api/v1/settings/status", get(routes::settings::handle_status))
@@ -513,28 +602,52 @@ mod tests {
         assert!(json.get("build_id").is_none());
     }
 
-    #[test]
-    fn update_available_event_flattens_update_payload() {
-        let event = MonitorEvent::UpdateAvailable(crate::updates::PluginUpdate {
-            current_version: "1.0.0".to_owned(),
-            latest_version: "1.1.0".to_owned(),
-            release_url: "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.1.0".to_owned(),
-        });
-        let json = serde_json::to_value(event).unwrap();
-
-        assert_eq!(json["type"], "updateAvailable");
-        assert_eq!(json["currentVersion"], "1.0.0");
-        assert_eq!(json["latestVersion"], "1.1.0");
-        assert_eq!(json["releaseUrl"], "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.1.0");
+    fn test_snapshot() -> AppSnapshot {
+        AppSnapshot {
+            monitor: MonitorSnapshot { enabled: true, source_name: Some("N64 Capture".to_owned()) },
+            level_match: None,
+            recording_state: Some(RecordingStatus::Started),
+            sources: vec![routes::sources::Source {
+                name: "N64 Capture".to_owned(),
+                id: "av_capture_input".to_owned(),
+            }],
+            replay_buffer: routes::record::ReplayBufferStatus {
+                enabled: true,
+                available: true,
+                active: true,
+                max_seconds: Some(1200),
+                output_directory: Some("/captures".to_owned()),
+                default_completed_output_path: Some("/captures/GoldenEye".to_owned()),
+                default_failed_output_path: Some("/captures/GoldenEye/failed".to_owned()),
+            },
+            settings_status: crate::settings::SettingsStatus {
+                settings: crate::settings::AppSettings::default(),
+                defaults: crate::settings::AppSettings::default(),
+                config_path: "/tmp/settings.json".to_owned(),
+                file_error: None,
+            },
+            update: Some(crate::updates::PluginUpdate {
+                current_version: "1.0.0".to_owned(),
+                latest_version: "1.1.0".to_owned(),
+                release_url: "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.1.0".to_owned(),
+            }),
+        }
     }
 
     #[test]
-    fn monitor_recording_state_event_can_clear_status() {
-        let event = MonitorEvent::RecordingState { status: None };
+    fn snapshot_event_contains_retained_app_state() {
+        let event = MonitorEvent::Snapshot { state: test_snapshot() };
         let json = serde_json::to_value(event).unwrap();
 
-        assert_eq!(json["type"], "recordingState");
-        assert!(json["status"].is_null());
+        assert_eq!(json["type"], "snapshot");
+        assert_eq!(json["state"]["monitor"]["enabled"], true);
+        assert_eq!(json["state"]["monitor"]["sourceName"], "N64 Capture");
+        assert!(json["state"]["match"].is_null());
+        assert_eq!(json["state"]["recordingState"], "started");
+        assert_eq!(json["state"]["sources"][0]["name"], "N64 Capture");
+        assert_eq!(json["state"]["replayBuffer"]["active"], true);
+        assert_eq!(json["state"]["settingsStatus"]["configPath"], "/tmp/settings.json");
+        assert_eq!(json["state"]["update"]["latestVersion"], "1.1.0");
     }
 
     #[test]
@@ -612,29 +725,28 @@ mod tests {
         assert!(json.get("stats").is_none());
     }
 
-    #[test]
-    fn sources_event_uses_frontend_field_name() {
-        let event = MonitorEvent::Sources {
-            sources: vec![routes::sources::Source {
-                name: "N64 Capture".to_owned(),
-                id: "av_capture_input".to_owned(),
-            }],
-        };
-        let json = serde_json::to_value(event).unwrap();
+    #[tokio::test]
+    async fn snapshot_store_does_not_notify_for_noop_writes() {
+        let snapshot = SharedStateStore::new(test_snapshot());
+        let mut rx = snapshot.subscribe();
 
-        assert_eq!(json["type"], "sources");
-        assert_eq!(json["sources"][0]["name"], "N64 Capture");
-        assert_eq!(json["sources"][0]["id"], "av_capture_input");
+        snapshot.set_sources(snapshot.current().sources);
+        assert!(tokio::time::timeout(Duration::from_millis(10), rx.changed()).await.is_err());
+
+        snapshot.set_monitor_stopped();
+        assert!(tokio::time::timeout(Duration::from_millis(100), rx.changed()).await.unwrap().is_ok());
     }
 
     #[test]
-    fn recording_state_store_retains_state_without_receivers() {
-        let (tx, rx) = watch::channel(None);
-        let store = RecordingStateStore::new(tx);
+    fn recording_state_store_updates_snapshot_without_receivers() {
+        let snapshot = SharedStateStore::new(test_snapshot());
+        let rx = snapshot.subscribe();
+        let store = RecordingStateStore::new(snapshot.clone());
         drop(rx);
 
         store.set(RecordingStatus::Started);
         assert_eq!(store.current(), Some(RecordingStatus::Started));
+        assert_eq!(snapshot.current().recording_state, Some(RecordingStatus::Started));
 
         // A stale generation (superseded by a later transition) must not clear
         // the phase, even though its captured value matches the current one.
@@ -651,6 +763,7 @@ mod tests {
         store.set(RecordingStatus::Started);
         store.clear();
         assert_eq!(store.current(), None);
+        assert_eq!(snapshot.current().recording_state, None);
     }
 
     #[test]

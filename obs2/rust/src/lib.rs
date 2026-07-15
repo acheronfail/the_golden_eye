@@ -19,7 +19,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use http::{AppState, AppStateInner, MonitorEvent, MonitorStoppedReason, RecordingStateStore};
+use http::{
+    AppSnapshot, AppState, AppStateInner, MonitorEvent, MonitorSnapshot, MonitorStoppedReason, RecordingStateStore,
+    SharedStateStore,
+};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
@@ -187,25 +190,31 @@ pub extern "C" fn ge_rust_start() -> bool {
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
-    let (match_tx, _) = tokio::sync::watch::channel(None);
-    let (recording_state_tx, _) = tokio::sync::watch::channel(None);
-    let (source_tx, _) = tokio::sync::watch::channel(http::collect_sources());
+    let snapshot = SharedStateStore::new(AppSnapshot {
+        monitor: MonitorSnapshot { enabled: false, source_name: None },
+        level_match: None,
+        recording_state: None,
+        sources: http::collect_sources(),
+        replay_buffer: http::ReplayBufferStatus::unknown(),
+        settings_status: settings.status_without_runtime_defaults(),
+        update: None,
+    });
     // One-off monitor events (recording saved, ...). Capacity bounds how far a
     // slow client can lag before it drops events; the worker ignores send errors,
     // so a full/empty channel never blocks frame processing.
     let (event_tx, _) = tokio::sync::broadcast::channel(64);
-    let recording_state = RecordingStateStore::new(recording_state_tx);
+    let (frontend_ready_tx, _) = tokio::sync::watch::channel(false);
+    let recording_state = RecordingStateStore::new(snapshot.clone());
     let state = Arc::new(AppStateInner {
         oauth_pending: tokio::sync::Mutex::new(None),
         stream_message: tokio::sync::Mutex::new(None),
         monitor: std::sync::Mutex::new(None),
-        match_tx,
+        snapshot,
         event_tx,
         recording_state,
         monitor_annotations_enabled: AtomicBool::new(false),
         frame_dump: std::sync::Mutex::new(None),
-        source_tx,
-        update_tx: tokio::sync::watch::channel(None).0,
+        frontend_ready_tx,
         settings,
         reloaded_at: WAS_RELOADED.load(Ordering::Acquire).then(std::time::Instant::now),
     });
@@ -238,12 +247,14 @@ async fn watch_settings_file(state: AppState) {
         match state.settings.reload_from_disk_if_changed() {
             SettingsReload::Unchanged => {}
             SettingsReload::Reloaded(settings) => {
+                state.snapshot.set_settings_status(state.settings.status_without_runtime_defaults());
                 let _ = state.event_tx.send(MonitorEvent::SettingsReloaded {
                     config_path: state.settings.path().to_string_lossy().into_owned(),
                     settings: *settings,
                 });
             }
             SettingsReload::Invalid(error) => {
+                state.snapshot.set_settings_status(state.settings.status_without_runtime_defaults());
                 let _ = state.event_tx.send(MonitorEvent::SettingsInvalid {
                     config_path: state.settings.path().to_string_lossy().into_owned(),
                     error,
@@ -314,6 +325,33 @@ pub unsafe extern "C" fn ge_stream_notifier_start(service_settings_json: *const 
     runtime_handle.spawn(stream_notifier::run(state, settings_json));
 }
 
+/// Called from the C core when OBS emits `OBS_FRONTEND_EVENT_FINISHED_LOADING`.
+/// This is the first lifecycle point where replay-buffer frontend APIs are safe
+/// to query on all supported OBS startup paths observed so far.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_frontend_finished_loading() {
+    let state = {
+        let guard = match SERVER.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        guard.as_ref().map(|h| h.state.clone())
+    };
+
+    let Some(state) = state else {
+        tracing::warn!("ge_frontend_finished_loading called but server is not running");
+        return;
+    };
+
+    state.frontend_ready_tx.send_replace(true);
+    refresh_runtime_snapshot(&state);
+}
+
+fn refresh_runtime_snapshot(state: &AppState) {
+    state.snapshot.set_settings_status(state.settings.status());
+    state.snapshot.set_replay_buffer(http::current_replay_buffer_status());
+}
+
 /// Called from the C core when OBS reports that the source graph changed.
 /// Recollects the current renderable video sources and pushes the snapshot to
 /// connected browser clients.
@@ -333,7 +371,20 @@ pub extern "C" fn ge_sources_changed() {
         }
     };
 
-    state.source_tx.send_replace(http::collect_sources());
+    state.snapshot.set_sources(http::collect_sources());
+}
+
+fn refresh_replay_buffer_snapshot() {
+    let state = {
+        let guard = match SERVER.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        guard.as_ref().map(|h| h.state.clone())
+    };
+    if let Some(state) = state {
+        state.snapshot.set_replay_buffer(http::current_replay_buffer_status());
+    }
 }
 
 /// Called on `OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED` with the saved replay path
@@ -358,6 +409,7 @@ pub unsafe extern "C" fn ge_replay_buffer_saved(path: *const c_char) {
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_starting() {
     recording::on_replay_buffer_starting();
+    refresh_replay_buffer_snapshot();
 }
 
 /// Called from the OBS frontend event callback on
@@ -365,6 +417,7 @@ pub extern "C" fn ge_replay_buffer_starting() {
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_started() {
     recording::on_replay_buffer_started();
+    refresh_replay_buffer_snapshot();
 }
 
 /// Called from the OBS frontend event callback on
@@ -377,6 +430,7 @@ pub extern "C" fn ge_replay_buffer_stopping() {
     };
     REPLAY_STOP_SHOULD_STOP_MONITOR.store(monitor_active, Ordering::Release);
     recording::on_replay_buffer_stopping();
+    refresh_replay_buffer_snapshot();
 }
 
 /// Called from the OBS frontend event callback on
@@ -384,6 +438,7 @@ pub extern "C" fn ge_replay_buffer_stopping() {
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_stopped() {
     recording::on_replay_buffer_stopped();
+    refresh_replay_buffer_snapshot();
 
     if !REPLAY_STOP_SHOULD_STOP_MONITOR.swap(false, Ordering::AcqRel) {
         return;

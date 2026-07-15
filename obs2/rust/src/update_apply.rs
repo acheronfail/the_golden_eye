@@ -99,6 +99,12 @@ pub fn trigger_apply() {
 /// always count as opted in and poll faster (hot-reload fallback for `just dev`).
 pub async fn auto_apply_when_safe(state: AppState) {
     let poll_interval = if cfg!(feature = "dev") { Duration::from_secs(2) } else { AUTO_APPLY_CHECK_INTERVAL };
+    let mut frontend_ready = state.frontend_ready_tx.subscribe();
+    while !*frontend_ready.borrow_and_update() {
+        if frontend_ready.changed().await.is_err() {
+            return;
+        }
+    }
     let mut interval = tokio::time::interval(poll_interval);
     loop {
         interval.tick().await;

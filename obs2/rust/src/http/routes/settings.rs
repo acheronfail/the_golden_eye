@@ -20,7 +20,10 @@ pub async fn handle_get(State(state): State<AppState>) -> Json<AppSettings> {
 #[axum::debug_handler]
 pub async fn handle_put(State(state): State<AppState>, Json(value): Json<Value>) -> Result<impl IntoResponse> {
     match state.settings.set_from_json_value_with_runtime_defaults(value) {
-        Ok(settings) => Ok((StatusCode::OK, Json(settings))),
+        Ok(settings) => {
+            state.snapshot.set_settings_status(state.settings.status());
+            Ok((StatusCode::OK, Json(settings)))
+        }
         Err(err) => {
             tracing::error!("failed to save settings: {err:#}");
             if state.settings.status().file_error.is_some() {
@@ -40,7 +43,10 @@ pub async fn handle_status(State(state): State<AppState>) -> Json<SettingsStatus
 #[axum::debug_handler]
 pub async fn handle_reset(State(state): State<AppState>) -> Result<impl IntoResponse> {
     match state.settings.reset_to_defaults() {
-        Ok(settings) => Ok((StatusCode::OK, Json(settings))),
+        Ok(settings) => {
+            state.snapshot.set_settings_status(state.settings.status());
+            Ok((StatusCode::OK, Json(settings)))
+        }
         Err(err) => {
             tracing::error!("failed to reset settings: {err:#}");
             Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to reset settings").into())

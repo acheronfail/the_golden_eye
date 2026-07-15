@@ -3,13 +3,7 @@
 	import { page } from '$app/state';
 	import { startMonitor as apiStartMonitor, stopMonitor as apiStopMonitor } from '$lib/api';
 	import { settings } from '$lib';
-	import {
-		monitor,
-		monitorPhaseStyle,
-		refreshMonitor,
-		setMonitorRunning,
-		setMonitorStopped
-	} from '$lib/monitor.svelte';
+	import { monitor, monitorPhaseStyle } from '$lib/monitor.svelte';
 	import { refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import { obsSources } from '$lib/sources.svelte';
 	import type { PageProps } from './$types';
@@ -78,22 +72,17 @@
 
 		verified = false;
 		statusChecked = false;
-		try {
-			const status = await refreshMonitor();
-			if (!isCurrentPage) return;
-			if (status.enabled) {
-				if (status.sourceName !== params.sourceName) {
-					navigate(`/sources/${encodeURIComponent(status.sourceName)}`, { replaceState: true });
-					return;
-				}
-				monitoring = true;
-			} else {
-				monitoring = false;
+		const status = monitor.status;
+		if (status?.enabled) {
+			if (status.sourceName !== params.sourceName) {
+				navigate(`/sources/${encodeURIComponent(status.sourceName)}`, { replaceState: true });
+				return;
 			}
-			statusChecked = true;
-		} catch {
-			navigate('/', { replaceState: true });
+			monitoring = true;
+		} else {
+			monitoring = false;
 		}
+		statusChecked = true;
 	});
 
 	$effect(() => {
@@ -143,7 +132,6 @@
 		try {
 			await settings.saveNow();
 			await apiStartMonitor(params.sourceName);
-			setMonitorRunning(params.sourceName);
 			void refreshReplayBuffer();
 			monitoring = true;
 		} catch (err) {
@@ -159,7 +147,6 @@
 		transition = 'stopping';
 		try {
 			await apiStopMonitor();
-			setMonitorStopped();
 			void refreshReplayBuffer();
 			monitoring = false;
 			navigate('/', { replaceState: true });

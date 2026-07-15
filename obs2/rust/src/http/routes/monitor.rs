@@ -18,7 +18,7 @@ use tokio::sync::{broadcast, watch};
 
 use crate::cv::{CaptureRegion, CvMatcher, LevelMatch, Screen};
 use crate::ge;
-use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason, RecordingStatus};
+use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason};
 
 const DEFAULT_MONITOR_LANGUAGE: &str = "jp";
 const MONITOR_FPS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
@@ -145,8 +145,7 @@ pub struct MonitorHandle {
     mailbox: Arc<FrameMailbox>,
     producer: ProducerPtr,
     thread: JoinHandle<()>,
-    /// The source name this monitor uses, retained so `/api/v1/monitor/status`
-    /// can report what is currently being monitored.
+    /// The source name this monitor uses, retained in the shared app snapshot.
     source_name: String,
     /// The latched capture transform, shared so a standalone frame dump on the
     /// same source can crop/un-stretch its frames identically to the matcher.
@@ -695,33 +694,6 @@ fn log_level_match(info: &LevelMatch) {
     }
 }
 
-/// Current monitor status. `enabled` is always present; the source is only
-/// included while a monitor is running (omitted from the JSON otherwise).
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MonitorStatus {
-    enabled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source_name: Option<String>,
-    recording_state: Option<RecordingStatus>,
-}
-
-/// Reports whether a monitor is currently running, and if so which source and
-/// recorder state it has -- so the frontend can restore its state on load.
-#[axum::debug_handler]
-pub async fn handle_status(State(state): State<AppState>) -> Json<MonitorStatus> {
-    let guard = state.monitor.lock().unwrap_or_else(|p| p.into_inner());
-    let status = match guard.as_ref() {
-        Some(handle) => MonitorStatus {
-            enabled: true,
-            source_name: Some(handle.source_name.clone()),
-            recording_state: state.recording_state.current(),
-        },
-        None => MonitorStatus { enabled: false, source_name: None, recording_state: None },
-    };
-    Json(status)
-}
-
 #[axum::debug_handler]
 pub async fn handle_start(State(state): State<AppState>, Json(params): Json<StartParams>) -> Result<impl IntoResponse> {
     // Keep the original strings for the status endpoint; `source_name` is also
@@ -785,10 +757,10 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // never ties up the async runtime's worker threads. The session is moved
     // onto the thread and dropped when the loop exits, clearing the cache.
     let worker_mailbox = mailbox.clone();
-    // Broadcast each new match to connected WebSocket clients. We dedup here so
-    // the channel only fires when the matched state actually changes (ignoring
-    // `runtime_ms`), rather than every frame.
-    let match_tx = state.match_tx.clone();
+    // Retain each new display match in the app snapshot. We dedup here so the
+    // snapshot only changes when the matched state changes (ignoring runtime_ms),
+    // rather than every frame.
+    let snapshot = state.snapshot.clone();
     // Handed to the recorder so it can broadcast a `RecordingSaved` event once a
     // run's clip is written out of the replay buffer.
     let event_tx = state.event_tx.clone();
@@ -898,10 +870,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                     if changed {
                         log_level_match(&display);
                         last = Some(display.clone());
-                        // Ignore send errors: with no subscribers there is no
-                        // receiver, but `watch` still retains the value for the
-                        // next client to connect.
-                        let _ = match_tx.send(Some(display));
+                        snapshot.set_match(Some(display));
                     }
                 }
                 Err(e) => {
@@ -927,9 +896,11 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         mailbox,
         producer: ProducerPtr(producer),
         thread,
-        source_name: status_source_name,
+        source_name: status_source_name.clone(),
         region: handle_region,
     });
+    state.snapshot.set_monitor_running(status_source_name);
+    state.snapshot.set_replay_buffer(crate::http::current_replay_buffer_status());
     tracing::info!("monitor started");
 
     Ok(StatusCode::OK)
@@ -1117,14 +1088,14 @@ pub(crate) async fn stop_monitor(state: &AppState) -> bool {
     .await
     .ok();
 
-    // Clear the last broadcast match so WebSocket clients see the monitor has
-    // stopped (and a later `start` doesn't briefly replay the previous run's
-    // final match before a fresh one is matched).
-    let _ = state.match_tx.send(None);
+    // Clear retained monitor/match/recording state so all clients receive one
+    // backend-owned snapshot reflecting the stopped session.
+    state.snapshot.set_monitor_stopped();
     state.recording_state.clear();
 
     if state.settings.get().stop_replay_buffer_when_monitor_stopped {
         crate::recording::stop_replay_buffer_if_active();
+        state.snapshot.set_replay_buffer(crate::http::current_replay_buffer_status());
     }
 
     tracing::info!("monitor stopped");
@@ -1133,24 +1104,24 @@ pub(crate) async fn stop_monitor(state: &AppState) -> bool {
 }
 
 /// Upgrades the connection to a WebSocket streaming [`MonitorEvent`]s as JSON.
-/// Retained state (sources, match, recorder phase) is sent on connect and on
-/// each change; one-off events such as `recordingSaved` are forwarded as they occur.
+/// The complete retained app snapshot is sent on connect and after every
+/// retained-state change; one-off events such as `recordingSaved` are forwarded as they occur.
 pub async fn handle_ws(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
-    let mut rx = state.match_tx.subscribe();
-    let mut recording_rx = state.recording_state.subscribe();
-    let mut source_rx = state.source_tx.subscribe();
-    let mut update_rx = state.update_tx.subscribe();
+    let mut snapshots = state.snapshot.subscribe();
     let mut events = state.event_tx.subscribe();
 
-    // Announce which build serves this API first, so a stale tab (older cached
-    // page, or one open across a plugin update) can compare it against its own
-    // build and reload before it starts acting on match/recording events.
+    // Announce which build serves this API first, so a stale tab can reload
+    // before it starts acting on snapshot or one-off events.
     let version = MonitorEvent::Version { build_id: super::index::BUILD_ID.clone() };
     if send_event(&mut socket, &version).await.is_err() {
+        return;
+    }
+
+    if send_current_snapshot(&mut socket, &mut snapshots).await.is_err() {
         return;
     }
 
@@ -1159,9 +1130,6 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // bounded by a grace period so late-connecting clients don't see it stale.
     if state.reloaded_at.is_some_and(|when| when.elapsed() < UPDATE_APPLIED_NOTICE_WINDOW) {
         let settings = state.settings.get();
-        // Only surface a changelog link when the persisted "last known update"
-        // really is the one that was just applied -- not some other update
-        // discovered later that hasn't been applied yet.
         let release_url = if settings.last_known_update_version.as_deref() == Some(crate::PLUGIN_VERSION) {
             settings.last_known_update_release_url
         } else {
@@ -1173,66 +1141,16 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         }
     }
 
-    if send_current_sources(&mut socket, &mut source_rx).await.is_err() {
-        return;
-    }
-    // Send the current match up front so a client connecting mid-run isn't
-    // blank until the next change.
-    if send_current_match(&mut socket, &mut rx).await.is_err() {
-        return;
-    }
-    if send_current_recording_state(&mut socket, &mut recording_rx).await.is_err() {
-        return;
-    }
-    if send_current_update(&mut socket, &mut update_rx).await.is_err() {
-        return;
-    }
-
     loop {
         tokio::select! {
-            // The match state changed: forward it as a `match` event.
-            changed = rx.changed() => {
-                // Err means the sender was dropped (server shutting down).
+            changed = snapshots.changed() => {
                 if changed.is_err() {
                     break;
                 }
-                if send_current_match(&mut socket, &mut rx).await.is_err() {
+                if send_current_snapshot(&mut socket, &mut snapshots).await.is_err() {
                     break;
                 }
             }
-            // The retained recorder phase changed: forward the latest phase,
-            // including `null` when the recorder returns to idle.
-            changed = recording_rx.changed() => {
-                // Err means the sender was dropped (server shutting down).
-                if changed.is_err() {
-                    break;
-                }
-                if send_current_recording_state(&mut socket, &mut recording_rx).await.is_err() {
-                    break;
-                }
-            }
-            // OBS source graph changed: forward the latest renderable source
-            // list so setup pages update without polling.
-            changed = source_rx.changed() => {
-                // Err means the sender was dropped (server shutting down).
-                if changed.is_err() {
-                    break;
-                }
-                if send_current_sources(&mut socket, &mut source_rx).await.is_err() {
-                    break;
-                }
-            }
-            // The retained plugin update changed: forward the latest update, if any.
-            changed = update_rx.changed() => {
-                // Err means the sender was dropped (server shutting down).
-                if changed.is_err() {
-                    break;
-                }
-                if send_current_update(&mut socket, &mut update_rx).await.is_err() {
-                    break;
-                }
-            }
-            // A one-off event was broadcast: forward it verbatim.
             event = events.recv() => {
                 match event {
                     Ok(event) => {
@@ -1240,19 +1158,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             break;
                         }
                     }
-                    // This client lagged and the channel dropped some events for
-                    // it; nothing to forward for the skipped ones, so carry on.
                     Err(broadcast::error::RecvError::Lagged(_)) => {}
-                    // Sender dropped (server shutting down).
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
-            // Drain inbound frames so we notice the client closing/erroring.
-            // We don't expect any meaningful client messages.
             inbound = socket.recv() => {
                 match inbound {
                     Some(Ok(_)) => {}
-                    // Closed or errored.
                     _ => break,
                 }
             }
@@ -1270,51 +1182,13 @@ async fn send_event(socket: &mut WebSocket, event: &MonitorEvent) -> Result<(), 
     Ok(())
 }
 
-/// Sends the current source list as a `sources` event, marking the watch value
-/// as seen.
-async fn send_current_sources(
+/// Sends the current retained app snapshot, marking the watch value as seen.
+async fn send_current_snapshot(
     socket: &mut WebSocket,
-    rx: &mut watch::Receiver<Vec<super::sources::Source>>,
+    rx: &mut watch::Receiver<crate::http::AppSnapshot>,
 ) -> Result<(), axum::Error> {
-    let sources = rx.borrow_and_update().clone();
-    send_event(socket, &MonitorEvent::Sources { sources }).await?;
-    Ok(())
-}
-
-/// Sends the current match (if any) as a `match` event, marking the watch value
-/// as seen. A `None` value (no monitor running) sends nothing.
-async fn send_current_match(
-    socket: &mut WebSocket,
-    rx: &mut watch::Receiver<Option<LevelMatch>>,
-) -> Result<(), axum::Error> {
-    let current = rx.borrow_and_update().clone();
-    if let Some(m) = current {
-        send_event(socket, &MonitorEvent::Match(m)).await?;
-    }
-    Ok(())
-}
-
-/// Sends the current recorder phase as a `recordingState` event, marking the
-/// watch value as seen. `None` is sent as `status: null` so clients can clear any
-/// stale local phase.
-async fn send_current_recording_state(
-    socket: &mut WebSocket,
-    rx: &mut watch::Receiver<Option<RecordingStatus>>,
-) -> Result<(), axum::Error> {
-    let status = *rx.borrow_and_update();
-    send_event(socket, &MonitorEvent::RecordingState { status }).await?;
-    Ok(())
-}
-
-/// Sends the retained plugin update, if any, marking the watch value as seen.
-async fn send_current_update(
-    socket: &mut WebSocket,
-    rx: &mut watch::Receiver<Option<crate::updates::PluginUpdate>>,
-) -> Result<(), axum::Error> {
-    let current = rx.borrow_and_update().clone();
-    if let Some(update) = current {
-        send_event(socket, &MonitorEvent::UpdateAvailable(update)).await?;
-    }
+    let state = rx.borrow_and_update().clone();
+    send_event(socket, &MonitorEvent::Snapshot { state }).await?;
     Ok(())
 }
 

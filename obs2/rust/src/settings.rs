@@ -12,12 +12,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::recording::{
-    DEFAULT_CLIP_FILENAME_TEMPLATE,
-    DEFAULT_FAILED_RUN_LIMIT,
-    DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
-    DEFAULT_POST_RUN_PADDING_SECS,
-    DEFAULT_PRE_RUN_PADDING_SECS,
-    RecordingOptions,
+    DEFAULT_CLIP_FILENAME_TEMPLATE, DEFAULT_FAILED_RUN_LIMIT, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
+    DEFAULT_POST_RUN_PADDING_SECS, DEFAULT_PRE_RUN_PADDING_SECS, RecordingOptions,
 };
 use crate::stream_notifier::{DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE, DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE};
 
@@ -233,7 +229,7 @@ struct SettingsState {
     file_bytes: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsStatus {
     pub settings: AppSettings,
@@ -278,10 +274,20 @@ impl SettingsStore {
     }
 
     pub fn status(&self) -> SettingsStatus {
+        self.status_with(|settings| apply_runtime_output_path_defaults(settings))
+    }
+
+    /// Status snapshot that avoids OBS FFI. Used during plugin load before OBS
+    /// frontend APIs are safe; replaced with `status()` after OBS post-load.
+    pub fn status_without_runtime_defaults(&self) -> SettingsStatus {
+        self.status_with(|settings| settings)
+    }
+
+    fn status_with(&self, apply_defaults: impl Fn(AppSettings) -> AppSettings) -> SettingsStatus {
         let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         SettingsStatus {
-            settings: apply_runtime_output_path_defaults(state.settings.clone()),
-            defaults: apply_runtime_output_path_defaults(AppSettings::default()),
+            settings: apply_defaults(state.settings.clone()),
+            defaults: apply_defaults(AppSettings::default()),
             config_path: self.path.to_string_lossy().into_owned(),
             file_error: state.file_error.clone(),
         }

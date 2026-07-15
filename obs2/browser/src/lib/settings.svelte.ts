@@ -329,6 +329,16 @@ export const settings = new (class {
 		}
 	}
 
+	applyStatus(status: SettingsStatus): void {
+		this.configPath = status.configPath;
+		this.fileError = status.fileError ?? null;
+		this.defaults = parseSettings(status.defaults);
+		this.apply(parseSettings(status.settings, this.defaults));
+		this.lastSavedState = this.savedState;
+		this.loaded = true;
+		this.saveError = null;
+	}
+
 	applyReloaded(next: Settings, configPath: string, defaults = this.defaults): void {
 		this.configPath = configPath;
 		this.fileError = null;
