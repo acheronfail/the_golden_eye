@@ -25,7 +25,7 @@ const SETTINGS_FILE_NAME: &str = "settings.json";
 const LEGACY_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suffix}{failed_suffix}";
 pub const DEFAULT_UPDATE_CHECK_INTERVAL: UpdateCheckInterval = UpdateCheckInterval::Weekly;
 pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "GoldenEye";
-pub const DEFAULT_FAILED_OUTPUT_DIR_NAME: &str = "failed";
+pub const DEFAULT_FAILED_OUTPUT_DIR_SUFFIX: &str = " - failed";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -468,12 +468,10 @@ pub fn default_completed_output_path(replay_output_dir: &Path) -> PathBuf {
 }
 
 pub fn default_failed_output_path(completed_output_path: &str) -> Option<String> {
-    let completed_output_path = completed_output_path.trim();
-    if completed_output_path.is_empty() {
-        None
-    } else {
-        Some(Path::new(completed_output_path).join(DEFAULT_FAILED_OUTPUT_DIR_NAME).to_string_lossy().into_owned())
-    }
+    let completed = Path::new(completed_output_path.trim());
+    let name = completed.file_name()?.to_string_lossy();
+    let sibling = format!("{name}{DEFAULT_FAILED_OUTPUT_DIR_SUFFIX}");
+    Some(completed.with_file_name(sibling).to_string_lossy().into_owned())
 }
 
 fn write_settings(path: &Path, settings: &AppSettings) -> anyhow::Result<Vec<u8>> {
@@ -696,12 +694,12 @@ mod tests {
 
         let default_completed = replay_dir.join("GoldenEye");
         assert_eq!(settings.completed_output_path, default_completed.to_string_lossy());
-        assert_eq!(settings.failed_output_path, default_completed.join("failed").to_string_lossy());
+        assert_eq!(settings.failed_output_path, replay_dir.join("GoldenEye - failed").to_string_lossy());
 
         let custom_completed =
             AppSettings::from_json_value(json!({ "completedOutputPath": "/runs" })).with_default_output_paths(None);
         assert_eq!(custom_completed.completed_output_path, "/runs");
-        assert_eq!(custom_completed.failed_output_path, Path::new("/runs").join("failed").to_string_lossy());
+        assert_eq!(custom_completed.failed_output_path, Path::new("/runs - failed").to_string_lossy());
     }
 
     #[test]

@@ -326,15 +326,20 @@
 		return `${trimmed.replace(/[\\/]+$/, '')}${separator}${child}`;
 	};
 
+	const siblingFailedPath = (base: string): string => {
+		const trimmed = base.trim().replace(/[\\/]+$/, '');
+		return trimmed ? `${trimmed} - failed` : '';
+	};
+
 	const completedDefaultOutputPath = (): string =>
 		replayBuffer.status?.defaultCompletedOutputPath ??
 		(replayBuffer.status?.outputDirectory ? joinPath(replayBuffer.status.outputDirectory, 'GoldenEye') : '');
 
 	let completedOutputPathPlaceholder = $derived(completedDefaultOutputPath() || 'OBS replay folder/GoldenEye');
 	let failedOutputPathPlaceholder = $derived(
-		joinPath(settings.completedOutputPath.trim() || completedOutputPathPlaceholder, 'failed') ||
+		siblingFailedPath(settings.completedOutputPath.trim() || completedOutputPathPlaceholder) ||
 			replayBuffer.status?.defaultFailedOutputPath ||
-			'completed clip folder/failed'
+			'GoldenEye - failed'
 	);
 
 	const setOutputPath = (kind: PathKind, value: string) => {
@@ -712,7 +717,7 @@
 							{:else if failedValidation && settings.failedOutputPath.trim()}
 								<p class={pathStatusClass}>{folderStatusMessage(failedValidation)}</p>
 							{:else}
-								<p class={hintClass}>Defaults to a failed folder inside the completed-run clip folder.</p>
+								<p class={hintClass}>Defaults to a folder named after the completed-run clip folder with " - failed" appended, alongside it.</p>
 							{/if}
 						</div>
 
