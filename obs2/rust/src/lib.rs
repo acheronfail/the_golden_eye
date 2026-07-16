@@ -89,6 +89,23 @@ fn configure_cv_template_dir() {
 /// module loading.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_browser_dock_post_load() {
+    let state = {
+        let guard = match SERVER.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        guard.as_ref().map(|h| h.state.clone())
+    };
+
+    let Some(state) = state else {
+        tracing::warn!("ge_browser_dock_post_load called but server is not running");
+        return;
+    };
+    if !frontend_ready(&state) {
+        tracing::debug!("skipping browser dock setup until OBS frontend is ready");
+        return;
+    }
+
     browser_dock::post_load();
 }
 
@@ -200,7 +217,7 @@ pub extern "C" fn ge_rust_start() -> bool {
         monitor: MonitorSnapshot { enabled: false, source_name: None },
         level_match: None,
         recording_state: None,
-        sources: http::collect_sources(),
+        sources: Vec::new(),
         replay_buffer: http::ReplayBufferStatus::unknown(),
         settings_status: settings.status_without_runtime_defaults(),
         update: None,
@@ -350,12 +367,22 @@ pub extern "C" fn ge_frontend_finished_loading() {
     };
 
     state.frontend_ready_tx.send_replace(true);
+    browser_dock::post_load();
+    state.snapshot.set_sources(http::collect_sources());
     refresh_runtime_snapshot(&state);
 }
 
+fn frontend_ready(state: &AppState) -> bool {
+    *state.frontend_ready_tx.borrow()
+}
+
 fn refresh_runtime_snapshot(state: &AppState) {
-    state.snapshot.set_settings_status(state.settings.status());
-    state.snapshot.set_replay_buffer(http::current_replay_buffer_status());
+    if frontend_ready(state) {
+        state.snapshot.set_settings_status(state.settings.status());
+        state.snapshot.set_replay_buffer(http::current_replay_buffer_status());
+    } else {
+        state.snapshot.set_settings_status(state.settings.status_without_runtime_defaults());
+    }
 }
 
 /// Called from the C core when OBS reports that the source graph changed.
@@ -377,6 +404,11 @@ pub extern "C" fn ge_sources_changed() {
         }
     };
 
+    if !frontend_ready(&state) {
+        tracing::debug!("skipping source refresh until OBS frontend is ready");
+        return;
+    }
+
     state.snapshot.set_sources(http::collect_sources());
 }
 
@@ -388,7 +420,9 @@ fn refresh_replay_buffer_snapshot() {
         };
         guard.as_ref().map(|h| h.state.clone())
     };
-    if let Some(state) = state {
+    if let Some(state) = state
+        && frontend_ready(&state)
+    {
         state.snapshot.set_replay_buffer(http::current_replay_buffer_status());
     }
 }
