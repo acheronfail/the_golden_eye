@@ -1293,14 +1293,14 @@ fn configured_dir(value: &str) -> Option<PathBuf> {
 
 fn expand_home(path: &str) -> PathBuf {
     if path == "~"
-        && let Some(home) = std::env::var_os("HOME")
+        && let Some(home) = crate::config::home_dir()
     {
-        return PathBuf::from(home);
+        return home;
     }
     if let Some(rest) = path.strip_prefix("~/")
-        && let Some(home) = std::env::var_os("HOME")
+        && let Some(home) = crate::config::home_dir()
     {
-        return PathBuf::from(home).join(rest);
+        return home.join(rest);
     }
     PathBuf::from(path)
 }

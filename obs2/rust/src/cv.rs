@@ -46,12 +46,9 @@ where
 }
 
 // Set GE_CV_DEBUG to dump intermediate match scores/detections to stderr.
-fn dbg_on() -> bool {
-    std::env::var_os("GE_CV_DEBUG").is_some()
-}
 macro_rules! dbg_cv {
     ($($arg:tt)*) => {
-        if dbg_on() { eprintln!($($arg)*); }
+        if crate::config::cv_debug_enabled() { eprintln!($($arg)*); }
     };
 }
 
@@ -1461,7 +1458,7 @@ impl CvMatcher {
         // Pin OpenCV's parallel backend to one thread: we drive parallelism with
         // `par_map`, so a multi-threaded backend would oversubscribe cores and
         // spike tail latency. `GE_CV_THREADS` opts out for benchmarking.
-        if std::env::var_os("GE_CV_THREADS").is_none() {
+        if !crate::config::cv_threads_overridden() {
             let _ = core::set_num_threads(1);
         }
 

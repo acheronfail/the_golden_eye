@@ -9,7 +9,6 @@ use std::io::{self, Write};
 use std::sync::Once;
 
 use tracing::{Event, Level, Metadata, Subscriber};
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
 use tracing_subscriber::fmt::{FmtContext, MakeWriter};
 use tracing_subscriber::layer::SubscriberExt;
@@ -25,7 +24,7 @@ static LOGGING_INIT: Once = Once::new();
 pub fn init() {
     LOGGING_INIT.call_once(|| {
         let subscriber = tracing_subscriber::registry()
-            .with(default_filter())
+            .with(crate::config::logging_filter(env!("CARGO_CRATE_NAME")))
             // OBS log sink: plain text routed through `blog`.
             .with(
                 tracing_subscriber::fmt::layer()
@@ -36,19 +35,6 @@ pub fn init() {
 
         let _ = subscriber.try_init();
     });
-}
-
-/// Crate-level filter honouring `RUST_LOG`, falling back to debug builds =
-/// `debug`, release builds = `info` (plus `tower_http` at the same level).
-fn default_filter() -> EnvFilter {
-    EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        format!(
-            "{crate}={level},tower_http={level}",
-            crate = env!("CARGO_CRATE_NAME"),
-            level = if cfg!(debug_assertions) { "debug" } else { "info" }
-        )
-        .into()
-    })
 }
 
 /// Prefixes every line with the plugin tag, then defers to the stock formatter
