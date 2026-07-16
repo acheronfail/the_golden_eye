@@ -1,15 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { screenshotUrl } from '../lib/api';
+	import { screenshotUrl, type MonitorRunMode } from '../lib/api';
 	import { refreshReplayBuffer, replayBuffer } from '$lib/replayBuffer.svelte';
 	import { obsSources } from '$lib/sources.svelte';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
 	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
+	import RunModeChooser from '$lib/RunModeChooser.svelte';
+	import { runModePath } from '$lib/singleSegment';
 	import { onMount } from 'svelte';
 
 	let missingPreviewBySource = $state<Record<string, boolean>>({});
 	let lastPreviewVersion = $state(0);
 	let previewTick = $state(0);
+	let selectedSource = $state<string | null>(null);
 
 	const MIN_REPLAY_BUFFER_SECONDS = 1100;
 	const RECOMMENDED_REPLAY_BUFFER_SECONDS = 1200;
@@ -53,7 +56,18 @@
 
 	const select = (option: Option) => {
 		if (replayUnavailable) return;
-		goto(`/sources/${encodeURIComponent(option.title)}`);
+		selectedSource = option.title;
+	};
+
+	const closeModeChooser = () => {
+		selectedSource = null;
+	};
+
+	const chooseMode = (mode: MonitorRunMode, difficulty?: number) => {
+		if (!selectedSource) return;
+		const query = difficulty === undefined ? '' : `?difficulty=${difficulty}`;
+		goto(`/sources/${encodeURIComponent(selectedSource)}/${runModePath(mode)}${query}`);
+		selectedSource = null;
 	};
 
 	const previewKey = (option: Option): string => option.key ?? option.title;
@@ -142,3 +156,5 @@
 		<OptionList {options} onSelect={select} {leading} disabled={replayUnavailable} />
 	{/if}
 </WizardFrame>
+
+<RunModeChooser open={selectedSource !== null} sourceName={selectedSource} close={closeModeChooser} choose={chooseMode} />

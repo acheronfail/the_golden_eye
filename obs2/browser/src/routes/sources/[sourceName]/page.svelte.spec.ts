@@ -58,6 +58,7 @@ beforeEach(() => {
 	monitor.status = {
 		enabled: true,
 		sourceName: 'N64 Capture',
+		mode: 'clips',
 		recordingState: null
 	};
 	monitor.loaded = true;

@@ -524,12 +524,41 @@ export interface MonitorFps {
 	sourceFps: number;
 }
 
+export type MonitorRunMode = 'clips' | 'anyPercent' | 'hundredPercent' | 'all60';
+
+export interface SingleSegmentCategory {
+	id: MonitorRunMode;
+	title: string;
+	description: string;
+	selectedDifficulty?: number;
+}
+
+export interface SingleSegmentSplit {
+	index: number;
+	level: string;
+	levelNumber: number;
+	difficulty: string;
+	difficultyId: number;
+	status: 'pending' | 'active' | 'complete';
+	realTimeSecs?: number;
+	segmentRealTimeSecs?: number;
+	gameTimeSecs?: number;
+}
+
+export interface SingleSegmentSnapshot {
+	category?: SingleSegmentCategory;
+	started: boolean;
+	totalRealTimeSecs?: number;
+	splits: SingleSegmentSplit[];
+}
+
 /** A message pushed over the app WebSocket. Mirrors the Rust `MonitorEvent`,
  * which is serialized internally tagged by `type`, so each variant is its
  * payload plus a discriminating `type` field. */
 export interface MonitorSnapshot {
 	enabled: boolean;
 	sourceName?: string;
+	mode: MonitorRunMode;
 }
 
 export interface AppSnapshot {
@@ -540,6 +569,7 @@ export interface AppSnapshot {
 	replayBuffer: ReplayBufferStatus;
 	settingsStatus: SettingsStatus;
 	update: PluginUpdate | null;
+	singleSegment: SingleSegmentSnapshot;
 }
 
 export type AppSocketEvent =
@@ -676,16 +706,19 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 };
 
 export type MonitorStatus =
-	| { enabled: false; recordingState?: null }
-	| { enabled: true; sourceName: string; recordingState: RecordingStatus | null };
+	| { enabled: false; recordingState?: null; mode?: 'clips' }
+	| { enabled: true; sourceName: string; mode: MonitorRunMode; recordingState: RecordingStatus | null };
 
 /** Start monitoring the given source. Recording options are read by the backend
  * from the persisted settings store. Throws on a non-OK response. */
-export const startMonitor = async (sourceName: string): Promise<void> => {
+export const startMonitor = async (
+	sourceName: string,
+	options: { mode?: MonitorRunMode; difficulty?: number } = {}
+): Promise<void> => {
 	const res = await fetch(apiUrl('/api/v1/monitor/start'), {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ sourceName })
+		body: JSON.stringify({ sourceName, mode: options.mode ?? 'clips', difficulty: options.difficulty })
 	});
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 };

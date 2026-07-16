@@ -7,6 +7,7 @@ use tokio::sync::{Mutex, broadcast, oneshot, watch};
 
 use super::{ReplayBufferStatus, routes};
 use crate::cv::LevelMatch;
+use crate::single_segment::SingleSegmentSnapshot;
 
 pub struct AppStateInner {
     /// Holds the sender end of a one-shot channel while an OAuth flow is in
@@ -52,6 +53,8 @@ pub struct MonitorSnapshot {
     pub enabled: bool,
     #[serde(rename = "sourceName", skip_serializing_if = "Option::is_none")]
     pub source_name: Option<String>,
+    #[serde(default)]
+    pub mode: crate::single_segment::RunMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -65,6 +68,7 @@ pub struct AppSnapshot {
     pub replay_buffer: ReplayBufferStatus,
     pub settings_status: crate::settings::SettingsStatus,
     pub update: Option<crate::updates::PluginUpdate>,
+    pub single_segment: SingleSegmentSnapshot,
 }
 
 #[derive(Clone)]
@@ -88,10 +92,11 @@ impl SharedStateStore {
         self.lock_state().clone()
     }
 
-    pub fn set_monitor_running(&self, source_name: String) {
+    pub fn set_monitor_running(&self, source_name: String, mode: crate::single_segment::RunMode) {
         self.update(|state| {
             state.monitor.enabled = true;
             state.monitor.source_name = Some(source_name);
+            state.monitor.mode = mode;
         });
     }
 
@@ -99,8 +104,10 @@ impl SharedStateStore {
         self.update(|state| {
             state.monitor.enabled = false;
             state.monitor.source_name = None;
+            state.monitor.mode = crate::single_segment::RunMode::Clips;
             state.level_match = None;
             state.recording_state = None;
+            state.single_segment = SingleSegmentSnapshot::empty();
         });
     }
 
@@ -126,6 +133,10 @@ impl SharedStateStore {
 
     pub fn set_update(&self, update: Option<crate::updates::PluginUpdate>) {
         self.update(|state| state.update = update);
+    }
+
+    pub fn set_single_segment(&self, single_segment: SingleSegmentSnapshot) {
+        self.update(|state| state.single_segment = single_segment);
     }
 
     fn update(&self, apply: impl FnOnce(&mut AppSnapshot)) {

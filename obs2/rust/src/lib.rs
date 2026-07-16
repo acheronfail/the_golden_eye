@@ -8,6 +8,7 @@ mod http;
 mod logging;
 mod recording;
 mod settings;
+mod single_segment;
 mod stream_notifier;
 mod timer;
 mod update_apply;
@@ -215,13 +216,14 @@ pub extern "C" fn ge_rust_start() -> bool {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
     let snapshot = SharedStateStore::new(AppSnapshot {
-        monitor: MonitorSnapshot { enabled: false, source_name: None },
+        monitor: MonitorSnapshot { enabled: false, source_name: None, mode: single_segment::RunMode::Clips },
         level_match: None,
         recording_state: None,
         sources: Vec::new(),
         replay_buffer: http::ReplayBufferStatus::unknown(),
         settings_status: settings.status_without_runtime_defaults(),
         update: None,
+        single_segment: single_segment::SingleSegmentSnapshot::empty(),
     });
     // One-off monitor events (recording saved, ...). Capacity bounds how far a
     // slow client can lag before it drops events; the worker ignores send errors,

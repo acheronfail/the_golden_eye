@@ -1,0 +1,37 @@
+{
+  "categories": [
+    {
+      "id": "anyPercent",
+      "title": "Any%",
+      "description": "Complete the game from Dam through Cradle on one selected difficulty.",
+      "selectDifficulty": true,
+      "difficulties": ["Agent", "Secret Agent", "00 Agent"],
+      "levels": [
+        "Dam", "Facility", "Runway", "Surface 1", "Bunker 1", "Silo", "Frigate", "Surface 2", "Bunker 2",
+        "Statue", "Archives", "Streets", "Depot", "Train", "Jungle", "Control", "Caverns", "Cradle"
+      ]
+    },
+    {
+      "id": "hundredPercent",
+      "title": "100%",
+      "description": "Complete the game from Dam through Egyptian on 00 Agent and unlock every cheat.",
+      "selectDifficulty": false,
+      "difficulties": ["00 Agent"],
+      "levels": [
+        "Dam", "Facility", "Runway", "Surface 1", "Bunker 1", "Silo", "Frigate", "Surface 2", "Bunker 2",
+        "Statue", "Archives", "Streets", "Depot", "Train", "Jungle", "Control", "Caverns", "Cradle", "Aztec", "Egypt"
+      ]
+    },
+    {
+      "id": "all60",
+      "title": "All 60",
+      "description": "Complete every level once on Agent, Secret Agent, and 00 Agent.",
+      "selectDifficulty": false,
+      "difficulties": ["Agent", "Secret Agent", "00 Agent"],
+      "levels": [
+        "Dam", "Facility", "Runway", "Surface 1", "Bunker 1", "Silo", "Frigate", "Surface 2", "Bunker 2",
+        "Statue", "Archives", "Streets", "Depot", "Train", "Jungle", "Control", "Caverns", "Cradle", "Aztec", "Egypt"
+      ]
+    }
+  ]
+}

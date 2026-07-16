@@ -12,7 +12,11 @@ fn monitor_version_event_uses_frontend_field_name() {
 
 fn test_snapshot() -> AppSnapshot {
     AppSnapshot {
-        monitor: MonitorSnapshot { enabled: true, source_name: Some("N64 Capture".to_owned()) },
+        monitor: MonitorSnapshot {
+            enabled: true,
+            source_name: Some("N64 Capture".to_owned()),
+            mode: crate::single_segment::RunMode::Clips,
+        },
         level_match: None,
         recording_state: Some(RecordingStatus::Started),
         sources: vec![routes::sources::Source { name: "N64 Capture".to_owned(), id: "av_capture_input".to_owned() }],
@@ -36,6 +40,7 @@ fn test_snapshot() -> AppSnapshot {
             latest_version: "1.1.0".to_owned(),
             release_url: "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.1.0".to_owned(),
         }),
+        single_segment: crate::single_segment::SingleSegmentSnapshot::empty(),
     }
 }
 

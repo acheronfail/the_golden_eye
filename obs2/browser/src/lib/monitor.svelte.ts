@@ -6,11 +6,13 @@ import {
 	type MonitorStatus,
 	type MonitorStoppedReason,
 	type RecordingSaveDiscarded,
+	type SingleSegmentSnapshot,
 	type RecordingSavePending,
 	type RecordingSaved,
 	type RecordingStatus
 } from './api';
 import { addNotificationFlag, dismissNotificationFlag, replaceNotificationFlag } from './notifications.svelte';
+import { runModePath } from './singleSegment';
 
 export interface MonitorPhaseStyle {
 	title: string;
@@ -107,6 +109,7 @@ export const monitor = $state<{
 	match: LevelMatch | null;
 	fps: MonitorFps | null;
 	recordingState: RecordingStatus | null;
+	singleSegment: SingleSegmentSnapshot;
 	kiaEffectId: number;
 }>({
 	status: null,
@@ -114,18 +117,20 @@ export const monitor = $state<{
 	match: null,
 	fps: null,
 	recordingState: null,
+	singleSegment: { started: false, splits: [] },
 	kiaEffectId: 0
 });
 
 export const monitorHref = (status: MonitorStatus | null = monitor.status): string | null => {
 	if (!status?.enabled) return null;
-	return `/sources/${encodeURIComponent(status.sourceName)}`;
+	return `/sources/${encodeURIComponent(status.sourceName)}/${runModePath(status.mode)}`;
 };
 
 const clearRunState = () => {
 	monitor.match = null;
 	monitor.fps = null;
 	monitor.recordingState = null;
+	monitor.singleSegment = { started: false, splits: [] };
 };
 
 const pendingSaveNotificationIds = new Map<number, number>();
@@ -165,8 +170,13 @@ const savePendingMeta = (pending: RecordingSavePending): string => {
 
 export const monitorStatusFromSnapshot = (snapshot: AppSnapshot): MonitorStatus =>
 	snapshot.monitor.enabled && snapshot.monitor.sourceName
-		? { enabled: true, sourceName: snapshot.monitor.sourceName, recordingState: snapshot.recordingState }
-		: { enabled: false, recordingState: null };
+		? {
+				enabled: true,
+				sourceName: snapshot.monitor.sourceName,
+				mode: snapshot.monitor.mode ?? 'clips',
+				recordingState: snapshot.recordingState
+			}
+		: { enabled: false, mode: 'clips', recordingState: null };
 
 export const applyMonitorSnapshot = (snapshot: AppSnapshot): void => {
 	const nextStatus = monitorStatusFromSnapshot(snapshot);
@@ -176,6 +186,7 @@ export const applyMonitorSnapshot = (snapshot: AppSnapshot): void => {
 	monitor.loaded = true;
 	monitor.match = snapshot.match;
 	monitor.recordingState = nextStatus.enabled ? visibleRecordingState(snapshot.recordingState) : null;
+	monitor.singleSegment = snapshot.singleSegment ?? { started: false, splits: [] };
 	if (!nextStatus.enabled || previousSource !== nextSource) {
 		monitor.fps = null;
 	}
@@ -290,7 +301,7 @@ export const applyRecordingSaved = (saved: RecordingSaved): void => {
 
 export const applyMonitorStopped = (reason: MonitorStoppedReason): void => {
 	clearRunState();
-	monitor.status = { enabled: false, recordingState: null };
+	monitor.status = { enabled: false, mode: 'clips', recordingState: null };
 	monitor.loaded = true;
 	if (reason === 'replayBufferStopped') {
 		addNotificationFlag({

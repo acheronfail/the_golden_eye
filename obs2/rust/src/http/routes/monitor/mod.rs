@@ -11,6 +11,7 @@ use serde::Deserialize;
 
 use crate::cv::{CaptureRegion, LevelMatch};
 use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason};
+use crate::single_segment::{RunMode, SingleSegmentTracker};
 
 mod capture;
 mod frame_dump;
@@ -37,6 +38,9 @@ const MONITOR_FPS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
 pub struct StartParams {
     /// Name of the OBS source to monitor, as reported by `/api/v1/sources`.
     source_name: String,
+    #[serde(default)]
+    mode: RunMode,
+    difficulty: Option<i32>,
 }
 
 /// Frame source backed by the live OBS source: consumes the frames the render
@@ -172,6 +176,8 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // to a CString below for the C capture bridge.
     let status_source_name = params.source_name.clone();
     let recording_options = state.settings.get_recording_options();
+    let run_mode = params.mode;
+    let run_difficulty = params.difficulty;
     let source_name =
         CString::new(params.source_name).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
@@ -185,6 +191,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         return Err((StatusCode::PRECONDITION_FAILED, "replay buffer is unavailable").into());
     }
     state.recording_state.clear();
+    state.snapshot.set_single_segment(crate::single_segment::SingleSegmentSnapshot::empty());
 
     // Build the session (and its fresh, empty scale cache) up front so any
     // configuration error surfaces as a failed request rather than a thread that
@@ -240,6 +247,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let monitor_annotations_state = state.clone();
     let recording_source_name = status_source_name.clone();
     let recording_lang = DEFAULT_MONITOR_LANGUAGE.to_owned();
+    let split_snapshot = snapshot.clone();
     let source_fps = unsafe { crate::ffi::ge_obs_video_fps() };
     // Kept for the handle so a standalone frame dump can share the latched region.
     let handle_region = region.clone();
@@ -266,6 +274,13 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             recording_source_name,
             recording_lang,
         );
+        let mut single_segment = match SingleSegmentTracker::new(split_snapshot, run_mode, run_difficulty) {
+            Ok(tracker) => tracker,
+            Err(err) => {
+                tracing::error!("single segment tracker disabled: {err}");
+                None
+            }
+        };
         loop {
             let diagnostics_enabled = monitor_annotations_state.monitor_annotations_enabled.load(Ordering::Acquire);
             if diagnostics_enabled != last_diagnostics_enabled {
@@ -336,6 +351,9 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                     // The recorder votes over raw per-frame readings itself, so it
                     // must see the unsmoothed match; only the live display is voted.
                     recording.on_frame(now, &info);
+                    if let Some(tracker) = single_segment.as_mut() {
+                        tracker.on_frame(now, &info);
+                    }
                     let mut display = info;
                     display.times = display_smoother.smooth(&display);
                     let changed = last.as_ref().is_none_or(|prev| !prev.same_state(&display));
@@ -371,7 +389,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         source_name: status_source_name.clone(),
         region: handle_region,
     });
-    state.snapshot.set_monitor_running(status_source_name);
+    state.snapshot.set_monitor_running(status_source_name, run_mode);
     state.snapshot.set_replay_buffer(crate::http::current_replay_buffer_status());
     tracing::info!("monitor started");
 

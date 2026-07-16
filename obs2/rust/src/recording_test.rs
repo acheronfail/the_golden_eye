@@ -48,7 +48,11 @@ fn write_file(path: &Path) {
 
 fn test_snapshot_store() -> SharedStateStore {
     SharedStateStore::new(AppSnapshot {
-        monitor: MonitorSnapshot { enabled: true, source_name: Some("N64 Capture".to_owned()) },
+        monitor: MonitorSnapshot {
+            enabled: true,
+            source_name: Some("N64 Capture".to_owned()),
+            mode: crate::single_segment::RunMode::Clips,
+        },
         level_match: None,
         recording_state: None,
         sources: Vec::new(),
@@ -68,6 +72,7 @@ fn test_snapshot_store() -> SharedStateStore {
             file_error: None,
         },
         update: None,
+        single_segment: crate::single_segment::SingleSegmentSnapshot::empty(),
     })
 }
 
