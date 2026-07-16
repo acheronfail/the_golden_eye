@@ -51,7 +51,7 @@ async fn startup_update_check_persists_check_time_and_replays_update_event() {
     // SAFETY: integration tests run serially through the just recipe; set before
     // the backend starts so the startup update task reads the mock endpoint.
     unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", &update_check_url) };
-    let harness = Harness::start(Duration::ZERO).await;
+    let harness = Harness::start_with_settings(Duration::ZERO, json!({ "updateCheckInterval": "weekly" })).await;
 
     let update = wait_for_update_available_event(&harness, &calls).await;
     assert_eq!(update["currentVersion"], env!("GE_PLUGIN_VERSION"));
@@ -100,7 +100,7 @@ async fn failed_startup_update_check_does_not_persist_check_time() {
     // SAFETY: integration tests run serially through the just recipe; set before
     // the backend starts so the startup update task reads the mock endpoint.
     unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", &update_check_url) };
-    let harness = Harness::start(Duration::ZERO).await;
+    let harness = Harness::start_with_settings(Duration::ZERO, json!({ "updateCheckInterval": "weekly" })).await;
     wait_for_release_calls(&calls, 1).await;
 
     let status: Value = harness

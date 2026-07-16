@@ -32,12 +32,27 @@ pub struct Harness {
 
 impl Harness {
     pub async fn start(replay_stop_delay: Duration) -> Self {
-        let harness = Self::start_before_frontend_ready(replay_stop_delay).await;
+        Self::start_with_settings(replay_stop_delay, json!({})).await
+    }
+
+    pub async fn start_with_settings(replay_stop_delay: Duration, settings: Value) -> Self {
+        Self::start_with_settings_from_temp(replay_stop_delay, |_| settings).await
+    }
+
+    pub async fn start_with_settings_from_temp(
+        replay_stop_delay: Duration,
+        settings: impl FnOnce(&Path) -> Value,
+    ) -> Self {
+        let harness = Self::start_inner(replay_stop_delay, settings).await;
         harness.mark_frontend_ready();
         harness
     }
 
     pub async fn start_before_frontend_ready(replay_stop_delay: Duration) -> Self {
+        Self::start_inner(replay_stop_delay, |_| json!({})).await
+    }
+
+    async fn start_inner(replay_stop_delay: Duration, settings: impl FnOnce(&Path) -> Value) -> Self {
         let root = repo_root();
         let temp = test_dir();
         let replay_dir = temp.join("replays");
@@ -49,6 +64,7 @@ impl Harness {
         );
 
         configure_test_environment(&temp).await;
+        write_initial_settings(&temp, settings(&temp));
 
         // Lives under the per-test temp dir so update tests get an isolated,
         // writable install/staging path that is cleaned up with `temp`.
@@ -87,17 +103,6 @@ impl Harness {
 
     pub fn frame(&self, relative: &str) -> Frame {
         load_bgra(&self.root.join(relative))
-    }
-
-    pub async fn put_settings(&self, settings: Value) {
-        self.client
-            .put(format!("{API}/api/v1/settings"))
-            .json(&settings)
-            .send()
-            .await
-            .unwrap()
-            .error_for_status()
-            .unwrap();
     }
 
     pub async fn start_monitor(&self) -> reqwest::Response {
@@ -155,6 +160,49 @@ impl Harness {
 
     pub async fn connect_monitor_ws(&self) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
         connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap().0
+    }
+}
+
+fn write_initial_settings(temp: &Path, settings: Value) {
+    let settings = merge_settings(default_test_settings(), settings);
+    let path = settings_path(temp);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap_or_else(|err| panic!("create settings dir {}: {err}", parent.display()));
+    }
+    let bytes = serde_json::to_vec_pretty(&settings).expect("serialize initial settings");
+    fs::write(&path, bytes).unwrap_or_else(|err| panic!("write initial settings {}: {err}", path.display()));
+}
+
+fn default_test_settings() -> Value {
+    json!({
+        "discordNotificationsEnabled": false,
+        "updateCheckInterval": "never"
+    })
+}
+
+fn merge_settings(mut base: Value, overrides: Value) -> Value {
+    let base = base.as_object_mut().expect("base settings must be an object");
+    let overrides = overrides.as_object().expect("test settings overrides must be an object");
+    for (key, value) in overrides {
+        base.insert(key.clone(), value.clone());
+    }
+    Value::Object(base.clone())
+}
+
+fn settings_path(temp: &Path) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        return temp.join("Library").join("Application Support").join("The Golden Eye").join("settings.json");
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return temp.join("The Golden Eye").join("settings.json");
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        temp.join(".config").join("the-golden-eye").join("settings.json")
     }
 }
 

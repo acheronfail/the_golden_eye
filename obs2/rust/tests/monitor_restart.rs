@@ -8,10 +8,12 @@ use support::harness::{Harness, recording_settings};
 #[ignore = "run explicitly with `just test-integration`"]
 async fn monitor_restart_waits_for_replay_buffer_stop_and_settle() {
     let stop_delay = Duration::from_millis(500);
-    let harness = Harness::start(stop_delay).await;
-    let mut settings = recording_settings(&harness.temp.join("completed"), &harness.temp.join("failed"));
-    settings["stopReplayBufferWhenMonitorStopped"] = true.into();
-    harness.put_settings(settings).await;
+    let harness = Harness::start_with_settings_from_temp(stop_delay, |temp| {
+        let mut settings = recording_settings(&temp.join("completed"), &temp.join("failed"));
+        settings["stopReplayBufferWhenMonitorStopped"] = true.into();
+        settings
+    })
+    .await;
 
     harness.start_monitor().await.error_for_status().unwrap();
     assert!(harness.obs.replay_active());

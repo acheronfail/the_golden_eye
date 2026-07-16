@@ -253,9 +253,8 @@ async fn valid_update_is_downloaded_verified_staged_and_can_be_applied() {
     let harness = Harness::start(Duration::ZERO).await;
     let core_path = harness.temp.join(core_leaf);
 
-    // Auto-update defaults off, so the automatic startup check must NOT stage
-    // anything on its own -- the download waits for an explicit request.
-    wait_for_last_check_time(&harness).await;
+    // Auto-update defaults off and startup checks are disabled in the harness,
+    // so the download waits for an explicit request.
     assert_not_staged(&core_path);
 
     // Explicit "download now": downloads, verifies, and stages, blocking until
@@ -291,17 +290,8 @@ async fn check_now_auto_stages_when_auto_update_enabled() {
 
     unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", format!("{base_url}/latest")) };
 
-    let harness = Harness::start(Duration::ZERO).await;
+    let harness = Harness::start_with_settings(Duration::ZERO, json!({ "autoUpdateEnabled": true })).await;
     let core_path = harness.temp.join(core_leaf);
-
-    // Let the background startup check finish (recording its check time with
-    // auto-update still off, so it won't stage) before flipping the setting --
-    // otherwise it can stage concurrently with the manual check below.
-    wait_for_last_check_time(&harness).await;
-
-    // Opt into automatic installs, then a manual check should download and
-    // stage on its own.
-    harness.put_settings(json!({ "autoUpdateEnabled": true })).await;
 
     let check_response = harness.client.post(format!("{API}/api/v1/updates/check")).send().await.unwrap();
     assert!(check_response.status().is_success(), "check-now request failed: {}", check_response.status());
@@ -331,8 +321,8 @@ async fn check_now_does_not_stage_when_auto_update_disabled() {
     let harness = Harness::start(Duration::ZERO).await;
     let core_path = harness.temp.join(core_leaf);
 
-    // Auto-update defaults off, so neither the automatic startup check nor this
-    // manual check should stage anything.
+    // Auto-update defaults off and startup checks are disabled in the harness,
+    // so this manual check should not stage anything.
     let check_response = harness.client.post(format!("{API}/api/v1/updates/check")).send().await.unwrap();
     assert!(check_response.status().is_success(), "check-now request failed: {}", check_response.status());
     let check_body: Value = check_response.json().await.unwrap();
@@ -435,10 +425,9 @@ async fn manual_check_now_bypasses_the_interval_that_blocked_the_automatic_check
     // The automatic startup check (first /latest call) finds nothing new and
     // records last_update_check_time just now -- a hypothetical *second*
     // automatic check moments later would see the weekly interval as not due.
-    // It's a background task spawned from ge_rust_start, so Harness::start()
-    // returning (as soon as the HTTP server itself is up) doesn't mean it has
-    // finished yet -- wait for its observable effect instead of assuming.
-    let harness = Harness::start(Duration::ZERO).await;
+    // It's a background task spawned from ge_rust_start, so wait for its
+    // observable effect instead of assuming Harness::start() means it finished.
+    let harness = Harness::start_with_settings(Duration::ZERO, json!({ "updateCheckInterval": "weekly" })).await;
     let core_path = harness.temp.join(core_leaf);
 
     let status = wait_for_last_check_time(&harness).await;

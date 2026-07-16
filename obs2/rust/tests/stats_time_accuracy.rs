@@ -11,25 +11,22 @@ use support::harness::{API, Harness, decode_bgra_frames, wait_for_clip};
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn first_stats_frame_misread_does_not_poison_the_saved_run_time() {
-    let harness = Harness::start(Duration::ZERO).await;
-    let completed_dir = harness.temp.join("completed");
-    let failed_dir = harness.temp.join("failed");
-
     // Give the pending save a padding window so the vote across the first few
     // stats frames settles before the clip is written.
-    harness
-        .put_settings(json!({
-            "completedOutputPath": completed_dir,
-            "failedOutputPath": failed_dir,
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        json!({
+            "completedOutputPath": temp.join("completed"),
+            "failedOutputPath": temp.join("failed"),
             "saveFailedRuns": true,
             "minimumFailedRunLengthSecs": 0,
             "failedRunLimit": 0,
             "clipFilenameTemplate": "stats-{status}-{time}",
             "preRunPaddingSecs": 0,
-            "postRunPaddingSecs": 1,
-            "discordNotificationsEnabled": false
-        }))
-        .await;
+            "postRunPaddingSecs": 1
+        })
+    })
+    .await;
+    let failed_dir = harness.temp.join("failed");
     harness.start_monitor().await.error_for_status().unwrap();
 
     // Render every frame twice so the misread first stats frame spans several
@@ -80,23 +77,20 @@ async fn first_stats_frame_misread_does_not_poison_the_saved_run_time() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn rt4k_completed_run_records_the_correct_stats_time() {
-    let harness = Harness::start(Duration::ZERO).await;
-    let completed_dir = harness.temp.join("completed");
-    let failed_dir = harness.temp.join("failed");
-
-    harness
-        .put_settings(json!({
-            "completedOutputPath": completed_dir,
-            "failedOutputPath": failed_dir,
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        json!({
+            "completedOutputPath": temp.join("completed"),
+            "failedOutputPath": temp.join("failed"),
             "saveFailedRuns": true,
             "minimumFailedRunLengthSecs": 0,
             "failedRunLimit": 0,
             "clipFilenameTemplate": "stats-{status}-{time}",
             "preRunPaddingSecs": 0,
-            "postRunPaddingSecs": 1,
-            "discordNotificationsEnabled": false
-        }))
-        .await;
+            "postRunPaddingSecs": 1
+        })
+    })
+    .await;
+    let completed_dir = harness.temp.join("completed");
     harness.start_monitor().await.error_for_status().unwrap();
 
     // Real capture-card frames, English overlay. The clip leads with a start
@@ -141,24 +135,20 @@ async fn rt4k_completed_run_records_the_correct_stats_time() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn minimum_failed_run_length_gate_uses_the_corrected_time() {
-    let harness = Harness::start(Duration::ZERO).await;
-    let completed_dir = harness.temp.join("completed");
-    let failed_dir = harness.temp.join("failed");
-
-    harness
-        .put_settings(json!({
-            "completedOutputPath": completed_dir,
-            "failedOutputPath": failed_dir,
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        json!({
+            "completedOutputPath": temp.join("completed"),
+            "failedOutputPath": temp.join("failed"),
             "saveFailedRuns": true,
             // Longer than the real 14s but shorter than the 374s misread.
             "minimumFailedRunLengthSecs": 100,
             "failedRunLimit": 0,
             "clipFilenameTemplate": "stats-{status}-{time}",
             "preRunPaddingSecs": 0,
-            "postRunPaddingSecs": 1,
-            "discordNotificationsEnabled": false
-        }))
-        .await;
+            "postRunPaddingSecs": 1
+        })
+    })
+    .await;
     harness.start_monitor().await.error_for_status().unwrap();
 
     let frames = decode_bgra_frames(&harness.root.join("test/clips/kia.mp4"));

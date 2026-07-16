@@ -68,13 +68,15 @@ async fn enabled_stream_notifications_post_once_then_edit_once() {
             .unwrap();
     });
 
-    let harness = Harness::start(Duration::ZERO).await;
-    let mut settings = recording_settings(&harness.temp.join("completed"), &harness.temp.join("failed"));
-    settings["discordNotificationsEnabled"] = true.into();
-    settings["discordWebhookUrl"] = webhook_url.into();
-    settings["streamingStartedMessageTemplate"] = "START {broadcast_url}".into();
-    settings["streamingStoppedMessageTemplate"] = "STOP {broadcast_url}".into();
-    harness.put_settings(settings).await;
+    let _harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        let mut settings = recording_settings(&temp.join("completed"), &temp.join("failed"));
+        settings["discordNotificationsEnabled"] = true.into();
+        settings["discordWebhookUrl"] = webhook_url.into();
+        settings["streamingStartedMessageTemplate"] = "START {broadcast_url}".into();
+        settings["streamingStoppedMessageTemplate"] = "STOP {broadcast_url}".into();
+        settings
+    })
+    .await;
 
     let service_settings = CString::new(r#"{"service":"YouTube - RTMPS","broadcast_id":"golden-eye-live"}"#).unwrap();
     // SAFETY: service_settings is a valid NUL-terminated string for this call.
