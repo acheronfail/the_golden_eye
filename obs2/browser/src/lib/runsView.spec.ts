@@ -4,7 +4,6 @@ import {
 	EMPTY_RUN_FILTERS,
 	clipTimeSeconds,
 	hasActiveRunFilters,
-	isRunPreviewVisible,
 	parseRunTimeSeconds,
 	visibleRunClips,
 	type RunFilters
@@ -137,11 +136,5 @@ describe('runs view behaviour', () => {
 	it('detects active filters after trimming search text', () => {
 		expect(hasActiveRunFilters(filters({ search: '   ' }))).toBe(false);
 		expect(hasActiveRunFilters(filters({ status: 'failed' }))).toBe(true);
-	});
-
-	it('shows a run preview only for the hovered or focused clip path', () => {
-		expect(isRunPreviewVisible(clips[0], clips[0].path)).toBe(true);
-		expect(isRunPreviewVisible(clips[0], clips[1].path)).toBe(false);
-		expect(isRunPreviewVisible(clips[0], null)).toBe(false);
 	});
 });

@@ -4,7 +4,6 @@
 		renameRun,
 		revealRunFolder,
 		revealRun,
-		runThumbnailUrl,
 		runVideoUrl,
 		streamRuns,
 		updateRunMetadata,
@@ -23,7 +22,6 @@
 		STATUS_OPTIONS,
 		hasActiveRunFilters,
 		isCompleted,
-		isRunPreviewVisible,
 		levelLabel,
 		romLanguageLabel,
 		statusLabel,
@@ -45,8 +43,6 @@
 	let folderBrowserLabel = $state('show clips folder');
 	let folderRevealBusy = $state(false);
 	let folderChooserOpen = $state(false);
-	let previewVersion = $state(0);
-	let previewPath = $state<string | null>(null);
 	let search = $state('');
 	let levelFilter = $state('');
 	let difficultyFilter = $state('');
@@ -106,7 +102,6 @@
 				selected = null;
 				metadataDraft = null;
 			}
-			previewVersion++;
 		} catch (err) {
 			if (!abort.signal.aborted) error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -192,7 +187,6 @@
 		}
 		selected = clip;
 		metadataDraft = draftFromClip(clip);
-		previewVersion++;
 	}
 
 	function emptyRuns(): RunsResponse {
@@ -230,7 +224,6 @@
 				clips: runs.clips.filter((clip) => clip.path !== path)
 			};
 		}
-		previewVersion++;
 	}
 
 	async function saveMetadata() {
@@ -629,28 +622,20 @@
 				<li>
 					<button
 						type="button"
-						class="obs-list-button group relative grid min-h-16 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-3 py-2 text-left transition-colors"
+						class="obs-list-button group grid min-h-16 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-3 py-2 text-left transition-colors"
 						class:obs-list-button-success={isCompleted(clip)}
 						onclick={() => select(clip)}
-						onmouseenter={() => (previewPath = clip.path)}
-						onmouseleave={() => {
-							if (previewPath === clip.path) previewPath = null;
-						}}
-						onfocus={() => (previewPath = clip.path)}
-						onblur={() => {
-							if (previewPath === clip.path) previewPath = null;
-						}}
 					>
-						<span class="flex min-w-0 flex-col gap-1">
-							<span class="obs-list-title min-w-0 truncate text-sm font-semibold" title={clip.fileName}>
-								{clip.fileName}
-							</span>
+						<span class="flex min-w-0 flex-col gap-1.5">
 							<span class="flex min-w-0 flex-wrap gap-1">
 								{#each runMetaChips(clip) as chip}
 									<span class="{chip.class} rounded border px-1.5 py-0.5 font-mono text-[10px] leading-tight">
 										{chip.label}
 									</span>
 								{/each}
+							</span>
+							<span class="obs-list-title min-w-0 truncate text-sm font-semibold" title={clip.fileName}>
+								{clip.fileName}
 							</span>
 							<span
 								class="obs-list-detail min-w-0 truncate font-mono text-[10px]"
@@ -665,14 +650,6 @@
 						>
 							→
 						</span>
-						{#if isRunPreviewVisible(clip, previewPath)}
-							<img
-								src="{runThumbnailUrl(clip.path)}&v={previewVersion}"
-								alt="Thumbnail for {clip.fileName}"
-								onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
-								class="obs-preview pointer-events-none absolute top-2 right-8 z-30 aspect-video w-[min(13rem,calc(100%-4rem))] object-contain shadow-xl"
-							/>
-						{/if}
 					</button>
 				</li>
 			{/each}

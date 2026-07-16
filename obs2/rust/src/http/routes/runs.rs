@@ -18,8 +18,6 @@ use crate::ffmpeg::{self, ClipMetadata};
 use crate::http::AppState;
 use crate::settings::AppSettings;
 
-const THUMBNAIL_MAX_WIDTH: u32 = 320;
-
 #[derive(Debug, Deserialize)]
 pub struct RunPathParams {
     path: String,
@@ -201,23 +199,6 @@ pub async fn handle_stream(State(state): State<AppState>) -> Result<Response> {
             (StatusCode::INTERNAL_SERVER_ERROR, "run stream response failed").into_response()
         })?;
     Ok(response)
-}
-
-pub async fn handle_thumbnail(State(state): State<AppState>, Query(params): Query<RunPathParams>) -> Result<Response> {
-    let settings = state.settings.get_effective();
-    let path = authorize_tagged_run_path(&settings, &params.path).map_err(RunPathError::into_response)?;
-    let bytes = tokio::task::spawn_blocking(move || ffmpeg::thumbnail_bmp(&path, THUMBNAIL_MAX_WIDTH))
-        .await
-        .map_err(|err| {
-            tracing::error!("thumbnail task failed: {err:#}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "thumbnail failed").into_response()
-        })?
-        .map_err(|err| {
-            tracing::warn!("failed to create run thumbnail: {err:#}");
-            (StatusCode::BAD_REQUEST, "thumbnail failed").into_response()
-        })?;
-
-    Ok(([(header::CONTENT_TYPE, "image/bmp")], bytes).into_response())
 }
 
 pub async fn handle_video(

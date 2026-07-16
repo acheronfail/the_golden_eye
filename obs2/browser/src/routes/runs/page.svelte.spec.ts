@@ -8,7 +8,6 @@ import { settings } from '$lib/settings.svelte';
 const mocks = vi.hoisted(() => ({
 	revealRunFolder: vi.fn(),
 	streamRuns: vi.fn(),
-	runThumbnailUrl: vi.fn((path: string) => `/api/v1/runs/thumbnail?path=${encodeURIComponent(path)}`),
 	runVideoUrl: vi.fn((path: string) => `/api/v1/runs/video?path=${encodeURIComponent(path)}`)
 }));
 
@@ -17,7 +16,6 @@ vi.mock('$lib/api', async (importOriginal) => {
 	return {
 		...actual,
 		revealRunFolder: mocks.revealRunFolder,
-		runThumbnailUrl: mocks.runThumbnailUrl,
 		runVideoUrl: mocks.runVideoUrl,
 		streamRuns: mocks.streamRuns
 	};
