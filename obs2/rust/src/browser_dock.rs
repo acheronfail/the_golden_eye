@@ -1,10 +1,9 @@
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
-use std::{env, ptr};
+use std::ptr;
 
 use serde_json::{Value, json};
 
 const DOCK_TITLE: &str = "The Golden Eye";
-const DOCK_URL: &str = "http://127.0.0.1:31337/";
 const DOCK_UUID: &str = "thegoldeneyedashboard";
 
 const DOCKS_SECTION: &[u8] = b"BasicWindow\0";
@@ -12,7 +11,7 @@ const DOCKS_KEY: &[u8] = b"ExtraBrowserDocks\0";
 const CONFIG_TEMP_EXT: &[u8] = b"tmp\0";
 
 pub fn post_load() {
-    if env_truthy("GE_DISABLE_BROWSER_DOCK") {
+    if crate::config::browser_dock_disabled() {
         tracing::info!("custom browser dock setup disabled by GE_DISABLE_BROWSER_DOCK");
         return;
     }
@@ -23,7 +22,7 @@ pub fn post_load() {
         return;
     }
 
-    let url = dock_url();
+    let url = crate::config::browser_dock_url();
     let existing = unsafe {
         let ptr = config_get_string(config, DOCKS_SECTION.as_ptr().cast(), DOCKS_KEY.as_ptr().cast());
         c_string(ptr)
@@ -56,17 +55,6 @@ pub fn post_load() {
     } else {
         tracing::info!(%url, "ensured OBS custom browser dock");
     }
-}
-
-fn env_truthy(name: &str) -> bool {
-    env::var(name)
-        .ok()
-        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false)
-}
-
-fn dock_url() -> String {
-    env::var("GE_BROWSER_DOCK_URL").ok().filter(|value| !value.is_empty()).unwrap_or_else(|| DOCK_URL.to_string())
 }
 
 fn ensure_dock_json(existing: Option<&str>, title: &str, url: &str, uuid: &str) -> Result<Option<String>, String> {

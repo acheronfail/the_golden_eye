@@ -1,4 +1,3 @@
-use std::env;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -24,7 +23,7 @@ struct FrameDump {
 impl FrameDump {
     fn new() -> std::io::Result<Self> {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-        let dir = env::temp_dir().join(format!("ge-frames-{}-{nanos}", std::process::id()));
+        let dir = crate::config::temp_dir().join(format!("ge-frames-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         // Inside the OBS Flatpak the sandbox path isn't where the user finds the
         // files, so surface a best-effort host path alongside it when we can.
@@ -60,10 +59,10 @@ impl FrameDump {
 fn flatpak_host_path(dir: &Path) -> Option<String> {
     // `/.flatpak-info` exists only inside a Flatpak sandbox.
     let info = std::fs::read_to_string("/.flatpak-info").ok()?;
-    let app_id = env::var("FLATPAK_ID").ok()?;
+    let app_id = crate::config::flatpak_id()?;
     // The [Instance] section names the per-run instance; log it as a fallback hint.
     let instance = info.lines().find_map(|l| l.trim().strip_prefix("instance-id=")).map(str::trim);
-    match (env::var("XDG_RUNTIME_DIR").ok(), dir.strip_prefix("/tmp").ok()) {
+    match (crate::config::xdg_runtime_dir(), dir.strip_prefix("/tmp").ok()) {
         (Some(runtime), Some(rel)) => Some(format!("{runtime}/.flatpak/{app_id}/tmp/{}", rel.display())),
         _ => Some(format!("under the host Flatpak runtime dir for {app_id} (instance {})", instance.unwrap_or("?"))),
     }

@@ -100,45 +100,47 @@ fn release_response_parses_release_array() {
 
 #[test]
 fn env_config_defaults_to_latest_release_url() {
-    let config = update_env_config_from_values(None, None);
+    let config = crate::config::UpdateEnvConfig::from_values(None, None);
 
-    assert_eq!(releases_api_url_for(&config), LATEST_RELEASE_API_URL);
+    assert_eq!(config.releases_api_url(), crate::config::LATEST_RELEASE_API_URL);
     assert!(!config.include_prereleases());
 }
 
 #[test]
 fn env_config_truthy_prereleases_uses_full_releases_url() {
-    let config = update_env_config_from_values(None, Some("true".to_owned()));
+    let config = crate::config::UpdateEnvConfig::from_values(None, Some("true".to_owned()));
 
-    assert_eq!(releases_api_url_for(&config), RELEASES_API_URL);
+    assert_eq!(config.releases_api_url(), crate::config::RELEASES_API_URL);
     assert!(config.include_prereleases());
 }
 
 #[test]
 fn env_config_url_override_takes_precedence_over_prerelease_endpoint() {
-    let config =
-        update_env_config_from_values(Some("https://example.test/releases".to_owned()), Some("true".to_owned()));
+    let config = crate::config::UpdateEnvConfig::from_values(
+        Some("https://example.test/releases".to_owned()),
+        Some("true".to_owned()),
+    );
 
-    assert_eq!(releases_api_url_for(&config), "https://example.test/releases");
+    assert_eq!(config.releases_api_url(), "https://example.test/releases");
     assert!(config.include_prereleases());
 }
 
 #[test]
 fn env_config_false_prerelease_override_is_recorded_but_disabled() {
-    let config = update_env_config_from_values(None, Some("false".to_owned()));
+    let config = crate::config::UpdateEnvConfig::from_values(None, Some("false".to_owned()));
 
     assert_eq!(config.include_prereleases_override, Some(false));
     assert!(!config.include_prereleases());
-    assert_eq!(releases_api_url_for(&config), LATEST_RELEASE_API_URL);
+    assert_eq!(config.releases_api_url(), crate::config::LATEST_RELEASE_API_URL);
 }
 
 #[test]
 fn env_value_enabled_accepts_common_truthy_values() {
     for value in ["1", "true", "TRUE", " yes ", "on"] {
-        assert!(env_value_enabled(value));
+        assert!(crate::config::env_value_enabled(value));
     }
     for value in ["", "0", "false", "no", "off", "anything"] {
-        assert!(!env_value_enabled(value));
+        assert!(!crate::config::env_value_enabled(value));
     }
 }
 

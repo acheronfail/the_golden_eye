@@ -21,7 +21,7 @@ use crate::recording::{
 };
 use crate::stream_notifier::{DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE, DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE};
 
-const SETTINGS_FILE_NAME: &str = "settings.json";
+pub(crate) const SETTINGS_FILE_NAME: &str = "settings.json";
 const LEGACY_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suffix}{failed_suffix}";
 pub const DEFAULT_UPDATE_CHECK_INTERVAL: UpdateCheckInterval = UpdateCheckInterval::Weekly;
 pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "GoldenEye";
@@ -251,7 +251,7 @@ pub enum SettingsReload {
 
 impl SettingsStore {
     pub fn load_default() -> Self {
-        Self::load_from_path(default_settings_path())
+        Self::load_from_path(crate::config::default_settings_path())
     }
 
     pub fn load_from_path(path: PathBuf) -> Self {
@@ -542,45 +542,6 @@ fn number_value(value: Option<&Value>) -> Option<f64> {
         Value::String(s) => s.parse::<f64>().ok(),
         _ => None,
     }
-}
-
-pub fn default_settings_path() -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home)
-                .join("Library")
-                .join("Application Support")
-                .join("The Golden Eye")
-                .join(SETTINGS_FILE_NAME);
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        if let Some(appdata) = std::env::var_os("APPDATA") {
-            return PathBuf::from(appdata).join("The Golden Eye").join(SETTINGS_FILE_NAME);
-        }
-        if let Some(profile) = std::env::var_os("USERPROFILE") {
-            return PathBuf::from(profile)
-                .join("AppData")
-                .join("Roaming")
-                .join("The Golden Eye")
-                .join(SETTINGS_FILE_NAME);
-        }
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME") {
-            return PathBuf::from(config_home).join("the-golden-eye").join(SETTINGS_FILE_NAME);
-        }
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join(".config").join("the-golden-eye").join(SETTINGS_FILE_NAME);
-        }
-    }
-
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(SETTINGS_FILE_NAME)
 }
 
 #[cfg(test)]

@@ -200,12 +200,12 @@ fn initial_directory(raw: &str) -> Option<PathBuf> {
 
 fn default_videos_directory() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
-    let candidate = home_dir()?.join("Movies");
+    let candidate = crate::config::home_dir()?.join("Movies");
 
     #[cfg(not(target_os = "macos"))]
-    let candidate = home_dir()?.join("Videos");
+    let candidate = crate::config::home_dir()?.join("Videos");
 
-    if candidate.is_dir() { Some(candidate) } else { home_dir() }
+    if candidate.is_dir() { Some(candidate) } else { crate::config::home_dir() }
 }
 
 fn nearest_existing_directory(path: &Path) -> Option<PathBuf> {
@@ -223,37 +223,21 @@ fn nearest_existing_directory(path: &Path) -> Option<PathBuf> {
 
 fn resolve_path(path: &str) -> PathBuf {
     let expanded = expand_home(path);
-    if expanded.is_absolute() {
-        expanded
-    } else {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(expanded)
-    }
+    if expanded.is_absolute() { expanded } else { crate::config::current_dir().join(expanded) }
 }
 
 fn expand_home(path: &str) -> PathBuf {
     if path == "~"
-        && let Some(home) = home_dir()
+        && let Some(home) = crate::config::home_dir()
     {
         return home;
     }
     if let Some(rest) = path.strip_prefix("~/")
-        && let Some(home) = home_dir()
+        && let Some(home) = crate::config::home_dir()
     {
         return home.join(rest);
     }
     PathBuf::from(path)
-}
-
-fn home_dir() -> Option<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        std::env::var_os("USERPROFILE").map(PathBuf::from)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        std::env::var_os("HOME").map(PathBuf::from)
-    }
 }
 
 fn probe_writable(dir: &Path) -> anyhow::Result<()> {

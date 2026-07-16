@@ -1,6 +1,4 @@
-use std::env;
 use std::ffi::CString;
-use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -100,22 +98,7 @@ enum Captured<R> {
     Closed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MonitorTimingMode {
-    Off,
-    Slow,
-    Verbose,
-}
-
-impl MonitorTimingMode {
-    fn from_env() -> Self {
-        match env::var("GE_MONITOR_TIMING") {
-            Ok(value) if matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "slow") => Self::Slow,
-            Ok(value) if value.eq_ignore_ascii_case("verbose") => Self::Verbose,
-            _ => Self::Off,
-        }
-    }
-}
+use crate::config::MonitorTimingMode;
 
 struct MonitorTiming {
     mode: MonitorTimingMode,
@@ -125,12 +108,7 @@ struct MonitorTiming {
 
 impl MonitorTiming {
     fn new(source_fps: f64, mode: MonitorTimingMode) -> Self {
-        let frame_ms = if source_fps > 0.0 { 1000.0 / source_fps } else { 16.67 };
-        let slow_ms = env::var("GE_MONITOR_SLOW_MS")
-            .ok()
-            .and_then(|value| f64::from_str(&value).ok())
-            .filter(|value| value.is_finite() && *value > 0.0)
-            .unwrap_or((frame_ms * 2.0).max(40.0));
+        let slow_ms = crate::config::default_monitor_slow_ms(source_fps);
 
         Self { mode, slow_ms, last_dropped_frames_total: 0 }
     }

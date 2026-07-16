@@ -1,4 +1,3 @@
-use std::env;
 use std::time::Instant;
 
 // Lightweight phase timer. When the GE_CV_TIMING environment variable is set,
@@ -12,7 +11,7 @@ pub struct PhaseTimer {
 impl PhaseTimer {
     pub fn new() -> Self {
         let now = Instant::now();
-        PhaseTimer { start: now, last: now, enabled: env::var_os("GE_CV_TIMING").is_some() }
+        PhaseTimer { start: now, last: now, enabled: crate::config::cv_timing_enabled() }
     }
 
     pub fn start(&self) -> Instant {

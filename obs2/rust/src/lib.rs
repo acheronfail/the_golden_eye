@@ -1,4 +1,5 @@
 mod browser_dock;
+mod config;
 pub mod cv;
 mod ffi;
 mod ffmpeg;
