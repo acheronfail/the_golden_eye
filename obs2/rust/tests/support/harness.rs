@@ -32,6 +32,12 @@ pub struct Harness {
 
 impl Harness {
     pub async fn start(replay_stop_delay: Duration) -> Self {
+        let harness = Self::start_before_frontend_ready(replay_stop_delay).await;
+        harness.mark_frontend_ready();
+        harness
+    }
+
+    pub async fn start_before_frontend_ready(replay_stop_delay: Duration) -> Self {
         let root = repo_root();
         let temp = test_dir();
         let replay_dir = temp.join("replays");
@@ -42,36 +48,10 @@ impl Harness {
             fixture.display()
         );
 
-        // The integration recipe runs ignored tests serially, so changing config
-        // env before the backend creates threads is safe and keeps SettingsStore
-        // away from developer/CI runner settings. Windows code reads APPDATA/
-        // USERPROFILE instead of HOME/XDG_CONFIG_HOME (default_settings_path in
-        // settings.rs, home_dir in http/routes/{folders,runs}.rs) -- without
-        // overriding those too, every test on Windows shares the real,
-        // persistent %APPDATA%\The Golden Eye\settings.json, so state like
-        // `lastUpdateCheckTime` leaks across tests (and processes).
-        unsafe {
-            std::env::set_var("HOME", &temp);
-            std::env::set_var("XDG_CONFIG_HOME", temp.join(".config"));
-            std::env::set_var("APPDATA", &temp);
-            std::env::set_var("USERPROFILE", &temp);
-        }
+        configure_test_environment(&temp).await;
 
-        // `ge_rust_start` unconditionally kicks off a background update check
-        // (see `updates::check_for_updates_on_startup`); without an override it
-        // hits the real GitHub API on every single test run. Point it at a
-        // local "nothing new" mock instead, unless the test already set its
-        // own (update_apply.rs/update_checking.rs configure one that actually
-        // reports an update, which must win).
-        if std::env::var_os("GE_UPDATE_CHECK_URL").is_none() {
-            let mock_url = start_local_update_mock().await;
-            unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", mock_url) };
-        }
-
-        // Lives under the per-test temp dir (not the repo's real build
-        // directory) so tests that derive an install/staging directory from
-        // this path (e.g. update_apply.rs) get one that's isolated and
-        // writable, and cleaned up with everything else in `temp`.
+        // Lives under the per-test temp dir so update tests get an isolated,
+        // writable install/staging path that is cleaned up with `temp`.
         let core_path = temp.join("golden_core.test");
 
         let obs = TestObs::install(Config {
@@ -89,11 +69,8 @@ impl Harness {
             sources: vec![(SOURCE_NAME.into(), "test_input".into())],
         });
 
-        // Normally set by core.c's ge_core_load (see lib.rs::core_path); the
-        // harness calls ge_rust_start() directly, bypassing that C layer
-        // entirely, so it has to set this itself -- and must do so on every
-        // call (not just once), since this same process runs multiple tests
-        // that each want their own isolated path.
+        // Normally set by core.c's ge_core_load; the harness calls Rust directly,
+        // so each test must provide its isolated canonical core path itself.
         let core_path_c = std::ffi::CString::new(core_path.to_string_lossy().into_owned()).unwrap();
         unsafe { ge_rust::ge_rust_set_core_path(core_path_c.as_ptr()) };
 
@@ -102,6 +79,10 @@ impl Harness {
         wait_for_server(&client).await;
 
         Self { root, temp, replay_dir, client, obs }
+    }
+
+    pub fn mark_frontend_ready(&self) {
+        ge_rust::ge_frontend_finished_loading();
     }
 
     pub fn frame(&self, relative: &str) -> Frame {
@@ -174,6 +155,23 @@ impl Harness {
 
     pub async fn connect_monitor_ws(&self) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
         connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap().0
+    }
+}
+
+async fn configure_test_environment(temp: &Path) {
+    // Keep tests away from developer/CI settings. Windows reads APPDATA and
+    // USERPROFILE, so override those alongside HOME/XDG_CONFIG_HOME.
+    unsafe {
+        std::env::set_var("HOME", temp);
+        std::env::set_var("XDG_CONFIG_HOME", temp.join(".config"));
+        std::env::set_var("APPDATA", temp);
+        std::env::set_var("USERPROFILE", temp);
+    }
+
+    // Avoid real GitHub update checks unless a test installed its own mock.
+    if std::env::var_os("GE_UPDATE_CHECK_URL").is_none() {
+        let mock_url = start_local_update_mock().await;
+        unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", mock_url) };
     }
 }
 
@@ -426,7 +424,7 @@ async fn no_update_available() -> axum::Json<Value> {
 async fn wait_for_server(client: &reqwest::Client) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
-        if client.get(format!("{API}/api/v1/settings/status")).send().await.is_ok() {
+        if client.get(format!("{API}/api/v1/updates/status")).send().await.is_ok() {
             return;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;

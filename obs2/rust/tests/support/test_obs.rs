@@ -23,6 +23,15 @@ pub struct Calls {
     pub replay_start: usize,
     pub replay_stop: usize,
     pub replay_save: usize,
+    pub replay_active: usize,
+    pub replay_enabled: usize,
+    pub replay_available: usize,
+    pub replay_max_seconds: usize,
+    pub replay_output_directory: usize,
+    pub source_names: usize,
+    pub user_config: usize,
+    pub config_get_string: usize,
+    pub config_set_string: usize,
     pub capture_create: usize,
     pub capture_get_frame: usize,
     pub capture_destroy: usize,
@@ -30,6 +39,21 @@ pub struct Calls {
     pub frame_callback_unregister: usize,
     pub dock_config_save: usize,
     pub core_trigger_reload: usize,
+}
+
+impl Calls {
+    pub fn frontend_dependent_obs_queries(&self) -> usize {
+        self.replay_active
+            + self.replay_enabled
+            + self.replay_available
+            + self.replay_max_seconds
+            + self.replay_output_directory
+            + self.source_names
+            + self.user_config
+            + self.config_get_string
+            + self.config_set_string
+            + self.dock_config_save
+    }
 }
 
 pub struct Config {
@@ -193,7 +217,9 @@ pub extern "C" fn obs_frontend_recording_stop() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn obs_frontend_replay_buffer_active() -> bool {
-    STATE.lock().unwrap().config.replay_active
+    let mut state = STATE.lock().unwrap();
+    state.calls.replay_active += 1;
+    state.config.replay_active
 }
 
 #[unsafe(no_mangle)]
@@ -269,22 +295,32 @@ fn fire_replay_saved(path: &Path) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_obs_replay_buffer_enabled() -> bool {
-    STATE.lock().unwrap().config.replay_enabled
+    let mut state = STATE.lock().unwrap();
+    state.calls.replay_enabled += 1;
+    state.config.replay_enabled
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_obs_replay_buffer_available() -> bool {
-    STATE.lock().unwrap().config.replay_available
+    let mut state = STATE.lock().unwrap();
+    state.calls.replay_available += 1;
+    state.config.replay_available
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_obs_replay_buffer_max_seconds() -> i64 {
-    STATE.lock().unwrap().config.replay_max_seconds
+    let mut state = STATE.lock().unwrap();
+    state.calls.replay_max_seconds += 1;
+    state.config.replay_max_seconds
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_obs_replay_buffer_output_directory(buffer: *mut c_char, size: usize) -> bool {
-    copy_to_c(&STATE.lock().unwrap().config.replay_output_directory, buffer, size)
+    let mut state = STATE.lock().unwrap();
+    state.calls.replay_output_directory += 1;
+    let path = state.config.replay_output_directory.clone();
+    drop(state);
+    copy_to_c(&path, buffer, size)
 }
 
 #[unsafe(no_mangle)]
@@ -318,15 +354,11 @@ pub extern "C" fn ge_obs_blog(_level: c_int, msg: *const c_char) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ge_obs_collect_source_names(buffer: *mut c_char, size: usize) {
-    let names = STATE
-        .lock()
-        .unwrap()
-        .config
-        .sources
-        .iter()
-        .map(|(name, id)| format!("{name}\t{id}"))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let names = {
+        let mut state = STATE.lock().unwrap();
+        state.calls.source_names += 1;
+        state.config.sources.iter().map(|(name, id)| format!("{name}\t{id}")).collect::<Vec<_>>().join("\n")
+    };
     if names.len() < size {
         // SAFETY: checked against the supplied size.
         unsafe {
@@ -394,6 +426,7 @@ pub extern "C" fn ge_obs_unregister_frame_callback(_cb: FrameCallback, _param: *
 
 #[unsafe(no_mangle)]
 pub extern "C" fn obs_frontend_get_user_config() -> *mut c_void {
+    STATE.lock().unwrap().calls.user_config += 1;
     ptr::dangling_mut::<u8>().cast()
 }
 
@@ -403,7 +436,9 @@ pub unsafe extern "C" fn config_get_string(
     _section: *const c_char,
     _name: *const c_char,
 ) -> *const c_char {
-    STATE.lock().unwrap().dock_json.as_ptr()
+    let mut state = STATE.lock().unwrap();
+    state.calls.config_get_string += 1;
+    state.dock_json.as_ptr()
 }
 
 #[unsafe(no_mangle)]
@@ -415,7 +450,9 @@ pub unsafe extern "C" fn config_set_string(
 ) {
     // SAFETY: OBS config API supplies a valid string for the duration of the call.
     let value = unsafe { CStr::from_ptr(value) };
-    STATE.lock().unwrap().dock_json = CString::new(value.to_bytes()).unwrap();
+    let mut state = STATE.lock().unwrap();
+    state.calls.config_set_string += 1;
+    state.dock_json = CString::new(value.to_bytes()).unwrap();
 }
 
 #[unsafe(no_mangle)]
