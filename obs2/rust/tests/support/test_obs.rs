@@ -303,10 +303,18 @@ pub extern "C" fn ge_obs_video_fps() -> f64 {
 }
 
 // `c_int` stands in for the ABI-identical `GeLogLevel` (a repr(C) fieldless enum
-// is int-sized); this crate can't see that crate-private type. No real OBS log
-// here, so just drop the line.
+// is int-sized); this crate can't see that crate-private type. Print via stderr
+// so `--nocapture` exposes Rust tracing output in integration tests.
 #[unsafe(no_mangle)]
-pub extern "C" fn ge_obs_blog(_level: c_int, _msg: *const c_char) {}
+pub extern "C" fn ge_obs_blog(_level: c_int, msg: *const c_char) {
+    if msg.is_null() {
+        return;
+    }
+
+    // SAFETY: `ge_rust` passes a valid NUL-terminated string for this call.
+    let msg = unsafe { std::ffi::CStr::from_ptr(msg) };
+    eprintln!("{}", msg.to_string_lossy());
+}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ge_obs_collect_source_names(buffer: *mut c_char, size: usize) {

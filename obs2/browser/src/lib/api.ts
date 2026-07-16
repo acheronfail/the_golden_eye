@@ -195,6 +195,7 @@ export interface SettingsStatus {
 	settings: Settings;
 	defaults: Settings;
 	configPath: string;
+	pluginVersion: string;
 	fileError?: string | null;
 }
 

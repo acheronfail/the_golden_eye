@@ -99,8 +99,8 @@ async fn overlapping_plugin_saves_each_get_their_own_clip() {
     harness.put_settings(recording_settings(&completed, &failed)).await;
     harness.start_monitor().await.error_for_status().unwrap();
 
-    // Make each save take a while to complete so both runs' saves overlap.
-    harness.obs.set_replay_save_delay(Duration::from_secs(2));
+    // Make each save take long enough to overlap without adding seconds of wall time.
+    harness.obs.set_replay_save_delay(Duration::from_millis(200));
 
     run_to_stats(
         &harness,
@@ -117,9 +117,8 @@ async fn overlapping_plugin_saves_each_get_their_own_clip() {
     )
     .await;
 
-    // Wait for both clips (each save is delayed 2s, then serialized after each
-    // other, so the second lands well after the first).
-    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    // Wait for both clips (the delayed saves are serialized, so the second lands after the first).
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
     while clip_count(&completed) < 2 {
         assert!(std::time::Instant::now() < deadline, "expected two clips, saw {}", clip_count(&completed));
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -171,8 +170,8 @@ async fn concurrent_user_save_during_a_plugin_save_is_not_deleted() {
     harness.put_settings(recording_settings(&completed, &failed)).await;
     harness.start_monitor().await.error_for_status().unwrap();
 
-    // Make the plugin's save slow so it is still in flight when the user saves.
-    harness.obs.set_replay_save_delay(Duration::from_secs(2));
+    // Make the plugin save slow enough to still be in flight when the user saves.
+    harness.obs.set_replay_save_delay(Duration::from_millis(750));
 
     run_to_stats(
         &harness,

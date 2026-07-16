@@ -1,14 +1,6 @@
 // See https://svelte.dev/docs/kit/types#app.d.ts
 // for information about these interfaces
 declare global {
-	interface ImportMetaEnv {
-		readonly VITE_GE_PLUGIN_VERSION?: string;
-	}
-
-	interface ImportMeta {
-		readonly env: ImportMetaEnv;
-	}
-
 	namespace App {
 		// interface Error/Locals/PageData/PageState/Platform {}
 	}
