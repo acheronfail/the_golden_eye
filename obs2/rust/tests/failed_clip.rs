@@ -8,10 +8,12 @@ use support::harness::{API, Harness, recording_settings, wait_for_clip};
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn failed_run_is_saved_to_the_configured_failed_directory() {
-    let harness = Harness::start(Duration::ZERO).await;
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        recording_settings(&temp.join("completed"), &temp.join("failed"))
+    })
+    .await;
     let completed_dir = harness.temp.join("completed");
     let failed_dir = harness.temp.join("failed");
-    harness.put_settings(recording_settings(&completed_dir, &failed_dir)).await;
     harness.start_monitor().await.error_for_status().unwrap();
 
     let start = harness.frame("test/screenshots-av2hdmi/en - start - 03 - Secret Agent.png");

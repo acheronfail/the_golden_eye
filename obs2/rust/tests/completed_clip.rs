@@ -13,10 +13,12 @@ unsafe extern "C" fn queued_test_task(param: *mut std::ffi::c_void) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn obs_apis_and_completed_run_save_the_correct_replay_window() {
-    let harness = Harness::start(Duration::ZERO).await;
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        recording_settings(&temp.join("clips"), &temp.join("failed"))
+    })
+    .await;
     let fixture = harness.root.join("test/clips/replay-buffer-60s.mp4");
     let clips_dir = harness.temp.join("clips");
-    let failed_dir = harness.temp.join("failed");
 
     assert_eq!(probe_duration(&fixture), 60.0);
     assert_eq!(visual_second(&fixture, 34.2), 34, "fixture visual timestamp should be machine-readable");
@@ -64,7 +66,6 @@ async fn obs_apis_and_completed_run_save_the_correct_replay_window() {
     harness.client.post(format!("{API}/api/v1/record/start")).send().await.unwrap().error_for_status().unwrap();
     harness.client.post(format!("{API}/api/v1/record/stop")).send().await.unwrap().error_for_status().unwrap();
 
-    harness.put_settings(recording_settings(&clips_dir, &failed_dir)).await;
     harness.start_monitor().await.error_for_status().unwrap();
     assert!(harness.obs.replay_active());
 

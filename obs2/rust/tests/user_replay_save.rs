@@ -35,10 +35,12 @@ async fn run_to_stats(harness: &Harness, start: &str, complete: &str, stats: &st
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn user_initiated_save_while_idle_is_left_untouched() {
-    let harness = Harness::start(Duration::ZERO).await;
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        recording_settings(&temp.join("completed"), &temp.join("failed"))
+    })
+    .await;
     let completed = harness.temp.join("completed");
     let failed = harness.temp.join("failed");
-    harness.put_settings(recording_settings(&completed, &failed)).await;
     harness.start_monitor().await.error_for_status().unwrap();
 
     let user_file = harness.obs.user_replay_save();
@@ -61,10 +63,11 @@ async fn user_initiated_save_while_idle_is_left_untouched() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn user_save_does_not_disrupt_a_following_run() {
-    let harness = Harness::start(Duration::ZERO).await;
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        recording_settings(&temp.join("completed"), &temp.join("failed"))
+    })
+    .await;
     let completed = harness.temp.join("completed");
-    let failed = harness.temp.join("failed");
-    harness.put_settings(recording_settings(&completed, &failed)).await;
     harness.start_monitor().await.error_for_status().unwrap();
 
     let user_file = harness.obs.user_replay_save();
@@ -93,10 +96,11 @@ async fn user_save_does_not_disrupt_a_following_run() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn overlapping_plugin_saves_each_get_their_own_clip() {
-    let harness = Harness::start(Duration::ZERO).await;
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        recording_settings(&temp.join("completed"), &temp.join("failed"))
+    })
+    .await;
     let completed = harness.temp.join("completed");
-    let failed = harness.temp.join("failed");
-    harness.put_settings(recording_settings(&completed, &failed)).await;
     harness.start_monitor().await.error_for_status().unwrap();
 
     // Make each save take long enough to overlap without adding seconds of wall time.
@@ -136,10 +140,11 @@ async fn overlapping_plugin_saves_each_get_their_own_clip() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn normal_run_deletes_its_own_replay_source() {
-    let harness = Harness::start(Duration::ZERO).await;
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        recording_settings(&temp.join("completed"), &temp.join("failed"))
+    })
+    .await;
     let completed = harness.temp.join("completed");
-    let failed = harness.temp.join("failed");
-    harness.put_settings(recording_settings(&completed, &failed)).await;
     harness.start_monitor().await.error_for_status().unwrap();
 
     run_to_stats(
@@ -164,10 +169,11 @@ async fn normal_run_deletes_its_own_replay_source() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn concurrent_user_save_during_a_plugin_save_is_not_deleted() {
-    let harness = Harness::start(Duration::ZERO).await;
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        recording_settings(&temp.join("completed"), &temp.join("failed"))
+    })
+    .await;
     let completed = harness.temp.join("completed");
-    let failed = harness.temp.join("failed");
-    harness.put_settings(recording_settings(&completed, &failed)).await;
     harness.start_monitor().await.error_for_status().unwrap();
 
     // Make the plugin save slow enough to still be in flight when the user saves.
