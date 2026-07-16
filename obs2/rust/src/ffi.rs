@@ -59,6 +59,7 @@ unsafe extern "C" {
 
     pub fn obs_frontend_recording_start();
     pub fn obs_frontend_recording_stop();
+    pub fn obs_frontend_recording_active() -> bool;
 
     /// Begins the replay buffer output (a no-op if it is not enabled in the
     /// profile, or already running). Starting is asynchronous.

@@ -19,8 +19,7 @@
 	const sources = $derived(obsSources.items);
 	const previewVersion = $derived(`${obsSources.version}-${previewTick}`);
 
-	// The replay buffer must be available to record; gate source selection on it.
-	// Anything other than a confirmed "available" keeps selection disabled.
+	// Clip recording needs the replay buffer; single-segment recording uses OBS recording.
 	const replayUnavailable = $derived(replayBuffer.status?.available !== true);
 	const replayBufferTooShort = $derived(
 		replayBuffer.status?.available === true &&
@@ -55,7 +54,6 @@
 	let options = $derived<Option[]>((sources ?? []).map((s) => ({ title: s.name, detail: s.id, key: s.name })));
 
 	const select = (option: Option) => {
-		if (replayUnavailable) return;
 		selectedSource = option.title;
 	};
 
@@ -129,7 +127,7 @@
 				{:else}
 					Enable it in OBS under Settings → Output → Replay Buffer.
 				{/if}
-				You can't pick a source until the replay buffer is usable.
+				Record Clips mode needs a usable replay buffer. Single segment runs can still use OBS recording.
 			</p>
 		</div>
 	{/if}
@@ -153,8 +151,14 @@
 			<p class="obs-dim mt-1 font-mono text-xs">Add a video capture source in OBS.</p>
 		</div>
 	{:else}
-		<OptionList {options} onSelect={select} {leading} disabled={replayUnavailable} />
+		<OptionList {options} onSelect={select} {leading} />
 	{/if}
 </WizardFrame>
 
-<RunModeChooser open={selectedSource !== null} sourceName={selectedSource} close={closeModeChooser} choose={chooseMode} />
+<RunModeChooser
+	open={selectedSource !== null}
+	sourceName={selectedSource}
+	clipsAvailable={!replayUnavailable}
+	close={closeModeChooser}
+	choose={chooseMode}
+/>

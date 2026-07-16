@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { SingleSegmentSnapshot, SingleSegmentSplit } from '$lib/api';
 
-	let { snapshot }: { snapshot: SingleSegmentSnapshot } = $props();
+	let { snapshot, liveTotalSecs = null }: { snapshot: SingleSegmentSnapshot; liveTotalSecs?: number | null } = $props();
 
 	const formatTime = (secs: number | null | undefined, precision = 0): string => {
 		if (secs == null) return '—';
@@ -22,19 +22,20 @@
 		}
 	};
 
-	let rows = $derived(snapshot.splits.filter((split) => split.status !== 'pending' || snapshot.splits.some((s) => s.status === 'active')));
+	let hasActive = $derived(snapshot.splits.some((split) => split.status === 'active'));
+	let rows = $derived(snapshot.splits.filter((split) => split.status !== 'pending' || hasActive));
 	let visibleRows = $derived(rows.length > 0 ? rows : snapshot.splits.slice(0, 8));
 </script>
 
-<section class="w-full max-w-3xl px-3 pb-4 font-mono text-xs sm:px-4">
-	<div class="mb-2 flex items-end justify-between gap-3">
+<section class="w-full font-mono text-xs">
+	<div class="flex items-end justify-between gap-3 px-2 pb-1">
 		<div>
 			<p class="obs-dim tracking-widest uppercase">splits</p>
-			<p class="obs-muted text-sm">Total real time: {formatTime(snapshot.totalRealTimeSecs, 1)}</p>
+			<p class="obs-muted text-sm">Total real time: {formatTime(liveTotalSecs ?? snapshot.totalRealTimeSecs, 1)}</p>
 		</div>
 		<p class="obs-dim text-right">game time from matched stats screen</p>
 	</div>
-	<div class="obs-dialog overflow-hidden rounded border border-white/10">
+	<div class="obs-dialog overflow-hidden border-t border-white/10">
 		<table class="w-full border-collapse tabular-nums">
 			<thead class="obs-dialog-header">
 				<tr class="text-left tracking-widest uppercase">

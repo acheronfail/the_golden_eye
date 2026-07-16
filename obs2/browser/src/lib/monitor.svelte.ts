@@ -117,7 +117,7 @@ export const monitor = $state<{
 	match: null,
 	fps: null,
 	recordingState: null,
-	singleSegment: { started: false, splits: [] },
+	singleSegment: { started: false, completed: false, splits: [] },
 	kiaEffectId: 0
 });
 
@@ -130,7 +130,7 @@ const clearRunState = () => {
 	monitor.match = null;
 	monitor.fps = null;
 	monitor.recordingState = null;
-	monitor.singleSegment = { started: false, splits: [] };
+	monitor.singleSegment = { started: false, completed: false, splits: [] };
 };
 
 const pendingSaveNotificationIds = new Map<number, number>();
@@ -186,7 +186,7 @@ export const applyMonitorSnapshot = (snapshot: AppSnapshot): void => {
 	monitor.loaded = true;
 	monitor.match = snapshot.match;
 	monitor.recordingState = nextStatus.enabled ? visibleRecordingState(snapshot.recordingState) : null;
-	monitor.singleSegment = snapshot.singleSegment ?? { started: false, splits: [] };
+	monitor.singleSegment = snapshot.singleSegment ?? { started: false, completed: false, splits: [] };
 	if (!nextStatus.enabled || previousSource !== nextSource) {
 		monitor.fps = null;
 	}
@@ -300,7 +300,7 @@ export const applyRecordingSaved = (saved: RecordingSaved): void => {
 };
 
 export const applyMonitorStopped = (reason: MonitorStoppedReason): void => {
-	clearRunState();
+	if (!monitor.singleSegment.completed) clearRunState();
 	monitor.status = { enabled: false, mode: 'clips', recordingState: null };
 	monitor.loaded = true;
 	if (reason === 'replayBufferStopped') {

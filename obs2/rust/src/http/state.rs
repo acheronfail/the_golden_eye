@@ -111,6 +111,14 @@ impl SharedStateStore {
         });
     }
 
+    pub fn set_single_segment_complete(&self) {
+        self.update(|state| {
+            state.monitor.enabled = false;
+            state.level_match = None;
+            state.recording_state = None;
+        });
+    }
+
     pub fn set_match(&self, level_match: Option<LevelMatch>) {
         self.update(|state| state.level_match = level_match);
     }

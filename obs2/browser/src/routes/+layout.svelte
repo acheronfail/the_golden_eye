@@ -59,8 +59,7 @@
 		}
 	});
 
-	// The wizard can't do anything useful without the replay buffer, so re-check
-	// its status on load and on every navigation.
+	// Keep replay-buffer status fresh for clip mode; single-segment uses OBS recording.
 	afterNavigate(() => {
 		pendingNavigation = null;
 		void refreshReplayBuffer();
@@ -72,13 +71,10 @@
 		goto(href, options);
 	};
 
-	// When the replay buffer is confirmed unavailable, force the user back to `/`
-	// (which explains how to enable it); `/`, `/runs`, `/options`, and `/developer`
-	// are exempt. An unknown status (null) never redirects.
+	// Clip monitor mode still needs replay buffer; single-segment routes do not.
 	$effect(() => {
 		const path = page.url.pathname;
-		const exempt = path === '/' || path === '/runs' || path === '/options' || path === '/developer';
-		if (replayBuffer.status?.available === false && !exempt) {
+		if (replayBuffer.status?.available === false && path.endsWith('/monitor')) {
 			navigate('/', { replaceState: true });
 		}
 	});

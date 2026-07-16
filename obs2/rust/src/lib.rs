@@ -435,6 +435,17 @@ fn refresh_replay_buffer_snapshot() {
 /// # Safety
 /// `path` must be null or a valid NUL-terminated C string for this call.
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn ge_recording_stopped(path: *const c_char) {
+    let path = if path.is_null() {
+        None
+    } else {
+        let s = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
+        if s.is_empty() { None } else { Some(s) }
+    };
+    single_segment::on_recording_stopped(path);
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn ge_replay_buffer_saved(path: *const c_char) {
     let path = if path.is_null() {
         None
@@ -502,7 +513,7 @@ pub extern "C" fn ge_replay_buffer_stopped() {
     };
 
     runtime_handle.spawn(async move {
-        if http::stop_monitor(&state).await {
+        if http::stop_monitor(&state, false).await {
             tracing::warn!("replay buffer stopped while monitoring was active; monitoring disabled");
             let _ =
                 state.event_tx.send(MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped });

@@ -17,6 +17,7 @@ pub struct MonitorHandle {
     /// The latched capture transform, shared so a standalone frame dump on the
     /// same source can crop/un-stretch its frames identically to the matcher.
     pub(super) region: Arc<Mutex<Option<CaptureRegion>>>,
+    pub(super) single_segment: Arc<Mutex<Option<crate::single_segment::SingleSegmentTracker>>>,
 }
 
 /// The leaked `ProducerCtx` pointer, made `Send` so the handle can move to the

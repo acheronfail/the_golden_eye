@@ -43,6 +43,13 @@ pub struct StartParams {
     difficulty: Option<i32>,
 }
 
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopParams {
+    #[serde(default)]
+    save_single_segment: bool,
+}
+
 /// Frame source backed by the live OBS source: consumes the frames the render
 /// callback (`ge_frame_callback`) pushes into the shared mailbox. Capture and
 /// its GPU surfaces live on the producer side; this only awaits and matches.
@@ -187,7 +194,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         return Err((StatusCode::CONFLICT, "a monitor is already running").into());
     }
 
-    if !crate::recording::ensure_replay_buffer_running() {
+    if run_mode == RunMode::Clips && !crate::recording::ensure_replay_buffer_running() {
         return Err((StatusCode::PRECONDITION_FAILED, "replay buffer is unavailable").into());
     }
     state.recording_state.clear();
@@ -247,10 +254,17 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let monitor_annotations_state = state.clone();
     let recording_source_name = status_source_name.clone();
     let recording_lang = DEFAULT_MONITOR_LANGUAGE.to_owned();
-    let split_snapshot = snapshot.clone();
+    let split_tracker = Arc::new(Mutex::new(match SingleSegmentTracker::new(snapshot.clone(), run_mode, run_difficulty) {
+        Ok(tracker) => tracker,
+        Err(err) => {
+            tracing::error!("single segment tracker disabled: {err}");
+            None
+        }
+    }));
     let source_fps = unsafe { crate::ffi::ge_obs_video_fps() };
     // Kept for the handle so a standalone frame dump can share the latched region.
     let handle_region = region.clone();
+    let handle_split_tracker = split_tracker.clone();
     let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
         let mut source = ObsSource { mailbox: worker_mailbox, region };
         let mut session = session;
@@ -264,22 +278,16 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         let mut slowest_frame_fps: Option<f64> = None;
         let mut monitor_timing = MonitorTiming::new(source_fps, monitor_timing_mode);
         let timing_enabled = monitor_timing.enabled();
-        // Drives the replay-buffer save/trim as the session progresses. Fed
-        // every matched frame (not just state changes) so its save timer is
-        // polled each tick.
-        let mut recording = crate::recording::RecordingState::new(
-            event_tx.clone(),
-            recording_state,
-            recording_options,
-            recording_source_name,
-            recording_lang,
-        );
-        let mut single_segment = match SingleSegmentTracker::new(split_snapshot, run_mode, run_difficulty) {
-            Ok(tracker) => tracker,
-            Err(err) => {
-                tracing::error!("single segment tracker disabled: {err}");
-                None
-            }
+        let mut recording = if run_mode == RunMode::Clips {
+            Some(crate::recording::RecordingState::new(
+                event_tx.clone(),
+                recording_state,
+                recording_options.clone(),
+                recording_source_name.clone(),
+                recording_lang.clone(),
+            ))
+        } else {
+            None
         };
         loop {
             let diagnostics_enabled = monitor_annotations_state.monitor_annotations_enabled.load(Ordering::Acquire);
@@ -291,7 +299,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             // Wake by the pending save's fire time even if no frame arrives, so a
             // paused/stalled source can't stall (and eventually roll out of the
             // replay buffer) a scheduled save.
-            let deadline = recording.pending_fire_at();
+            let deadline = recording.as_ref().and_then(|recording| recording.pending_fire_at());
             let (result, match_ms, stats) = match source.capture_with_stats_until(deadline, |bytes, w, h| {
                 if timing_enabled {
                     let match_started = Instant::now();
@@ -304,7 +312,9 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             }) {
                 Captured::Frame((result, match_ms), stats) => (result, match_ms, stats),
                 Captured::Idle => {
-                    recording.poll_pending(Instant::now());
+                    if let Some(recording) = recording.as_mut() {
+                        recording.poll_pending(Instant::now());
+                    }
                     continue;
                 }
                 Captured::Closed => break,
@@ -344,15 +354,38 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                         &event_tx,
                         |lang| Ok(MonitorSession::from_env(lang)?.with_diagnostics(diagnostics_enabled)),
                     ) {
-                        recording.set_rom_language(active_lang.clone());
+                        if let Some(recording) = recording.as_mut() {
+                            recording.set_rom_language(active_lang.clone());
+                        }
                         last = None;
                     }
 
                     // The recorder votes over raw per-frame readings itself, so it
                     // must see the unsmoothed match; only the live display is voted.
-                    recording.on_frame(now, &info);
-                    if let Some(tracker) = single_segment.as_mut() {
-                        tracker.on_frame(now, &info);
+                    if let Some(recording) = recording.as_mut() {
+                        recording.on_frame(now, &info);
+                    }
+                    let finish = {
+                        let mut tracker = split_tracker.lock().unwrap_or_else(|p| p.into_inner());
+                        tracker.as_mut().and_then(|tracker| tracker.on_frame(now, &info))
+                    };
+                    if let Some(finish) = finish {
+                        crate::single_segment::finalize_recording(
+                            finish,
+                            recording_options.clone(),
+                            event_tx.clone(),
+                            recording_source_name.clone(),
+                            active_lang.clone(),
+                        );
+                        if let Some(handle) = monitor_annotations_state.monitor.lock().unwrap_or_else(|p| p.into_inner()).take() {
+                            unsafe { crate::ffi::ge_obs_unregister_frame_callback(ge_frame_callback, handle.producer.0.cast()) };
+                            handle.mailbox.close();
+                            drop(unsafe { Box::from_raw(handle.producer.0) });
+                        }
+                        monitor_annotations_state.snapshot.set_single_segment_complete();
+                        monitor_annotations_state.recording_state.clear();
+                        let _ = event_tx.send(MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::UserStopped });
+                        break;
                     }
                     let mut display = info;
                     display.times = display_smoother.smooth(&display);
@@ -388,6 +421,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         thread,
         source_name: status_source_name.clone(),
         region: handle_region,
+        single_segment: handle_split_tracker,
     });
     state.snapshot.set_monitor_running(status_source_name, run_mode);
     state.snapshot.set_replay_buffer(crate::http::current_replay_buffer_status());
@@ -397,8 +431,9 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
 }
 
 #[axum::debug_handler]
-pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoResponse> {
-    if !stop_monitor(&state).await {
+pub async fn handle_stop(State(state): State<AppState>, params: Option<Json<StopParams>>) -> Result<impl IntoResponse> {
+    let save_single_segment = params.map(|Json(params)| params.save_single_segment).unwrap_or(false);
+    if !stop_monitor(&state, save_single_segment).await {
         return Err((StatusCode::CONFLICT, "no monitor is running").into());
     }
     let _ = state.event_tx.send(MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::UserStopped });
@@ -409,7 +444,7 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
 pub use frame_dump::{FrameDumpHandle, handle_frame_dump};
 /// Stop the active monitor, if any, and clear all retained monitor/recording
 /// state. Returns `false` when no monitor was running.
-pub(crate) async fn stop_monitor(state: &AppState) -> bool {
+pub(crate) async fn stop_monitor(state: &AppState, save_single_segment: bool) -> bool {
     let handle = {
         let mut guard = state.monitor.lock().unwrap_or_else(|p| p.into_inner());
         guard.take()
@@ -418,6 +453,20 @@ pub(crate) async fn stop_monitor(state: &AppState) -> bool {
     let Some(handle) = handle else {
         return false;
     };
+
+    let finish = {
+        let mut tracker = handle.single_segment.lock().unwrap_or_else(|p| p.into_inner());
+        tracker.take().and_then(|mut tracker| tracker.stop(save_single_segment))
+    };
+    if let Some(finish) = finish {
+        crate::single_segment::finalize_recording(
+            finish,
+            state.settings.get_recording_options(),
+            state.event_tx.clone(),
+            handle.source_name.clone(),
+            DEFAULT_MONITOR_LANGUAGE.to_owned(),
+        );
+    }
 
     // Tear down on a blocking thread so we don't stall the async runtime while
     // the in-flight match finishes. Joining the thread drops the session,

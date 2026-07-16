@@ -4,13 +4,15 @@
 		busy = false,
 		modeTitle = 'single segment run',
 		close,
-		confirm
+		discard,
+		save
 	}: {
 		open: boolean;
 		busy?: boolean;
 		modeTitle?: string;
 		close: () => void;
-		confirm: () => void;
+		discard: () => void;
+		save: () => void;
 	} = $props();
 </script>
 
@@ -23,11 +25,14 @@
 				<p class="obs-dim mt-1 font-mono text-xs">This will end the active {modeTitle} session.</p>
 			</header>
 			<div class="grid gap-3 p-4">
-				<p class="obs-muted text-sm">Confirm before stopping to avoid accidentally ending a real-time run.</p>
-				<div class="flex justify-end gap-2">
+				<p class="obs-muted text-sm">Do you want to save a clip of this single segment recording?</p>
+				<div class="flex flex-wrap justify-end gap-2">
 					<button type="button" class="obs-text-button px-2 py-1 font-mono text-xs" disabled={busy} onclick={close}>cancel</button>
-					<button type="button" class="obs-button obs-button-danger px-3 py-2 font-mono text-xs" disabled={busy} onclick={confirm}>
-						{busy ? 'stopping...' : 'stop monitor'}
+					<button type="button" class="obs-button obs-button-danger px-3 py-2 font-mono text-xs" disabled={busy} onclick={discard}>
+						{busy ? 'stopping...' : 'discard recording'}
+					</button>
+					<button type="button" class="obs-button px-3 py-2 font-mono text-xs" disabled={busy} onclick={save}>
+						{busy ? 'stopping...' : 'save recording'}
 					</button>
 				</div>
 			</div>

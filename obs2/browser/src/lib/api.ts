@@ -548,6 +548,7 @@ export interface SingleSegmentSplit {
 export interface SingleSegmentSnapshot {
 	category?: SingleSegmentCategory;
 	started: boolean;
+	completed: boolean;
 	totalRealTimeSecs?: number;
 	splits: SingleSegmentSplit[];
 }
@@ -724,10 +725,11 @@ export const startMonitor = async (
 };
 
 /** Stop monitoring. Throws on a non-OK response. */
-export const stopMonitor = async (): Promise<void> => {
+export const stopMonitor = async (options: { saveSingleSegment?: boolean } = {}): Promise<void> => {
 	const res = await fetch(apiUrl('/api/v1/monitor/stop'), {
 		method: 'POST',
-		headers: { 'content-type': 'application/json' }
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ saveSingleSegment: options.saveSingleSegment ?? false })
 	});
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 };

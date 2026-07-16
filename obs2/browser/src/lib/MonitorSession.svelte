@@ -27,6 +27,9 @@
 	let transition = $state<'starting' | 'stopping' | null>(null);
 	let pendingNavigation = $state<string | null>(null);
 	let confirmStop = $state(false);
+	let liveTotalSecs = $state<number | null>(null);
+	let liveTimerStartedAt = $state<number | null>(null);
+	let liveTimerBaseSecs = $state(0);
 	const obsTransitionStyle = {
 		title: 'waiting for OBS',
 		border: 'obs-phase-neutral-border',
@@ -44,17 +47,28 @@
 	);
 	const isCurrentPage = $derived(page.url.pathname === expectedPath);
 	const sourceExists = $derived((obsSources.items ?? []).some((source) => source.name === sourceName));
+	const completed = $derived(isSingleSegment && monitor.singleSegment.completed);
 	const waitingForObs = $derived(transition !== null);
 	const currentMatch = $derived(monitor.match);
 	const currentTimes = $derived(monitor.match?.times ?? null);
-	const style = $derived(waitingForObs ? obsTransitionStyle : monitorPhaseStyle(monitor.recordingState));
+	const style = $derived(completed ? monitorPhaseStyle('complete') : waitingForObs ? obsTransitionStyle : monitorPhaseStyle(monitor.recordingState));
 	const statusLabel = $derived(
-		transition === 'starting' ? 'Starting monitor' : transition === 'stopping' ? 'Stopping monitor' : 'Monitoring'
+		completed ? 'Run complete' : transition === 'starting' ? 'Starting monitor' : transition === 'stopping' ? 'Stopping monitor' : 'Monitoring'
 	);
-	const displayTitle = $derived(isSingleSegment ? (modeTitle ?? monitor.singleSegment.category?.title ?? 'Single segment') : waitingForObs ? 'waiting for OBS' : style.title);
+	const displayTitle = $derived(
+		completed
+			? 'Run complete'
+			: isSingleSegment
+				? (modeTitle ?? monitor.singleSegment.category?.title ?? 'Single segment')
+				: waitingForObs
+					? 'waiting for OBS'
+					: style.title
+	);
 	const detail = $derived(
 		transition === 'starting'
-			? 'replay buffer is stopping or starting'
+			? isSingleSegment
+				? 'waiting for OBS recording'
+				: 'replay buffer is stopping or starting'
 			: transition === 'stopping'
 				? 'stopping monitor'
 				: (currentMatch?.screen ?? '...')
@@ -76,6 +90,23 @@
 		const s = secs % 60;
 		return `${m}:${s.toString().padStart(2, '0')}`;
 	};
+
+	$effect(() => {
+		if (!isSingleSegment || !monitor.singleSegment.started) {
+			liveTotalSecs = monitor.singleSegment.totalRealTimeSecs ?? null;
+			liveTimerStartedAt = null;
+			return;
+		}
+		const backendTotal = monitor.singleSegment.totalRealTimeSecs ?? 0;
+		liveTimerBaseSecs = backendTotal;
+		liveTimerStartedAt = Date.now();
+		liveTotalSecs = backendTotal;
+		const id = window.setInterval(() => {
+			if (liveTimerStartedAt == null) return;
+			liveTotalSecs = liveTimerBaseSecs + (Date.now() - liveTimerStartedAt) / 1000;
+		}, 100);
+		return () => window.clearInterval(id);
+	});
 
 	const navigate = (href: string, options: { replaceState?: boolean } = {}) => {
 		if (page.url.pathname === href || pendingNavigation === href) return;
@@ -123,7 +154,7 @@
 
 	$effect(() => {
 		if (!isCurrentPage) return;
-		if (!statusChecked || monitoring || transition || pendingNavigation || !verified) return;
+		if (!statusChecked || monitoring || completed || transition || pendingNavigation || !verified) return;
 		void startMonitor();
 	});
 
@@ -132,7 +163,7 @@
 		if (!statusChecked || transition) return;
 		if (monitoring && monitor.status?.enabled === false) {
 			monitoring = false;
-			navigate('/', { replaceState: true });
+			if (!monitor.singleSegment.completed) navigate('/', { replaceState: true });
 		}
 	});
 
@@ -170,11 +201,11 @@
 		void stopMonitor();
 	};
 
-	const stopMonitor = async () => {
+	const stopMonitor = async (saveSingleSegment = false) => {
 		if (transition) return;
 		transition = 'stopping';
 		try {
-			await apiStopMonitor();
+			await apiStopMonitor({ saveSingleSegment });
 			void refreshReplayBuffer();
 			monitoring = false;
 			confirmStop = false;
@@ -198,15 +229,15 @@
 <svelte:window {onkeydown} />
 
 <main
-	class="relative flex h-full min-h-0 flex-col items-center overflow-hidden px-6 py-12 text-center {isSingleSegment
-		? 'justify-between'
-		: 'justify-center'}"
+	class="relative flex h-full min-h-0 flex-col items-center overflow-hidden text-center {isSingleSegment
+		? 'justify-between px-0 pt-12 pb-0'
+		: 'justify-center px-6 py-12'}"
 	aria-busy={waitingForObs || !verified}
 	aria-live="polite"
 >
 	<div class="pointer-events-none absolute inset-0 z-10 border-8 {style.border}"></div>
 
-	{#if monitoring}
+	{#if monitoring && !completed}
 		<div class="absolute top-6 left-1/2 z-20 flex -translate-x-1/2 flex-col items-center">
 			<button
 				type="button"
@@ -218,7 +249,11 @@
 				{transition === 'stopping' ? 'stopping monitor' : 'stop monitor'}
 			</button>
 			<p class="obs-subtitle mt-2 text-xs whitespace-nowrap">
-				{waitingForObs ? 'OBS is finishing the replay buffer transition' : `press escape or space to ${isSingleSegment ? 'confirm stop' : 'stop monitoring'}`}
+				{waitingForObs
+					? isSingleSegment
+						? 'OBS is finishing the recording transition'
+						: 'OBS is finishing the replay buffer transition'
+					: `press escape or space to ${isSingleSegment ? 'confirm stop' : 'stop monitoring'}`}
 			</p>
 		</div>
 	{/if}
@@ -241,7 +276,9 @@
 		<h1 class="mt-4 font-semibold wrap-break-word {style.heading} {isSingleSegment ? 'text-3xl' : 'text-6xl'}">
 			{verified ? displayTitle : 'checking source'}
 		</h1>
-		{#if showDetail && verified}
+		{#if completed}
+			<p class="obs-dim mt-3 font-mono text-xs tracking-widest uppercase">recording is being saved</p>
+		{:else if showDetail && verified}
 			<p class="obs-dim mt-3 font-mono text-xs tracking-widest uppercase">
 				{detail}
 			</p>
@@ -270,7 +307,7 @@
 	</div>
 
 	{#if isSingleSegment}
-		<SingleSegmentSplits snapshot={monitor.singleSegment} />
+		<SingleSegmentSplits snapshot={monitor.singleSegment} {liveTotalSecs} />
 	{/if}
 </main>
 
@@ -279,5 +316,6 @@
 	busy={transition === 'stopping'}
 	modeTitle={modeTitle ?? monitor.singleSegment.category?.title ?? 'single segment run'}
 	close={() => (confirmStop = false)}
-	confirm={stopMonitor}
+	discard={() => void stopMonitor(false)}
+	save={() => void stopMonitor(true)}
 />
