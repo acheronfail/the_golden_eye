@@ -26,7 +26,7 @@ async fn run_to_stats(harness: &Harness, start: &str, complete: &str, stats: &st
     let complete = harness.frame(complete);
     harness.render_until_state(&complete, "complete").await;
     let stats = harness.frame(stats);
-    harness.obs.render(stats);
+    harness.render_until_state(&stats, "savePending").await;
 }
 
 /// A user manually saving the replay buffer while no run is finishing must be
