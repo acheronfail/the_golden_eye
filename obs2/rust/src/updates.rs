@@ -5,15 +5,18 @@ use anyhow::Context;
 use reqwest::StatusCode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::http::AppState;
 use crate::settings::UpdateCheckInterval;
 
-const RELEASES_API_URL: &str = "https://api.github.com/repos/acheronfail/the_golden_eye/releases/latest";
+const LATEST_RELEASE_API_URL: &str = "https://api.github.com/repos/acheronfail/the_golden_eye/releases/latest";
+const RELEASES_API_URL: &str = "https://api.github.com/repos/acheronfail/the_golden_eye/releases";
 const RELEASES_PAGE_URL: &str = "https://github.com/acheronfail/the_golden_eye/releases";
 const RELEASE_URL_PREFIX: &str = "https://github.com/acheronfail/the_golden_eye/releases/";
 const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 const UPDATE_CHECK_URL_ENV: &str = "GE_UPDATE_CHECK_URL";
+const UPDATE_INCLUDE_PRERELEASES_ENV: &str = "GE_UPDATE_INCLUDE_PRERELEASES";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +30,10 @@ pub struct PluginUpdate {
 struct GithubRelease {
     tag_name: String,
     html_url: String,
+    #[serde(default)]
+    prerelease: bool,
+    #[serde(default)]
+    draft: bool,
     #[serde(default)]
     assets: Vec<GithubAsset>,
 }
@@ -136,7 +143,9 @@ pub fn is_check_due(interval: UpdateCheckInterval, last_check_time: Option<u64>,
 
 async fn fetch_latest_update(current_version: &str) -> anyhow::Result<Option<(PluginUpdate, Vec<GithubAsset>)>> {
     let client = reqwest::Client::builder().timeout(UPDATE_CHECK_TIMEOUT).build()?;
-    let releases_api_url = releases_api_url();
+    let env_config = update_env_config();
+    log_update_env_config(&env_config);
+    let releases_api_url = releases_api_url_for(&env_config);
     let response = client
         .get(&releases_api_url)
         .header(reqwest::header::USER_AGENT, "the-golden-eye-obs-plugin")
@@ -150,27 +159,51 @@ async fn fetch_latest_update(current_version: &str) -> anyhow::Result<Option<(Pl
     }
 
     let response = response.error_for_status().context("GitHub release API returned an error")?;
-    let release: GithubRelease = response.json().await.context("parsing latest GitHub release")?;
-    let assets = release.assets.clone();
+    let include_prereleases = env_config.include_prereleases();
+    let body = response.json().await.context("parsing GitHub release response")?;
+    let releases = releases_from_response(body)?;
 
-    Ok(update_from_release(current_version, release)?.map(|update| (update, assets)))
+    select_update_from_releases(current_version, releases, include_prereleases)
 }
 
-fn update_from_release(current_version: &str, release: GithubRelease) -> anyhow::Result<Option<PluginUpdate>> {
+fn releases_from_response(value: Value) -> anyhow::Result<Vec<GithubRelease>> {
+    if value.is_array() {
+        Ok(serde_json::from_value(value).context("parsing GitHub releases")?)
+    } else {
+        Ok(vec![serde_json::from_value(value).context("parsing latest GitHub release")?])
+    }
+}
+
+fn select_update_from_releases(
+    current_version: &str,
+    releases: Vec<GithubRelease>,
+    include_prereleases: bool,
+) -> anyhow::Result<Option<(PluginUpdate, Vec<GithubAsset>)>> {
     let current =
         parse_version(current_version).with_context(|| format!("parsing current version {current_version}"))?;
-    let latest =
-        parse_version(&release.tag_name).with_context(|| format!("parsing latest release tag {}", release.tag_name))?;
+    let mut best: Option<(Version, PluginUpdate, Vec<GithubAsset>)> = None;
 
-    if latest <= current {
-        return Ok(None);
+    for release in releases {
+        if release.draft || (!include_prereleases && release.prerelease) {
+            continue;
+        }
+
+        let latest = parse_version(&release.tag_name)
+            .with_context(|| format!("parsing latest release tag {}", release.tag_name))?;
+        if latest <= current || best.as_ref().is_some_and(|(best_version, _, _)| latest <= *best_version) {
+            continue;
+        }
+
+        let assets = release.assets.clone();
+        let update = PluginUpdate {
+            current_version: current_version.to_owned(),
+            latest_version: release.tag_name,
+            release_url: release.html_url,
+        };
+        best = Some((latest, update, assets));
     }
 
-    Ok(Some(PluginUpdate {
-        current_version: current_version.to_owned(),
-        latest_version: release.tag_name,
-        release_url: release.html_url,
-    }))
+    Ok(best.map(|(_, update, assets)| (update, assets)))
 }
 
 fn parse_version(value: &str) -> anyhow::Result<Version> {
@@ -178,8 +211,61 @@ fn parse_version(value: &str) -> anyhow::Result<Version> {
     Ok(Version::parse(trimmed)?)
 }
 
-pub(crate) fn releases_api_url() -> String {
-    std::env::var(UPDATE_CHECK_URL_ENV).unwrap_or_else(|_| RELEASES_API_URL.to_owned())
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UpdateEnvConfig {
+    check_url_override: Option<String>,
+    include_prereleases_override: Option<bool>,
+}
+
+impl UpdateEnvConfig {
+    fn include_prereleases(&self) -> bool {
+        self.include_prereleases_override.unwrap_or(false)
+    }
+}
+
+fn update_env_config() -> UpdateEnvConfig {
+    update_env_config_from_values(
+        std::env::var(UPDATE_CHECK_URL_ENV).ok(),
+        std::env::var(UPDATE_INCLUDE_PRERELEASES_ENV).ok(),
+    )
+}
+
+fn update_env_config_from_values(check_url: Option<String>, include_prereleases: Option<String>) -> UpdateEnvConfig {
+    UpdateEnvConfig {
+        check_url_override: check_url,
+        include_prereleases_override: include_prereleases.map(|value| env_value_enabled(&value)),
+    }
+}
+
+fn log_update_env_config(config: &UpdateEnvConfig) {
+    if let Some(url) = &config.check_url_override {
+        tracing::info!(env = UPDATE_CHECK_URL_ENV, url = %url, "plugin update check URL overridden by environment");
+    }
+    if let Some(include_prereleases) = config.include_prereleases_override {
+        tracing::info!(
+            env = UPDATE_INCLUDE_PRERELEASES_ENV,
+            include_prereleases,
+            "plugin update pre-release selection overridden by environment"
+        );
+    }
+    if config.check_url_override.is_some() && config.include_prereleases_override.is_some() {
+        tracing::warn!(
+            url_env = UPDATE_CHECK_URL_ENV,
+            ignored_for_endpoint_env = UPDATE_INCLUDE_PRERELEASES_ENV,
+            "plugin update URL override takes precedence; pre-release env var will not change the release API endpoint"
+        );
+    }
+}
+
+fn releases_api_url_for(config: &UpdateEnvConfig) -> String {
+    if let Some(url) = &config.check_url_override {
+        return url.clone();
+    }
+    if config.include_prereleases() { RELEASES_API_URL.to_owned() } else { LATEST_RELEASE_API_URL.to_owned() }
+}
+
+fn env_value_enabled(value: &str) -> bool {
+    matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
 }
 
 fn now_unix_seconds() -> u64 {
