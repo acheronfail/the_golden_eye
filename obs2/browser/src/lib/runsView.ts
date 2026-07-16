@@ -95,10 +95,6 @@ export function hasActiveRunFilters(filters: RunFilters): boolean {
 	);
 }
 
-export function isRunPreviewVisible(clip: RunClip, previewPath: string | null): boolean {
-	return previewPath === clip.path;
-}
-
 export function isCompleted(clip: RunClip): boolean {
 	return clip.metadata.status === 'complete' || clip.metadata.status === 'completed';
 }

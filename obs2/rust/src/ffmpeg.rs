@@ -2,15 +2,10 @@
 //! trimming a saved replay-buffer file to the wanted clip. It's a pure stream-copy
 //! remux (fast, lossless), so cuts land on keyframes -- the clip may start early.
 
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, anyhow};
 use ffmpeg_next::ffi::AV_TIME_BASE;
-use ffmpeg_next::format::Pixel;
-use ffmpeg_next::software::scaling::context::Context as ScalingContext;
-use ffmpeg_next::software::scaling::flag::Flags as ScalingFlags;
-use ffmpeg_next::util::frame::video::Video;
 use ffmpeg_next::{Dictionary, DictionaryRef, Rescale, codec, encoder, format, media, rescale};
 use serde::Serialize;
 
@@ -150,55 +145,6 @@ pub fn rewrite_metadata_in_place(path: &Path, clip_metadata: &ClipMetadata) -> a
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn rewrite_metadata(input: &Path, output: &Path, clip_metadata: &ClipMetadata) -> anyhow::Result<()> {
     remux_with_metadata(input, output, None, Some(clip_metadata))
-}
-
-/// Decode one video frame and return it as a BMP thumbnail.
-pub fn thumbnail_bmp(path: &Path, max_width: u32) -> anyhow::Result<Vec<u8>> {
-    init()?;
-
-    let mut ictx = format::input(path).with_context(|| format!("opening {}", path.display()))?;
-    let input =
-        ictx.streams().best(media::Type::Video).ok_or_else(|| anyhow!("no video stream in {}", path.display()))?;
-    let video_stream_index = input.index();
-
-    let context_decoder = codec::context::Context::from_parameters(input.parameters())?;
-    let mut decoder = context_decoder.decoder().video()?;
-    let (width, height) = thumbnail_dimensions(decoder.width(), decoder.height(), max_width);
-    let mut scaler = ScalingContext::get(
-        decoder.format(),
-        decoder.width(),
-        decoder.height(),
-        Pixel::RGB24,
-        width,
-        height,
-        ScalingFlags::BILINEAR,
-    )?;
-
-    let mut receive_thumbnail = |decoder: &mut ffmpeg_next::decoder::Video| -> anyhow::Result<Option<Vec<u8>>> {
-        let mut decoded = Video::empty();
-        if decoder.receive_frame(&mut decoded).is_ok() {
-            let mut rgb_frame = Video::empty();
-            scaler.run(&decoded, &mut rgb_frame)?;
-            return Ok(Some(encode_rgb24_bmp(&rgb_frame)?));
-        }
-        Ok(None)
-    };
-
-    for (stream, packet) in ictx.packets() {
-        if stream.index() == video_stream_index {
-            decoder.send_packet(&packet)?;
-            if let Some(bytes) = receive_thumbnail(&mut decoder)? {
-                return Ok(bytes);
-            }
-        }
-    }
-
-    decoder.send_eof()?;
-    if let Some(bytes) = receive_thumbnail(&mut decoder)? {
-        return Ok(bytes);
-    }
-
-    Err(anyhow!("no decodable video frame in {}", path.display()))
 }
 
 /// Remux `input` to `output`, keeping only packets between `start_secs` and `end_secs`.
@@ -445,35 +391,6 @@ fn needs_mov_metadata_tags(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "mp4" | "m4v" | "mov" | "3gp" | "3g2"))
-}
-
-fn thumbnail_dimensions(width: u32, height: u32, max_width: u32) -> (u32, u32) {
-    if width == 0 || height == 0 {
-        return (1, 1);
-    }
-    let out_width = width.min(max_width.max(1));
-    let out_height = ((height as u64 * out_width as u64) / width as u64).clamp(1, u32::MAX as u64) as u32;
-    (out_width, out_height)
-}
-
-fn encode_rgb24_bmp(frame: &Video) -> std::io::Result<Vec<u8>> {
-    let width = frame.width();
-    let height = frame.height();
-    let stride = frame.stride(0);
-    let data = frame.data(0);
-
-    let mut image = bmp::Image::new(width, height);
-    for y in 0..height {
-        let row = &data[(y as usize * stride)..];
-        for x in 0..width {
-            let i = x as usize * 3;
-            image.set_pixel(x, y, bmp::Pixel::new(row[i], row[i + 1], row[i + 2]));
-        }
-    }
-
-    let mut out = Cursor::new(Vec::new());
-    image.to_writer(&mut out)?;
-    Ok(out.into_inner())
 }
 
 #[cfg(test)]

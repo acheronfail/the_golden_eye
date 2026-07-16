@@ -106,7 +106,6 @@ pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state
         )
         .route("/api/v1/runs/stream", get(routes::runs::handle_stream))
         .route("/api/v1/runs/rename", post(routes::runs::handle_rename))
-        .route("/api/v1/runs/thumbnail", get(routes::runs::handle_thumbnail))
         .route("/api/v1/runs/video", get(routes::runs::handle_video))
         .route("/api/v1/sources", get(routes::sources::handler))
         .route("/api/v1/screenshot", get(routes::screenshot::handler))

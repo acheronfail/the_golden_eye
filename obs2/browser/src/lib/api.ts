@@ -106,9 +106,6 @@ export const streamRuns = async (onEvent: (event: RunsStreamEvent) => void, sign
 	if (buffer.trim()) onEvent(JSON.parse(buffer) as RunsStreamEvent);
 };
 
-export const runThumbnailUrl = (path: string): string =>
-	apiUrl(`/api/v1/runs/thumbnail?path=${encodeURIComponent(path)}`);
-
 export const runVideoUrl = (path: string): string => apiUrl(`/api/v1/runs/video?path=${encodeURIComponent(path)}`);
 
 export interface EditableRunMetadata {

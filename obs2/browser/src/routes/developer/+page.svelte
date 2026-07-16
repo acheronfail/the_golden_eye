@@ -569,9 +569,9 @@
 		</p>
 		<button
 			type="button"
-			class="obs-preview flex min-h-28 w-full flex-col items-center justify-center gap-1 rounded border-2 border-dashed px-4 py-6 text-sm transition-colors {dragOver
-				? 'border-white/70 bg-white/5'
-				: 'border-white/20'}"
+			class="obs-preview-missing flex min-h-28 w-full flex-col items-center justify-center gap-1 rounded px-4 py-6 text-sm transition-colors {dragOver
+				? 'border-white/70 bg-white/5 text-white'
+				: ''}"
 			class:opacity-70={matchLoading}
 			ondragover={(e) => {
 				e.preventDefault();
