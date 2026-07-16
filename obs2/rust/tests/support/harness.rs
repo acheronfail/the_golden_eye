@@ -192,7 +192,7 @@ fn merge_settings(mut base: Value, overrides: Value) -> Value {
 fn settings_path(temp: &Path) -> PathBuf {
     #[cfg(target_os = "macos")]
     {
-        return temp.join("Library").join("Application Support").join("The Golden Eye").join("settings.json");
+        temp.join("Library").join("Application Support").join("The Golden Eye").join("settings.json")
     }
 
     #[cfg(target_os = "windows")]
