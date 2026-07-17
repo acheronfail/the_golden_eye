@@ -21,6 +21,7 @@ jobs:
     with:
       fetch-depth: 0
       package-profile: true
+      require-credentials: true
 
   release:
     name: GitHub Release
