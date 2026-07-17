@@ -1,3 +1,4 @@
+mod browser;
 mod browser_dock;
 mod config;
 pub mod cv;
@@ -9,9 +10,11 @@ mod logging;
 mod recording;
 mod settings;
 mod stream_notifier;
+mod template_tokens;
 mod timer;
 mod update_apply;
 mod updates;
+mod youtube;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -231,6 +234,7 @@ pub extern "C" fn ge_rust_start() -> bool {
     let recording_state = RecordingStateStore::new(snapshot.clone());
     let state = Arc::new(AppStateInner {
         oauth_pending: tokio::sync::Mutex::new(None),
+        youtube: youtube::YoutubeUploadStore::new(settings.path()),
         stream_message: tokio::sync::Mutex::new(None),
         monitor: std::sync::Mutex::new(None),
         snapshot,

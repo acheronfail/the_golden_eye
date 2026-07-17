@@ -16,18 +16,21 @@
 	import OptionsGeneral from '$lib/OptionsGeneral.svelte';
 	import OptionsNotifications from '$lib/OptionsNotifications.svelte';
 	import OptionsRecording from '$lib/OptionsRecording.svelte';
+	import OptionsYouTube from '$lib/OptionsYouTube.svelte';
+	import { youtube } from '$lib/youtube.svelte';
 
-	type OptionsTab = 'general' | 'recording' | 'notifications';
+	type OptionsTab = 'general' | 'recording' | 'notifications' | 'youtube';
 	type PathKind = 'completed' | 'failed';
 
-	const optionSections: { value: OptionsTab; label: string }[] = [
+	const optionSections = $derived<{ value: OptionsTab; label: string }[]>([
 		{ value: 'general', label: 'General' },
 		{ value: 'recording', label: 'Recording' },
-		{ value: 'notifications', label: 'Notifications' }
-	];
+		{ value: 'notifications', label: 'Notifications' },
+		...(youtube.enabled ? [{ value: 'youtube' as const, label: 'YouTube' }] : [])
+	]);
 
 	const tabFromUrl = (value: string | null): OptionsTab =>
-		value === 'recording' || value === 'notifications' ? value : 'general';
+		value === 'recording' || value === 'notifications' || (value === 'youtube' && youtube.enabled) ? value : 'general';
 
 	let activeTab = $derived(tabFromUrl(page.url.searchParams.get('tab')));
 	let pickingPath: PathKind | null = $state(null);
@@ -531,8 +534,10 @@
 				{normalizePreRunPadding}
 				{normalizePostRunPadding}
 			/>
-		{:else}
+		{:else if activeTab === 'notifications'}
 			<OptionsNotifications {panelClass} {labelClass} {hintClass} {inputClass} {textareaClass} {templateTokenClass} />
+		{:else}
+			<OptionsYouTube {panelClass} {labelClass} {hintClass} {inputClass} {textareaClass} {templateTokenClass} />
 		{/if}
 	</fieldset>
 

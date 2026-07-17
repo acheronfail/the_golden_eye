@@ -6,6 +6,7 @@ mod monitor;
 mod paths;
 mod shared;
 mod updates;
+mod youtube;
 
 #[cfg(test)]
 pub(crate) use browser_dock::DEFAULT_BROWSER_DOCK_URL;
@@ -20,3 +21,8 @@ pub(crate) use shared::env_value_enabled;
 pub(crate) use updates::UpdateEnvConfig;
 #[cfg(test)]
 pub(crate) use updates::{LATEST_RELEASE_API_URL, RELEASES_API_URL};
+#[cfg(test)]
+pub(crate) use youtube::REDIRECT_URI;
+pub(crate) use youtube::{YoutubeEndpoints, youtube_enabled};
+#[cfg(feature = "test-hooks")]
+pub(crate) use youtube::{test_oauth_state, token_file_override};

@@ -11,7 +11,9 @@ use crate::cv::LevelMatch;
 pub struct AppStateInner {
     /// Holds the sender end of a one-shot channel while an OAuth flow is in
     /// progress. The `/oauth/callback` route fires it when the code arrives.
-    pub oauth_pending: Mutex<Option<oneshot::Sender<String>>>,
+    pub oauth_pending: Mutex<Option<PendingOAuth>>,
+    /// YouTube OAuth credentials/history plus retained upload state.
+    pub youtube: crate::youtube::YoutubeUploadStore,
     /// The Discord "now streaming" message posted when a stream starts, kept so
     /// the stop handler can edit it in place rather than posting a new message.
     pub stream_message: Mutex<Option<StreamMessage>>,
@@ -44,6 +46,11 @@ pub struct AppStateInner {
     /// (see `crate::WAS_RELOADED`), so a client connecting within a grace period
     /// gets a one-off "plugin updated" notice (see `routes::monitor::handle_socket`).
     pub reloaded_at: Option<std::time::Instant>,
+}
+
+pub struct PendingOAuth {
+    pub state: String,
+    pub tx: oneshot::Sender<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -223,6 +230,8 @@ pub enum MonitorEvent {
     /// (e.g. an unwritable install directory), so no update is queued up to
     /// apply. One-off, delivered via `event_tx` -- see `updates::check_for_updates_now`.
     UpdateStagingFailed { error: String },
+    /// A YouTube upload was queued, progressed, completed, or failed.
+    YoutubeUploadChanged { upload: crate::youtube::YoutubeUploadStatus },
 }
 
 /// Why the backend stopped an active monitor. Serialized as a plain string

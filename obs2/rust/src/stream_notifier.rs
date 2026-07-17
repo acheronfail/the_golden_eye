@@ -1,9 +1,10 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 use anyhow::Context;
 use serde::Deserialize;
 
 use crate::http::{AppState, StreamMessage};
+use crate::template_tokens::{format_iso_local, format_iso_utc, system_time_unix_seconds};
 
 pub const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE: &str = "🟢 Bond is now streaming at: {broadcast_url}";
 pub const DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE: &str =
@@ -149,83 +150,6 @@ fn render_notification_template(template: &str, broadcast_url: &str, time: Syste
         .replace("{timestamp}", &timestamp)
         .replace("{timestamp_local}", &timestamp_local)
         .replace("{unix_seconds}", &unix_seconds.to_string())
-}
-
-fn system_time_unix_seconds(time: SystemTime) -> i64 {
-    match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => i64::try_from(duration.as_secs()).unwrap_or(i64::MAX),
-        Err(err) => {
-            let duration = err.duration();
-            let seconds = i64::try_from(duration.as_secs()).unwrap_or(i64::MAX);
-            if duration.subsec_nanos() == 0 { -seconds } else { -seconds - 1 }
-        }
-    }
-}
-
-fn div_floor(a: i64, b: i64) -> i64 {
-    let quotient = a / b;
-    let remainder = a % b;
-    if remainder != 0 && ((remainder > 0) != (b > 0)) { quotient - 1 } else { quotient }
-}
-
-fn utc_from_unix_seconds(seconds: i64) -> (i64, i64, i64, i64, i64, i64) {
-    let days = div_floor(seconds, 86_400);
-    let seconds_of_day = seconds - days * 86_400;
-    let hour = seconds_of_day / 3_600;
-    let minute = (seconds_of_day % 3_600) / 60;
-    let second = seconds_of_day % 60;
-
-    // Howard Hinnant's civil-from-days conversion, using Unix day zero.
-    let z = days + 719_468;
-    let era = div_floor(z, 146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = mp + if mp < 10 { 3 } else { -9 };
-    let year = y + if month <= 2 { 1 } else { 0 };
-
-    (year, month, day, hour, minute, second)
-}
-
-fn format_iso_utc(time: SystemTime) -> String {
-    let (year, month, day, hour, minute, second) = utc_from_unix_seconds(system_time_unix_seconds(time));
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
-}
-
-#[cfg(unix)]
-fn format_iso_local(time: SystemTime) -> String {
-    let seconds = system_time_unix_seconds(time);
-    let time_t = seconds as libc::time_t;
-    let mut local_tm = std::mem::MaybeUninit::<libc::tm>::uninit();
-    let local_tm = unsafe {
-        if libc::localtime_r(&time_t, local_tm.as_mut_ptr()).is_null() {
-            return format_iso_utc(time);
-        }
-        local_tm.assume_init()
-    };
-    let offset = local_tm.tm_gmtoff;
-    let sign = if offset < 0 { '-' } else { '+' };
-    let offset = offset.abs();
-    let offset_hour = offset / 3_600;
-    let offset_minute = (offset % 3_600) / 60;
-
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}{sign}{offset_hour:02}:{offset_minute:02}",
-        local_tm.tm_year + 1900,
-        local_tm.tm_mon + 1,
-        local_tm.tm_mday,
-        local_tm.tm_hour,
-        local_tm.tm_min,
-        local_tm.tm_sec,
-    )
-}
-
-#[cfg(not(unix))]
-fn format_iso_local(time: SystemTime) -> String {
-    format_iso_utc(time)
 }
 
 #[cfg(test)]

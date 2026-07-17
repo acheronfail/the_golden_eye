@@ -57,6 +57,29 @@ impl UpdateCheckInterval {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum YoutubeVisibility {
+    Public,
+    Unlisted,
+    Private,
+}
+
+impl YoutubeVisibility {
+    pub fn from_json_value(value: Option<&Value>) -> Self {
+        match value.and_then(Value::as_str) {
+            Some("public") => YoutubeVisibility::Public,
+            Some("private") => YoutubeVisibility::Private,
+            _ => DEFAULT_YOUTUBE_VISIBILITY,
+        }
+    }
+}
+
+pub const DEFAULT_YOUTUBE_VISIBILITY: YoutubeVisibility = YoutubeVisibility::Unlisted;
+pub const DEFAULT_YOUTUBE_TITLE_TEMPLATE: &str = "{level} - {difficulty} - {time}";
+pub const DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE: &str =
+    "Achieved at {timestamp_local}\n\nRecorded with The Golden Eye {plugin_version}.";
+
 /// User settings stored in the plugin-owned JSON file and mirrored by the SPA's
 /// bindable settings object.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -87,6 +110,9 @@ pub struct AppSettings {
     /// The GitHub release URL paired with `last_known_update_version`.
     pub last_known_update_release_url: Option<String>,
     pub auto_update_enabled: bool,
+    pub youtube_visibility: YoutubeVisibility,
+    pub youtube_title_template: String,
+    pub youtube_description_template: String,
 }
 
 impl Default for AppSettings {
@@ -113,6 +139,9 @@ impl Default for AppSettings {
             last_known_update_version: None,
             last_known_update_release_url: None,
             auto_update_enabled: false,
+            youtube_visibility: DEFAULT_YOUTUBE_VISIBILITY,
+            youtube_title_template: DEFAULT_YOUTUBE_TITLE_TEMPLATE.to_owned(),
+            youtube_description_template: DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE.to_owned(),
         }
     }
 }
@@ -161,6 +190,15 @@ impl AppSettings {
             last_known_update_version: string_field_option(object.get("lastKnownUpdateVersion")),
             last_known_update_release_url: string_field_option(object.get("lastKnownUpdateReleaseUrl")),
             auto_update_enabled: bool_field(object.get("autoUpdateEnabled"), default.auto_update_enabled),
+            youtube_visibility: YoutubeVisibility::from_json_value(object.get("youtubeVisibility")),
+            youtube_title_template: message_template(
+                object.get("youtubeTitleTemplate"),
+                DEFAULT_YOUTUBE_TITLE_TEMPLATE,
+            ),
+            youtube_description_template: message_template(
+                object.get("youtubeDescriptionTemplate"),
+                DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE,
+            ),
         }
     }
 

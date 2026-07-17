@@ -17,3 +17,4 @@ jobs:
   build:
     name: Build
     uses: ./.github/workflows/build-packages.yml
+    secrets: inherit

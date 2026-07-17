@@ -13,22 +13,19 @@ on:
         required: false
         type: boolean
         default: false
+    secrets:
+      GE_YOUTUBE_CLIENT_ID:
+        required: false
+      GE_YOUTUBE_CLIENT_SECRET:
+        required: false
 
 permissions:
   contents: read
 
 jobs:
   linux:
-    name: Linux ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        # No current aarch64 build of OBS right now, but maybe in the future...
-        include:
-          - arch: x86_64
-            runner: ubuntu-latest
+    name: Linux x86_64
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -129,6 +126,9 @@ jobs:
 
       - name: Build Linux package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
+        env:
+          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Check Linux package contract
         run: just test-package-contract obs2/build-flatpak
@@ -218,6 +218,9 @@ jobs:
 
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
+        env:
+          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Check macOS package contract
         run: just test-package-contract obs2/build
@@ -394,6 +397,9 @@ jobs:
       - name: Build Windows package
         shell: bash
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
+        env:
+          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Check Windows package contract
         shell: bash

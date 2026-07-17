@@ -54,6 +54,9 @@ endif()
 option(GE_REUSE_HOST_BUILD_INPUTS "Reuse browser and Rust artifacts from an earlier host build" OFF)
 option(GE_RUST_PACKAGE_PROFILE "Build Rust with the size-optimized packaging cargo profile" OFF)
 
+set(GE_YOUTUBE_CLIENT_ID "$ENV{GE_YOUTUBE_CLIENT_ID}")
+set(GE_YOUTUBE_CLIENT_SECRET "$ENV{GE_YOUTUBE_CLIENT_SECRET}")
+
 # Build logic lives in focused modules under cmake/ to keep this file readable.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 

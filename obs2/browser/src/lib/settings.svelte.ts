@@ -11,6 +11,8 @@ import {
 const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
 const UpdateCheckIntervalSchema = z.enum(['monthly', 'weekly', 'daily', 'never']);
 export type UpdateCheckInterval = z.infer<typeof UpdateCheckIntervalSchema>;
+const YoutubeVisibilitySchema = z.enum(['public', 'unlisted', 'private']);
+export type YoutubeVisibility = z.infer<typeof YoutubeVisibilitySchema>;
 
 export interface Settings {
 	stopReplayBufferWhenMonitorStopped: boolean;
@@ -32,6 +34,9 @@ export interface Settings {
 	updateCheckInterval: UpdateCheckInterval;
 	lastUpdateCheckTime: number | null;
 	autoUpdateEnabled: boolean;
+	youtubeVisibility: YoutubeVisibility;
+	youtubeTitleTemplate: string;
+	youtubeDescriptionTemplate: string;
 }
 
 export interface RecordingOptions {
@@ -74,7 +79,10 @@ const bootstrapSettings: Settings = {
 	streamingStoppedMessageTemplate: '',
 	updateCheckInterval: 'weekly',
 	lastUpdateCheckTime: null,
-	autoUpdateEnabled: false
+	autoUpdateEnabled: false,
+	youtubeVisibility: 'unlisted',
+	youtubeTitleTemplate: '{level} - {difficulty} - {time}',
+	youtubeDescriptionTemplate: 'Achieved at {timestamp_local}\n\nRecorded with The Golden Eye {plugin_version}.'
 };
 
 const settingsSchema = (defaults: Settings) =>
@@ -97,7 +105,10 @@ const settingsSchema = (defaults: Settings) =>
 		streamingStoppedMessageTemplate: z.string().catch(defaults.streamingStoppedMessageTemplate),
 		updateCheckInterval: UpdateCheckIntervalSchema.catch(defaults.updateCheckInterval),
 		lastUpdateCheckTime: z.coerce.number().int().min(0).nullable().catch(defaults.lastUpdateCheckTime),
-		autoUpdateEnabled: z.boolean().catch(defaults.autoUpdateEnabled)
+		autoUpdateEnabled: z.boolean().catch(defaults.autoUpdateEnabled),
+		youtubeVisibility: YoutubeVisibilitySchema.catch(defaults.youtubeVisibility),
+		youtubeTitleTemplate: z.string().catch(defaults.youtubeTitleTemplate),
+		youtubeDescriptionTemplate: z.string().catch(defaults.youtubeDescriptionTemplate)
 	});
 
 const normalizeClipFilenameTemplate = (value: string | undefined, fallback: string): string => {
@@ -171,6 +182,14 @@ export const settings = new (class {
 	autoUpdateEnabled = $state(initialSettings.autoUpdateEnabled);
 
 	//
+	// YouTube
+	//
+
+	youtubeVisibility = $state<YoutubeVisibility>(initialSettings.youtubeVisibility);
+	youtubeTitleTemplate = $state(initialSettings.youtubeTitleTemplate);
+	youtubeDescriptionTemplate = $state(initialSettings.youtubeDescriptionTemplate);
+
+	//
 	// Recording
 	//
 
@@ -233,7 +252,10 @@ export const settings = new (class {
 			streamingStoppedMessageTemplate: this.streamingStoppedMessageTemplate,
 			updateCheckInterval: this.updateCheckInterval,
 			lastUpdateCheckTime: this.lastUpdateCheckTime,
-			autoUpdateEnabled: this.autoUpdateEnabled
+			autoUpdateEnabled: this.autoUpdateEnabled,
+			youtubeVisibility: this.youtubeVisibility,
+			youtubeTitleTemplate: this.youtubeTitleTemplate,
+			youtubeDescriptionTemplate: this.youtubeDescriptionTemplate
 		})
 	);
 
@@ -387,6 +409,9 @@ export const settings = new (class {
 		this.updateCheckInterval = next.updateCheckInterval;
 		this.lastUpdateCheckTime = next.lastUpdateCheckTime;
 		this.autoUpdateEnabled = next.autoUpdateEnabled;
+		this.youtubeVisibility = next.youtubeVisibility;
+		this.youtubeTitleTemplate = next.youtubeTitleTemplate;
+		this.youtubeDescriptionTemplate = next.youtubeDescriptionTemplate;
 		this.completedOutputPath = next.completedOutputPath;
 		this.saveFailedRuns = next.saveFailedRuns;
 		this.failedOutputPath = next.failedOutputPath;

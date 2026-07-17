@@ -16,6 +16,7 @@
 	import RunList from '$lib/RunList.svelte';
 	import RunsFolderChooser from '$lib/RunsFolderChooser.svelte';
 	import { settings } from '$lib/settings.svelte';
+	import { youtube } from '$lib/youtube.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
 		EMPTY_RUN_FILTERS,
@@ -77,6 +78,8 @@
 		if (!selected || !metadataDraft) return false;
 		return !sameMetadataDraft(metadataDraft, draftFromClip(selected));
 	});
+	let selectedYoutubeUpload = $derived(selected ? youtube.uploadForPath(selected.path) : null);
+	let selectedYoutubeHistory = $derived(selected ? youtube.historyForPath(selected.path) : null);
 
 	const reload = async () => {
 		if (loading) return;
@@ -143,6 +146,22 @@
 		metadataDraft = null;
 		modalError = null;
 		modalBusy = null;
+	};
+
+	const connectYouTubeFromModal = () => {
+		void youtube.connect().catch((err) => console.warn('Failed to connect YouTube', err));
+	};
+
+	const uploadSelectedToYouTube = () => {
+		if (!selected) return;
+		const path = selected.path;
+		void youtube.upload(path).catch((err) => console.warn('Failed to upload to YouTube', err));
+	};
+
+	const forgetSelectedYouTubeUpload = () => {
+		if (!selected) return;
+		const path = selected.path;
+		void youtube.forget(path).catch((err) => console.warn('Failed to forget YouTube upload', err));
 	};
 
 	const onkeydown = (event: KeyboardEvent) => {
@@ -452,4 +471,15 @@
 	renameRun={renameSelectedRun}
 	{saveMetadata}
 	{normalizeDraftTime}
+	youtubeEnabled={youtube.enabled}
+	youtubeConnected={youtube.connected}
+	youtubeOAuthConfigured={youtube.oauthConfigured}
+	youtubeLoaded={youtube.loaded}
+	youtubeConnecting={youtube.connecting}
+	youtubeUpload={selectedYoutubeUpload}
+	youtubeHistory={selectedYoutubeHistory}
+	youtubeError={youtube.error}
+	connectYouTube={connectYouTubeFromModal}
+	uploadToYouTube={uploadSelectedToYouTube}
+	forgetYouTubeUpload={forgetSelectedYouTubeUpload}
 />

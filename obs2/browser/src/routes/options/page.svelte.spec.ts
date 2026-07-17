@@ -15,7 +15,8 @@ const mocks = vi.hoisted(() => {
 		checkForUpdateNow: vi.fn(),
 		downloadUpdateNow: vi.fn(),
 		applyUpdateNow: vi.fn(),
-		putSettings: vi.fn()
+		putSettings: vi.fn(),
+		getYouTubeStatus: vi.fn()
 	};
 	return {
 		afterNavigate: vi.fn((callback: () => unknown) => {
@@ -62,7 +63,8 @@ vi.mock('$lib/api', async (importOriginal) => {
 		checkForUpdateNow: mocks.api.checkForUpdateNow,
 		downloadUpdateNow: mocks.api.downloadUpdateNow,
 		applyUpdateNow: mocks.api.applyUpdateNow,
-		putSettings: mocks.api.putSettings
+		putSettings: mocks.api.putSettings,
+		getYouTubeStatus: mocks.api.getYouTubeStatus
 	};
 });
 
@@ -85,7 +87,10 @@ const defaultSettings: Settings = {
 	streamingStoppedMessageTemplate: 'Bond stopped streaming at: {broadcast_url}',
 	updateCheckInterval: 'weekly',
 	lastUpdateCheckTime: null,
-	autoUpdateEnabled: false
+	autoUpdateEnabled: false,
+	youtubeVisibility: 'unlisted',
+	youtubeTitleTemplate: '{level} - {difficulty} - {time}',
+	youtubeDescriptionTemplate: 'Achieved at {timestamp_local}\n\nRecorded with The Golden Eye {plugin_version}.'
 };
 
 const availableReplayBuffer = {
@@ -121,6 +126,14 @@ beforeEach(() => {
 	mocks.api.checkForUpdateNow.mockResolvedValue({ update: null });
 	mocks.api.downloadUpdateNow.mockResolvedValue(undefined);
 	mocks.api.applyUpdateNow.mockResolvedValue(undefined);
+	mocks.api.getYouTubeStatus.mockResolvedValue({
+		enabled: true,
+		oauthConfigured: true,
+		connected: false,
+		account: null,
+		uploads: [],
+		history: []
+	});
 });
 
 describe('/options', () => {
