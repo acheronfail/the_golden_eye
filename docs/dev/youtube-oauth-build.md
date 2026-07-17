@@ -29,7 +29,10 @@ just dev
 
 ## Test hooks (`test-hooks` feature)
 
-Env overrides for pointing the integration at a mock server (endpoints, client ID, redirect URI,
-`GE_YOUTUBE_TEST_OAUTH_STATE`, `GE_YOUTUBE_TOKEN_FILE`) are gated behind the `test-hooks` cargo
-feature. The `test-rust`/`test-integration` recipes enable it; the CMake/package build never does,
-so shipping binaries ignore them.
+Test-only env overrides are named `GE_TEST_YOUTUBE_*` to keep them clearly distinct from the real
+`GE_YOUTUBE_*` config. They point the integration at a mock server (`GE_TEST_YOUTUBE_CLIENT_ID`,
+`GE_TEST_YOUTUBE_CLIENT_SECRET`, `GE_TEST_YOUTUBE_AUTH_URL`, `GE_TEST_YOUTUBE_TOKEN_URL`,
+`GE_TEST_YOUTUBE_UPLOAD_URL`, `GE_TEST_YOUTUBE_USERINFO_URL`, `GE_TEST_YOUTUBE_REDIRECT_URI`,
+`GE_TEST_YOUTUBE_OAUTH_STATE`, `GE_TEST_YOUTUBE_TOKEN_FILE`) and are gated behind the `test-hooks`
+cargo feature. The `test-rust`/`test-integration` recipes enable it; the CMake/package build never
+does, so shipping binaries ignore them.

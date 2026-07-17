@@ -18,25 +18,20 @@ pub(crate) const USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v3/user
 /// Loopback redirect the plugin's local server handles after consent.
 pub(crate) const REDIRECT_URI: &str = "http://127.0.0.1:31337/oauth/callback";
 
-/// Whether a client secret was compiled in (injected by CI). Empty in local builds.
-const CLIENT_SECRET_PRESENT: bool = match option_env!("GE_YOUTUBE_CLIENT_SECRET") {
-    Some(value) => !value.is_empty(),
-    None => false,
-};
-
 /// Whether the YouTube UI/API is enabled: requires the runtime flag plus a
-/// compiled-in client ID and secret. Warns when the flag is set but credentials
-/// are missing, to explain why the feature stays hidden. Takes already-resolved
-/// endpoints so the caller reads them only once.
-pub(crate) fn youtube_enabled(endpoints: &YoutubeEndpoints) -> bool {
+/// resolved client ID and secret. Warns when the flag is set but credentials are
+/// missing, to explain why the feature stays hidden. Takes the already-resolved
+/// endpoints and secret so the caller reads them only once.
+pub(crate) fn youtube_enabled(endpoints: &YoutubeEndpoints, client_secret: &str) -> bool {
     if !env_truthy(GE_YOUTUBE_ENABLED) {
         return false;
     }
     let client_id_present = !endpoints.client_id.is_empty();
-    if !client_id_present || !CLIENT_SECRET_PRESENT {
+    let client_secret_present = !client_secret.is_empty();
+    if !client_id_present || !client_secret_present {
         tracing::warn!(
             client_id_present,
-            client_secret_present = CLIENT_SECRET_PRESENT,
+            client_secret_present,
             "GE_YOUTUBE_ENABLED is set but the YouTube client ID and/or secret are missing; leaving disabled"
         );
         return false;
@@ -70,25 +65,34 @@ impl YoutubeEndpoints {
         }
     }
 
+    // Test-only overrides use GE_TEST_* names so they are clearly distinct from
+    // the real GE_YOUTUBE_* build/runtime configuration.
     #[cfg(feature = "test-hooks")]
     pub(crate) fn resolve() -> Self {
         use super::shared::env_string;
         Self {
-            client_id: env_string("GE_YOUTUBE_CLIENT_ID").unwrap_or_else(|| CLIENT_ID.to_owned()),
-            auth_url: env_string("GE_YOUTUBE_AUTH_URL").unwrap_or_else(|| AUTH_URL.to_owned()),
-            token_url: env_string("GE_YOUTUBE_TOKEN_URL").unwrap_or_else(|| TOKEN_URL.to_owned()),
-            upload_url: env_string("GE_YOUTUBE_UPLOAD_URL").unwrap_or_else(|| UPLOAD_URL.to_owned()),
-            userinfo_url: env_string("GE_YOUTUBE_USERINFO_URL").unwrap_or_else(|| USERINFO_URL.to_owned()),
-            redirect_uri: env_string("GE_YOUTUBE_REDIRECT_URI").unwrap_or_else(|| REDIRECT_URI.to_owned()),
+            client_id: env_string("GE_TEST_YOUTUBE_CLIENT_ID").unwrap_or_else(|| CLIENT_ID.to_owned()),
+            auth_url: env_string("GE_TEST_YOUTUBE_AUTH_URL").unwrap_or_else(|| AUTH_URL.to_owned()),
+            token_url: env_string("GE_TEST_YOUTUBE_TOKEN_URL").unwrap_or_else(|| TOKEN_URL.to_owned()),
+            upload_url: env_string("GE_TEST_YOUTUBE_UPLOAD_URL").unwrap_or_else(|| UPLOAD_URL.to_owned()),
+            userinfo_url: env_string("GE_TEST_YOUTUBE_USERINFO_URL").unwrap_or_else(|| USERINFO_URL.to_owned()),
+            redirect_uri: env_string("GE_TEST_YOUTUBE_REDIRECT_URI").unwrap_or_else(|| REDIRECT_URI.to_owned()),
         }
     }
+}
+
+/// Test-only client secret override so integration tests can supply a secret
+/// without a compiled-in value. Always `None` in shipping builds.
+#[cfg(feature = "test-hooks")]
+pub(crate) fn test_client_secret() -> Option<String> {
+    super::shared::env_string("GE_TEST_YOUTUBE_CLIENT_SECRET")
 }
 
 /// Test-only override for the OAuth `state` value so the callback can be driven
 /// deterministically. Always `None` in shipping builds.
 #[cfg(feature = "test-hooks")]
 pub(crate) fn test_oauth_state() -> Option<String> {
-    super::shared::env_string("GE_YOUTUBE_TEST_OAUTH_STATE")
+    super::shared::env_string("GE_TEST_YOUTUBE_OAUTH_STATE")
 }
 
 /// Test-only override that stores OAuth tokens in a plain file instead of the OS
@@ -96,5 +100,5 @@ pub(crate) fn test_oauth_state() -> Option<String> {
 /// `None` in shipping builds.
 #[cfg(feature = "test-hooks")]
 pub(crate) fn token_file_override() -> Option<std::path::PathBuf> {
-    super::shared::env_string("GE_YOUTUBE_TOKEN_FILE").map(std::path::PathBuf::from)
+    super::shared::env_string("GE_TEST_YOUTUBE_TOKEN_FILE").map(std::path::PathBuf::from)
 }

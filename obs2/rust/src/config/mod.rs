@@ -25,4 +25,4 @@ pub(crate) use updates::{LATEST_RELEASE_API_URL, RELEASES_API_URL};
 pub(crate) use youtube::REDIRECT_URI;
 pub(crate) use youtube::{YoutubeEndpoints, youtube_enabled};
 #[cfg(feature = "test-hooks")]
-pub(crate) use youtube::{test_oauth_state, token_file_override};
+pub(crate) use youtube::{test_client_secret, test_oauth_state, token_file_override};

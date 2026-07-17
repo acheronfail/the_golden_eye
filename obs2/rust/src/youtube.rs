@@ -44,10 +44,11 @@ pub struct YoutubeConfig {
 impl YoutubeConfig {
     pub fn from_env() -> Self {
         let endpoints = config::YoutubeEndpoints::resolve();
-        let enabled = config::youtube_enabled(&endpoints);
+        let client_secret = youtube_client_secret();
+        let enabled = config::youtube_enabled(&endpoints, &client_secret);
         Self {
             client_id: endpoints.client_id,
-            client_secret: youtube_client_secret(),
+            client_secret,
             auth_url: endpoints.auth_url,
             token_url: endpoints.token_url,
             upload_url: endpoints.upload_url,
@@ -828,6 +829,10 @@ fn now_iso() -> String {
 }
 
 fn youtube_client_secret() -> String {
+    #[cfg(feature = "test-hooks")]
+    if let Some(secret) = config::test_client_secret() {
+        return secret;
+    }
     obfstr::obfstring!(match option_env!("GE_YOUTUBE_CLIENT_SECRET") {
         Some(value) => value,
         None => "",

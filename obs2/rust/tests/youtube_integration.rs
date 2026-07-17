@@ -86,12 +86,13 @@ async fn start_youtube_mock() -> (String, Arc<YoutubeMockState>, oneshot::Sender
 fn set_youtube_env(base_url: &str, token_file: &std::path::Path) {
     unsafe {
         std::env::set_var("GE_YOUTUBE_ENABLED", "1");
-        std::env::set_var("GE_YOUTUBE_TEST_OAUTH_STATE", "test-state");
-        std::env::set_var("GE_YOUTUBE_TOKEN_FILE", token_file);
-        std::env::set_var("GE_YOUTUBE_CLIENT_ID", "test-client");
-        std::env::set_var("GE_YOUTUBE_TOKEN_URL", format!("{base_url}/token"));
-        std::env::set_var("GE_YOUTUBE_USERINFO_URL", format!("{base_url}/userinfo"));
-        std::env::set_var("GE_YOUTUBE_UPLOAD_URL", format!("{base_url}/upload"));
+        std::env::set_var("GE_TEST_YOUTUBE_OAUTH_STATE", "test-state");
+        std::env::set_var("GE_TEST_YOUTUBE_TOKEN_FILE", token_file);
+        std::env::set_var("GE_TEST_YOUTUBE_CLIENT_ID", "test-client");
+        std::env::set_var("GE_TEST_YOUTUBE_CLIENT_SECRET", "test-secret");
+        std::env::set_var("GE_TEST_YOUTUBE_TOKEN_URL", format!("{base_url}/token"));
+        std::env::set_var("GE_TEST_YOUTUBE_USERINFO_URL", format!("{base_url}/userinfo"));
+        std::env::set_var("GE_TEST_YOUTUBE_UPLOAD_URL", format!("{base_url}/upload"));
     }
 }
 
@@ -99,12 +100,13 @@ fn clear_youtube_env() {
     unsafe {
         for key in [
             "GE_YOUTUBE_ENABLED",
-            "GE_YOUTUBE_TEST_OAUTH_STATE",
-            "GE_YOUTUBE_TOKEN_FILE",
-            "GE_YOUTUBE_CLIENT_ID",
-            "GE_YOUTUBE_TOKEN_URL",
-            "GE_YOUTUBE_USERINFO_URL",
-            "GE_YOUTUBE_UPLOAD_URL",
+            "GE_TEST_YOUTUBE_OAUTH_STATE",
+            "GE_TEST_YOUTUBE_TOKEN_FILE",
+            "GE_TEST_YOUTUBE_CLIENT_ID",
+            "GE_TEST_YOUTUBE_CLIENT_SECRET",
+            "GE_TEST_YOUTUBE_TOKEN_URL",
+            "GE_TEST_YOUTUBE_USERINFO_URL",
+            "GE_TEST_YOUTUBE_UPLOAD_URL",
         ] {
             std::env::remove_var(key);
         }
