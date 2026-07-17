@@ -6,6 +6,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=BROWSER_BUNDLE");
     println!("cargo:rerun-if-env-changed=GE_PLUGIN_VERSION");
     println!("cargo:rerun-if-env-changed=GE_BROWSER_DEV_URL");
+    println!("cargo:rerun-if-env-changed=GE_YOUTUBE_CLIENT_ID");
+    println!("cargo:rerun-if-env-changed=GE_YOUTUBE_CLIENT_SECRET");
 
     println!("cargo:rerun-if-env-changed=OPENCV_INCLUDE_PATHS");
     println!("cargo:rerun-if-env-changed=OPENCV_LINK_PATHS");

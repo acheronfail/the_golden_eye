@@ -48,6 +48,9 @@ fn default_settings_use_five_second_pre_run_padding() {
     assert!(!AppSettings::default().welcome_modal_shown);
     assert_eq!(AppSettings::default().update_check_interval, UpdateCheckInterval::Weekly);
     assert_eq!(AppSettings::default().last_update_check_time, None);
+    assert_eq!(AppSettings::default().youtube_visibility, DEFAULT_YOUTUBE_VISIBILITY);
+    assert_eq!(AppSettings::default().youtube_title_template, DEFAULT_YOUTUBE_TITLE_TEMPLATE);
+    assert_eq!(AppSettings::default().youtube_description_template, DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE);
     assert_eq!(AppSettings::from_json_value(json!({})).pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
     assert_eq!(AppSettings::from_json_value(json!({})).failed_run_limit, DEFAULT_FAILED_RUN_LIMIT);
     assert_eq!(
@@ -60,6 +63,12 @@ fn default_settings_use_five_second_pre_run_padding() {
     assert!(!AppSettings::from_json_value(json!({})).welcome_modal_shown);
     assert_eq!(AppSettings::from_json_value(json!({})).update_check_interval, UpdateCheckInterval::Weekly);
     assert_eq!(AppSettings::from_json_value(json!({})).last_update_check_time, None);
+    assert_eq!(AppSettings::from_json_value(json!({})).youtube_visibility, DEFAULT_YOUTUBE_VISIBILITY);
+    assert_eq!(AppSettings::from_json_value(json!({})).youtube_title_template, DEFAULT_YOUTUBE_TITLE_TEMPLATE);
+    assert_eq!(
+        AppSettings::from_json_value(json!({})).youtube_description_template,
+        DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE
+    );
 }
 
 #[test]
@@ -82,7 +91,10 @@ fn json_value_is_normalized_field_by_field() {
         "streamingStartedMessageTemplate": "",
         "streamingStoppedMessageTemplate": "Stopped {broadcast_url}",
         "updateCheckInterval": "daily",
-        "lastUpdateCheckTime": "1234.9"
+        "lastUpdateCheckTime": "1234.9",
+        "youtubeVisibility": "private",
+        "youtubeTitleTemplate": "{level} PB",
+        "youtubeDescriptionTemplate": "{time}"
     }));
 
     assert!(settings.stop_replay_buffer_when_monitor_stopped);

@@ -4,6 +4,7 @@ import {
 	connectAppSocket,
 	downloadUpdateNow,
 	openUpdateRelease,
+	openYouTubeUrl,
 	selfBuildId,
 	type PluginUpdate
 } from './api';
@@ -27,6 +28,7 @@ import {
 import { refreshReplayBuffer, setReplayBufferStatus } from './replayBuffer.svelte';
 import { settings } from './settings.svelte';
 import { setObsSources } from './sources.svelte';
+import { youtube } from './youtube.svelte';
 import type { AppSnapshot } from './api';
 
 let socket: WebSocket | null = null;
@@ -35,6 +37,9 @@ let stopped = true;
 let settingsErrorNotificationId: number | null = null;
 let updateNotificationId: number | null = null;
 let dismissedUpdateVersion: string | null = null;
+const youtubeStartedNotificationIds = new Map<string, number>();
+const youtubeNotifiedCompletedIds = new Set<string>();
+const youtubeNotifiedFailedIds = new Set<string>();
 const UPDATE_APPLIED_STORAGE_KEY = 'ge-update-applied-version';
 
 const showUpdateAppliedNotification = (version: string, releaseUrl?: string): void => {
@@ -85,6 +90,60 @@ const consumePendingUpdateAppliedNotification = (): void => {
 		showUpdateAppliedNotification(parsed.version, parsed.releaseUrl);
 	} catch (err) {
 		console.warn('Failed to parse pending update-applied notice', err);
+	}
+};
+
+const notifyYoutubeUploadChanged = (upload: import('./api').YouTubeUploadStatus): void => {
+	if ((upload.state === 'queued' || upload.state === 'uploading') && !youtubeStartedNotificationIds.has(upload.id)) {
+		const flag = addNotificationFlag({
+			key: `youtube-upload-${upload.id}`,
+			title: 'YouTube upload started',
+			detail: upload.title || upload.fileName,
+			tone: 'info',
+			sticky: true
+		});
+		youtubeStartedNotificationIds.set(upload.id, flag.id);
+	}
+
+	if (upload.state === 'failed' && !youtubeNotifiedFailedIds.has(upload.id)) {
+		youtubeNotifiedFailedIds.add(upload.id);
+		const startedNotificationId = youtubeStartedNotificationIds.get(upload.id);
+		const notification = {
+			key: `youtube-upload-${upload.id}`,
+			title: 'YouTube upload failed',
+			detail: upload.title || upload.fileName,
+			meta: 'An error occurred when trying to upload the video.',
+			tone: 'error' as const,
+			timeoutMs: 8000
+		};
+		if (startedNotificationId !== undefined) {
+			replaceNotificationFlag(startedNotificationId, notification);
+			youtubeStartedNotificationIds.delete(upload.id);
+		} else {
+			addNotificationFlag(notification);
+		}
+	}
+
+	if (upload.state === 'uploaded' && upload.videoUrl && !youtubeNotifiedCompletedIds.has(upload.id)) {
+		youtubeNotifiedCompletedIds.add(upload.id);
+		const startedNotificationId = youtubeStartedNotificationIds.get(upload.id);
+		const notification = {
+			key: `youtube-upload-${upload.id}`,
+			title: 'YouTube upload completed',
+			detail: upload.title || upload.fileName,
+			meta: 'Click to open YouTube.',
+			tone: 'success' as const,
+			timeoutMs: 8000,
+			action: () => {
+				void openYouTubeUrl(upload.videoUrl!).catch((err) => console.warn('Failed to open YouTube video', err));
+			}
+		};
+		if (startedNotificationId !== undefined) {
+			replaceNotificationFlag(startedNotificationId, notification);
+			youtubeStartedNotificationIds.delete(upload.id);
+		} else {
+			addNotificationFlag(notification);
+		}
 	}
 };
 
@@ -191,6 +250,10 @@ const connect = (): void => {
 				tone: 'error',
 				sticky: true
 			});
+		},
+		onYoutubeUploadChanged: (upload) => {
+			youtube.applyUpload(upload);
+			notifyYoutubeUploadChanged(upload);
 		},
 		onClose: () => {
 			if (socket === nextSocket) socket = null;

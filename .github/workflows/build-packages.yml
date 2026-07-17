@@ -13,22 +13,46 @@ on:
         required: false
         type: boolean
         default: false
+      require-credentials:
+        description: Fail the build if the YouTube OAuth client ID/secret are missing (release builds pass true).
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      GE_YOUTUBE_CLIENT_ID:
+        required: false
+      GE_YOUTUBE_CLIENT_SECRET:
+        required: false
 
 permissions:
   contents: read
 
 jobs:
-  linux:
-    name: Linux ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+  check-credentials:
+    name: Check YouTube credentials
+    # Only runs for release (tag) builds, which pass require-credentials: true.
+    if: ${{ inputs.require-credentials }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report credential presence
+        env:
+          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
+          REQUIRE_CREDENTIALS: ${{ inputs.require-credentials }}
+        run: |
+          if [ -n "$GE_YOUTUBE_CLIENT_ID" ]; then id_state=present; else id_state=MISSING; fi
+          if [ -n "$GE_YOUTUBE_CLIENT_SECRET" ]; then secret_state=present; else secret_state=MISSING; fi
+          echo "### YouTube credentials: id=$id_state secret=$secret_state" >> "$GITHUB_STEP_SUMMARY"
+          echo "YouTube client ID: $id_state"
+          echo "YouTube client secret: $secret_state"
+          if [ "$REQUIRE_CREDENTIALS" = "true" ] && { [ "$id_state" = MISSING ] || [ "$secret_state" = MISSING ]; }; then
+            echo "::error::YouTube client ID and/or secret missing!"
+            exit 1
+          fi
 
-    strategy:
-      fail-fast: false
-      matrix:
-        # No current aarch64 build of OBS right now, but maybe in the future...
-        include:
-          - arch: x86_64
-            runner: ubuntu-latest
+  linux:
+    name: Linux x86_64
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -129,6 +153,9 @@ jobs:
 
       - name: Build Linux package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
+        env:
+          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Check Linux package contract
         run: just test-package-contract obs2/build-flatpak
@@ -218,6 +245,9 @@ jobs:
 
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
+        env:
+          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Check macOS package contract
         run: just test-package-contract obs2/build
@@ -394,6 +424,9 @@ jobs:
       - name: Build Windows package
         shell: bash
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
+        env:
+          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Check Windows package contract
         shell: bash

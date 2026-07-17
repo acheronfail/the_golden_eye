@@ -1,4 +1,3 @@
-use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -215,18 +214,7 @@ pub fn open_release_url(url: &str) -> anyhow::Result<()> {
     if !is_allowed_release_url(url) {
         anyhow::bail!("refusing to open non-release URL: {url}");
     }
-
-    #[cfg(target_os = "macos")]
-    let status = Command::new("open").arg(url).status();
-
-    #[cfg(target_os = "windows")]
-    let status = Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).status();
-
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    let status = Command::new("xdg-open").arg(url).status();
-
-    let status = status?;
-    if status.success() { Ok(()) } else { anyhow::bail!("browser opener exited with status {status}") }
+    crate::browser::open_url(url)
 }
 
 fn is_allowed_release_url(url: &str) -> bool {

@@ -150,6 +150,99 @@ export const renameRun = async (path: string, fileName: string): Promise<RunClip
 	return res.json();
 };
 
+export type YouTubeUploadState = 'queued' | 'uploading' | 'processing' | 'uploaded' | 'failed';
+
+export interface YouTubeUploadStatus {
+	id: string;
+	path: string;
+	fileName: string;
+	state: YouTubeUploadState;
+	progressBytes: number;
+	totalBytes: number | null;
+	progressRatio: number | null;
+	videoId: string | null;
+	videoUrl: string | null;
+	error: string | null;
+	title: string;
+	startedAt: string;
+	finishedAt: string | null;
+}
+
+export interface YouTubeUploadHistoryEntry {
+	identity: {
+		path: string;
+		sizeBytes: number;
+		modifiedUnixSecs: number | null;
+		metadataSha256: string;
+	};
+	videoId: string;
+	videoUrl: string;
+	uploadedAt: string;
+	title: string;
+}
+
+export interface YouTubeAccount {
+	email: string | null;
+	name: string | null;
+	picture: string | null;
+}
+
+export interface YouTubeStatus {
+	enabled: boolean;
+	oauthConfigured: boolean;
+	connected: boolean;
+	account: YouTubeAccount | null;
+	uploads: YouTubeUploadStatus[];
+	history: YouTubeUploadHistoryEntry[];
+}
+
+export const getYouTubeStatus = async (): Promise<YouTubeStatus> => {
+	const res = await fetch(apiUrl('/api/v1/youtube/status'));
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
+export const connectYouTube = async (): Promise<YouTubeStatus> => {
+	const res = await fetch(apiUrl('/api/v1/youtube/connect'), { method: 'POST' });
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
+export const disconnectYouTube = async (): Promise<YouTubeStatus> => {
+	const res = await fetch(apiUrl('/api/v1/youtube/disconnect'), { method: 'POST' });
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
+export const uploadRunToYouTube = async (path: string): Promise<YouTubeUploadStatus> => {
+	const res = await fetch(apiUrl('/api/v1/youtube/upload'), {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ path })
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
+export const openYouTubeUrl = async (url: string): Promise<void> => {
+	const res = await fetch(apiUrl('/api/v1/youtube/open'), {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ url })
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+};
+
+export const forgetYouTubeUpload = async (path: string): Promise<YouTubeStatus> => {
+	const res = await fetch(apiUrl('/api/v1/youtube/forget'), {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ path })
+	});
+	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
+	return res.json();
+};
+
 export const updateRunMetadata = async (path: string, metadata: EditableRunMetadata): Promise<RunClip> => {
 	const res = await fetch(apiUrl('/api/v1/runs'), {
 		method: 'PATCH',
@@ -555,7 +648,8 @@ export type AppSocketEvent =
 	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
 	| { type: 'settingsInvalid'; configPath: string; error: string }
 	| { type: 'updateApplied'; version: string; releaseUrl?: string }
-	| { type: 'updateStagingFailed'; error: string };
+	| { type: 'updateStagingFailed'; error: string }
+	| { type: 'youtubeUploadChanged'; upload: YouTubeUploadStatus };
 
 /** Handlers for the messages the app WebSocket can push. All are optional;
  * provide only the ones you care about. */
@@ -589,6 +683,8 @@ export interface AppSocketHandlers {
 	/** A newer release was found but downloading/verifying/staging it failed, so
 	 * no update is queued up to apply. */
 	onUpdateStagingFailed?: (error: string) => void;
+	/** A YouTube upload was queued, progressed, completed, or failed. */
+	onYoutubeUploadChanged?: (upload: YouTubeUploadStatus) => void;
 	/** Fires when the socket closes. */
 	onClose?: () => void;
 }
@@ -668,6 +764,9 @@ export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 				break;
 			case 'updateStagingFailed':
 				handlers.onUpdateStagingFailed?.(msg.error);
+				break;
+			case 'youtubeUploadChanged':
+				handlers.onYoutubeUploadChanged?.(msg.upload);
 				break;
 		}
 	};

@@ -137,7 +137,7 @@ test-rust *args:
       export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
     fi
     cd "{{ justfile_directory() }}/obs2/rust"
-    cargo test --release {{ args }}
+    cargo test --release --features test-hooks {{ args }}
 
 # runs the backend against the controllable Rust OBS host (no OBS process)
 test-integration *args:
@@ -154,7 +154,7 @@ test-integration *args:
       export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/integration"
     fi
     cd "{{ justfile_directory() }}/obs2/rust"
-    cargo test --release --tests -- --ignored --test-threads=1 {{ args }}
+    cargo test --release --features test-hooks --tests -- --ignored --test-threads=1 {{ args }}
 
 # runs browser unit/component tests
 test-browser *args:

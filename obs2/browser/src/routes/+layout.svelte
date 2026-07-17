@@ -8,6 +8,7 @@
 	import NotificationFlags from '$lib/NotificationFlags.svelte';
 	import { addNotificationFlag } from '$lib/notifications.svelte';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
+	import { youtube } from '$lib/youtube.svelte';
 	import { page } from '$app/state';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
@@ -25,6 +26,7 @@
 		windowFocused = document.hasFocus();
 
 		startAppSocket();
+		void youtube.load().catch((err) => console.warn('Failed to load YouTube status', err));
 		void settings
 			.load()
 			.then(() => {

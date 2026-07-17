@@ -8,25 +8,40 @@ use crate::http::AppState;
 #[derive(Deserialize)]
 pub struct OAuthQuery {
     code: Option<String>,
+    state: Option<String>,
 }
 
 #[axum::debug_handler]
 pub async fn handle_callback(State(state): State<AppState>, Query(query): Query<OAuthQuery>) -> impl IntoResponse {
     if let Some(code) = query.code {
         let mut pending = state.oauth_pending.lock().await;
-        if let Some(tx) = pending.take() {
-            let _ = tx.send(code);
-            Html(concat!(
-                "<html>",
-                "<head><script>window.close();</script></head>",
-                "<body>Authenticated! You can now close this window.</body>",
-                "</html>",
+        if let Some(pending_oauth) = pending.take() {
+            if query.state.as_deref() != Some(pending_oauth.state.as_str()) {
+                return oauth_error(StatusCode::BAD_REQUEST, "OAuth state did not match.");
+            }
+            let _ = pending_oauth.tx.send(code);
+            Html(oauth_page(
+                "Authorisation complete",
+                "Authorisation was completed successfully. You can now close this page and return to The Golden Eye.",
+                true,
             ))
             .into_response()
         } else {
-            (StatusCode::BAD_REQUEST, Html("No pending OAuth flow.")).into_response()
+            oauth_error(StatusCode::BAD_REQUEST, "No pending OAuth flow was found.")
         }
     } else {
-        (StatusCode::BAD_REQUEST, Html("OAuth2 code not found in request.")).into_response()
+        oauth_error(StatusCode::BAD_REQUEST, "OAuth code was not found in the request.")
     }
+}
+
+fn oauth_error(status: StatusCode, message: &'static str) -> axum::response::Response {
+    (status, Html(oauth_page("Authorisation failed", message, false))).into_response()
+}
+
+fn oauth_page(title: &'static str, message: &'static str, close_window: bool) -> String {
+    let close_script = if close_window { "<script>setTimeout(() => window.close(), 750);</script>" } else { "" };
+    include_str!("../../../templates/oauth_callback.html")
+        .replace("{{title}}", title)
+        .replace("{{message}}", message)
+        .replace("{{close_script}}", close_script)
 }
