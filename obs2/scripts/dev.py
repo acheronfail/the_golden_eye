@@ -11,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -19,7 +20,6 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import FrameType
 from typing import NoReturn, Optional
-
 
 IS_LINUX = sys.platform.startswith("linux")
 
@@ -30,12 +30,17 @@ RUST_SRC = ROOT / "obs2" / "rust" / "src"
 RUST_MANIFEST = ROOT / "obs2" / "rust" / "Cargo.toml"
 PLUGIN_NAME = "the_golden_eye"
 API_BASE = "http://127.0.0.1:31337"
+ZELLIJ_LAYOUT = Path(__file__).with_name("dev.kdl")
+DEV_READY_FILE_ENV = "GE_DEV_READY_FILE"
 
 
 def obs_plugin_paths() -> tuple[Path, Path]:
     if IS_LINUX:
         arch_dir = "64bit" if sys.maxsize > 2**32 else "32bit"
-        return PLUGIN_BUILD_DIR / "%module%" / "bin" / arch_dir, PLUGIN_BUILD_DIR / "%module%" / "data"
+        return (
+            PLUGIN_BUILD_DIR / "%module%" / "bin" / arch_dir,
+            PLUGIN_BUILD_DIR / "%module%" / "data",
+        )
 
     return PLUGIN_BUILD_DIR, PLUGIN_BUILD_DIR
 
@@ -58,9 +63,13 @@ def find_core_library(runtime_dir: Path) -> Path:
     # Globs rather than hardcoding a prefix/suffix (libgolden_core.dylib vs
     # libgolden_core.so vs golden_core.dll) -- a third place to encode that
     # convention isn't worth it when CMake and Rust already both know it.
-    candidates = sorted(path for path in runtime_dir.glob("*golden_core*") if path.is_file())
+    candidates = sorted(
+        path for path in runtime_dir.glob("*golden_core*") if path.is_file()
+    )
     if not candidates:
-        raise FileNotFoundError(f"could not find the built core library under {runtime_dir}")
+        raise FileNotFoundError(
+            f"could not find the built core library under {runtime_dir}"
+        )
     if len(candidates) > 1:
         print(
             f"[dev] warning: multiple core library files found under {runtime_dir}: {candidates}; using {candidates[0]}",
@@ -84,13 +93,22 @@ def trigger_reload_apply() -> None:
             print(f"[dev] reload applied (HTTP {response.status})", flush=True)
     except urllib.error.HTTPError as error:
         if error.code == 409:
-            print("[dev] reload deferred: plugin is busy monitoring/recording; it'll retry on its own", flush=True)
+            print(
+                "[dev] reload deferred: plugin is busy monitoring/recording; it'll retry on its own",
+                flush=True,
+            )
         elif error.code == 404:
-            print("[dev] reload not applied: plugin reports nothing staged (unexpected)", file=sys.stderr)
+            print(
+                "[dev] reload not applied: plugin reports nothing staged (unexpected)",
+                file=sys.stderr,
+            )
         else:
             print(f"[dev] reload request failed: HTTP {error.code}", file=sys.stderr)
     except urllib.error.URLError as error:
-        print(f"[dev] could not reach the plugin to trigger a reload (is OBS running yet?): {error}", file=sys.stderr)
+        print(
+            f"[dev] could not reach the plugin to trigger a reload (is OBS running yet?): {error}",
+            file=sys.stderr,
+        )
 
 
 class ProcessManager:
@@ -192,7 +210,9 @@ def rust_watch_loop(manager: ProcessManager, stop_event: threading.Event) -> Non
             # Relinking happens inside the Flatpak SDK for linux
             proc = manager.start(["just", "_dev-relink"], cwd=ROOT)
         else:
-            proc = manager.start(["cmake", "--build", ".", "--target", "golden_core"], cwd=BUILD_DIR)
+            proc = manager.start(
+                ["cmake", "--build", ".", "--target", "golden_core"], cwd=BUILD_DIR
+            )
         result = proc.wait()
         manager.forget(proc)
 
@@ -205,12 +225,17 @@ def rust_watch_loop(manager: ProcessManager, stop_event: threading.Event) -> Non
         try:
             stage_dev_reload()
         except OSError as error:
-            print(f"[dev] core rebuilt but failed to stage it for reload: {error}", file=sys.stderr)
+            print(
+                f"[dev] core rebuilt but failed to stage it for reload: {error}",
+                file=sys.stderr,
+            )
             continue
         trigger_reload_apply()
 
 
-def install_signal_handlers(manager: ProcessManager, stop_event: threading.Event) -> None:
+def install_signal_handlers(
+    manager: ProcessManager, stop_event: threading.Event
+) -> None:
     def handle_signal(signum: int, _frame: Optional[FrameType]) -> NoReturn:
         stop_event.set()
         manager.stop_all()
@@ -222,49 +247,161 @@ def install_signal_handlers(manager: ProcessManager, stop_event: threading.Event
         signal.signal(signal.SIGHUP, handle_signal)
 
 
+def dev_ready_file() -> Path:
+    ready_file = os.environ.get(DEV_READY_FILE_ENV)
+    if not ready_file:
+        raise RuntimeError("OBS pane needs a backend readiness file")
+    return Path(ready_file)
+
+
+def set_backend_status(status: str) -> None:
+    try:
+        dev_ready_file().write_text(status)
+    except OSError as error:
+        print(f"[dev] could not update backend status: {error}", file=sys.stderr)
+
+
+def wait_for_backend() -> bool:
+    ready_file = dev_ready_file()
+    print("[dev] waiting for the backend's initial build...", flush=True)
+    while True:
+        try:
+            status = ready_file.read_text()
+        except FileNotFoundError:
+            time.sleep(0.1)
+            continue
+
+        if status == "ready":
+            return True
+        if status == "failed":
+            print("[dev] backend's initial build failed; OBS will not start", file=sys.stderr)
+            return False
+        time.sleep(0.1)
+
+
+def run_dev(*, frontend: bool, backend: bool, obs: bool) -> int:
+    manager = ProcessManager()
+    stop_event = threading.Event()
+    backend_failed = False
+    install_signal_handlers(manager, stop_event)
+
+    try:
+        if frontend:
+            vite = manager.start(["npm", "run", "dev"], cwd=ROOT / "obs2" / "browser")
+            if not backend and not obs:
+                vite_status = vite.wait()
+                manager.forget(vite)
+                return 128 - vite_status if vite_status < 0 else vite_status
+
+        if obs and not backend and not wait_for_backend():
+            close_zellij_tab()
+            return 1
+
+        if backend:
+            if IS_LINUX:
+                # Linux needs to build in the flatpak env
+                manager.run(["just", "_dev-build"])
+            else:
+                manager.run(["just", "configure-dev"])
+                manager.run(["cmake", "--build", "obs2/build"])
+
+            if not obs:
+                set_backend_status("ready")
+
+            watcher = threading.Thread(
+                target=rust_watch_loop, args=(manager, stop_event), daemon=True
+            )
+            watcher.start()
+
+        if obs:
+            if IS_LINUX:
+                obs_process = manager.start(["just", "_run-obs-flatpak"], cwd=ROOT)
+            else:
+                plugin_path, data_path = obs_plugin_paths()
+                env = os.environ.copy()
+                env["OBS_PLUGINS_PATH"] = str(plugin_path)
+                env["OBS_PLUGINS_DATA_PATH"] = str(data_path)
+                obs_process = manager.start(["obs"], env=env)
+            obs_status = obs_process.wait()
+            manager.forget(obs_process)
+
+            stop_event.set()
+            manager.stop_all()
+            if backend:
+                watcher.join(timeout=2)
+            if frontend:
+                manager.forget(vite)
+            close_zellij_tab()
+            return 128 - obs_status if obs_status < 0 else obs_status
+
+        if backend:
+            while not stop_event.wait(1):
+                pass
+            return 0
+
+        raise ValueError("at least one dev process must be selected")
+    except subprocess.CalledProcessError as error:
+        if backend and not obs:
+            backend_failed = True
+            set_backend_status("failed")
+        return 128 - error.returncode if error.returncode < 0 else error.returncode
+    finally:
+        stop_event.set()
+        manager.stop_all()
+        if backend and not obs and not backend_failed:
+            try:
+                dev_ready_file().unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def zellij_available() -> bool:
+    return shutil.which("zellij") is not None
+
+
+def inside_zellij() -> bool:
+    return bool(os.environ.get("ZELLIJ"))
+
+
+def close_zellij_tab() -> None:
+    if inside_zellij() and zellij_available():
+        subprocess.run(["zellij", "action", "close-tab"], check=False)
+
+
 def main() -> int:
     if os.name != "posix":
         print("just dev requires POSIX process groups for cleanup.", file=sys.stderr)
         return 1
 
-    manager = ProcessManager()
-    stop_event = threading.Event()
-    install_signal_handlers(manager, stop_event)
+    pane = sys.argv[1:]
+    if pane == ["--pane", "frontend"]:
+        return run_dev(frontend=True, backend=False, obs=False)
+    if pane == ["--pane", "backend"]:
+        return run_dev(frontend=False, backend=True, obs=False)
+    if pane == ["--pane", "obs"]:
+        return run_dev(frontend=False, backend=False, obs=True)
+    if pane:
+        print(f"unknown arguments: {' '.join(pane)}", file=sys.stderr)
+        return 2
 
-    try:
-        if IS_LINUX:
-            # Linux needs to build in the flatpak env
-            manager.run(["just", "_dev-build"])
-        else:
-            manager.run(["just", "configure-dev"])
-            manager.run(["cmake", "--build", "obs2/build"])
+    if zellij_available():
+        ready_file = Path(tempfile.gettempdir()) / f"the-golden-eye-dev-{os.getpid()}.ready"
+        ready_file.unlink(missing_ok=True)
+        env = os.environ.copy()
+        env[DEV_READY_FILE_ENV] = str(ready_file)
+        return subprocess.run(["zellij", "--layout", str(ZELLIJ_LAYOUT)], env=env).returncode
 
-        vite = manager.start(["npm", "run", "dev"], cwd=ROOT / "obs2" / "browser")
-
-        watcher = threading.Thread(target=rust_watch_loop, args=(manager, stop_event), daemon=True)
-        watcher.start()
-
-        if IS_LINUX:
-            obs = manager.start(["just", "_run-obs-flatpak"], cwd=ROOT)
-        else:
-            plugin_path, data_path = obs_plugin_paths()
-            env = os.environ.copy()
-            env["OBS_PLUGINS_PATH"] = str(plugin_path)
-            env["OBS_PLUGINS_DATA_PATH"] = str(data_path)
-            obs = manager.start(["obs"], env=env)
-        obs_status = obs.wait()
-        manager.forget(obs)
-
-        stop_event.set()
-        manager.stop_all()
-        watcher.join(timeout=2)
-        manager.forget(vite)
-        return 128 - obs_status if obs_status < 0 else obs_status
-    except subprocess.CalledProcessError as error:
-        return 128 - error.returncode if error.returncode < 0 else error.returncode
-    finally:
-        stop_event.set()
-        manager.stop_all()
+    print(
+        "\n"
+        "============================================================\n"
+        "[dev] Zellij is not installed; using a single terminal.\n"
+        "[dev] Install zellij for a much better dev experience with\n"
+        "      separate frontend, backend, and OBS output panes.\n"
+        "============================================================\n",
+        flush=True,
+    )
+    time.sleep(2.5)
+    return run_dev(frontend=True, backend=True, obs=True)
 
 
 if __name__ == "__main__":
