@@ -321,7 +321,7 @@ jobs:
       - name: Install system dependencies
         shell: pwsh
         run: |
-          choco install just obs-studio -y --no-progress
+          choco install just obs-studio -y --no-progress --fail-on-unfound --fail-on-standard-error
 
           $libclang = Get-ChildItem `
             -Path "$env:ProgramFiles\LLVM", "${env:ProgramFiles(x86)}\LLVM" `
@@ -330,7 +330,7 @@ jobs:
             -ErrorAction SilentlyContinue `
             | Select-Object -First 1
           if (-not $libclang) {
-            choco install llvm -y --no-progress
+            choco install llvm -y --no-progress --fail-on-unfound --fail-on-standard-error
             $libclang = Get-ChildItem `
               -Path "$env:ProgramFiles\LLVM", "${env:ProgramFiles(x86)}\LLVM" `
               -Filter libclang.dll `
