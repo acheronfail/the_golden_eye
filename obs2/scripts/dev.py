@@ -11,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -30,6 +31,7 @@ RUST_MANIFEST = ROOT / "obs2" / "rust" / "Cargo.toml"
 PLUGIN_NAME = "the_golden_eye"
 API_BASE = "http://127.0.0.1:31337"
 ZELLIJ_LAYOUT = Path(__file__).with_name("dev.kdl")
+DEV_READY_FILE_ENV = "GE_DEV_READY_FILE"
 
 
 def obs_plugin_paths() -> tuple[Path, Path]:
@@ -245,18 +247,55 @@ def install_signal_handlers(
         signal.signal(signal.SIGHUP, handle_signal)
 
 
-def run_dev(*, frontend: bool, backend: bool) -> int:
+def dev_ready_file() -> Path:
+    ready_file = os.environ.get(DEV_READY_FILE_ENV)
+    if not ready_file:
+        raise RuntimeError("OBS pane needs a backend readiness file")
+    return Path(ready_file)
+
+
+def set_backend_status(status: str) -> None:
+    try:
+        dev_ready_file().write_text(status)
+    except OSError as error:
+        print(f"[dev] could not update backend status: {error}", file=sys.stderr)
+
+
+def wait_for_backend() -> bool:
+    ready_file = dev_ready_file()
+    print("[dev] waiting for the backend's initial build...", flush=True)
+    while True:
+        try:
+            status = ready_file.read_text()
+        except FileNotFoundError:
+            time.sleep(0.1)
+            continue
+
+        if status == "ready":
+            return True
+        if status == "failed":
+            print("[dev] backend's initial build failed; OBS will not start", file=sys.stderr)
+            return False
+        time.sleep(0.1)
+
+
+def run_dev(*, frontend: bool, backend: bool, obs: bool) -> int:
     manager = ProcessManager()
     stop_event = threading.Event()
+    backend_failed = False
     install_signal_handlers(manager, stop_event)
 
     try:
         if frontend:
             vite = manager.start(["npm", "run", "dev"], cwd=ROOT / "obs2" / "browser")
-            if not backend:
+            if not backend and not obs:
                 vite_status = vite.wait()
                 manager.forget(vite)
                 return 128 - vite_status if vite_status < 0 else vite_status
+
+        if obs and not backend and not wait_for_backend():
+            close_zellij_tab()
+            return 1
 
         if backend:
             if IS_LINUX:
@@ -266,36 +305,54 @@ def run_dev(*, frontend: bool, backend: bool) -> int:
                 manager.run(["just", "configure-dev"])
                 manager.run(["cmake", "--build", "obs2/build"])
 
+            if not obs:
+                set_backend_status("ready")
+
             watcher = threading.Thread(
                 target=rust_watch_loop, args=(manager, stop_event), daemon=True
             )
             watcher.start()
 
+        if obs:
             if IS_LINUX:
-                obs = manager.start(["just", "_run-obs-flatpak"], cwd=ROOT)
+                obs_process = manager.start(["just", "_run-obs-flatpak"], cwd=ROOT)
             else:
                 plugin_path, data_path = obs_plugin_paths()
                 env = os.environ.copy()
                 env["OBS_PLUGINS_PATH"] = str(plugin_path)
                 env["OBS_PLUGINS_DATA_PATH"] = str(data_path)
-                obs = manager.start(["obs"], env=env)
-            obs_status = obs.wait()
-            manager.forget(obs)
+                obs_process = manager.start(["obs"], env=env)
+            obs_status = obs_process.wait()
+            manager.forget(obs_process)
 
             stop_event.set()
             manager.stop_all()
-            watcher.join(timeout=2)
+            if backend:
+                watcher.join(timeout=2)
             if frontend:
                 manager.forget(vite)
             close_zellij_tab()
             return 128 - obs_status if obs_status < 0 else obs_status
 
+        if backend:
+            while not stop_event.wait(1):
+                pass
+            return 0
+
         raise ValueError("at least one dev process must be selected")
     except subprocess.CalledProcessError as error:
+        if backend and not obs:
+            backend_failed = True
+            set_backend_status("failed")
         return 128 - error.returncode if error.returncode < 0 else error.returncode
     finally:
         stop_event.set()
         manager.stop_all()
+        if backend and not obs and not backend_failed:
+            try:
+                dev_ready_file().unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def zellij_available() -> bool:
@@ -318,27 +375,33 @@ def main() -> int:
 
     pane = sys.argv[1:]
     if pane == ["--pane", "frontend"]:
-        return run_dev(frontend=True, backend=False)
+        return run_dev(frontend=True, backend=False, obs=False)
     if pane == ["--pane", "backend"]:
-        return run_dev(frontend=False, backend=True)
+        return run_dev(frontend=False, backend=True, obs=False)
+    if pane == ["--pane", "obs"]:
+        return run_dev(frontend=False, backend=False, obs=True)
     if pane:
         print(f"unknown arguments: {' '.join(pane)}", file=sys.stderr)
         return 2
 
     if zellij_available():
-        return subprocess.run(["zellij", "--layout", str(ZELLIJ_LAYOUT)]).returncode
+        ready_file = Path(tempfile.gettempdir()) / f"the-golden-eye-dev-{os.getpid()}.ready"
+        ready_file.unlink(missing_ok=True)
+        env = os.environ.copy()
+        env[DEV_READY_FILE_ENV] = str(ready_file)
+        return subprocess.run(["zellij", "--layout", str(ZELLIJ_LAYOUT)], env=env).returncode
 
     print(
         "\n"
         "============================================================\n"
         "[dev] Zellij is not installed; using a single terminal.\n"
         "[dev] Install zellij for a much better dev experience with\n"
-        "      separate frontend and OBS/backend output panes.\n"
+        "      separate frontend, backend, and OBS output panes.\n"
         "============================================================\n",
         flush=True,
     )
     time.sleep(2.5)
-    return run_dev(frontend=True, backend=True)
+    return run_dev(frontend=True, backend=True, obs=True)
 
 
 if __name__ == "__main__":
