@@ -703,11 +703,19 @@ pub fn clip_identity(path: &Path, metadata: &ClipMetadata) -> anyhow::Result<Cli
     })
 }
 
-pub fn render_youtube_metadata(settings: &AppSettings, path: &Path, metadata: &ClipMetadata) -> (String, String) {
+pub fn render_youtube_metadata(
+    settings: &AppSettings,
+    path: &Path,
+    metadata: &ClipMetadata,
+    datetime_local: Option<&str>,
+) -> (String, String) {
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("clip");
     let tokens = RunTemplateTokens::from_clip_metadata(stem, metadata);
-    let title = tokens.render(&settings.youtube_title_template).trim().to_owned();
-    let description = tokens.render(&settings.youtube_description_template);
+    let datetime_local =
+        datetime_local.map(str::trim).filter(|value| !value.is_empty()).unwrap_or(&tokens.timestamp_local);
+    let title =
+        tokens.render(&settings.youtube_title_template).replace("{datetime_local}", datetime_local).trim().to_owned();
+    let description = tokens.render(&settings.youtube_description_template).replace("{datetime_local}", datetime_local);
     (if title.is_empty() { stem.to_owned() } else { title }, description)
 }
 
@@ -1005,5 +1013,67 @@ mod tests {
         assert!(url.contains("prompt=consent"));
         assert!(url.contains("state=state-123"));
         assert!(url.contains("youtube.upload"));
+    }
+
+    fn clip_metadata_fixture() -> ClipMetadata {
+        ClipMetadata {
+            timestamp: "2026-07-18T10:30:45Z".to_owned(),
+            time: Some("01:23".to_owned()),
+            time_seconds: Some(83),
+            level: "Dam".to_owned(),
+            level_number: Some(1),
+            difficulty: Some("Agent".to_owned()),
+            status: "complete".to_owned(),
+            rom_language: "en".to_owned(),
+            source_name: "N64 Capture".to_owned(),
+            comment: "test".to_owned(),
+            plugin_version: "test".to_owned(),
+        }
+    }
+
+    #[test]
+    fn renderer_uses_browser_datetime_local_token() {
+        let settings = AppSettings {
+            youtube_title_template: "{level} at {datetime_local}".to_owned(),
+            youtube_description_template: "Achieved at {datetime_local}".to_owned(),
+            ..AppSettings::default()
+        };
+        let metadata = clip_metadata_fixture();
+
+        let (title, description) =
+            render_youtube_metadata(&settings, Path::new("clip.mov"), &metadata, Some("7/18/2026, 3:30:45 AM"));
+
+        assert_eq!(title, "Dam at 7/18/2026, 3:30:45 AM");
+        assert_eq!(description, "Achieved at 7/18/2026, 3:30:45 AM");
+    }
+
+    #[test]
+    fn renderer_falls_back_to_timestamp_local_for_datetime_local() {
+        let settings = AppSettings {
+            youtube_title_template: "{level}".to_owned(),
+            youtube_description_template: "Achieved at {datetime_local}".to_owned(),
+            ..AppSettings::default()
+        };
+        let metadata = clip_metadata_fixture();
+        let expected_local = RunTemplateTokens::from_clip_metadata("clip", &metadata).timestamp_local;
+
+        let (_title, description) = render_youtube_metadata(&settings, Path::new("clip.mov"), &metadata, None);
+
+        assert_eq!(description, format!("Achieved at {expected_local}"));
+    }
+
+    #[test]
+    fn renderer_falls_back_to_timestamp_local_for_blank_datetime_local() {
+        let settings = AppSettings {
+            youtube_title_template: "{level}".to_owned(),
+            youtube_description_template: "Achieved at {datetime_local}".to_owned(),
+            ..AppSettings::default()
+        };
+        let metadata = clip_metadata_fixture();
+        let expected_local = RunTemplateTokens::from_clip_metadata("clip", &metadata).timestamp_local;
+
+        let (_title, description) = render_youtube_metadata(&settings, Path::new("clip.mov"), &metadata, Some("   "));
+
+        assert_eq!(description, format!("Achieved at {expected_local}"));
     }
 }

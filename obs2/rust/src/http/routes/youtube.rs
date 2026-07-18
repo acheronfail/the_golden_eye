@@ -17,6 +17,7 @@ use crate::youtube::{self, YoutubeStatus};
 #[serde(rename_all = "camelCase")]
 pub struct UploadRequest {
     path: String,
+    datetime_local: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -140,7 +141,8 @@ pub async fn handle_upload(State(state): State<AppState>, Json(req): Json<Upload
             (StatusCode::BAD_REQUEST, "could not read run clip file").into_response()
         })?
         .len();
-    let (title, description) = youtube::render_youtube_metadata(&settings, &path, &metadata);
+    let (title, description) =
+        youtube::render_youtube_metadata(&settings, &path, &metadata, req.datetime_local.as_deref());
     let status =
         state.youtube.insert_queued_upload(&path, display_path, title.clone(), description.clone(), total_bytes);
     let _ = state.event_tx.send(MonitorEvent::YoutubeUploadChanged { upload: status.clone() });

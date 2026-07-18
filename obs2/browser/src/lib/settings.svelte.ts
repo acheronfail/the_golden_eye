@@ -82,7 +82,7 @@ const bootstrapSettings: Settings = {
 	autoUpdateEnabled: false,
 	youtubeVisibility: 'unlisted',
 	youtubeTitleTemplate: '{level} - {difficulty} - {time}',
-	youtubeDescriptionTemplate: 'Achieved at {timestamp_local}\n\nRecorded with The Golden Eye {plugin_version}.'
+	youtubeDescriptionTemplate: 'Achieved at {datetime_local}\n\nRecorded with The Golden Eye {plugin_version}.'
 };
 
 const settingsSchema = (defaults: Settings) =>

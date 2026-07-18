@@ -214,11 +214,18 @@ export const disconnectYouTube = async (): Promise<YouTubeStatus> => {
 	return res.json();
 };
 
-export const uploadRunToYouTube = async (path: string): Promise<YouTubeUploadStatus> => {
+export interface YouTubeUploadOptions {
+	datetimeLocal?: string;
+}
+
+export const uploadRunToYouTube = async (
+	path: string,
+	options?: YouTubeUploadOptions
+): Promise<YouTubeUploadStatus> => {
 	const res = await fetch(apiUrl('/api/v1/youtube/upload'), {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ path })
+		body: JSON.stringify({ path, ...options })
 	});
 	if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 	return res.json();
