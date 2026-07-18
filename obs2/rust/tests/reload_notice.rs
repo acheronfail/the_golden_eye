@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde_json::{Value, json};
-use support::harness::{API, Harness};
+use support::harness::{API, Harness, SOURCE_NAME, next_monitor_snapshot};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -55,6 +55,12 @@ async fn reload_sends_update_applied_notice_to_new_connections() {
 
     ge_rust::ge_rust_set_was_reloaded(true);
     assert!(ge_rust::ge_rust_start(), "server failed to restart");
+    ge_rust::ge_sources_changed();
+
+    let mut ws = harness.connect_monitor_ws().await;
+    let snapshot = next_monitor_snapshot(&mut ws, "reloaded source snapshot").await;
+    assert_eq!(snapshot["state"]["sources"], json!([{"name":SOURCE_NAME,"id":"test_input"}]));
+    assert!(harness.obs.calls().source_names > 0, "reload should refresh sources without waiting for FINISHED_LOADING");
 
     let value = wait_for_update_applied_event().await;
     assert_eq!(value["version"], env!("GE_PLUGIN_VERSION"));
