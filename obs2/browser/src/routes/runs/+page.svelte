@@ -16,6 +16,7 @@
 	import RunList from '$lib/RunList.svelte';
 	import RunsFolderChooser from '$lib/RunsFolderChooser.svelte';
 	import { settings } from '$lib/settings.svelte';
+	import { datetimeLocalForClip } from '$lib/youtubeMetadata';
 	import { youtube } from '$lib/youtube.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
@@ -155,7 +156,8 @@
 	const uploadSelectedToYouTube = () => {
 		if (!selected) return;
 		const path = selected.path;
-		void youtube.upload(path).catch((err) => console.warn('Failed to upload to YouTube', err));
+		const datetimeLocal = datetimeLocalForClip(selected, navigator.languages);
+		void youtube.upload(path, { datetimeLocal }).catch((err) => console.warn('Failed to upload to YouTube', err));
 	};
 
 	const forgetSelectedYouTubeUpload = () => {

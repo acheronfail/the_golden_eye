@@ -70,8 +70,8 @@ impl RunTemplateTokens {
             time: metadata.time.clone().unwrap_or_default(),
             difficulty: metadata.difficulty.clone().unwrap_or_default(),
             status: metadata.status.clone(),
+            timestamp_local: format_metadata_timestamp_local(&metadata.timestamp),
             timestamp: metadata.timestamp.clone(),
-            timestamp_local: metadata.timestamp.clone(),
             plugin_version: crate::PLUGIN_VERSION.to_owned(),
         }
     }
@@ -109,6 +109,12 @@ pub fn format_iso_local(time: SystemTime) -> String {
     chrono::DateTime::<chrono::Local>::from(time).format("%Y-%m-%dT%H:%M:%S%z").to_string()
 }
 
+fn format_metadata_timestamp_local(timestamp: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(timestamp)
+        .map(|time| time.with_timezone(&chrono::Local).format("%Y-%m-%dT%H:%M:%S%z").to_string())
+        .unwrap_or_else(|_| timestamp.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +136,58 @@ mod tests {
         };
 
         assert_eq!(tokens.render("{level} {not_a_token} {time}"), "Dam {not_a_token} 01:23");
+    }
+
+    #[test]
+    fn metadata_tokens_convert_utc_timestamp_to_local() {
+        let timestamp = "2026-07-18T10:30:45Z";
+        let metadata = ffmpeg::ClipMetadata {
+            timestamp: timestamp.to_owned(),
+            time: Some("01:23".to_owned()),
+            time_seconds: Some(83),
+            level: "Dam".to_owned(),
+            level_number: Some(1),
+            difficulty: Some("Agent".to_owned()),
+            status: "complete".to_owned(),
+            rom_language: "en".to_owned(),
+            source_name: "N64 Capture".to_owned(),
+            comment: "test".to_owned(),
+            plugin_version: "test".to_owned(),
+        };
+
+        let tokens = RunTemplateTokens::from_clip_metadata("replay", &metadata);
+        let expected_local = chrono::DateTime::parse_from_rfc3339(timestamp)
+            .unwrap()
+            .with_timezone(&chrono::Local)
+            .format("%Y-%m-%dT%H:%M:%S%z")
+            .to_string();
+
+        assert_eq!(tokens.timestamp, timestamp);
+        assert_eq!(tokens.timestamp_local, expected_local);
+        assert_ne!(tokens.timestamp_local, timestamp);
+    }
+
+    #[test]
+    fn metadata_tokens_keep_invalid_local_timestamp_fallback() {
+        let timestamp = "not a timestamp";
+        let metadata = ffmpeg::ClipMetadata {
+            timestamp: timestamp.to_owned(),
+            time: None,
+            time_seconds: None,
+            level: "unknown".to_owned(),
+            level_number: None,
+            difficulty: None,
+            status: "failed".to_owned(),
+            rom_language: "en".to_owned(),
+            source_name: "N64 Capture".to_owned(),
+            comment: "test".to_owned(),
+            plugin_version: "test".to_owned(),
+        };
+
+        let tokens = RunTemplateTokens::from_clip_metadata("replay", &metadata);
+
+        assert_eq!(tokens.timestamp, timestamp);
+        assert_eq!(tokens.timestamp_local, timestamp);
     }
 
     #[test]

@@ -39,6 +39,7 @@
 		'{status}',
 		'{timestamp}',
 		'{timestamp_local}',
+		'{datetime_local}',
 		'{plugin_version}'
 	];
 

@@ -80,10 +80,10 @@ export const youtube = new (class {
 		}
 	}
 
-	async upload(path: string): Promise<YouTubeUploadStatus> {
+	async upload(path: string, options?: { datetimeLocal?: string }): Promise<YouTubeUploadStatus> {
 		this.error = null;
 		try {
-			const status = await uploadRunToYouTube(path);
+			const status = await uploadRunToYouTube(path, options);
 			this.applyUpload(status);
 			return status;
 		} catch (err) {

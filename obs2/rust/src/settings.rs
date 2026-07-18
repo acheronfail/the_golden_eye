@@ -78,7 +78,7 @@ impl YoutubeVisibility {
 pub const DEFAULT_YOUTUBE_VISIBILITY: YoutubeVisibility = YoutubeVisibility::Unlisted;
 pub const DEFAULT_YOUTUBE_TITLE_TEMPLATE: &str = "{level} - {difficulty} - {time}";
 pub const DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE: &str =
-    "Achieved at {timestamp_local}\n\nRecorded with The Golden Eye {plugin_version}.";
+    "Achieved at {datetime_local}\n\nRecorded with The Golden Eye {plugin_version}.";
 
 /// User settings stored in the plugin-owned JSON file and mirrored by the SPA's
 /// bindable settings object.
