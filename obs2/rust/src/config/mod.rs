@@ -1,3 +1,4 @@
+mod browser;
 mod browser_dock;
 mod cv;
 mod flatpak;
@@ -8,6 +9,7 @@ mod shared;
 mod updates;
 mod youtube;
 
+pub(crate) use browser::browser_ws_log_enabled;
 #[cfg(test)]
 pub(crate) use browser_dock::DEFAULT_BROWSER_DOCK_URL;
 pub(crate) use browser_dock::{browser_dock_disabled, browser_dock_url};

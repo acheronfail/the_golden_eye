@@ -701,6 +701,26 @@ export interface AppSocketHandlers {
 export const selfBuildId = (): string | null =>
 	document.querySelector('meta[name="ge-build-id"]')?.getAttribute('content') ?? null;
 
+const browserWsLogEnabled = (): boolean =>
+	document.querySelector('meta[name="ge-browser-ws-log"]')?.getAttribute('content') === '1';
+
+const attachWebSocketLogging = (socket: WebSocket): void => {
+	if (!browserWsLogEnabled()) return;
+	const url = socket.url;
+	console.debug('[GE websocket] connecting', { url });
+	socket.addEventListener('open', () => console.debug('[GE websocket] open', { url }));
+	socket.addEventListener('close', (event) => {
+		console.debug('[GE websocket] close', { url, code: event.code, reason: event.reason, wasClean: event.wasClean });
+	});
+	socket.addEventListener('error', (event) => console.debug('[GE websocket] error', { url, event }));
+
+	const send = socket.send.bind(socket);
+	socket.send = (data: Parameters<WebSocket['send']>[0]) => {
+		console.debug('[GE websocket] send', data);
+		send(data);
+	};
+};
+
 /** Reload if the backend serves a different frontend build than this tab, e.g. a
  * stale cached page left open across an update. Entry HTML is `no-store`, so the
  * reload lands on the current build. */
@@ -718,8 +738,11 @@ const reloadIfStale = (backendBuildId: string): void => {
  * each to the matching handler. Returns the socket so callers can close it. */
 export const connectAppSocket = (handlers: AppSocketHandlers): WebSocket => {
 	const socket = new WebSocket(wsUrl('/api/v1/monitor/ws'));
+	attachWebSocketLogging(socket);
 	socket.onmessage = (event) => {
+		if (browserWsLogEnabled()) console.debug('[GE websocket] receive raw', event.data);
 		const msg = JSON.parse(event.data) as AppSocketEvent;
+		if (browserWsLogEnabled()) console.debug('[GE websocket] receive parsed', msg);
 		switch (msg.type) {
 			case 'version':
 				if (typeof msg.buildId === 'string') {

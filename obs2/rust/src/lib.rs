@@ -216,6 +216,7 @@ pub extern "C" fn ge_rust_start() -> bool {
     };
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let was_reloaded = WAS_RELOADED.load(Ordering::Acquire);
 
     let snapshot = SharedStateStore::new(AppSnapshot {
         monitor: MonitorSnapshot { enabled: false, source_name: None },
@@ -230,7 +231,7 @@ pub extern "C" fn ge_rust_start() -> bool {
     // slow client can lag before it drops events; the worker ignores send errors,
     // so a full/empty channel never blocks frame processing.
     let (event_tx, _) = tokio::sync::broadcast::channel(64);
-    let (frontend_ready_tx, _) = tokio::sync::watch::channel(false);
+    let (frontend_ready_tx, _) = tokio::sync::watch::channel(was_reloaded);
     let recording_state = RecordingStateStore::new(snapshot.clone());
     let state = Arc::new(AppStateInner {
         oauth_pending: tokio::sync::Mutex::new(None),
@@ -244,7 +245,7 @@ pub extern "C" fn ge_rust_start() -> bool {
         frame_dump: std::sync::Mutex::new(None),
         frontend_ready_tx,
         settings,
-        reloaded_at: WAS_RELOADED.load(Ordering::Acquire).then(std::time::Instant::now),
+        reloaded_at: was_reloaded.then(std::time::Instant::now),
     });
 
     // Spawn the server onto the runtime. `spawn` returns immediately so the

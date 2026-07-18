@@ -4,6 +4,7 @@ use axum::extract::State;
 use axum::http::header;
 use axum::response::{IntoResponse, Result};
 
+use crate::config;
 use crate::http::AppState;
 
 // The bundled web app, built by cmake.
@@ -24,22 +25,26 @@ pub static BUILD_ID: LazyLock<String> = LazyLock::new(|| {
     format!("{hash:016x}")
 });
 
-/// The served HTML with the build id injected as a `<meta>` tag so the page can
-/// read the build it was served from (see the SPA version handshake). Built once;
-/// injected before `</head>` when present, otherwise prepended.
-static APP_BUNDLE_WITH_ID: LazyLock<String> = LazyLock::new(|| {
-    let tag = format!("<meta name=\"ge-build-id\" content=\"{}\">", *BUILD_ID);
-    match APP_BUNDLE_HTML.find("</head>") {
+fn inject_meta_tags(html: &str, tags: &str) -> String {
+    match html.find("</head>") {
         Some(idx) => {
-            let mut html = String::with_capacity(APP_BUNDLE_HTML.len() + tag.len());
-            html.push_str(&APP_BUNDLE_HTML[..idx]);
-            html.push_str(&tag);
-            html.push_str(&APP_BUNDLE_HTML[idx..]);
-            html
+            let mut injected = String::with_capacity(html.len() + tags.len());
+            injected.push_str(&html[..idx]);
+            injected.push_str(tags);
+            injected.push_str(&html[idx..]);
+            injected
         }
-        None => format!("{tag}{APP_BUNDLE_HTML}"),
+        None => format!("{tags}{html}"),
     }
-});
+}
+
+fn app_bundle_html() -> String {
+    let mut tags = format!("<meta name=\"ge-build-id\" content=\"{}\">", *BUILD_ID);
+    if config::browser_ws_log_enabled() {
+        tags.push_str("<meta name=\"ge-browser-ws-log\" content=\"1\">");
+    }
+    inject_meta_tags(APP_BUNDLE_HTML, &tags)
+}
 
 #[axum::debug_handler]
 pub async fn handler(State(_): State<AppState>) -> Result<impl IntoResponse> {
@@ -51,6 +56,6 @@ pub async fn handler(State(_): State<AppState>) -> Result<impl IntoResponse> {
             // build (a reload loop). Fresh fetches land on the current build.
             (header::CACHE_CONTROL, "no-store"),
         ],
-        APP_BUNDLE_WITH_ID.as_str(),
+        app_bundle_html(),
     ))
 }
