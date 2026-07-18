@@ -1,0 +1,10 @@
+layout {
+    pane split_direction="vertical" {
+        pane name="Frontend" command="python3" {
+            args "obs2/scripts/dev.py" "--pane" "frontend"
+        }
+        pane name="Backend / OBS" command="python3" {
+            args "obs2/scripts/dev.py" "--pane" "backend"
+        }
+    }
+}
