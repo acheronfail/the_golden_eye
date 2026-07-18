@@ -27,6 +27,7 @@ const UPLOAD_CONCURRENCY: usize = 2;
 const CHUNK_SIZE: u64 = 1024 * 1024;
 const USER_AGENT: &str = "the-golden-eye-obs-plugin";
 pub(crate) const HISTORY_FILE_NAME: &str = "youtube_uploads.json";
+const TOKEN_FILE_NAME: &str = "youtube_tokens.json";
 
 #[derive(Debug, Clone)]
 pub struct YoutubeConfig {
@@ -182,13 +183,30 @@ impl YoutubeCredentialStore for MemoryYoutubeCredentialStore {
     }
 }
 
-#[cfg(feature = "test-hooks")]
+#[cfg(any(test, feature = "test-hooks"))]
+#[derive(Default)]
+struct FailingYoutubeCredentialStore;
+
+#[cfg(any(test, feature = "test-hooks"))]
+impl YoutubeCredentialStore for FailingYoutubeCredentialStore {
+    fn load(&self) -> anyhow::Result<Option<YoutubeTokens>> {
+        Err(anyhow!("keyring unavailable"))
+    }
+
+    fn save(&self, _tokens: &YoutubeTokens) -> anyhow::Result<()> {
+        Err(anyhow!("keyring unavailable"))
+    }
+
+    fn delete(&self) -> anyhow::Result<()> {
+        Err(anyhow!("keyring unavailable"))
+    }
+}
+
 #[derive(Debug, Clone)]
 struct FileYoutubeCredentialStore {
     path: PathBuf,
 }
 
-#[cfg(feature = "test-hooks")]
 impl YoutubeCredentialStore for FileYoutubeCredentialStore {
     fn load(&self) -> anyhow::Result<Option<YoutubeTokens>> {
         match fs::read(&self.path) {
@@ -215,12 +233,79 @@ impl YoutubeCredentialStore for FileYoutubeCredentialStore {
     }
 }
 
-fn youtube_credential_store() -> Arc<dyn YoutubeCredentialStore> {
+#[derive(Clone)]
+struct FallbackYoutubeCredentialStore {
+    primary: Arc<dyn YoutubeCredentialStore>,
+    file: FileYoutubeCredentialStore,
+}
+
+impl FallbackYoutubeCredentialStore {
+    fn warn_fallback(&self, action: &str, err: &anyhow::Error) {
+        tracing::warn!(
+            action,
+            fallback_path = %self.file.path.display(),
+            "YouTube keyring unavailable; using file token store: {err:#}"
+        );
+    }
+}
+
+impl YoutubeCredentialStore for FallbackYoutubeCredentialStore {
+    fn load(&self) -> anyhow::Result<Option<YoutubeTokens>> {
+        match self.primary.load() {
+            Ok(Some(tokens)) => Ok(Some(tokens)),
+            Ok(None) => self.file.load(),
+            Err(err) => {
+                self.warn_fallback("load", &err);
+                self.file.load()
+            }
+        }
+    }
+
+    fn save(&self, tokens: &YoutubeTokens) -> anyhow::Result<()> {
+        match self.primary.save(tokens) {
+            Ok(()) => {
+                let _ = self.file.delete();
+                Ok(())
+            }
+            Err(err) => {
+                self.warn_fallback("save", &err);
+                self.file.save(tokens)
+            }
+        }
+    }
+
+    fn delete(&self) -> anyhow::Result<()> {
+        let keyring_result = self.primary.delete();
+        let file_result = self.file.delete();
+        match (keyring_result, file_result) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(err), Ok(())) => {
+                self.warn_fallback("delete", &err);
+                Ok(())
+            }
+            (Ok(()), Err(err)) | (Err(_), Err(err)) => Err(err),
+        }
+    }
+}
+
+fn youtube_credential_store(settings_path: &Path) -> Arc<dyn YoutubeCredentialStore> {
     #[cfg(feature = "test-hooks")]
     if let Some(path) = config::token_file_override() {
         return Arc::new(FileYoutubeCredentialStore { path });
     }
-    Arc::new(KeyringYoutubeCredentialStore::default())
+    #[cfg(feature = "test-hooks")]
+    let primary: Arc<dyn YoutubeCredentialStore> = if config::force_keyring_failure() {
+        Arc::new(FailingYoutubeCredentialStore)
+    } else {
+        Arc::new(KeyringYoutubeCredentialStore::default())
+    };
+    #[cfg(not(feature = "test-hooks"))]
+    let primary: Arc<dyn YoutubeCredentialStore> = Arc::new(KeyringYoutubeCredentialStore::default());
+
+    Arc::new(FallbackYoutubeCredentialStore {
+        primary,
+        file: FileYoutubeCredentialStore { path: settings_path.with_file_name(TOKEN_FILE_NAME) },
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -264,7 +349,7 @@ struct YoutubeUploadInner {
 
 impl YoutubeUploadStore {
     pub fn new(settings_path: &Path) -> Self {
-        Self::with_parts(settings_path, youtube_credential_store(), YoutubeConfig::from_env())
+        Self::with_parts(settings_path, youtube_credential_store(settings_path), YoutubeConfig::from_env())
     }
 
     pub fn with_parts(
@@ -874,6 +959,31 @@ mod tests {
         assert_eq!(store.load().expect("load tokens"), Some(tokens));
         store.delete().expect("delete tokens");
         assert_eq!(store.load().expect("load deleted tokens"), None);
+    }
+
+    #[test]
+    fn fallback_store_uses_file_when_primary_fails() {
+        let dir = crate::config::temp_dir().join(format!("ge-youtube-fallback-{}", std::process::id()));
+        let path = dir.join("tokens.json");
+        let _ = fs::remove_file(&path);
+        let store = FallbackYoutubeCredentialStore {
+            primary: Arc::new(FailingYoutubeCredentialStore),
+            file: FileYoutubeCredentialStore { path: path.clone() },
+        };
+        let tokens = YoutubeTokens {
+            refresh_token: "refresh".to_owned(),
+            access_token: Some("access".to_owned()),
+            expires_at_unix_secs: Some(123),
+            scope: Some(YOUTUBE_UPLOAD_SCOPE.to_owned()),
+            token_type: Some("Bearer".to_owned()),
+            account: None,
+        };
+
+        store.save(&tokens).expect("save fallback tokens");
+        assert_eq!(store.load().expect("load fallback tokens"), Some(tokens));
+        store.delete().expect("delete fallback tokens");
+        assert_eq!(store.load().expect("load deleted fallback tokens"), None);
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
