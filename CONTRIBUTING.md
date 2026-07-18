@@ -125,4 +125,5 @@ git push --tags
 
 Pushing a `vX.Y.Z` tag starts the release workflow, which builds packages and creates the GitHub
 release with generated notes and assets. Any release with a hyphen (e.g., `vX.Y.Z-beta`) will
-trigger a pre-release version.
+trigger a pre-release version. Generated notes always start from the previous stable `vX.Y.Z`
+release, so pre-release tags do not shorten the final stable release notes.

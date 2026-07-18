@@ -214,9 +214,9 @@ preview-release sha="HEAD":
     sha="{{ sha }}"
     target_sha="$(git rev-parse "$sha")"
 
-    last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --match 'v[0-9]*.[0-9]*.[0-9]*-*' "$target_sha" 2>/dev/null || true)"
+    last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude '*-*' "$target_sha" 2>/dev/null || true)"
     if [ -z "$last_tag" ]; then
-      echo "No previous release tag found for ${sha} (${target_sha})." >&2
+      echo "No previous stable release tag found for ${sha} (${target_sha})." >&2
       exit 1
     fi
 
