@@ -102,3 +102,8 @@ pub(crate) fn test_oauth_state() -> Option<String> {
 pub(crate) fn token_file_override() -> Option<std::path::PathBuf> {
     super::shared::env_string("GE_TEST_YOUTUBE_TOKEN_FILE").map(std::path::PathBuf::from)
 }
+
+#[cfg(feature = "test-hooks")]
+pub(crate) fn force_keyring_failure() -> bool {
+    super::shared::env_truthy("GE_TEST_YOUTUBE_FORCE_KEYRING_FAILURE")
+}

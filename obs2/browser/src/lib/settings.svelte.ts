@@ -275,6 +275,7 @@ export const settings = new (class {
 				const remote = parseSettings(status.settings, this.defaults);
 
 				this.configPath = status.configPath;
+				this.pluginVersion = status.pluginVersion;
 				this.fileError = status.fileError ?? null;
 
 				if (this.dirty && this.fileError === null) {

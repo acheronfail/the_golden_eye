@@ -277,6 +277,7 @@ pub struct SettingsStatus {
     pub settings: AppSettings,
     pub defaults: AppSettings,
     pub config_path: String,
+    pub plugin_version: String,
     pub file_error: Option<String>,
 }
 
@@ -331,6 +332,7 @@ impl SettingsStore {
             settings: apply_defaults(state.settings.clone()),
             defaults: apply_defaults(AppSettings::default()),
             config_path: self.path.to_string_lossy().into_owned(),
+            plugin_version: crate::PLUGIN_VERSION.to_owned(),
             file_error: state.file_error.clone(),
         }
     }

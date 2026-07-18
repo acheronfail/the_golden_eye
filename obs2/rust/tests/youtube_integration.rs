@@ -83,11 +83,15 @@ async fn start_youtube_mock() -> (String, Arc<YoutubeMockState>, oneshot::Sender
     (format!("http://{addr}"), state, shutdown_tx, handle)
 }
 
-fn set_youtube_env(base_url: &str, token_file: &std::path::Path) {
+fn set_youtube_env(base_url: &str, token_file: Option<&std::path::Path>) {
     unsafe {
         std::env::set_var("GE_YOUTUBE_ENABLED", "1");
         std::env::set_var("GE_TEST_YOUTUBE_OAUTH_STATE", "test-state");
-        std::env::set_var("GE_TEST_YOUTUBE_TOKEN_FILE", token_file);
+        if let Some(token_file) = token_file {
+            std::env::set_var("GE_TEST_YOUTUBE_TOKEN_FILE", token_file);
+        } else {
+            std::env::remove_var("GE_TEST_YOUTUBE_TOKEN_FILE");
+        }
         std::env::set_var("GE_TEST_YOUTUBE_CLIENT_ID", "test-client");
         std::env::set_var("GE_TEST_YOUTUBE_CLIENT_SECRET", "test-secret");
         std::env::set_var("GE_TEST_YOUTUBE_TOKEN_URL", format!("{base_url}/token"));
@@ -102,6 +106,7 @@ fn clear_youtube_env() {
             "GE_YOUTUBE_ENABLED",
             "GE_TEST_YOUTUBE_OAUTH_STATE",
             "GE_TEST_YOUTUBE_TOKEN_FILE",
+            "GE_TEST_YOUTUBE_FORCE_KEYRING_FAILURE",
             "GE_TEST_YOUTUBE_CLIENT_ID",
             "GE_TEST_YOUTUBE_CLIENT_SECRET",
             "GE_TEST_YOUTUBE_TOKEN_URL",
@@ -119,7 +124,7 @@ async fn youtube_oauth_dance_connects_and_stores_account_info() {
     let (base_url, mock, shutdown, server) = start_youtube_mock().await;
     let token_file = std::env::temp_dir().join(format!("ge-youtube-oauth-{}.json", std::process::id()));
     let _ = std::fs::remove_file(&token_file);
-    set_youtube_env(&base_url, &token_file);
+    set_youtube_env(&base_url, Some(&token_file));
     let harness = Harness::start(Duration::ZERO).await;
 
     let connect = harness.client.post(format!("{API}/api/v1/youtube/connect")).send();
@@ -150,11 +155,50 @@ async fn youtube_oauth_dance_connects_and_stores_account_info() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
+async fn youtube_oauth_falls_back_to_file_store_when_keyring_fails() {
+    let (base_url, _mock, shutdown, server) = start_youtube_mock().await;
+    set_youtube_env(&base_url, None);
+    unsafe {
+        std::env::set_var("GE_TEST_YOUTUBE_FORCE_KEYRING_FAILURE", "1");
+    }
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        recording_settings(&temp.join("clips"), &temp.join("failed"))
+    })
+    .await;
+    let token_file = test_settings_path(&harness.temp).with_file_name("youtube_tokens.json");
+    let _ = std::fs::remove_file(&token_file);
+
+    connect_youtube(&harness).await;
+    let status: Value = harness
+        .client
+        .get(format!("{API}/api/v1/youtube/status"))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(status["connected"], true);
+    assert!(token_file.exists(), "fallback token file should be written at {}", token_file.display());
+    let stored: Value = serde_json::from_slice(&std::fs::read(&token_file).unwrap()).unwrap();
+    assert_eq!(stored["refreshToken"], "refresh-token");
+
+    drop(harness);
+    clear_youtube_env();
+    shutdown.send(()).unwrap();
+    server.await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
 async fn youtube_upload_posts_video_and_persists_history() {
     let (base_url, mock, shutdown, server) = start_youtube_mock().await;
     let token_file = std::env::temp_dir().join(format!("ge-youtube-upload-{}.json", std::process::id()));
     let _ = std::fs::remove_file(&token_file);
-    set_youtube_env(&base_url, &token_file);
+    set_youtube_env(&base_url, Some(&token_file));
     let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
         recording_settings(&temp.join("clips"), &temp.join("failed"))
     })
@@ -186,6 +230,23 @@ async fn youtube_upload_posts_video_and_persists_history() {
     clear_youtube_env();
     shutdown.send(()).unwrap();
     server.await.unwrap();
+}
+
+fn test_settings_path(temp: &std::path::Path) -> std::path::PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        temp.join("Library").join("Application Support").join("The Golden Eye").join("settings.json")
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        temp.join("The Golden Eye").join("settings.json")
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        temp.join(".config").join("the-golden-eye").join("settings.json")
+    }
 }
 
 async fn connect_youtube(harness: &Harness) {

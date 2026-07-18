@@ -29,6 +29,7 @@ fn test_snapshot() -> AppSnapshot {
             settings: crate::settings::AppSettings::default(),
             defaults: crate::settings::AppSettings::default(),
             config_path: "/tmp/settings.json".to_owned(),
+            plugin_version: "test".to_owned(),
             file_error: None,
         },
         update: Some(crate::updates::PluginUpdate {
