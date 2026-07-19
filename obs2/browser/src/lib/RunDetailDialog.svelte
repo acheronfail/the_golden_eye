@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { cubicOut } from 'svelte/easing';
+	import { linear } from 'svelte/easing';
 	import { tweened } from 'svelte/motion';
 	import {
 		backend,
@@ -71,7 +71,7 @@
 	let youtubeDismissedStoreError = $state<string | null>(null);
 	let youtubeCopyResetTimer: ReturnType<typeof setTimeout> | null = null;
 	let youtubeForgetResetTimer: ReturnType<typeof setTimeout> | null = null;
-	const youtubeDisplayProgress = tweened(0, { duration: 450, easing: cubicOut });
+	const youtubeDisplayProgress = tweened(0, { duration: 650, easing: linear });
 	let youtubeDisplayProgressRatio = $state(0);
 
 	$effect(() => {
