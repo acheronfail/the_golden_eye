@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { startMonitor as apiStartMonitor, stopMonitor as apiStopMonitor } from '$lib/api';
+	import { backend } from '$lib/api';
 	import { settings } from '$lib';
 	import { monitor, monitorPhaseStyle } from '$lib/monitor.svelte';
 	import { refreshReplayBuffer } from '$lib/replayBuffer.svelte';
@@ -131,7 +131,7 @@
 		transition = 'starting';
 		try {
 			await settings.saveNow();
-			await apiStartMonitor(params.sourceName);
+			await backend.startMonitor(params.sourceName);
 			void refreshReplayBuffer();
 			monitoring = true;
 		} catch (err) {
@@ -146,7 +146,7 @@
 		if (transition) return;
 		transition = 'stopping';
 		try {
-			await apiStopMonitor();
+			await backend.stopMonitor();
 			void refreshReplayBuffer();
 			monitoring = false;
 			navigate('/', { replaceState: true });
@@ -161,7 +161,7 @@
 		if (transition || !monitoring) return;
 		if (event.key === ' ' || event.key === 'Escape') {
 			event.preventDefault();
-			stopMonitor();
+			backend.stopMonitor();
 		}
 	};
 </script>

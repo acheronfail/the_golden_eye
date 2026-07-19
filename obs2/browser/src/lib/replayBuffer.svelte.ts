@@ -1,4 +1,4 @@
-import { getReplayBufferStatus, type ReplayBufferStatus } from './api';
+import { backend, type ReplayBufferStatus } from './api';
 
 /** Shared, reactive replay-buffer status (what clips are saved from). The root
  * layout polls it on navigation and bounces to `/` while unusable. `status` is
@@ -21,7 +21,7 @@ export const setReplayBufferStatus = (status: ReplayBufferStatus): void => {
 /** Re-query the backend for the current replay-buffer status. */
 export const refreshReplayBuffer = async (): Promise<void> => {
 	try {
-		replayBuffer.status = await getReplayBufferStatus();
+		replayBuffer.status = await backend.getReplayBufferStatus();
 	} catch {
 		replayBuffer.status = null;
 	} finally {

@@ -1,16 +1,5 @@
 <script lang="ts">
-	import {
-		deleteRun,
-		renameRun,
-		revealRunFolder,
-		revealRun,
-		streamRuns,
-		updateRunMetadata,
-		type EditableRunMetadata,
-		type RunClip,
-		type RunDirectoryScan,
-		type RunsResponse
-	} from '$lib/api';
+	import { backend, type EditableRunMetadata, type RunClip, type RunDirectoryScan, type RunsResponse } from '$lib/api';
 	import RunDetailDialog from '$lib/RunDetailDialog.svelte';
 	import RunFiltersForm from '$lib/RunFilters.svelte';
 	import RunList from '$lib/RunList.svelte';
@@ -93,7 +82,7 @@
 		let selectedFound = false;
 		runs = { directories: [], clips: [] };
 		try {
-			await streamRuns((event) => {
+			await backend.streamRuns((event) => {
 				if (event.type === 'directory') {
 					upsertDirectory(event.directory);
 				} else if (event.type === 'clip') {
@@ -252,7 +241,7 @@
 		modalError = null;
 		try {
 			const oldPath = selected.path;
-			const updated = await updateRunMetadata(oldPath, metadataDraft);
+			const updated = await backend.updateRunMetadata(oldPath, metadataDraft);
 			replaceClip(oldPath, updated);
 		} catch (err) {
 			modalError = err instanceof Error ? err.message : String(err);
@@ -272,7 +261,7 @@
 		modalError = null;
 		try {
 			const oldPath = selected.path;
-			const updated = await renameRun(oldPath, fileName);
+			const updated = await backend.renameRun(oldPath, fileName);
 			replaceClip(oldPath, updated);
 		} catch (err) {
 			modalError = err instanceof Error ? err.message : String(err);
@@ -286,7 +275,7 @@
 		modalBusy = 'reveal';
 		modalError = null;
 		try {
-			await revealRun(selected.path);
+			await backend.revealRun(selected.path);
 		} catch (err) {
 			modalError = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -312,7 +301,7 @@
 		folderRevealBusy = true;
 		error = null;
 		try {
-			await revealRunFolder(kind);
+			await backend.revealRunFolder(kind);
 			folderChooserOpen = false;
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
@@ -330,7 +319,7 @@
 		modalError = null;
 		try {
 			const oldPath = selected.path;
-			await deleteRun(oldPath);
+			await backend.deleteRun(oldPath);
 			removeClip(oldPath);
 			close();
 		} catch (err) {

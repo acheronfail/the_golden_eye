@@ -1,15 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import {
-		applyUpdateNow,
-		checkForUpdateNow,
-		downloadUpdateNow,
-		getUpdateStatus,
-		pickFolder,
-		validateFolder,
-		type FolderValidation
-	} from '$lib/api';
+	import { backend, type FolderValidation } from '$lib/api';
 	import { addNotificationFlag, dismissNotificationFlagsByKey } from '$lib/notifications.svelte';
 	import { replayBuffer } from '$lib/replayBuffer.svelte';
 	import { Select, settings, type UpdateCheckInterval } from '$lib';
@@ -103,7 +95,7 @@
 		const deadline = Date.now() + timeoutMs;
 		while (Date.now() < deadline) {
 			try {
-				if ((await getUpdateStatus()).staged) return true;
+				if ((await backend.getUpdateStatus()).staged) return true;
 			} catch (err) {
 				console.warn('Failed to fetch update status', err);
 			}
@@ -118,7 +110,7 @@
 	$effect(() => {
 		void (async () => {
 			try {
-				if ((await getUpdateStatus()).staged) updatePhase = 'apply';
+				if ((await backend.getUpdateStatus()).staged) updatePhase = 'apply';
 			} catch (err) {
 				console.warn('Failed to fetch update status', err);
 			}
@@ -128,7 +120,7 @@
 	const onCheckForUpdateNow = async () => {
 		updatePhase = 'checking';
 		try {
-			const { update } = await checkForUpdateNow();
+			const { update } = await backend.checkForUpdateNow();
 			if (!update) {
 				addNotificationFlag({ title: "You're up to date", tone: 'success' });
 				updatePhase = 'check';
@@ -176,7 +168,7 @@
 		updatePhase = 'downloading';
 		try {
 			// Resolves only once the update is downloaded, verified, and staged.
-			await downloadUpdateNow();
+			await backend.downloadUpdateNow();
 			updatePhase = 'apply';
 		} catch (err) {
 			addNotificationFlag({
@@ -191,7 +183,7 @@
 	const onApplyUpdateNow = async () => {
 		updatePhase = 'applying';
 		try {
-			await applyUpdateNow();
+			await backend.applyUpdateNow();
 			addNotificationFlag({
 				title: 'Applying update',
 				detail: 'The plugin will briefly reconnect while the update is installed.',
@@ -205,7 +197,7 @@
 			while (Date.now() < deadline && stillStaged) {
 				await new Promise((resolve) => setTimeout(resolve, 1000));
 				try {
-					stillStaged = (await getUpdateStatus()).staged;
+					stillStaged = (await backend.getUpdateStatus()).staged;
 				} catch {
 					// Server is briefly gone mid-swap; keep waiting.
 				}
@@ -221,7 +213,7 @@
 			// (e.g. it got applied or cleared by another client) -- reflect the
 			// real status rather than leaving a stale "Apply update now" showing.
 			try {
-				updatePhase = (await getUpdateStatus()).staged ? 'apply' : 'check';
+				updatePhase = (await backend.getUpdateStatus()).staged ? 'apply' : 'check';
 			} catch {
 				updatePhase = 'apply';
 			}
@@ -372,7 +364,7 @@
 
 		setPathValidating(kind, true);
 		try {
-			const validation = await validateFolder(value);
+			const validation = await backend.validateFolder(value);
 			if (seq === currentValidationSeq(kind) && value === outputPath(kind).trim()) {
 				setPathValidation(kind, validation);
 			}
@@ -395,7 +387,7 @@
 
 		pickingPath = kind;
 		try {
-			const result = await pickFolder({
+			const result = await backend.pickFolder({
 				title: kind === 'completed' ? 'Choose completed clips folder' : 'Choose failed clips folder',
 				currentPath
 			});

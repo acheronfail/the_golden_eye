@@ -1,13 +1,5 @@
 import { browser } from '$app/environment';
-import {
-	applyUpdateNow,
-	connectAppSocket,
-	downloadUpdateNow,
-	openUpdateRelease,
-	openYouTubeUrl,
-	selfBuildId,
-	type PluginUpdate
-} from './api';
+import { backend, type PluginUpdate } from './api';
 import {
 	applyFailedRunNotSaved,
 	applyLanguageDetected,
@@ -52,7 +44,7 @@ const showUpdateAppliedNotification = (version: string, releaseUrl?: string): vo
 		action: releaseUrl
 			? async () => {
 					try {
-						await openUpdateRelease(releaseUrl);
+						await backend.openUpdateRelease(releaseUrl);
 					} catch (err) {
 						console.warn('Failed to open plugin update release', err);
 					}
@@ -65,7 +57,7 @@ const showUpdateAppliedNotification = (version: string, releaseUrl?: string): vo
  * the toast across the reload and show it once on the fresh page. Dev never
  * reloads (no `ge-build-id` meta tag), so there it must show immediately. */
 const handleUpdateApplied = (version: string, releaseUrl?: string): void => {
-	if (selfBuildId() === null) {
+	if (backend.selfBuildId() === null) {
 		showUpdateAppliedNotification(version, releaseUrl);
 		return;
 	}
@@ -135,7 +127,7 @@ const notifyYoutubeUploadChanged = (upload: import('./api').YouTubeUploadStatus)
 			tone: 'success' as const,
 			timeoutMs: 8000,
 			action: () => {
-				void openYouTubeUrl(upload.videoUrl!).catch((err) => console.warn('Failed to open YouTube video', err));
+				void backend.openYouTubeUrl(upload.videoUrl!).catch((err) => console.warn('Failed to open YouTube video', err));
 			}
 		};
 		if (startedNotificationId !== undefined) {
@@ -200,7 +192,7 @@ const scheduleReconnect = (): void => {
 const connect = (): void => {
 	if (!browser || stopped || socket !== null) return;
 
-	const nextSocket = connectAppSocket({
+	const nextSocket = backend.connectAppSocket({
 		onSnapshot: applyAppSnapshot,
 		onLanguageDetected: applyLanguageDetected,
 		onMonitorFps: applyMonitorFps,
@@ -275,8 +267,8 @@ const downloadAndInstall = async (update: PluginUpdate): Promise<void> => {
 		sticky: true
 	}).id;
 	try {
-		await downloadUpdateNow();
-		await applyUpdateNow();
+		await backend.downloadUpdateNow();
+		await backend.applyUpdateNow();
 		replaceNotificationFlag(progressId, {
 			key: 'plugin-update-installing',
 			title: 'Applying update',

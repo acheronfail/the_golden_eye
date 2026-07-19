@@ -1,14 +1,5 @@
 <script lang="ts">
-	import {
-		apiUrl,
-		matchSource,
-		matchUpload,
-		setMonitorFrameDump,
-		setMonitorMatcherAnnotations,
-		type AnnotationRect,
-		type AnnotationSet,
-		type LevelMatch
-	} from '$lib/api';
+	import { backend, type AnnotationRect, type AnnotationSet, type LevelMatch } from '$lib/api';
 	import { Select } from '$lib';
 	import { triggerKiaDeathOverlay } from '$lib/monitor.svelte';
 	import { addNotificationFlag } from '$lib/notifications.svelte';
@@ -114,7 +105,7 @@
 	const getSources = async () => {
 		sourcesLoading = true;
 		try {
-			const res = await fetch(apiUrl('/api/v1/sources'));
+			const res = await fetch(backend.apiUrl('/api/v1/sources'));
 			const data = await res.json();
 			sources = data;
 		} finally {
@@ -139,7 +130,7 @@
 	const getScreenshot = (sourceName: string) => async () => {
 		screenshotError = null;
 		try {
-			const res = await fetch(apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}`));
+			const res = await fetch(backend.apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(sourceName)}`));
 			if (!res.ok) throw new Error(`Request error: ${res.status} ${await res.text()}`);
 			const blob = await res.blob();
 			const url = URL.createObjectURL(blob);
@@ -172,7 +163,7 @@
 			if (annotationMode) {
 				await getScreenshot(selectedSource.name)();
 			}
-			const result = await matchSource(selectedSource.name, screenshotLang, { annotations: annotationMode });
+			const result = await backend.matchSource(selectedSource.name, screenshotLang, { annotations: annotationMode });
 			matchResult = result.match;
 			annotationsEnabled = result.annotationsEnabled;
 			matchFrameWidth = result.frameWidth;
@@ -192,7 +183,7 @@
 		matchLoading = true;
 		matchError = null;
 		try {
-			const result = await matchUpload(file, screenshotLang, { annotations: true });
+			const result = await backend.matchUpload(file, screenshotLang, { annotations: true });
 			// Show the dropped image itself under the annotation overlay.
 			const old = imageData;
 			imageData = URL.createObjectURL(file);
@@ -230,7 +221,7 @@
 	const updateMonitorAnnotations = (enabled: boolean) => {
 		annotationUpdateAbort?.abort();
 		annotationUpdateAbort = new AbortController();
-		void setMonitorMatcherAnnotations(enabled, { signal: annotationUpdateAbort.signal }).catch((err) => {
+		void backend.setMonitorMatcherAnnotations(enabled, { signal: annotationUpdateAbort.signal }).catch((err) => {
 			if (err instanceof DOMException && err.name === 'AbortError') return;
 			console.warn('Failed to update monitor annotation diagnostics', err);
 		});
@@ -243,7 +234,7 @@
 	const updateFrameDump = (enabled: boolean, source: string | null) => {
 		frameDumpUpdateAbort?.abort();
 		frameDumpUpdateAbort = new AbortController();
-		void setMonitorFrameDump(enabled, source, { signal: frameDumpUpdateAbort.signal }).catch((err) => {
+		void backend.setMonitorFrameDump(enabled, source, { signal: frameDumpUpdateAbort.signal }).catch((err) => {
 			if (err instanceof DOMException && err.name === 'AbortError') return;
 			console.warn('Failed to update monitor frame dump', err);
 		});
@@ -262,7 +253,7 @@
 	onDestroy(() => {
 		if (frameDumpMode) {
 			frameDumpUpdateAbort?.abort();
-			void setMonitorFrameDump(false, null, { keepalive: true }).catch(() => {});
+			void backend.setMonitorFrameDump(false, null, { keepalive: true }).catch(() => {});
 		}
 	});
 

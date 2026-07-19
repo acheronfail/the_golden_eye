@@ -1,9 +1,5 @@
 import {
-	connectYouTube,
-	disconnectYouTube,
-	forgetYouTubeUpload,
-	getYouTubeStatus,
-	uploadRunToYouTube,
+	backend,
 	type YouTubeStatus,
 	type YouTubeAccount,
 	type YouTubeUploadHistoryEntry,
@@ -45,7 +41,7 @@ export const youtube = new (class {
 		this.loading = true;
 		this.error = null;
 		try {
-			this.applyStatus(await getYouTubeStatus());
+			this.applyStatus(await backend.getYouTubeStatus());
 		} catch (err) {
 			this.error = errorMessage(err);
 			throw err;
@@ -58,7 +54,7 @@ export const youtube = new (class {
 		this.connecting = true;
 		this.error = null;
 		try {
-			this.applyStatus(await connectYouTube());
+			this.applyStatus(await backend.connectYouTube());
 		} catch (err) {
 			this.error = errorMessage(err);
 			throw err;
@@ -71,7 +67,7 @@ export const youtube = new (class {
 		this.disconnecting = true;
 		this.error = null;
 		try {
-			this.applyStatus(await disconnectYouTube());
+			this.applyStatus(await backend.disconnectYouTube());
 		} catch (err) {
 			this.error = errorMessage(err);
 			throw err;
@@ -83,7 +79,7 @@ export const youtube = new (class {
 	async upload(path: string, options?: { datetimeLocal?: string }): Promise<YouTubeUploadStatus> {
 		this.error = null;
 		try {
-			const status = await uploadRunToYouTube(path, options);
+			const status = await backend.uploadRunToYouTube(path, options);
 			this.applyUpload(status);
 			return status;
 		} catch (err) {
@@ -95,7 +91,7 @@ export const youtube = new (class {
 	async forget(path: string): Promise<void> {
 		this.error = null;
 		try {
-			this.applyStatus(await forgetYouTubeUpload(path));
+			this.applyStatus(await backend.forgetYouTubeUpload(path));
 		} catch (err) {
 			this.error = errorMessage(err);
 			throw err;
