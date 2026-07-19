@@ -17,10 +17,10 @@ void ge_obs_blog(GeLogLevel level, const char *msg) {
   case GeLogLevel_Warning:
     obs_level = LOG_WARNING;
     break;
+  case GeLogLevel_Debug:
   case GeLogLevel_Info:
     obs_level = LOG_INFO;
     break;
-  case GeLogLevel_Debug:
   default:
     obs_level = LOG_DEBUG;
     break;
