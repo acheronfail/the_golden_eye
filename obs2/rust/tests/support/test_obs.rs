@@ -42,17 +42,17 @@ pub struct Calls {
 }
 
 impl Calls {
-    pub fn frontend_dependent_obs_queries(&self) -> usize {
+    pub fn runtime_frontend_queries(&self) -> usize {
         self.replay_active
             + self.replay_enabled
             + self.replay_available
             + self.replay_max_seconds
             + self.replay_output_directory
             + self.source_names
-            + self.user_config
-            + self.config_get_string
-            + self.config_set_string
-            + self.dock_config_save
+    }
+
+    pub fn dock_config_queries(&self) -> usize {
+        self.user_config + self.config_get_string + self.config_set_string + self.dock_config_save
     }
 }
 

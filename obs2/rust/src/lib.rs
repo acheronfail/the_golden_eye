@@ -89,27 +89,9 @@ fn configure_cv_template_dir() {
     cv::set_template_dir(template_dir.to_string_lossy().into_owned());
 }
 
-/// Ensures the OBS custom browser dock is registered after OBS has completed
-/// module loading.
+/// Ensures the OBS custom browser dock is registered during OBS module post-load.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_browser_dock_post_load() {
-    let state = {
-        let guard = match SERVER.lock() {
-            Ok(g) => g,
-            Err(p) => p.into_inner(),
-        };
-        guard.as_ref().map(|h| h.state.clone())
-    };
-
-    let Some(state) = state else {
-        tracing::warn!("ge_browser_dock_post_load called but server is not running");
-        return;
-    };
-    if !frontend_ready(&state) {
-        tracing::debug!("skipping browser dock setup until OBS frontend is ready");
-        return;
-    }
-
     browser_dock::post_load();
 }
 
@@ -373,7 +355,6 @@ pub extern "C" fn ge_frontend_finished_loading() {
     };
 
     state.frontend_ready_tx.send_replace(true);
-    browser_dock::post_load();
     state.snapshot.set_sources(http::collect_sources());
     refresh_runtime_snapshot(&state);
 }
