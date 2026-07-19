@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { cubicOut } from 'svelte/easing';
+	import { tweened } from 'svelte/motion';
 	import {
 		backend,
 		type EditableRunMetadata,
@@ -69,10 +71,24 @@
 	let youtubeDismissedStoreError = $state<string | null>(null);
 	let youtubeCopyResetTimer: ReturnType<typeof setTimeout> | null = null;
 	let youtubeForgetResetTimer: ReturnType<typeof setTimeout> | null = null;
+	const youtubeDisplayProgress = tweened(0, { duration: 450, easing: cubicOut });
+	let youtubeDisplayProgressRatio = $state(0);
+
+	$effect(() => {
+		const progress = youtubeUpload?.progressRatio ?? 0;
+		void youtubeDisplayProgress.set(Math.max(0, Math.min(1, progress)));
+	});
+
+	$effect(() => {
+		const unsubscribe = youtubeDisplayProgress.subscribe((value) => {
+			youtubeDisplayProgressRatio = value;
+		});
+		return unsubscribe;
+	});
 
 	let youtubeProgressLabel = $derived.by(() => {
 		if (!youtubeUpload || youtubeUpload.progressRatio === null) return null;
-		return `${Math.round(youtubeUpload.progressRatio * 100)}%`;
+		return `${Math.round(youtubeDisplayProgressRatio * 100)}%`;
 	});
 	let youtubeButtonLabel = $derived.by(() => {
 		if (!youtubeLoaded) return 'Loading YouTube...';
@@ -278,7 +294,7 @@
 								<div class="h-2 w-full max-w-sm overflow-hidden rounded bg-black/30">
 									<div
 										class="h-full bg-[var(--obs-gold)]"
-										style={`width: ${Math.max(0, Math.min(100, youtubeUpload.progressRatio * 100))}%`}
+										style={`width: ${Math.max(0, Math.min(100, youtubeDisplayProgressRatio * 100))}%`}
 									></div>
 								</div>
 							{/if}
