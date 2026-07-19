@@ -1,3 +1,5 @@
+import type { MetaPill } from './metaPills';
+
 export type NotificationTone = 'success' | 'info' | 'warning' | 'error';
 
 export interface NotificationFlag {
@@ -6,6 +8,7 @@ export interface NotificationFlag {
 	title: string;
 	detail?: string;
 	meta?: string;
+	pills?: MetaPill[];
 	tone: NotificationTone;
 	timeoutMs?: number;
 	href?: string;
@@ -52,6 +55,7 @@ interface NotificationFlagOptions {
 	title: string;
 	detail?: string;
 	meta?: string;
+	pills?: MetaPill[];
 	tone?: NotificationTone;
 	timeoutMs?: number;
 	sticky?: boolean;
@@ -68,6 +72,7 @@ export const addNotificationFlag = (options: NotificationFlagOptions): Notificat
 		title: options.title,
 		detail: options.detail,
 		meta: options.meta,
+		pills: options.pills,
 		tone: options.tone ?? 'info',
 		timeoutMs,
 		href: options.href,
@@ -99,6 +104,7 @@ export const replaceNotificationFlag = (id: number, options: NotificationFlagOpt
 		title: options.title,
 		detail: options.detail,
 		meta: options.meta,
+		pills: options.pills,
 		tone: options.tone ?? 'info',
 		timeoutMs,
 		href: options.href,
