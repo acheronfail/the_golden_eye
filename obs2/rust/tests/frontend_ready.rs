@@ -44,3 +44,21 @@ async fn startup_only_queries_dock_config_before_frontend_ready() {
         harness.client.get(format!("{API}/api/v1/sources")).send().await.unwrap().json().await.unwrap();
     assert_eq!(sources, serde_json::json!([{"name":SOURCE_NAME,"id":"test_input"}]));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn browser_dock_config_is_written_before_obs_loads_extra_browser_docks() {
+    let harness = Harness::start_before_frontend_ready(Duration::ZERO).await;
+
+    ge_rust::ge_browser_dock_post_load();
+    harness.obs.simulate_obs_load_extra_browser_docks();
+    assert!(harness.obs.live_dock_json().contains("thegoldeneyedashboard"));
+
+    harness.mark_frontend_ready();
+    harness.obs.simulate_obs_save_extra_browser_docks();
+
+    assert!(
+        harness.obs.dock_json().contains("thegoldeneyedashboard"),
+        "OBS shutdown save should preserve the dock that was loaded into its live dock list"
+    );
+}

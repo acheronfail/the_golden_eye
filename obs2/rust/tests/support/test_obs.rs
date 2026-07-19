@@ -86,6 +86,7 @@ struct State {
     current_frame: Option<Frame>,
     callback: Option<Callback>,
     dock_json: CString,
+    live_dock_json: CString,
     replay_serial: usize,
 }
 
@@ -111,6 +112,7 @@ impl Default for State {
             current_frame: None,
             callback: None,
             dock_json: CString::new("[]").unwrap(),
+            live_dock_json: CString::new("[]").unwrap(),
             replay_serial: 0,
         }
     }
@@ -169,6 +171,20 @@ impl TestObs {
 
     pub fn dock_json(&self) -> String {
         STATE.lock().unwrap().dock_json.to_string_lossy().into_owned()
+    }
+
+    pub fn live_dock_json(&self) -> String {
+        STATE.lock().unwrap().live_dock_json.to_string_lossy().into_owned()
+    }
+
+    pub fn simulate_obs_load_extra_browser_docks(&self) {
+        let mut state = STATE.lock().unwrap();
+        state.live_dock_json = CString::new(state.dock_json.to_bytes()).unwrap();
+    }
+
+    pub fn simulate_obs_save_extra_browser_docks(&self) {
+        let mut state = STATE.lock().unwrap();
+        state.dock_json = CString::new(state.live_dock_json.to_bytes()).unwrap();
     }
 }
 
