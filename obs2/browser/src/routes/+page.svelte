@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { screenshotUrl } from '../lib/api';
+	import { backend } from '../lib/api';
 	import { refreshReplayBuffer, replayBuffer } from '$lib/replayBuffer.svelte';
 	import { obsSources } from '$lib/sources.svelte';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
@@ -83,7 +83,7 @@
 		<div class="obs-preview-missing aspect-video max-h-36 w-full shrink-0 sm:h-36 sm:w-64">
 			<span class="px-3 font-mono text-xs leading-snug">No image returned from OBS</span>
 			<img
-				src="{screenshotUrl(option.title)}&v={previewVersion}"
+				src="{backend.screenshotUrl(option.title)}&v={previewVersion}"
 				alt=""
 				aria-hidden="true"
 				class="hidden"
@@ -92,7 +92,7 @@
 		</div>
 	{:else}
 		<img
-			src="{screenshotUrl(option.title)}&v={previewVersion}"
+			src="{backend.screenshotUrl(option.title)}&v={previewVersion}"
 			alt="Preview of {option.title}"
 			loading="lazy"
 			onerror={() => markPreviewMissing(key)}

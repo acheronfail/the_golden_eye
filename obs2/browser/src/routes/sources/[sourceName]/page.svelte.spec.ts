@@ -44,9 +44,12 @@ vi.mock('$lib/api', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/api')>();
 	return {
 		...actual,
-		getReplayBufferStatus: mocks.api.getReplayBufferStatus,
-		startMonitor: mocks.api.startMonitor,
-		stopMonitor: mocks.api.stopMonitor
+		backend: {
+			...actual.backend,
+			getReplayBufferStatus: mocks.api.getReplayBufferStatus,
+			startMonitor: mocks.api.startMonitor,
+			stopMonitor: mocks.api.stopMonitor
+		}
 	};
 });
 

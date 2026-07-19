@@ -1,12 +1,6 @@
 import { browser } from '$app/environment';
 import { z } from 'zod';
-import {
-	getSettingsStatus,
-	putSettings,
-	resetSettingsToDefaults,
-	revealSettingsConfig,
-	type SettingsStatus
-} from './api';
+import { backend, type SettingsStatus } from './api';
 
 const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
 const UpdateCheckIntervalSchema = z.enum(['monthly', 'weekly', 'daily', 'never']);
@@ -270,7 +264,7 @@ export const settings = new (class {
 		this.saveError = null;
 		this.loadPromise = (async () => {
 			try {
-				const status = await getSettingsStatus();
+				const status = await backend.getSettingsStatus();
 				this.defaults = parseSettings(status.defaults);
 				const remote = parseSettings(status.settings, this.defaults);
 
@@ -325,7 +319,7 @@ export const settings = new (class {
 		this.saveError = null;
 		this.savePromise = (async () => {
 			try {
-				const saved = parseSettings(await putSettings(snapshot), this.defaults);
+				const saved = parseSettings(await backend.putSettings(snapshot), this.defaults);
 				const savedState = serializeSettings(saved);
 				this.fileError = null;
 
@@ -381,7 +375,7 @@ export const settings = new (class {
 	}
 
 	async resetToDefaults(): Promise<void> {
-		const reset = parseSettings(await resetSettingsToDefaults(), this.defaults);
+		const reset = parseSettings(await backend.resetSettingsToDefaults(), this.defaults);
 		this.apply(reset);
 		this.lastSavedState = this.savedState;
 		this.fileError = null;
@@ -390,8 +384,8 @@ export const settings = new (class {
 	}
 
 	async revealConfigFile(): Promise<void> {
-		await revealSettingsConfig();
-		const status: SettingsStatus = await getSettingsStatus();
+		await backend.revealSettingsConfig();
+		const status: SettingsStatus = await backend.getSettingsStatus();
 		this.defaults = parseSettings(status.defaults);
 		this.configPath = status.configPath;
 		this.fileError = status.fileError ?? null;

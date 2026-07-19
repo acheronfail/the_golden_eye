@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
-		openYouTubeUrl,
-		runVideoUrl,
+		backend,
 		type EditableRunMetadata,
 		type RunClip,
 		type YouTubeUploadHistoryEntry,
@@ -117,7 +116,7 @@
 	};
 	const openYoutubeVideo = () => {
 		if (!youtubeOpenUrl) return;
-		void openYouTubeUrl(youtubeOpenUrl).catch((err) => console.warn('Failed to open YouTube video', err));
+		void backend.openYouTubeUrl(youtubeOpenUrl).catch((err) => console.warn('Failed to open YouTube video', err));
 	};
 	const copyYouTubeUrl = () => {
 		if (!youtubeOpenUrl) return;
@@ -202,7 +201,7 @@
 					<button type="button" onclick={close} class="obs-text-button px-2 py-1 font-mono text-xs">close</button>
 				</div>
 				<!-- svelte-ignore a11y_media_has_caption -->
-				<video src={runVideoUrl(clip.path)} controls class="obs-preview aspect-video w-full"></video>
+				<video src={backend.runVideoUrl(clip.path)} controls class="obs-preview aspect-video w-full"></video>
 
 				{#if youtubeEnabled}
 					<section class="obs-subpanel mt-4 rounded px-4 py-3">

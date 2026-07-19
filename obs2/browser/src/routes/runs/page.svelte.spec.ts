@@ -15,9 +15,12 @@ vi.mock('$lib/api', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/api')>();
 	return {
 		...actual,
-		revealRunFolder: mocks.revealRunFolder,
-		runVideoUrl: mocks.runVideoUrl,
-		streamRuns: mocks.streamRuns
+		backend: {
+			...actual.backend,
+			revealRunFolder: mocks.revealRunFolder,
+			runVideoUrl: mocks.runVideoUrl,
+			streamRuns: mocks.streamRuns
+		}
 	};
 });
 

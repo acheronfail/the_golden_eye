@@ -57,14 +57,17 @@ vi.mock('$lib/api', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/api')>();
 	return {
 		...actual,
-		getReplayBufferStatus: mocks.api.getReplayBufferStatus,
-		getSettingsStatus: mocks.api.getSettingsStatus,
-		getUpdateStatus: mocks.api.getUpdateStatus,
-		checkForUpdateNow: mocks.api.checkForUpdateNow,
-		downloadUpdateNow: mocks.api.downloadUpdateNow,
-		applyUpdateNow: mocks.api.applyUpdateNow,
-		putSettings: mocks.api.putSettings,
-		getYouTubeStatus: mocks.api.getYouTubeStatus
+		backend: {
+			...actual.backend,
+			getReplayBufferStatus: mocks.api.getReplayBufferStatus,
+			getSettingsStatus: mocks.api.getSettingsStatus,
+			getUpdateStatus: mocks.api.getUpdateStatus,
+			checkForUpdateNow: mocks.api.checkForUpdateNow,
+			downloadUpdateNow: mocks.api.downloadUpdateNow,
+			applyUpdateNow: mocks.api.applyUpdateNow,
+			putSettings: mocks.api.putSettings,
+			getYouTubeStatus: mocks.api.getYouTubeStatus
+		}
 	};
 });
 
