@@ -3,7 +3,7 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
 use axum::http::StatusCode;
@@ -23,7 +23,8 @@ const YOUTUBE_UPLOAD_SCOPE: &str = "openid email profile https://www.googleapis.
 const KEYRING_SERVICE: &str = "the-golden-eye.youtube";
 const KEYRING_ACCOUNT: &str = "oauth-tokens";
 const UPLOAD_CONCURRENCY: usize = 2;
-// Keep chunks small enough that typical run clips emit visible progress events.
+const UPLOAD_PROGRESS_EVENT_INTERVAL: Duration = Duration::from_millis(500);
+// Keep chunks small enough that typical run clips update stored progress promptly.
 const CHUNK_SIZE: u64 = 1024 * 1024;
 const USER_AGENT: &str = "the-golden-eye-obs-plugin";
 pub(crate) const HISTORY_FILE_NAME: &str = "youtube_uploads.json";
@@ -819,6 +820,7 @@ async fn upload_video_inner(
 
     let mut file = fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut uploaded = 0u64;
+    let mut progress_publisher = ProgressPublisher::new();
     let mut buffer = vec![0u8; CHUNK_SIZE as usize];
     loop {
         file.seek(SeekFrom::Start(uploaded))?;
@@ -842,11 +844,11 @@ async fn upload_video_inner(
         let status = response.status();
         if status == StatusCode::PERMANENT_REDIRECT || status.as_u16() == 308 {
             uploaded = uploaded_from_range(response.headers()).unwrap_or(end + 1);
-            publish_progress(store, upload_id, event_tx, uploaded, total_bytes);
+            progress_publisher.update(store, upload_id, event_tx, uploaded, total_bytes);
             continue;
         }
         if status.is_success() {
-            publish_progress(store, upload_id, event_tx, total_bytes, total_bytes);
+            progress_publisher.publish_now(store, upload_id, event_tx, total_bytes, total_bytes);
             let data: VideoInsertResponse = response.json().await.context("parsing YouTube upload response")?;
             let video_id = data.id.ok_or_else(|| anyhow!("YouTube upload response did not include a video ID"))?;
             publish_update(store, upload_id, event_tx, |status| status.state = YoutubeUploadState::Processing);
@@ -858,19 +860,68 @@ async fn upload_video_inner(
     anyhow::bail!("YouTube upload ended before a video response was returned")
 }
 
-fn publish_progress(
+struct ProgressPublisher {
+    last_event_at: Option<Instant>,
+}
+
+impl ProgressPublisher {
+    fn new() -> Self {
+        Self { last_event_at: None }
+    }
+
+    fn update(
+        &mut self,
+        store: &YoutubeUploadStore,
+        upload_id: &str,
+        event_tx: &tokio::sync::broadcast::Sender<crate::http::MonitorEvent>,
+        uploaded: u64,
+        total: u64,
+    ) {
+        let status = update_progress(store, upload_id, uploaded, total);
+        let now = Instant::now();
+        let should_publish = self
+            .last_event_at
+            .is_none_or(|last_event_at| now.duration_since(last_event_at) >= UPLOAD_PROGRESS_EVENT_INTERVAL);
+        if should_publish {
+            self.last_event_at = Some(now);
+            publish_status(event_tx, status);
+        }
+    }
+
+    fn publish_now(
+        &mut self,
+        store: &YoutubeUploadStore,
+        upload_id: &str,
+        event_tx: &tokio::sync::broadcast::Sender<crate::http::MonitorEvent>,
+        uploaded: u64,
+        total: u64,
+    ) {
+        self.last_event_at = Some(Instant::now());
+        publish_status(event_tx, update_progress(store, upload_id, uploaded, total));
+    }
+}
+
+fn update_progress(
     store: &YoutubeUploadStore,
     upload_id: &str,
-    event_tx: &tokio::sync::broadcast::Sender<crate::http::MonitorEvent>,
     uploaded: u64,
     total: u64,
-) {
-    publish_update(store, upload_id, event_tx, |status| {
+) -> Option<YoutubeUploadStatus> {
+    store.update_upload(upload_id, |status| {
         status.state = YoutubeUploadState::Uploading;
         status.progress_bytes = uploaded;
         status.total_bytes = Some(total);
         status.progress_ratio = (total > 0).then_some(uploaded as f64 / total as f64);
-    });
+    })
+}
+
+fn publish_status(
+    event_tx: &tokio::sync::broadcast::Sender<crate::http::MonitorEvent>,
+    status: Option<YoutubeUploadStatus>,
+) {
+    if let Some(upload) = status {
+        let _ = event_tx.send(crate::http::MonitorEvent::YoutubeUploadChanged { upload });
+    }
 }
 
 fn publish_update(
