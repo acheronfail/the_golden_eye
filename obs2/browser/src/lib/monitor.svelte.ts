@@ -11,6 +11,7 @@ import {
 	type RecordingStatus
 } from './api';
 import { addNotificationFlag, dismissNotificationFlag, replaceNotificationFlag } from './notifications.svelte';
+import { levelMatchMetaChips } from './runsView';
 
 export interface MonitorPhaseStyle {
 	title: string;
@@ -276,8 +277,8 @@ export const applyRecordingSaved = (saved: RecordingSaved): void => {
 	}
 	const notification = {
 		title: 'Clip saved',
-		detail: saved.path,
-		meta: `${saved.durationSecs.toFixed(1)}s${saved.failed ? ' - failed' : ''}`,
+		pills: levelMatchMetaChips(saved.stats, { failed: saved.failed, durationSecs: saved.durationSecs }),
+		meta: `Duration: ${saved.durationSecs.toFixed(1)}s`,
 		tone: saved.failed ? 'warning' : 'success'
 	} as const;
 	const pendingFlagId = pendingSaveNotificationIds.get(saved.saveId);

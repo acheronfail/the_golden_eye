@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import MetaPills from './MetaPills.svelte';
 	import { dismissNotificationFlag, notifications, type NotificationTone } from './notifications.svelte';
 
 	const toneClass = (tone: NotificationTone): string => {
@@ -53,6 +54,9 @@
 							{#if flag.detail}
 								<p class="obs-muted mt-1 text-xs break-all">{flag.detail}</p>
 							{/if}
+							{#if flag.pills?.length}
+								<MetaPills chips={flag.pills} containerClass="mt-1" />
+							{/if}
 							{#if flag.meta}
 								<p class="obs-dim mt-1 text-xs">{flag.meta}</p>
 							{/if}
@@ -62,6 +66,9 @@
 							<p class="text-xs tracking-widest uppercase">{flag.title}</p>
 							{#if flag.detail}
 								<p class="obs-muted mt-1 text-xs break-all">{flag.detail}</p>
+							{/if}
+							{#if flag.pills?.length}
+								<MetaPills chips={flag.pills} containerClass="mt-1" />
 							{/if}
 							{#if flag.meta}
 								<p class="obs-dim mt-1 text-xs">{flag.meta}</p>

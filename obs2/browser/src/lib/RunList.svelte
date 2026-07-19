@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { RunClip } from '$lib/api';
+	import MetaPills from '$lib/MetaPills.svelte';
 	import { isCompleted, formatDate, runMetaChips } from '$lib/runsView';
 
 	let {
@@ -63,22 +64,16 @@
 					onclick={() => select(clip)}
 				>
 					<span class="flex min-w-0 flex-col gap-1">
-						<span class="obs-list-title min-w-0 truncate text-sm font-semibold" title={clip.fileName}
-							>{clip.fileName}</span
-						>
-						<span class="flex min-w-0 flex-wrap gap-1">
-							{#each runMetaChips(clip) as chip}
-								<span class="{chip.class} rounded border px-1.5 py-0.5 font-mono text-[10px] leading-tight"
-									>{chip.label}</span
-								>
-							{/each}
-						</span>
+						<MetaPills chips={runMetaChips(clip)} containerClass="obs-list-title" pillClass="text-[11px]" />
 						<span
-							class="obs-list-detail min-w-0 truncate font-mono text-[10px]"
+							class="min-w-0 truncate font-mono text-[10px] text-[var(--obs-text-muted)]"
 							title={formatDate(clip.metadata.timestamp)}
 						>
-							{formatDate(clip.metadata.timestamp)}
+							Achieved: {formatDate(clip.metadata.timestamp)}
 						</span>
+						<span class="obs-list-detail min-w-0 truncate font-mono text-[10px]" title={clip.fileName}
+							>{clip.fileName}</span
+						>
 					</span>
 					<span
 						class="obs-list-arrow shrink-0 font-mono transition-transform group-hover:translate-x-1"

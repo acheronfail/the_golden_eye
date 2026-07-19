@@ -1,4 +1,5 @@
-import type { RunClip } from './api';
+import type { LevelMatch, RunClip } from './api';
+import type { MetaPill } from './metaPills';
 
 export interface RunFilters {
 	search: string;
@@ -206,15 +207,74 @@ export function statusTone(status: string): string {
 	}
 }
 
-export function runMetaChips(clip: RunClip): { label: string; class: string }[] {
-	const status = statusLabel(clip.metadata.status);
+const MISSION_LEVELS = [
+	['Dam', 'Facility', 'Runway'],
+	['Surface 1', 'Bunker 1'],
+	['Silo'],
+	['Frigate'],
+	['Surface 2', 'Bunker 2'],
+	['Statue', 'Archives', 'Streets', 'Depot', 'Train'],
+	['Jungle', 'Control', 'Caverns', 'Cradle'],
+	['Aztec'],
+	['Egypt']
+];
+const DIFFICULTY_LABELS = ['Agent', 'Secret Agent', '00 Agent', '007'];
+
+function levelMatchInfo(match?: LevelMatch): { name: string; number?: number } {
+	if (!match) return { name: 'unknown' };
+	const missionIndex = match.mission - 1;
+	const partIndex = match.part - 1;
+	const name = MISSION_LEVELS[missionIndex]?.[partIndex] ?? 'unknown';
+	if (name === 'unknown') return { name };
+	const previousLevelCount = MISSION_LEVELS.slice(0, missionIndex).reduce((total, levels) => total + levels.length, 0);
+	return { name, number: previousLevelCount + partIndex + 1 };
+}
+
+function levelMatchLabel(match?: LevelMatch): string {
+	const level = levelMatchInfo(match);
+	return level.number ? `${level.number}. ${level.name}` : level.name;
+}
+
+function difficultyLabel(value?: number): string | null {
+	return value === undefined ? null : (DIFFICULTY_LABELS[value] ?? null);
+}
+
+export function runMetaChips(clip: RunClip): MetaPill[] {
 	return [
 		{ label: levelLabel(clip), class: 'obs-token' },
 		{ label: clip.metadata.time ?? '', class: 'obs-token' },
 		{ label: clip.metadata.difficulty ?? '', class: 'obs-token' },
 		{ label: romLanguageLabel(clip.metadata.romLanguage) ?? '', class: 'obs-token' },
-		{ label: status, class: statusTone(clip.metadata.status) }
-	].filter((chip) => chip.label);
+		{ label: statusLabel(clip.metadata.status), class: statusTone(clip.metadata.status) }
+	].filter((chip) => Boolean(chip.label));
+}
+
+export function levelMatchMetaChips(
+	match: LevelMatch | undefined,
+	options: { failed?: boolean; durationSecs?: number } = {}
+): MetaPill[] {
+	const status = options.failed ? 'failed' : 'complete';
+	const duration =
+		options.durationSecs === undefined
+			? ''
+			: (formatDuration(options.durationSecs) ?? `${options.durationSecs.toFixed(1)}s`);
+	if (!match) {
+		return (
+			[
+				{ label: duration, class: 'obs-token' },
+				{ label: statusLabel(status), class: statusTone(status) }
+			] satisfies MetaPill[]
+		).filter((chip) => Boolean(chip.label));
+	}
+
+	const time = match.times?.time;
+	return [
+		{ label: levelMatchLabel(match), class: 'obs-token' },
+		{ label: time === undefined ? '' : (formatDuration(time) ?? ''), class: 'obs-token' },
+		{ label: difficultyLabel(match.difficulty) ?? '', class: 'obs-token' },
+		{ label: romLanguageLabel(match.detected_lang ?? '') ?? '', class: 'obs-token' },
+		{ label: statusLabel(status), class: statusTone(status) }
+	].filter((chip) => Boolean(chip.label));
 }
 
 export function activeRunFilterLabels(filters: RunFilters): string[] {
