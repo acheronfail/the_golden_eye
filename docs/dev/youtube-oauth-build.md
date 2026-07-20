@@ -8,6 +8,9 @@ The YouTube upload feature ships in every build but stays hidden until enabled a
 
 ## Build
 
+- `GE_YOUTUBE_ENABLED` (build time): set in the environment at CMake configure/build time to bake
+  the feature on without the runtime flag
+
 Both are read via `option_env!` and injected by CI from matching Actions secrets (`secrets: inherit`
 forwards them from `ci.yml`/`release.yml`). Empty in local builds unless exported.
 

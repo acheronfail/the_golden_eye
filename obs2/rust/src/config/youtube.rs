@@ -1,6 +1,12 @@
-use super::shared::env_truthy;
+use super::shared::{env_truthy, env_value_enabled};
 
 const GE_YOUTUBE_ENABLED: &str = "GE_YOUTUBE_ENABLED";
+
+/// Compile-time value of GE_YOUTUBE_ENABLED
+const BUILD_TIME_ENABLED: &str = match option_env!("GE_YOUTUBE_ENABLED") {
+    Some(value) => value,
+    None => "",
+};
 
 /// Compile-time YouTube OAuth client ID, injected in CI. Empty in local builds.
 pub(crate) const CLIENT_ID: &str = match option_env!("GE_YOUTUBE_CLIENT_ID") {
@@ -23,7 +29,7 @@ pub(crate) const REDIRECT_URI: &str = "http://127.0.0.1:31337/oauth/callback";
 /// missing, to explain why the feature stays hidden. Takes the already-resolved
 /// endpoints and secret so the caller reads them only once.
 pub(crate) fn youtube_enabled(endpoints: &YoutubeEndpoints, client_secret: &str) -> bool {
-    if !env_truthy(GE_YOUTUBE_ENABLED) {
+    if !env_value_enabled(BUILD_TIME_ENABLED) && !env_truthy(GE_YOUTUBE_ENABLED) {
         return false;
     }
     let client_id_present = !endpoints.client_id.is_empty();
@@ -32,7 +38,7 @@ pub(crate) fn youtube_enabled(endpoints: &YoutubeEndpoints, client_secret: &str)
         tracing::warn!(
             client_id_present,
             client_secret_present,
-            "GE_YOUTUBE_ENABLED is set but the YouTube client ID and/or secret are missing; leaving disabled"
+            "YouTube is enabled but the client ID and/or secret are missing; leaving disabled"
         );
         return false;
     }

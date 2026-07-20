@@ -141,10 +141,6 @@
 		modalBusy = null;
 	};
 
-	const connectYouTubeFromModal = () => {
-		void youtube.connect().catch((err) => console.warn('Failed to connect YouTube', err));
-	};
-
 	const uploadSelectedToYouTube = () => {
 		if (!selected) return;
 		const path = selected.path;
@@ -491,11 +487,9 @@
 	youtubeConnected={youtube.connected}
 	youtubeOAuthConfigured={youtube.oauthConfigured}
 	youtubeLoaded={youtube.loaded}
-	youtubeConnecting={youtube.connecting}
 	youtubeUpload={selectedYoutubeUpload}
 	youtubeHistory={selectedYoutubeHistory}
 	youtubeError={youtube.error}
-	connectYouTube={connectYouTubeFromModal}
 	uploadToYouTube={uploadSelectedToYouTube}
 	forgetYouTubeUpload={forgetSelectedYouTubeUpload}
 />

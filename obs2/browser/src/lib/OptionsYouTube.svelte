@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Select, settings, type YoutubeVisibility } from '$lib';
 	import { youtube } from '$lib/youtube.svelte';
+	import YouTubeConnectButton from '$lib/YouTubeConnectButton.svelte';
 
 	let {
 		panelClass,
@@ -43,9 +44,6 @@
 		'{plugin_version}'
 	];
 
-	const connect = async () => {
-		await youtube.connect();
-	};
 	const disconnect = async () => {
 		await youtube.disconnect();
 	};
@@ -61,14 +59,7 @@
 		{#if !youtube.connected}
 			<p class={hintClass}>Connect YouTube to upload videos directly from the Runs screen.</p>
 			<div class="flex justify-center py-3">
-				<button
-					type="button"
-					class="obs-button obs-button-gold px-4 py-2 font-mono text-sm"
-					disabled={youtube.connecting || !youtube.oauthConfigured}
-					onclick={connect}
-				>
-					{youtube.connecting ? 'Connecting...' : 'Connect YouTube'}
-				</button>
+				<YouTubeConnectButton />
 			</div>
 			{#if !youtube.oauthConfigured}
 				<p class="text-xs text-(--obs-danger)">YouTube OAuth is not configured in this build.</p>

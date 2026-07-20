@@ -12,6 +12,7 @@
 	import { Select, settings, type SelectOption } from '$lib';
 	import { DIFFICULTY_OPTIONS, LANGUAGE_OPTIONS, STATUS_OPTIONS, fileRows, runDetail } from '$lib/runsView';
 	import { datetimeLocalForClip, renderYouTubeUploadPreview } from '$lib/youtubeMetadata';
+	import YouTubeConnectButton from '$lib/YouTubeConnectButton.svelte';
 
 	let {
 		clip,
@@ -30,11 +31,9 @@
 		youtubeConnected,
 		youtubeOAuthConfigured,
 		youtubeLoaded,
-		youtubeConnecting,
 		youtubeUpload,
 		youtubeHistory,
 		youtubeError,
-		connectYouTube,
 		uploadToYouTube,
 		forgetYouTubeUpload
 	}: {
@@ -54,11 +53,9 @@
 		youtubeConnected: boolean;
 		youtubeOAuthConfigured: boolean;
 		youtubeLoaded: boolean;
-		youtubeConnecting: boolean;
 		youtubeUpload: YouTubeUploadStatus | null;
 		youtubeHistory: YouTubeUploadHistoryEntry | null;
 		youtubeError: string | null;
-		connectYouTube: () => void;
 		uploadToYouTube: () => void;
 		forgetYouTubeUpload: () => void;
 	} = $props();
@@ -93,7 +90,6 @@
 	});
 	let youtubeButtonLabel = $derived.by(() => {
 		if (!youtubeLoaded) return 'Loading YouTube...';
-		if (!youtubeConnected) return youtubeConnecting ? 'Connecting...' : 'Connect YouTube';
 		if (!youtubeUpload && youtubeHistory) return 'Uploaded';
 		if (!youtubeUpload) return 'Upload';
 		if (youtubeUpload.state === 'queued') return 'Queued...';
@@ -105,7 +101,6 @@
 	});
 	let youtubeButtonDisabled = $derived(
 		!youtubeLoaded ||
-			youtubeConnecting ||
 			(!youtubeConnected && !youtubeOAuthConfigured) ||
 			youtubeUpload?.state === 'queued' ||
 			youtubeUpload?.state === 'uploading' ||
@@ -155,13 +150,6 @@
 		if (metadataSaveTimer) clearTimeout(metadataSaveTimer);
 	});
 
-	const youtubeClick = () => {
-		if (youtubeConnected) {
-			uploadToYouTube();
-		} else {
-			connectYouTube();
-		}
-	};
 	const openYoutubeVideo = () => {
 		if (!youtubeOpenUrl) return;
 		void backend.openYouTubeUrl(youtubeOpenUrl).catch((err) => console.warn('Failed to open YouTube video', err));
@@ -329,14 +317,18 @@
 									</dl>
 								</div>
 								<div class="flex flex-wrap items-center justify-center gap-2">
-									<button
-										type="button"
-										onclick={youtubeClick}
-										disabled={youtubeButtonDisabled}
-										class="obs-button obs-button-gold px-3 py-1.5 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-50"
-									>
-										{youtubeButtonLabel}
-									</button>
+									{#if youtubeLoaded && !youtubeConnected}
+										<YouTubeConnectButton class="px-3 py-1.5 font-mono text-sm" />
+									{:else}
+										<button
+											type="button"
+											onclick={uploadToYouTube}
+											disabled={youtubeButtonDisabled}
+											class="obs-button obs-button-gold px-3 py-1.5 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-50"
+										>
+											{youtubeButtonLabel}
+										</button>
+									{/if}
 								</div>
 							{/if}
 							{#if youtubeOpenUrl}

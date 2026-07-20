@@ -54,6 +54,7 @@ endif()
 option(GE_REUSE_HOST_BUILD_INPUTS "Reuse browser and Rust artifacts from an earlier host build" OFF)
 option(GE_RUST_PACKAGE_PROFILE "Build Rust with the size-optimized packaging cargo profile" OFF)
 
+set(GE_YOUTUBE_ENABLED "$ENV{GE_YOUTUBE_ENABLED}")
 set(GE_YOUTUBE_CLIENT_ID "$ENV{GE_YOUTUBE_CLIENT_ID}")
 set(GE_YOUTUBE_CLIENT_SECRET "$ENV{GE_YOUTUBE_CLIENT_SECRET}")
 
@@ -66,6 +67,11 @@ if(GE_YOUTUBE_CLIENT_SECRET)
   message(STATUS "YouTube client secret: present")
 else()
   message(STATUS "YouTube client secret: MISSING")
+endif()
+if(GE_YOUTUBE_ENABLED)
+  message(STATUS "YouTube enabled: yes")
+else()
+  message(STATUS "YouTube enabled: no")
 endif()
 
 # Build logic lives in focused modules under cmake/ to keep this file readable.

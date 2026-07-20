@@ -100,6 +100,7 @@ pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state
         .route("/api/v1/updates/apply", post(routes::updates::handle_apply_now))
         .route("/api/v1/youtube/status", get(routes::youtube::handle_status))
         .route("/api/v1/youtube/connect", post(routes::youtube::handle_connect))
+        .route("/api/v1/youtube/cancel", post(routes::youtube::handle_cancel))
         .route("/api/v1/youtube/disconnect", post(routes::youtube::handle_disconnect))
         .route("/api/v1/youtube/open", post(routes::youtube::handle_open))
         .route("/api/v1/youtube/forget", post(routes::youtube::handle_forget))
