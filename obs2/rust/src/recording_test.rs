@@ -43,6 +43,13 @@ impl Drop for TestDir {
     }
 }
 
+fn test_run_catalog(label: &str) -> Arc<crate::db::run_catalog::RunCatalog> {
+    let dir = TestDir::new(label);
+    let path = dir.path.join("runs.sqlite");
+    std::mem::forget(dir);
+    Arc::new(crate::db::run_catalog::RunCatalog::open(path).expect("open run catalog"))
+}
+
 fn write_file(path: &Path) {
     fs::write(path, b"clip").unwrap();
 }
@@ -76,7 +83,14 @@ fn test_snapshot_store() -> SharedStateStore {
 fn test_recording(options: RecordingOptions) -> (RecordingState, tokio::sync::broadcast::Receiver<MonitorEvent>) {
     let (event_tx, event_rx) = tokio::sync::broadcast::channel(8);
     let recording_state = RecordingStateStore::new(test_snapshot_store());
-    let recording = RecordingState::new(event_tx, recording_state, options, "N64 Capture".to_owned(), "en".to_owned());
+    let recording = RecordingState::new(
+        event_tx,
+        recording_state,
+        options,
+        "N64 Capture".to_owned(),
+        "en".to_owned(),
+        test_run_catalog("recording-state"),
+    );
     (recording, event_rx)
 }
 
@@ -86,30 +100,6 @@ fn test_recording_saving_short_failed_runs() -> (RecordingState, tokio::sync::br
 
 fn sample_clip() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/clips/sample_clip.mov")
-}
-
-fn test_clip_metadata(status: &str, timestamp: &str) -> ffmpeg::ClipMetadata {
-    ffmpeg::ClipMetadata {
-        timestamp: timestamp.to_owned(),
-        time: Some("02:03".to_owned()),
-        time_seconds: Some(123),
-        level: "Surface 2".to_owned(),
-        level_number: Some(8),
-        difficulty: Some("00 Agent".to_owned()),
-        status: status.to_owned(),
-        rom_language: "en".to_owned(),
-        source_name: "N64 Capture".to_owned(),
-        comment: "Created by The Golden Eye OBS plugin test".to_owned(),
-        plugin_version: "test".to_owned(),
-    }
-}
-
-fn write_tagged_clip(path: &Path, status: &str, timestamp: &str) {
-    let input = sample_clip();
-    let full = ffmpeg::duration_secs(&input).expect("probe sample clip");
-    let metadata = test_clip_metadata(status, timestamp);
-    ffmpeg::trim_with_metadata(&input, path, 1.0, (full - 1.0).max(2.0), Some(&metadata))
-        .expect("write tagged test clip");
 }
 
 fn match_with_time() -> LevelMatch {
@@ -1051,6 +1041,7 @@ fn trim_clip_creates_missing_completed_and_failed_output_directories() {
         clip_filename_template: "{status}-{obs_replay_name}".to_owned(),
         ..RecordingOptions::default()
     };
+    let catalog = test_run_catalog("trim-missing-output-catalog");
 
     let complete_saved = trim_clip(TrimClipRequest {
         save_id: 1,
@@ -1063,6 +1054,7 @@ fn trim_clip_creates_missing_completed_and_failed_output_directories() {
         options: &options,
         source_name: "N64 Capture",
         rom_language: "en",
+        run_catalog: &catalog,
     })
     .expect("trim completed clip");
 
@@ -1077,6 +1069,7 @@ fn trim_clip_creates_missing_completed_and_failed_output_directories() {
         options: &options,
         source_name: "N64 Capture",
         rom_language: "en",
+        run_catalog: &catalog,
     })
     .expect("trim failed clip");
 
@@ -1325,44 +1318,4 @@ fn clip_template_rejects_traversal_and_wrong_platform_separator() {
         ),
         default_clip_path_for_surface_2(UNIX_EPOCH),
     );
-}
-
-#[test]
-fn prune_failed_clips_keep_zero_is_unlimited_and_deletes_nothing() {
-    let dir = TestDir::new("prune-unlimited");
-    let old = dir.join("obs - clip - old - failed.mp4");
-    let saved = dir.join("obs - clip - saved - failed.mp4");
-    write_file(&old);
-    write_file(&saved);
-
-    prune_failed_clips(dir.path(), 0).unwrap();
-
-    assert!(old.exists());
-    assert!(saved.exists());
-    assert!(!dir.join(".the-golden-eye-failed-clips.json").exists());
-}
-
-#[test]
-fn prune_failed_clips_uses_metadata_status_and_timestamp_only() {
-    let dir = TestDir::new("prune-metadata");
-    let old_failed = dir.join("custom old.mov");
-    let newer_abort = dir.join("not named failed.mov");
-    let saved_kia = dir.join("saved with custom name.mov");
-    let complete_named_failed = dir.join("complete but filename says failed.mov");
-    let unreadable_named_failed = dir.join("unreadable filename says failed.mov");
-
-    write_tagged_clip(&old_failed, "failed", "2026-01-01T00:00:00Z");
-    write_tagged_clip(&newer_abort, "abort", "2026-01-03T00:00:00Z");
-    write_tagged_clip(&saved_kia, "kia", "2026-01-02T00:00:00Z");
-    write_tagged_clip(&complete_named_failed, "complete", "2026-01-04T00:00:00Z");
-    write_file(&unreadable_named_failed);
-
-    prune_failed_clips(dir.path(), 2).unwrap();
-
-    assert!(!old_failed.exists(), "oldest metadata-tagged failed clip should be pruned");
-    assert!(newer_abort.exists(), "newest metadata-tagged failed clip should be kept");
-    assert!(saved_kia.exists(), "second-newest metadata-tagged failed clip should be kept");
-    assert!(complete_named_failed.exists(), "complete clips must not be pruned based on filename");
-    assert!(unreadable_named_failed.exists(), "unreadable files must be ignored");
-    assert!(!dir.join(".the-golden-eye-failed-clips.json").exists());
 }

@@ -122,7 +122,7 @@ export const youtube = new (class {
 	}
 
 	historyForPath(path: string): YouTubeUploadHistoryEntry | null {
-		const matches = this.history.filter((entry) => pathsMatch(entry.identity.path, path));
+		const matches = this.history.filter((entry) => pathsMatch(entry.path, path));
 		return matches.at(-1) ?? null;
 	}
 })();

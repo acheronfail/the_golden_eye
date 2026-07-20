@@ -38,8 +38,13 @@ export class Backend {
 		return this.getJson('/api/v1/runs');
 	}
 
-	public async streamRuns(onEvent: (event: RunsStreamEvent) => void, signal?: AbortSignal): Promise<void> {
-		const res = await this.request('/api/v1/runs/stream', { signal });
+	public async streamRuns(
+		onEvent: (event: RunsStreamEvent) => void,
+		signal?: AbortSignal,
+		options: { refresh?: boolean } = {}
+	): Promise<void> {
+		const path = options.refresh ? '/api/v1/runs/stream?refresh=true' : '/api/v1/runs/stream';
+		const res = await this.request(path, { signal });
 		if (!res.body) {
 			const runs = await this.getRuns();
 			for (const directory of runs.directories) onEvent({ type: 'directory', directory });
@@ -473,12 +478,7 @@ export interface YouTubeUploadStatus {
 }
 
 export interface YouTubeUploadHistoryEntry {
-	identity: {
-		path: string;
-		sizeBytes: number;
-		modifiedUnixSecs: number | null;
-		metadataSha256: string;
-	};
+	path: string;
 	videoId: string;
 	videoUrl: string;
 	uploadedAt: string;

@@ -71,7 +71,7 @@
 	let selectedYoutubeUpload = $derived(selected ? youtube.uploadForPath(selected.path) : null);
 	let selectedYoutubeHistory = $derived(selected ? youtube.historyForPath(selected.path) : null);
 
-	const reload = async () => {
+	const reload = async (refresh = false) => {
 		if (loading) return;
 		reloadAbort?.abort();
 		const abort = new AbortController();
@@ -82,14 +82,18 @@
 		let selectedFound = false;
 		runs = { directories: [], clips: [] };
 		try {
-			await backend.streamRuns((event) => {
-				if (event.type === 'directory') {
-					upsertDirectory(event.directory);
-				} else if (event.type === 'clip') {
-					upsertClip(event.clip);
-					if (selectedPath && event.clip.path === selectedPath) selectedFound = true;
-				}
-			}, abort.signal);
+			await backend.streamRuns(
+				(event) => {
+					if (event.type === 'directory') {
+						upsertDirectory(event.directory);
+					} else if (event.type === 'clip') {
+						upsertClip(event.clip);
+						if (selectedPath && event.clip.path === selectedPath) selectedFound = true;
+					}
+				},
+				abort.signal,
+				{ refresh }
+			);
 			if (selectedPath && !selectedFound) {
 				selected = null;
 				metadataDraft = null;
@@ -386,7 +390,7 @@
 		</button>
 		<button
 			type="button"
-			onclick={reload}
+			onclick={() => reload(true)}
 			disabled={loading}
 			class="obs-text-button shrink-0 px-2 py-1 font-mono text-xs underline-offset-2"
 		>

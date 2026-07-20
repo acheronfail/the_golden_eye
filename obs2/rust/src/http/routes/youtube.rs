@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::time::SystemTime;
 
 use axum::Json;
@@ -131,10 +130,15 @@ pub async fn handle_upload(State(state): State<AppState>, Json(req): Json<Upload
         return Ok((StatusCode::OK, Json(existing)));
     }
 
-    let metadata = youtube_metadata(&path).map_err(|err| {
-        tracing::warn!(path = %path.display(), "failed to read clip metadata for YouTube upload: {err:#}");
-        (StatusCode::BAD_REQUEST, "could not read run clip metadata").into_response()
-    })?;
+    let clip = state
+        .run_catalog
+        .refresh_clip(&path)
+        .map_err(|err| {
+            tracing::warn!(path = %path.display(), "failed to index clip before YouTube upload: {err:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "could not index run clip").into_response()
+        })?
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "could not read run clip metadata").into_response())?;
+    let metadata = clip.metadata;
     let total_bytes = std::fs::metadata(&path)
         .map_err(|err| {
             tracing::warn!(path = %path.display(), "failed to read clip file size: {err:#}");
@@ -155,17 +159,12 @@ pub async fn handle_upload(State(state): State<AppState>, Json(req): Json<Upload
         title,
         description,
         visibility: settings.youtube_visibility,
-        metadata,
     };
     tokio::spawn(async move {
         youtube::upload_video(store, request, event_tx).await;
     });
 
     Ok((StatusCode::ACCEPTED, Json(status)))
-}
-
-fn youtube_metadata(path: &Path) -> anyhow::Result<crate::ffmpeg::ClipMetadata> {
-    crate::ffmpeg::read_clip_metadata(path)?.ok_or_else(|| anyhow::anyhow!("clip was not created by The Golden Eye"))
 }
 
 /// Opens the Google consent page in the user's browser. Tests exercise the OAuth

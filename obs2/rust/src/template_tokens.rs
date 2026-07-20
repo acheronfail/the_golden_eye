@@ -53,7 +53,7 @@ impl RunTemplateTokens {
             level,
             time,
             difficulty,
-            status: status.to_owned(),
+            status: status.parse().expect("valid run status"),
             timestamp: format_iso_utc(completed_at),
             timestamp_local: format_iso_local(completed_at),
             plugin_version: crate::PLUGIN_VERSION.to_owned(),
@@ -69,7 +69,7 @@ impl RunTemplateTokens {
             level: metadata.level.clone(),
             time: metadata.time.clone().unwrap_or_default(),
             difficulty: metadata.difficulty.clone().unwrap_or_default(),
-            status: metadata.status.clone(),
+            status: metadata.status.as_str().to_owned(),
             timestamp_local: format_metadata_timestamp_local(&metadata.timestamp),
             timestamp: metadata.timestamp.clone(),
             plugin_version: crate::PLUGIN_VERSION.to_owned(),
@@ -118,6 +118,7 @@ fn format_metadata_timestamp_local(timestamp: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::clip_metadata::RunStatus;
 
     #[test]
     fn render_leaves_unknown_tokens() {
@@ -148,7 +149,7 @@ mod tests {
             level: "Dam".to_owned(),
             level_number: Some(1),
             difficulty: Some("Agent".to_owned()),
-            status: "complete".to_owned(),
+            status: RunStatus::Complete,
             rom_language: "en".to_owned(),
             source_name: "N64 Capture".to_owned(),
             comment: "test".to_owned(),
@@ -177,7 +178,7 @@ mod tests {
             level: "unknown".to_owned(),
             level_number: None,
             difficulty: None,
-            status: "failed".to_owned(),
+            status: RunStatus::Failed,
             rom_language: "en".to_owned(),
             source_name: "N64 Capture".to_owned(),
             comment: "test".to_owned(),

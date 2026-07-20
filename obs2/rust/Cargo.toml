@@ -50,6 +50,7 @@ libc = "0.2.186"
 # generator panics with "libclang shared library is not loaded on this thread".
 opencv = { version = "0.98.2", features = ["clang-runtime"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "form", "native-tls", "charset", "http2", "system-proxy"] }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
 rfd = "0.17.2"
 semver = "1.0.28"
 serde = { version = "1.0.228", features = ["derive"] }

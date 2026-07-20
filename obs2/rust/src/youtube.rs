@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Semaphore;
 
 use crate::config;
+use crate::db::run_catalog::RunCatalog;
 use crate::ffmpeg::ClipMetadata;
 use crate::settings::{AppSettings, YoutubeVisibility};
 use crate::template_tokens::RunTemplateTokens;
@@ -27,7 +28,6 @@ const UPLOAD_PROGRESS_EVENT_INTERVAL: Duration = Duration::from_millis(500);
 // Keep chunks small enough that typical run clips update stored progress promptly.
 const CHUNK_SIZE: u64 = 1024 * 1024;
 const USER_AGENT: &str = "the-golden-eye-obs-plugin";
-pub(crate) const HISTORY_FILE_NAME: &str = "youtube_uploads.json";
 const TOKEN_FILE_NAME: &str = "youtube_tokens.json";
 
 #[derive(Debug, Clone)]
@@ -312,33 +312,25 @@ fn youtube_credential_store(settings_path: &Path) -> Arc<dyn YoutubeCredentialSt
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadHistoryEntry {
-    pub identity: ClipIdentity,
+    pub path: String,
+    #[serde(flatten)]
+    pub youtube: YoutubeMetadata,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct YoutubeMetadata {
     pub video_id: String,
     pub video_url: String,
     pub uploaded_at: String,
     pub title: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClipIdentity {
-    pub path: String,
-    pub size_bytes: u64,
-    pub modified_unix_secs: Option<u64>,
-    pub metadata_sha256: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UploadHistory {
-    pub entries: Vec<UploadHistoryEntry>,
-}
-
 #[derive(Clone)]
 pub struct YoutubeUploadStore {
     inner: Arc<Mutex<YoutubeUploadInner>>,
     semaphore: Arc<Semaphore>,
-    history_path: PathBuf,
+    run_catalog: Arc<RunCatalog>,
     credential_store: Arc<dyn YoutubeCredentialStore>,
     config: YoutubeConfig,
 }
@@ -349,23 +341,22 @@ struct YoutubeUploadInner {
 }
 
 impl YoutubeUploadStore {
-    pub fn new(settings_path: &Path) -> Self {
-        Self::with_parts(settings_path, youtube_credential_store(settings_path), YoutubeConfig::from_env())
+    pub fn new(settings_path: &Path, run_catalog: Arc<RunCatalog>) -> Self {
+        Self::with_parts(run_catalog, youtube_credential_store(settings_path), YoutubeConfig::from_env())
     }
 
     pub fn with_parts(
-        settings_path: &Path,
+        run_catalog: Arc<RunCatalog>,
         credential_store: Arc<dyn YoutubeCredentialStore>,
         config: YoutubeConfig,
     ) -> Self {
-        let history_path = settings_path.with_file_name(HISTORY_FILE_NAME);
         Self {
             inner: Arc::new(Mutex::new(YoutubeUploadInner {
                 uploads: HashMap::new(),
                 path_to_active_id: HashMap::new(),
             })),
             semaphore: Arc::new(Semaphore::new(UPLOAD_CONCURRENCY)),
-            history_path,
+            run_catalog,
             credential_store,
             config,
         }
@@ -394,7 +385,7 @@ impl YoutubeUploadStore {
             connected: self.connected(),
             account: self.account(),
             uploads: self.uploads(),
-            history: self.read_history().entries,
+            history: self.read_history(),
         }
     }
 
@@ -510,32 +501,18 @@ impl YoutubeUploadStore {
         Some(cloned)
     }
 
-    pub fn read_history(&self) -> UploadHistory {
-        fs::read(&self.history_path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    pub fn read_history(&self) -> Vec<UploadHistoryEntry> {
+        self.run_catalog.youtube_history().unwrap_or_default()
     }
 
-    pub fn append_history(&self, entry: UploadHistoryEntry) -> anyhow::Result<()> {
-        let mut history = self.read_history();
-        history.entries.retain(|item| item.identity != entry.identity);
-        history.entries.push(entry);
-        self.write_history(&history)
+    pub fn set_history(&self, path: &Path, youtube: YoutubeMetadata) -> anyhow::Result<()> {
+        self.run_catalog.set_youtube_history(path, &youtube)
     }
 
     pub fn forget_for_display_path(&self, display_path: &str) -> anyhow::Result<usize> {
-        let removed_history = self.forget_history_for_display_path(display_path)?;
+        let removed_history = self.run_catalog.forget_youtube_history_for_display_path(display_path)?;
         let removed_uploads = self.forget_retained_uploads_for_display_path(display_path);
         Ok(removed_history + removed_uploads)
-    }
-
-    fn forget_history_for_display_path(&self, display_path: &str) -> anyhow::Result<usize> {
-        let mut history = self.read_history();
-        let before = history.entries.len();
-        history.entries.retain(|entry| !paths_match_for_current_platform(&entry.identity.path, display_path));
-        let removed = before.saturating_sub(history.entries.len());
-        if removed > 0 {
-            self.write_history(&history)?;
-        }
-        Ok(removed)
     }
 
     fn forget_retained_uploads_for_display_path(&self, display_path: &str) -> usize {
@@ -554,14 +531,6 @@ impl YoutubeUploadStore {
             .path_to_active_id
             .retain(|path, id| !paths_match_for_current_platform(path, display_path) && !ids.contains(id));
         ids.len()
-    }
-
-    fn write_history(&self, history: &UploadHistory) -> anyhow::Result<()> {
-        if let Some(parent) = self.history_path.parent() {
-            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-        }
-        let bytes = serde_json::to_vec_pretty(history).context("serializing YouTube upload history")?;
-        fs::write(&self.history_path, bytes).with_context(|| format!("writing {}", self.history_path.display()))
     }
 
     pub async fn access_token(&self) -> anyhow::Result<String> {
@@ -691,19 +660,6 @@ struct VideoInsertResponse {
     id: Option<String>,
 }
 
-pub fn clip_identity(path: &Path, metadata: &ClipMetadata) -> anyhow::Result<ClipIdentity> {
-    let fs_metadata = fs::metadata(path).with_context(|| format!("reading metadata for {}", path.display()))?;
-    let modified_unix_secs =
-        fs_metadata.modified().ok().and_then(|time| time.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs()));
-    let metadata_sha256 = sha256_hex(&serde_json::to_vec(metadata).context("serializing clip metadata")?);
-    Ok(ClipIdentity {
-        path: path.to_string_lossy().into_owned(),
-        size_bytes: fs_metadata.len(),
-        modified_unix_secs,
-        metadata_sha256,
-    })
-}
-
 pub fn render_youtube_metadata(
     settings: &AppSettings,
     path: &Path,
@@ -726,7 +682,6 @@ pub struct UploadRequest {
     pub title: String,
     pub description: String,
     pub visibility: YoutubeVisibility,
-    pub metadata: ClipMetadata,
 }
 
 pub async fn upload_video(
@@ -734,7 +689,7 @@ pub async fn upload_video(
     req: UploadRequest,
     event_tx: tokio::sync::broadcast::Sender<crate::http::MonitorEvent>,
 ) {
-    let UploadRequest { upload_id, path, title, description, visibility, metadata } = req;
+    let UploadRequest { upload_id, path, title, description, visibility } = req;
     let result = upload_video_inner(&store, &upload_id, &path, &title, &description, visibility, &event_tx).await;
     match result {
         Ok(video_id) => {
@@ -747,15 +702,7 @@ pub async fn upload_video(
                 status.video_url = Some(video_url.clone());
                 status.error = None;
             });
-            if let Ok(identity) = clip_identity(&path, &metadata) {
-                let _ = store.append_history(UploadHistoryEntry {
-                    identity,
-                    video_id,
-                    video_url,
-                    uploaded_at: now_iso(),
-                    title,
-                });
-            }
+            let _ = store.set_history(&path, YoutubeMetadata { video_id, video_url, uploaded_at: now_iso(), title });
             if let Some(status) = status {
                 let _ = event_tx.send(crate::http::MonitorEvent::YoutubeUploadChanged { upload: status });
             }
@@ -958,12 +905,6 @@ fn paths_match_for_current_platform(a: &str, b: &str) -> bool {
     }
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
-}
-
 fn unix_secs(time: SystemTime) -> u64 {
     time.duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs()
 }
@@ -996,6 +937,7 @@ impl YoutubeVisibility {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::clip_metadata::RunStatus;
 
     #[test]
     fn keyring_store_round_trips_tokens() {
@@ -1074,7 +1016,7 @@ mod tests {
             level: "Dam".to_owned(),
             level_number: Some(1),
             difficulty: Some("Agent".to_owned()),
-            status: "complete".to_owned(),
+            status: RunStatus::Complete,
             rom_language: "en".to_owned(),
             source_name: "N64 Capture".to_owned(),
             comment: "test".to_owned(),

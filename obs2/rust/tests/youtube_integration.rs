@@ -1,5 +1,3 @@
-#[path = "../src/ffmpeg.rs"]
-mod ffmpeg;
 mod support;
 
 use std::sync::{Arc, Mutex};
@@ -11,6 +9,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
+use ge_rust::models::clip_metadata::RunStatus;
 use serde_json::{Value, json};
 use support::harness::{API, Harness, recording_settings};
 use tokio::sync::oneshot;
@@ -267,26 +266,7 @@ async fn prepare_clip(harness: &Harness) -> String {
     let source = harness.root.join("test/clips/replay-buffer-60s.mp4");
     let clip = harness.temp.join("clips").join("youtube-test.mov");
     std::fs::create_dir_all(clip.parent().unwrap()).unwrap();
-    ffmpeg::trim_with_metadata(
-        &source,
-        &clip,
-        0.0,
-        1.0,
-        Some(&ffmpeg::ClipMetadata {
-            timestamp: "2026-07-18T00:00:00Z".to_owned(),
-            time: Some("00:28".to_owned()),
-            time_seconds: Some(28),
-            level: "Runway".to_owned(),
-            level_number: Some(2),
-            difficulty: Some("Agent".to_owned()),
-            status: "completed".to_owned(),
-            rom_language: "en".to_owned(),
-            source_name: "GoldenEye Capture".to_owned(),
-            comment: String::new(),
-            plugin_version: env!("GE_PLUGIN_VERSION").to_owned(),
-        }),
-    )
-    .unwrap();
+    ge_rust::ge_test_write_tagged_clip(&source, &clip, RunStatus::Complete.as_str(), "2026-07-18T00:00:00Z");
     clip.to_string_lossy().into_owned()
 }
 

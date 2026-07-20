@@ -1,4 +1,4 @@
-mod routes;
+pub(crate) mod routes;
 mod state;
 
 use std::net::SocketAddr;

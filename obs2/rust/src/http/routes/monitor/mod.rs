@@ -238,6 +238,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let event_tx = state.event_tx.clone();
     let recording_state = state.recording_state.clone();
     let monitor_annotations_state = state.clone();
+    let run_catalog = state.run_catalog.clone();
     let recording_source_name = status_source_name.clone();
     let recording_lang = DEFAULT_MONITOR_LANGUAGE.to_owned();
     let source_fps = unsafe { crate::ffi::ge_obs_video_fps() };
@@ -265,6 +266,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             recording_options,
             recording_source_name,
             recording_lang,
+            run_catalog.clone(),
         );
         loop {
             let diagnostics_enabled = monitor_annotations_state.monitor_annotations_enabled.load(Ordering::Acquire);
