@@ -98,6 +98,10 @@ export class Backend {
 		return this.post('/api/v1/youtube/connect');
 	}
 
+	public cancelYouTubeConnect(): Promise<YouTubeStatus> {
+		return this.post('/api/v1/youtube/cancel');
+	}
+
 	public disconnectYouTube(): Promise<YouTubeStatus> {
 		return this.post('/api/v1/youtube/disconnect');
 	}

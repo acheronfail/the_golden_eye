@@ -28,6 +28,7 @@ export const youtube = new (class {
 	loaded = $state(false);
 	loading = $state(false);
 	connecting = $state(false);
+	cancelling = $state(false);
 	disconnecting = $state(false);
 	error = $state<string | null>(null);
 	enabled = $state(false);
@@ -56,10 +57,24 @@ export const youtube = new (class {
 		try {
 			this.applyStatus(await backend.connectYouTube());
 		} catch (err) {
-			this.error = errorMessage(err);
-			throw err;
+			// A cancelled flow is expected when the user clicks Cancel; not an error.
+			if (!this.cancelling) {
+				this.error = errorMessage(err);
+				throw err;
+			}
 		} finally {
 			this.connecting = false;
+			this.cancelling = false;
+		}
+	}
+
+	async cancel(): Promise<void> {
+		this.cancelling = true;
+		try {
+			this.applyStatus(await backend.cancelYouTubeConnect());
+		} catch (err) {
+			this.error = errorMessage(err);
+			throw err;
 		}
 	}
 

@@ -86,6 +86,14 @@ pub async fn handle_open(Json(req): Json<OpenYoutubeRequest>) -> Result<impl Int
 }
 
 #[axum::debug_handler]
+pub async fn handle_cancel(State(state): State<AppState>) -> Result<impl IntoResponse> {
+    // Dropping the pending sender makes the waiting connect request resolve as
+    // cancelled, freeing the UI to offer Connect again.
+    state.oauth_pending.lock().await.take();
+    Ok((StatusCode::OK, Json(state.youtube.status())))
+}
+
+#[axum::debug_handler]
 pub async fn handle_disconnect(State(state): State<AppState>) -> Result<impl IntoResponse> {
     if !state.youtube.enabled() {
         return Err((StatusCode::NOT_FOUND, "YouTube uploads are not enabled in this build").into());
