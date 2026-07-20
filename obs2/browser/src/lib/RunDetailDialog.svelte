@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { linear } from 'svelte/easing';
 	import { tweened } from 'svelte/motion';
 	import {
@@ -15,7 +16,6 @@
 	let {
 		clip,
 		metadataDraft = $bindable(),
-		metadataDirty,
 		modalError,
 		modalBusy,
 		fileBrowserLabel,
@@ -40,7 +40,6 @@
 	}: {
 		clip: RunClip | null;
 		metadataDraft: EditableRunMetadata | null;
-		metadataDirty: boolean;
 		modalError: string | null;
 		modalBusy: string | null;
 		fileBrowserLabel: string;
@@ -72,6 +71,7 @@
 	let youtubeDismissedStoreError = $state<string | null>(null);
 	let youtubeCopyResetTimer: ReturnType<typeof setTimeout> | null = null;
 	let youtubeForgetResetTimer: ReturnType<typeof setTimeout> | null = null;
+	let metadataSaveTimer: ReturnType<typeof setTimeout> | null = null;
 	const youtubeDisplayProgress = tweened(0, { duration: 650, easing: linear });
 	let youtubeDisplayProgressRatio = $state(0);
 
@@ -132,6 +132,28 @@
 			: null
 	);
 	let visibleYoutubeError = $derived(youtubeError && youtubeError !== youtubeDismissedStoreError ? youtubeError : null);
+
+	const scheduleMetadataSave = (debounceMs = 0) => {
+		if (metadataSaveTimer) clearTimeout(metadataSaveTimer);
+		metadataSaveTimer = setTimeout(() => {
+			metadataSaveTimer = null;
+			saveMetadata();
+		}, debounceMs);
+	};
+	const saveMetadataNow = () => {
+		if (metadataSaveTimer) {
+			clearTimeout(metadataSaveTimer);
+			metadataSaveTimer = null;
+		}
+		saveMetadata();
+	};
+	const normalizeAndSaveMetadataNow = () => {
+		normalizeDraftTime();
+		saveMetadataNow();
+	};
+	onDestroy(() => {
+		if (metadataSaveTimer) clearTimeout(metadataSaveTimer);
+	});
 
 	const youtubeClick = () => {
 		if (youtubeConnected) {
@@ -399,6 +421,7 @@
 								placeholder="select level"
 								bind:value={metadataDraft.level}
 								options={levelOptions}
+								onChange={() => scheduleMetadataSave()}
 							/>
 						</label>
 						<label class="flex min-w-0 flex-col gap-1">
@@ -408,6 +431,7 @@
 								placeholder="select language"
 								bind:value={metadataDraft.romLanguage}
 								options={LANGUAGE_OPTIONS}
+								onChange={() => scheduleMetadataSave()}
 							/>
 						</label>
 						<label class="flex min-w-0 flex-col gap-1">
@@ -415,7 +439,8 @@
 							<input
 								class="obs-input px-3 py-2 font-mono"
 								bind:value={metadataDraft.time}
-								onblur={normalizeDraftTime}
+								oninput={() => scheduleMetadataSave(650)}
+								onblur={normalizeAndSaveMetadataNow}
 								inputmode="numeric"
 								pattern="[0-9]+:[0-5][0-9]"
 								placeholder="mm:ss"
@@ -428,6 +453,7 @@
 								placeholder="select difficulty"
 								bind:value={metadataDraft.difficulty}
 								options={DIFFICULTY_OPTIONS}
+								onChange={() => scheduleMetadataSave()}
 							/>
 						</label>
 						<label class="flex min-w-0 flex-col gap-1">
@@ -437,19 +463,9 @@
 								placeholder="select status"
 								bind:value={metadataDraft.status}
 								options={STATUS_OPTIONS}
+								onChange={() => scheduleMetadataSave()}
 							/>
 						</label>
-					</div>
-
-					<div class="mt-4 flex justify-end">
-						<button
-							type="button"
-							onclick={saveMetadata}
-							disabled={modalBusy !== null || !metadataDirty}
-							class="obs-button obs-button-gold px-3 py-2 font-mono text-xs"
-						>
-							{modalBusy === 'metadata' ? 'saving...' : 'save metadata'}
-						</button>
 					</div>
 				{/if}
 
