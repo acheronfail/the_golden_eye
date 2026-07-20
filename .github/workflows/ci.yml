@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - master
+      - youtube-oauth-verification
 
 permissions:
   contents: read
