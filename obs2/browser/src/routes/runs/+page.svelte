@@ -42,6 +42,8 @@
 	let maxTimeFilter = $state('');
 	let filtersCollapsed = $state(false);
 	let reloadAbort: AbortController | null = null;
+	let metadataSaveInFlight = false;
+	let metadataSaveQueued = false;
 
 	const currentFilters = $derived<RunFilters>({
 		search,
@@ -132,6 +134,7 @@
 	};
 
 	const close = () => {
+		void saveMetadata();
 		selected = null;
 		metadataDraft = null;
 		modalError = null;
@@ -187,13 +190,17 @@
 		);
 	}
 
-	function replaceClip(oldPath: string, clip: RunClip) {
+	function updateClipInList(oldPath: string, clip: RunClip) {
 		if (runs) {
 			runs = {
 				...runs,
 				clips: runs.clips.map((candidate) => (candidate.path === oldPath ? clip : candidate))
 			};
 		}
+	}
+
+	function replaceClip(oldPath: string, clip: RunClip) {
+		updateClipInList(oldPath, clip);
 		selected = clip;
 		metadataDraft = draftFromClip(clip);
 	}
@@ -237,16 +244,35 @@
 
 	async function saveMetadata() {
 		if (!selected || !metadataDraft || !metadataDirty) return;
+		if (metadataSaveInFlight) {
+			metadataSaveQueued = true;
+			return;
+		}
+
+		metadataSaveInFlight = true;
 		modalBusy = 'metadata';
 		modalError = null;
 		try {
 			const oldPath = selected.path;
-			const updated = await backend.updateRunMetadata(oldPath, metadataDraft);
-			replaceClip(oldPath, updated);
+			const draft = { ...metadataDraft };
+			const updated = await backend.updateRunMetadata(oldPath, draft);
+			const stillSelected = selected?.path === oldPath;
+			const pendingDraft = metadataDraft && !sameMetadataDraft(metadataDraft, draft) ? { ...metadataDraft } : null;
+			if (stillSelected) {
+				replaceClip(oldPath, updated);
+				if (pendingDraft) metadataDraft = pendingDraft;
+			} else {
+				updateClipInList(oldPath, updated);
+			}
 		} catch (err) {
 			modalError = err instanceof Error ? err.message : String(err);
 		} finally {
+			metadataSaveInFlight = false;
 			modalBusy = null;
+			if (metadataSaveQueued) {
+				metadataSaveQueued = false;
+				void saveMetadata();
+			}
 		}
 	}
 
@@ -451,7 +477,6 @@
 <RunDetailDialog
 	clip={selected}
 	bind:metadataDraft
-	{metadataDirty}
 	{modalError}
 	{modalBusy}
 	{fileBrowserLabel}
