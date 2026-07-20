@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { backend } from '../lib/api';
+	import { settings } from '$lib/settings.svelte';
 	import { refreshReplayBuffer, replayBuffer } from '$lib/replayBuffer.svelte';
 	import { obsSources } from '$lib/sources.svelte';
 	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
@@ -67,6 +68,10 @@
 		const next = { ...missingPreviewBySource };
 		delete next[key];
 		missingPreviewBySource = next;
+	};
+
+	const toggleSourcePreviews = () => {
+		settings.showSourcePreviews = !settings.showSourcePreviews;
 	};
 </script>
 
@@ -139,6 +144,15 @@
 			<p class="obs-dim mt-1 font-mono text-xs">Add a video capture source in OBS.</p>
 		</div>
 	{:else}
-		<OptionList {options} onSelect={select} {leading} disabled={replayUnavailable} />
+		<div class="mb-2 flex justify-end">
+			<button type="button" class="obs-text-button obs-button-xs" onclick={toggleSourcePreviews}>
+				{settings.showSourcePreviews ? 'Hide previews' : 'Show previews'}
+			</button>
+		</div>
+		{#if settings.showSourcePreviews}
+			<OptionList {options} onSelect={select} {leading} disabled={replayUnavailable} />
+		{:else}
+			<OptionList {options} onSelect={select} disabled={replayUnavailable} />
+		{/if}
 	{/if}
 </WizardFrame>

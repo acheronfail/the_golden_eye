@@ -45,6 +45,7 @@ fn default_settings_use_five_second_pre_run_padding() {
     assert!(!AppSettings::default().stop_replay_buffer_when_monitor_stopped);
     assert!(!AppSettings::default().show_monitor_fps);
     assert!(!AppSettings::default().show_developer_settings);
+    assert!(AppSettings::default().show_source_previews);
     assert!(!AppSettings::default().welcome_modal_shown);
     assert_eq!(AppSettings::default().update_check_interval, UpdateCheckInterval::Weekly);
     assert_eq!(AppSettings::default().last_update_check_time, None);
@@ -60,6 +61,7 @@ fn default_settings_use_five_second_pre_run_padding() {
     assert!(!AppSettings::from_json_value(json!({})).stop_replay_buffer_when_monitor_stopped);
     assert!(!AppSettings::from_json_value(json!({})).show_monitor_fps);
     assert!(!AppSettings::from_json_value(json!({})).show_developer_settings);
+    assert!(AppSettings::from_json_value(json!({})).show_source_previews);
     assert!(!AppSettings::from_json_value(json!({})).welcome_modal_shown);
     assert_eq!(AppSettings::from_json_value(json!({})).update_check_interval, UpdateCheckInterval::Weekly);
     assert_eq!(AppSettings::from_json_value(json!({})).last_update_check_time, None);
@@ -77,6 +79,7 @@ fn json_value_is_normalized_field_by_field() {
         "stopReplayBufferWhenMonitorStopped": true,
         "showMonitorFps": true,
         "showDeveloperSettings": true,
+        "showSourcePreviews": false,
         "welcomeModalShown": true,
         "completedOutputPath": "/tmp/completed",
         "saveFailedRuns": false,
@@ -100,6 +103,7 @@ fn json_value_is_normalized_field_by_field() {
     assert!(settings.stop_replay_buffer_when_monitor_stopped);
     assert!(settings.show_monitor_fps);
     assert!(settings.show_developer_settings);
+    assert!(!settings.show_source_previews);
     assert!(settings.welcome_modal_shown);
     assert_eq!(settings.completed_output_path, "/tmp/completed");
     assert!(!settings.save_failed_runs);
@@ -157,6 +161,7 @@ fn store_persists_and_loads_settings_json() {
             "stopReplayBufferWhenMonitorStopped": true,
             "showMonitorFps": true,
             "showDeveloperSettings": true,
+            "showSourcePreviews": false,
             "welcomeModalShown": true,
             "completedOutputPath": "/runs",
             "saveFailedRuns": true,
@@ -179,6 +184,7 @@ fn store_persists_and_loads_settings_json() {
     assert!(saved.stop_replay_buffer_when_monitor_stopped);
     assert!(saved.show_monitor_fps);
     assert!(saved.show_developer_settings);
+    assert!(!saved.show_source_previews);
     assert!(saved.welcome_modal_shown);
     assert_eq!(saved.update_check_interval, UpdateCheckInterval::Monthly);
     assert_eq!(saved.last_update_check_time, Some(456));

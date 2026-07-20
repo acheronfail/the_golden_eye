@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import HomePage from './+page.svelte';
 import { replayBuffer } from '$lib/replayBuffer.svelte';
 import { obsSources } from '$lib/sources.svelte';
+import { settings } from '$lib/settings.svelte';
 
 const mocks = vi.hoisted(() => ({
 	goto: vi.fn(),
@@ -27,6 +28,7 @@ beforeEach(() => {
 	obsSources.items = [{ name: 'N64 Capture', id: 'video_capture_device' }];
 	obsSources.loaded = true;
 	obsSources.version = 1;
+	settings.showSourcePreviews = true;
 	replayBuffer.status = {
 		enabled: true,
 		available: true,
@@ -47,5 +49,19 @@ describe('home page', () => {
 		await user.click(screen.getByRole('button', { name: /N64 Capture/i }));
 
 		expect(mocks.goto).toHaveBeenCalledWith('/sources/N64%20Capture');
+	});
+
+	it('hides source screenshots when previews are toggled off', async () => {
+		const user = userEvent.setup();
+		render(HomePage);
+
+		expect(screen.getByAltText('Preview of N64 Capture')).toBeInTheDocument();
+
+		await user.click(screen.getByRole('button', { name: /hide previews/i }));
+
+		expect(settings.showSourcePreviews).toBe(false);
+		expect(screen.queryByAltText('Preview of N64 Capture')).not.toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /show previews/i })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /N64 Capture/i })).toBeInTheDocument();
 	});
 });
