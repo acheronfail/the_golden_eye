@@ -8,8 +8,9 @@
 		type YouTubeUploadHistoryEntry,
 		type YouTubeUploadStatus
 	} from '$lib/api';
-	import { Select, type SelectOption } from '$lib';
+	import { Select, settings, type SelectOption } from '$lib';
 	import { DIFFICULTY_OPTIONS, LANGUAGE_OPTIONS, STATUS_OPTIONS, fileRows, runDetail } from '$lib/runsView';
+	import { datetimeLocalForClip, renderYouTubeUploadPreview } from '$lib/youtubeMetadata';
 
 	let {
 		clip,
@@ -116,6 +117,15 @@
 	let youtubeIsUploaded = $derived(
 		Boolean(youtubeOpenUrl && (youtubeUpload?.state === 'uploaded' || (!youtubeUpload && youtubeHistory)))
 	);
+	let youtubeUploadPreview = $derived.by(() => {
+		if (!clip) return null;
+		return renderYouTubeUploadPreview(clip, {
+			titleTemplate: settings.youtubeTitleTemplate,
+			descriptionTemplate: settings.youtubeDescriptionTemplate,
+			visibility: settings.youtubeVisibility,
+			datetimeLocal: datetimeLocalForClip(clip, typeof navigator === 'undefined' ? undefined : navigator.languages)
+		});
+	});
 	let visibleYoutubeUploadError = $derived(
 		youtubeUpload?.state === 'failed' && youtubeUpload.id !== youtubeDismissedUploadErrorId
 			? (youtubeUpload.error ?? 'Upload failed')
@@ -151,7 +161,7 @@
 	$effect(() => {
 		const path = clip?.path ?? null;
 		if (path && youtubeHelpInitializedForClip !== path) {
-			youtubeHelpOpen = !youtubeIsUploaded;
+			youtubeHelpOpen = false;
 			youtubeHelpInitializedForClip = path;
 		}
 	});
@@ -225,44 +235,77 @@
 							<h3 class="font-mono text-xs font-semibold tracking-[0.2em] text-[var(--obs-text-muted)] uppercase">
 								YouTube
 							</h3>
-							<button
-								type="button"
-								class="obs-text-button obs-button-xs cursor-pointer rounded-full"
-								aria-expanded={youtubeHelpOpen}
-								aria-label="Explain YouTube upload history"
-								onclick={() => (youtubeHelpOpen = !youtubeHelpOpen)}>?</button
-							>
+							{#if youtubeIsUploaded}
+								<button
+									type="button"
+									class="obs-text-button obs-button-xs cursor-pointer rounded-full"
+									aria-expanded={youtubeHelpOpen}
+									aria-label="Explain YouTube upload history"
+									onclick={() => (youtubeHelpOpen = !youtubeHelpOpen)}>?</button
+								>
+							{/if}
 						</div>
-						{#if youtubeHelpOpen}
+						{#if youtubeIsUploaded && youtubeHelpOpen}
 							<div class="mb-3 grid gap-2 text-xs leading-relaxed text-[var(--obs-text-muted)]">
-								{#if youtubeIsUploaded}
-									<p>
-										The plugin remembers videos it uploaded from this computer and links them to the clip's file path.
-										If a clip is moved, renamed, or edited with other video apps, it may not recognise it as the same
-										video and might not remember that it was uploaded or not.
-									</p>
-									<p class="flex flex-wrap items-center gap-2">
-										<span>Want to upload this clip again?</span>
-										<button
-											type="button"
-											class={youtubeForgetArmed
-												? 'obs-button obs-button-danger obs-button-xs cursor-pointer'
-												: 'obs-button obs-button-xs cursor-pointer'}
-											onclick={armOrForgetYouTubeUpload}
-										>
-											{youtubeForgetArmed ? 'Click again to forget' : 'Forget upload'}
-										</button>
-									</p>
-								{:else}
-									<p>
-										Upload this clip to YouTube using the title, description, and visibility templates configured in
-										<a class="obs-text-button obs-button-xs" href="/options?tab=youtube">Options → YouTube</a>.
-									</p>
-								{/if}
+								<p>
+									The plugin remembers videos it uploaded from this computer and links them to the clip's file path. If
+									a clip is moved, renamed, or edited with other video apps, it may not recognise it as the same video
+									and might not remember that it was uploaded or not.
+								</p>
+								<p class="flex flex-wrap items-center gap-2">
+									<span>Want to upload this clip again?</span>
+									<button
+										type="button"
+										class={youtubeForgetArmed
+											? 'obs-button obs-button-danger obs-button-xs cursor-pointer'
+											: 'obs-button obs-button-xs cursor-pointer'}
+										onclick={armOrForgetYouTubeUpload}
+									>
+										{youtubeForgetArmed ? 'Click again to forget' : 'Forget upload'}
+									</button>
+								</p>
 							</div>
 						{/if}
 						<div class="flex flex-col items-center gap-2 text-center">
-							{#if !youtubeIsUploaded}
+							{#if youtubeIsUploaded}
+								<div
+									class="mb-1 w-full rounded border border-[var(--obs-border)] bg-[var(--obs-bg-elevated)] px-3 py-2 text-left shadow-[inset_0_1px_0_var(--obs-border-soft)]"
+								>
+									<p class="font-mono text-xs text-[var(--obs-text)]">Already uploaded to YouTube.</p>
+									<p class="obs-dim mt-1 text-xs">Use the link below to copy or open the uploaded video.</p>
+								</div>
+							{/if}
+							{#if !youtubeIsUploaded && youtubeUploadPreview}
+								<div
+									class="mb-1 grid w-full gap-3 rounded border border-[var(--obs-border)] bg-[var(--obs-bg-elevated)] p-3 text-left shadow-[inset_0_1px_0_var(--obs-border-soft)]"
+								>
+									<div class="flex flex-wrap items-center justify-between gap-2">
+										<p class="obs-dim font-mono text-[11px] tracking-[0.18em] uppercase">Upload preview</p>
+										<a class="obs-text-button obs-button-xs" href="/options?tab=youtube">Edit templates</a>
+									</div>
+									<dl class="grid gap-2.5 text-xs sm:grid-cols-[5.5rem_minmax(0,1fr)]">
+										<dt class="obs-dim pt-1 font-mono">Title</dt>
+										<dd
+											class="rounded border border-[var(--obs-border)] bg-[var(--obs-panel)] px-2 py-1.5 font-mono text-[11px] leading-relaxed break-words text-[var(--obs-text)] shadow-[inset_0_1px_2px_rgb(0_0_0_/_24%)]"
+										>
+											{youtubeUploadPreview.title}
+										</dd>
+										<dt class="obs-dim pt-1 font-mono">Description</dt>
+										<dd
+											class="rounded border border-[var(--obs-border)] bg-[var(--obs-panel)] px-2 py-1.5 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap text-[var(--obs-text)] shadow-[inset_0_1px_2px_rgb(0_0_0_/_24%)]"
+										>
+											{youtubeUploadPreview.description || 'No description'}
+										</dd>
+										<dt class="obs-dim font-mono">Visibility</dt>
+										<dd>
+											<span
+												class="inline-flex rounded border border-[var(--obs-border-soft)] bg-[var(--obs-control)] px-2 py-0.5 font-mono text-[11px] text-[var(--obs-text-muted)] shadow-[inset_0_1px_0_var(--obs-border-soft)]"
+											>
+												{youtubeUploadPreview.visibilityLabel}
+											</span>
+										</dd>
+									</dl>
+								</div>
 								<div class="flex flex-wrap items-center justify-center gap-2">
 									<button
 										type="button"
