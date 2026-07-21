@@ -264,6 +264,20 @@ def newest_rust_mtime() -> float:
     return newest
 
 
+def dev_build_needs_configuration() -> bool:
+    """Whether another workflow changed the shared build tree out of dev mode."""
+    cache = BUILD_DIR / "CMakeCache.txt"
+    try:
+        entries = cache.read_text().splitlines()
+    except OSError:
+        return True
+
+    return not {
+        "BROWSER_DEV:BOOL=ON",
+        "CMAKE_BUILD_TYPE:STRING=Debug",
+    }.issubset(entries)
+
+
 def rust_watch_loop(manager: ProcessManager, stop_event: threading.Event) -> None:
     last_seen = newest_rust_mtime()
 
@@ -274,6 +288,9 @@ def rust_watch_loop(manager: ProcessManager, stop_event: threading.Event) -> Non
 
         last_seen = time.time()
         print("[dev] rust change detected; rebuilding core...", flush=True)
+        if dev_build_needs_configuration():
+            print("[dev] restoring Debug/BROWSER_DEV=ON configuration", flush=True)
+            manager.run(["just", "configure-dev"])
         if IS_LINUX:
             # Relinking happens inside the Flatpak SDK for linux
             proc = manager.start(["just", "_dev-relink"], cwd=ROOT)
