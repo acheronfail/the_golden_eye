@@ -64,6 +64,9 @@ pub fn template_dir() -> Option<String> {
 
 // Correlation needed to accept a mission/part/difficulty label match.
 const LABEL_THRESHOLD: f64 = 0.70;
+// Short difficulty labels can correlate slightly better with the prefix of a
+// longer value. Prefer the wider colocated match inside this narrow margin.
+const LABEL_WIDER_TIE_MARGIN: f64 = 0.04;
 
 // Fraction of the frame searched for the mission/part/difficulty labels. They
 // always sit in the upper-left of the stats overlay, so only the top 50% /
@@ -82,6 +85,13 @@ const MISSION_REGION_H: f64 = 0.26;
 // is tried first and lands the real digit at ~0.95-0.97; 0.90 settles the common
 // case in one pass. Off-scale captures fall through to the remaining scales.
 const MISSION_STRONG: f64 = 0.90;
+// A mission digit read in the colon-anchored fixed slot must clear this weighted
+// discriminator score before it replaces the free-moving template detection.
+const MISSION_FIXED_ACCEPT: f64 = 0.82;
+// Header rows are evenly spaced by just under one glyph height. Once the mission
+// colon is known, keep part/difficulty matching close to their fixed row centres.
+const HEADER_ROW_OFFSET: f64 = 0.88;
+const HEADER_ROW_TOLERANCE: f64 = 0.25;
 
 // Region searched for the time colons (upper stats table). Kept generous to
 // tolerate overlay drift from letterboxing/rescaling; downstream "mm:ss" spacing
@@ -605,13 +615,14 @@ fn best_match(frame: &(impl MatTraitConst + ToInputArray), tmpl: &Mat) -> Result
     Ok(Some(MatchRect { x: max_loc.x, y: max_loc.y, w: tmpl.cols(), h: tmpl.rows(), score: max_val }))
 }
 
-// Picks the highest-scoring template from `templates` (matched at `scale`).
-// Returns the 1-based index of the winner and its rectangle.
-fn best_label_match(
+// Picks the strongest template at `scale`, optionally resolving near-ties in
+// favour of a wider candidate at the same position.
+fn best_label_match_with_wider_ties(
     frame: &(impl MatTraitConst + ToInputArray),
     templates: &[Mat],
     scale: f64,
     threshold: f64,
+    prefer_wider_ties: bool,
 ) -> Result<Option<(i32, MatchRect)>> {
     // Own the (small) region so the per-template closures can share a `&Mat`
     // across the scoped threads, then match every label template in parallel.
@@ -620,39 +631,70 @@ fn best_label_match(
     let scores: Vec<Result<Option<MatchRect>>> =
         par_map(templates.len(), |i| best_match(frame, &scaled(&templates[i], scale)?));
 
-    let mut best = -1;
-    let mut best_rect = None;
-    let mut best_score_v = threshold;
+    let mut candidates = Vec::new();
     for (i, r) in scores.into_iter().enumerate() {
         let Some(r) = r? else { continue };
         let s = r.score;
-        dbg_cv!("[label] idx={} scale={scale:.3} score={s:.3}", i + 1);
-        if s >= best_score_v {
-            best_score_v = s;
-            best = i as i32 + 1;
-            best_rect = Some(r);
+        dbg_cv!("[label] idx={} scale={scale:.3} score={s:.3} x={} y={}", i + 1, r.x, r.y);
+        candidates.push((i as i32 + 1, r));
+    }
+    let Some(mut best) = candidates
+        .iter()
+        .copied()
+        .filter(|(_, r)| r.score >= threshold)
+        .max_by(|a, b| a.1.score.total_cmp(&b.1.score))
+    else {
+        return Ok(None);
+    };
+    let raw_best_score = best.1.score;
+    if prefer_wider_ties {
+        for candidate in candidates {
+            let tolerance = ((candidate.1.h.max(best.1.h) as f64) * 0.25).round().max(1.0) as i32;
+            if candidate.1.w > best.1.w
+                && candidate.1.score >= threshold
+                && candidate.1.score >= raw_best_score - LABEL_WIDER_TIE_MARGIN
+                && (candidate.1.x - best.1.x).abs() <= tolerance
+                && (candidate.1.y - best.1.y).abs() <= tolerance
+            {
+                best = candidate;
+            }
         }
     }
-    Ok(best_rect.map(|r| (best, r)))
+    Ok(Some(best))
 }
 
-// Best label within a horizontal band of `region` spanning rows [y0, y1).
-// Coordinates in the returned rectangle are relative to `region`.
-fn best_label_in_band_match(
+// Matches a header label only around its expected row centre. The three header
+// rows move together, so the mission colon is a more reliable anchor than a
+// broad scan that can latch onto similar Japanese glyphs on another row.
+fn best_label_near_row(
     region: &(impl MatTraitConst + ToInputArray),
     templates: &[Mat],
     scale: f64,
     threshold: f64,
-    y0: i32,
-    y1: i32,
+    row_cy: i32,
+    anchor_h: i32,
+    prefer_wider_ties: bool,
 ) -> Result<Option<(i32, MatchRect)>> {
+    let template_h = templates
+        .iter()
+        .filter(|t| !t.empty())
+        .map(|t| (t.rows() as f64 * scale).round() as i32)
+        .max()
+        .unwrap_or(anchor_h)
+        .max(1);
+    let tolerance = (anchor_h as f64 * HEADER_ROW_TOLERANCE).round() as i32;
+    let y0 = row_cy - template_h / 2 - tolerance;
+    let y1 = row_cy + (template_h + 1) / 2 + tolerance;
     let y0 = y0.clamp(0, region.rows());
     let y1 = y1.clamp(0, region.rows());
     if y1 - y0 < 2 {
         return Ok(None);
     }
     let band = region.roi(Rect::new(0, y0, region.cols(), y1 - y0))?;
-    Ok(best_label_match(&band, templates, scale, threshold)?.map(|(idx, r)| (idx, r.offset(0, y0))))
+    Ok(
+        best_label_match_with_wider_ties(&band, templates, scale, threshold, prefer_wider_ties)?
+            .map(|(idx, r)| (idx, r.offset(0, y0))),
+    )
 }
 
 // Like `best_label_match`, but also sweeps `scales`. Used to recover the true
@@ -822,9 +864,10 @@ fn header_colon_regions(frame: &Mat, base_colon: &Mat, scale: f64, threshold: f6
 // taking the strongest single digit immediately to its left on the same line.
 fn find_mission_from_colons(
     label_region: &(impl MatTraitConst + ToInputArray),
-    colon_tmpl: &Mat,
-    digit_tmpls: &[Mat],
+    glyphs: &ScaledGlyphs,
 ) -> Result<FoundMission> {
+    let colon_tmpl = &glyphs.colon;
+    let digit_tmpls = &glyphs.digits;
     let none = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1, colon: None, digit: None };
     if colon_tmpl.empty() || digit_tmpls.len() < 10 {
         return Ok(none);
@@ -855,16 +898,85 @@ fn find_mission_from_colons(
     collect_detections(label_region, colon_tmpl, COLON_ANCHOR_THRESHOLD, 0, &mut colons)?;
     let colons = suppress(colons, colon_w, colon_h, 0.5);
 
+    // A cold header has three fixed-spaced rows; choose the middle colon before
+    // reading its digit. A cached ROI has only the mission row, so its strongest
+    // colon is already the correct anchor.
+    let mut row_groups: Vec<Vec<Detection>> = Vec::new();
+    let mut by_y = colons.clone();
+    by_y.sort_by_key(|c| c.y);
+    for colon in by_y {
+        let cy = colon.y + colon_h / 2;
+        if let Some(group) = row_groups.last_mut()
+            && group
+                .last()
+                .is_some_and(|last| (cy - (last.y + colon_h / 2)).abs() <= (colon_h as f64 * 0.45) as i32)
+        {
+            group.push(colon);
+        } else {
+            row_groups.push(vec![colon]);
+        }
+    }
+    let row_best = |group: &[Detection]| group.iter().copied().max_by(|a, b| a.score.total_cmp(&b.score));
+    let mission_colon = if label_region.rows() <= colon_h * 3 {
+        row_groups.iter().filter_map(|g| row_best(g)).max_by(|a, b| a.score.total_cmp(&b.score))
+    } else {
+        let mut best: Option<(f64, Detection)> = None;
+        for rows in row_groups.windows(3) {
+            let Some(top) = row_best(&rows[0]) else { continue };
+            let Some(middle) = row_best(&rows[1]) else { continue };
+            let Some(bottom) = row_best(&rows[2]) else { continue };
+            let top_gap = (middle.y - top.y) as f64 / colon_h as f64;
+            let bottom_gap = (bottom.y - middle.y) as f64 / colon_h as f64;
+            if !(0.55..=1.30).contains(&top_gap) || !(0.55..=1.30).contains(&bottom_gap) {
+                continue;
+            }
+            let spacing_penalty = (top_gap - HEADER_ROW_OFFSET).abs() + (bottom_gap - HEADER_ROW_OFFSET).abs();
+            let score = top.score + middle.score + bottom.score - spacing_penalty * 0.15;
+            if best.is_none_or(|(best_score, _)| score > best_score) {
+                best = Some((score, middle));
+            }
+        }
+        best.map(|(_, colon)| colon)
+    };
+
+    // Read the digit from its fixed slot immediately left of the selected colon,
+    // using the variance-weighted discriminator introduced for stats times.
+    if let Some(colon) = mission_colon {
+        let digit_y = colon.y + (colon_h - digit_h) / 2;
+        let digit_x = colon.x - digit_w;
+        let digit_rect = Rect::new(digit_x, digit_y, digit_w, digit_h);
+        let (mission, confidence) = classify_box(label_region, glyphs, digit_rect, -1)?;
+        dbg_cv!("[mission fixed] value={mission} score={confidence:.3} x={digit_x} y={digit_y}");
+        if (1..=9).contains(&mission) && confidence >= MISSION_FIXED_ACCEPT {
+            return Ok(FoundMission {
+                mission,
+                score: confidence,
+                colon_cx: colon.x + colon_w / 2,
+                colon_cy: colon.y + colon_h / 2,
+                colon: Some(MatchRect { x: colon.x, y: colon.y, w: colon.w, h: colon.h, score: colon.score }),
+                digit: Some(MatchRect {
+                    x: digit_x,
+                    y: digit_y,
+                    w: digit_w,
+                    h: digit_h,
+                    score: confidence,
+                }),
+            });
+        }
+    }
+
     let band_pad_x = digit_w * 2;
     let band_pad_y = digit_h;
+    let fallback_colons = mission_colon.map_or_else(|| colons.clone(), |colon| vec![colon]);
 
     // Each (colon, digit) pair is an independent template search -- the bulk of
     // the mission cost at native resolution. Fan the pairs across cores; each
     // returns its best candidate, reduced to the serial "highest digit wins".
-    let work: Vec<(usize, usize)> = (0..colons.len()).flat_map(|c| (1..=9).map(move |v| (c, v))).collect();
+    let work: Vec<(usize, usize)> =
+        (0..fallback_colons.len()).flat_map(|c| (1..=9).map(move |v| (c, v))).collect();
     let search_digit = |k: usize| {
         let (ci, v) = work[k];
-        let colon = colons[ci];
+        let colon = fallback_colons[ci];
         let x0 = (colon.x - band_pad_x).max(0);
         let y0 = (colon.y - band_pad_y).max(0);
         let x1 = (colon.x + (colon_w / 2).max(1)).min(label_region.cols());
@@ -1707,7 +1819,7 @@ impl CvMatcher {
         // short-circuit. Parallelism lives inside `find_mission_from_colons`.
         for &scale in scales {
             let glyphs = self.scaled_glyphs(scale)?;
-            let f = find_mission_from_colons(&region, &glyphs.colon, &glyphs.digits)?;
+            let f = find_mission_from_colons(&region, &glyphs)?;
             dbg_cv!(
                 "[mission] scale={scale:.3} m={} score={:.3} cx={} cy={}",
                 f.mission,
@@ -2131,13 +2243,14 @@ impl CvMatcher {
                     Rect::new(0, y0, label_region.cols(), y1 - y0),
                 );
             }
-            let part = best_label_in_band_match(
+            let part = best_label_near_row(
                 &label_region,
                 &self.parts,
                 global_scale,
                 LABEL_THRESHOLD,
-                mission_cy + pad,
-                mission_cy + colon_h * 3,
+                mission_cy + (colon_h as f64 * HEADER_ROW_OFFSET).round() as i32,
+                colon_h,
+                false,
             )?;
             if let Some((part, r)) = part {
                 part_rect = Some(r);
@@ -2184,13 +2297,14 @@ impl CvMatcher {
                     Rect::new(0, y0, label_region.cols(), y1 - y0),
                 );
             }
-            let difficulty = best_label_in_band_match(
+            let difficulty = best_label_near_row(
                 &label_region,
                 &self.diffs,
                 global_scale,
                 LABEL_THRESHOLD,
-                mission_cy - colon_h * 3,
-                mission_cy - pad,
+                mission_cy - (colon_h as f64 * HEADER_ROW_OFFSET).round() as i32,
+                colon_h,
+                true,
             )?;
             if let Some((difficulty, r)) = difficulty {
                 difficulty_rect = Some(r);
@@ -2208,7 +2322,8 @@ impl CvMatcher {
                 "difficulty label fallback search",
                 Rect::new(0, 0, label_region.cols(), label_region.rows()),
             );
-            if let Some((difficulty, r)) = best_label_match(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD)?
+            if let Some((difficulty, r)) =
+                best_label_match_with_wider_ties(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD, true)?
             {
                 difficulty_label = difficulty;
                 difficulty_rect = Some(r);

@@ -129,6 +129,63 @@ async fn rt4k_completed_run_records_the_correct_stats_time() {
     harness.stop_monitor().await.error_for_status().unwrap();
 }
 
+/// GoldenEye briefly updates the header to the next level while leaving the old
+/// stats body visible. That torn frame must end stats refinement, not rename the
+/// completed run to the next level.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn next_level_header_transition_does_not_rename_the_completed_run() {
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        json!({
+            "completedOutputPath": temp.join("completed"),
+            "failedOutputPath": temp.join("failed"),
+            "clipFilenameTemplate": "transition-{level}-{time}",
+            "preRunPaddingSecs": 0,
+            "postRunPaddingSecs": 1
+        })
+    })
+    .await;
+    let completed_dir = harness.temp.join("completed");
+    harness.start_monitor().await.error_for_status().unwrap();
+
+    let start = harness.frame("test/screenshots-av2hdmi/jp - start - 7 - Secret Agent.png");
+    harness.render_until_state(&start, "started").await;
+
+    let stats = harness.frame("test/screenshots-rad2x/jp - stats - 7 - Secret Agent - 0153_0430_0144.png");
+    harness.render_until_state(&stats, "savePending").await;
+
+    let transition =
+        harness.frame("test/screenshots-rad2x/jp - stats - 8 - Secret Agent - 0153 - transition.png");
+    harness.obs.render(transition);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let next_start = harness.frame("test/screenshots-rad2x/jp - start - 8 - Secret Agent.png");
+    harness.render_until_state(&next_start, "started").await;
+
+    let saved = wait_for_clip(&completed_dir).await;
+    assert!(saved.file_name().unwrap().to_string_lossy().contains("Frigate"));
+
+    let runs: Value = harness
+        .client
+        .get(format!("{API}/api/v1/runs"))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let clips = runs["clips"].as_array().expect("clips array");
+    assert_eq!(clips.len(), 1, "the transition should save exactly one completed run");
+    assert_eq!(clips[0]["metadata"]["level"], "Frigate");
+    assert_eq!(clips[0]["metadata"]["levelNumber"], 7);
+    assert_eq!(clips[0]["metadata"]["difficulty"], "Secret Agent");
+    assert_eq!(clips[0]["metadata"]["timeSeconds"], 113);
+
+    harness.stop_monitor().await.error_for_status().unwrap();
+}
+
 /// The minimum-failed-run-length gate must use the corrected time too: with a
 /// 100s minimum, the KIA run (real 14s) is discarded despite the 374s first-frame
 /// misread. Guards the deferred gate in `RecordingState::take_pending_job`.

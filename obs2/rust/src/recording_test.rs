@@ -176,8 +176,10 @@ fn match_with_unreadable_header() -> LevelMatch {
 }
 
 fn match_for_screen(screen: Screen) -> LevelMatch {
-    let mut m = match_without_time();
+    let mut m = match_with_time();
     m.screen = screen;
+    m.times = None;
+    m.raw_times.clear();
     m
 }
 
