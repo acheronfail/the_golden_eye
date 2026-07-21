@@ -52,36 +52,19 @@ const showUpdateAppliedNotification = (version: string, releaseUrl?: string): vo
 	});
 };
 
-/** In production the page is about to reload after `updateApplied`, so persist
- * the toast across the reload and show it once on the fresh page. Dev never
- * reloads (no `ge-build-id` meta tag), so there it must show immediately. */
-const handleUpdateApplied = (version: string, releaseUrl?: string): void => {
-	if (backend.selfBuildId() === null) {
-		showUpdateAppliedNotification(version, releaseUrl);
-		return;
-	}
+const discardPersistedUpdateAppliedNotification = (): void => {
 	try {
-		sessionStorage.setItem(UPDATE_APPLIED_STORAGE_KEY, JSON.stringify({ version, releaseUrl }));
+		sessionStorage.removeItem(UPDATE_APPLIED_STORAGE_KEY);
 	} catch (err) {
-		console.warn('Failed to persist pending update-applied notice', err);
+		console.warn('Failed to discard legacy update-applied notice', err);
 	}
 };
 
-const consumePendingUpdateAppliedNotification = (): void => {
-	let stored: string | null = null;
-	try {
-		stored = sessionStorage.getItem(UPDATE_APPLIED_STORAGE_KEY);
-		if (stored !== null) sessionStorage.removeItem(UPDATE_APPLIED_STORAGE_KEY);
-	} catch (err) {
-		console.warn('Failed to read pending update-applied notice', err);
-	}
-	if (stored === null) return;
-	try {
-		const parsed = JSON.parse(stored) as { version: string; releaseUrl?: string };
-		showUpdateAppliedNotification(parsed.version, parsed.releaseUrl);
-	} catch (err) {
-		console.warn('Failed to parse pending update-applied notice', err);
-	}
+/** The backend repeats this event for connections made shortly after a reload,
+ * so the fresh page can show it directly without carrying stale state forward. */
+export const handleUpdateApplied = (version: string, releaseUrl?: string): void => {
+	discardPersistedUpdateAppliedNotification();
+	showUpdateAppliedNotification(version, releaseUrl);
 };
 
 const notifyYoutubeUploadChanged = (upload: import('./api').YouTubeUploadStatus): void => {
@@ -348,9 +331,7 @@ const updateNotification = (update: PluginUpdate) => ({
 
 export const startAppSocket = (): void => {
 	if (!browser) return;
-	// Picks up a notice persisted by handleUpdateApplied just before a
-	// production reload landed us here on the fresh page.
-	consumePendingUpdateAppliedNotification();
+	discardPersistedUpdateAppliedNotification();
 	stopped = false;
 	connect();
 };
