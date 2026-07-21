@@ -10,43 +10,19 @@ use crate::ffmpeg;
 use crate::models::clip_metadata::ClipMetadata;
 use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
 
-const CREATE_TABLE: &str = "CREATE TABLE IF NOT EXISTS clips (
-    path TEXT PRIMARY KEY NOT NULL,
-    size_bytes INTEGER NOT NULL,
-    modified_unix INTEGER,
-    duration_secs REAL,
-    metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json)),
-    youtube_json TEXT CHECK (youtube_json IS NULL OR json_valid(youtube_json))
-)";
-const CREATE_STATUS_TIMESTAMP_INDEX: &str = "CREATE INDEX IF NOT EXISTS clips_status_timestamp_idx ON clips(
-        json_extract(metadata_json, '$.status'),
-        json_extract(metadata_json, '$.timestamp') DESC
-    )";
+const CREATE_TABLE: &str = include_str!("sql/clips/create_table.sql");
+const CREATE_STATUS_TIMESTAMP_INDEX: &str = include_str!("sql/clips/create_status_timestamp_index.sql");
 const CREATE_LEVEL_DIFFICULTY_TIMESTAMP_INDEX: &str =
-    "CREATE INDEX IF NOT EXISTS clips_level_difficulty_timestamp_idx ON clips(
-        json_extract(metadata_json, '$.level'),
-        json_extract(metadata_json, '$.difficulty'),
-        json_extract(metadata_json, '$.timestamp') DESC
-    )";
+    include_str!("sql/clips/create_level_difficulty_timestamp_index.sql");
 const CREATE_TIME_INDEX: &str =
     "CREATE INDEX IF NOT EXISTS clips_time_idx ON clips(json_extract(metadata_json, '$.timeSeconds'))";
 const SELECT_ALL: &str = "SELECT path, size_bytes, modified_unix, duration_secs, metadata_json FROM clips";
-const UPSERT_CLIP: &str = "INSERT INTO clips(path, size_bytes, modified_unix, duration_secs, metadata_json)
-VALUES (?1, ?2, ?3, ?4, ?5)
-ON CONFLICT(path) DO UPDATE SET
-    size_bytes = excluded.size_bytes,
-    modified_unix = excluded.modified_unix,
-    duration_secs = excluded.duration_secs,
-    metadata_json = excluded.metadata_json";
+const UPSERT_CLIP: &str = include_str!("sql/clips/upsert.sql");
 const UPDATE_PATH: &str = "UPDATE clips SET path = ?1 WHERE path = ?2";
 const DELETE_PATH: &str = "DELETE FROM clips WHERE path = ?1";
 const SELECT_PATHS: &str = "SELECT path FROM clips";
-const SELECT_FAILED_PATHS: &str = "SELECT path FROM clips
-WHERE json_extract(metadata_json, '$.status') IN ('failed', 'abort', 'kia')
-ORDER BY json_extract(metadata_json, '$.timestamp') DESC, path DESC";
-const SELECT_YOUTUBE_HISTORY: &str = "SELECT path, youtube_json FROM clips
-WHERE youtube_json IS NOT NULL
-ORDER BY json_extract(youtube_json, '$.uploadedAt') ASC, json_extract(youtube_json, '$.videoId') ASC";
+const SELECT_FAILED_PATHS: &str = include_str!("sql/clips/select_failed_paths.sql");
+const SELECT_YOUTUBE_HISTORY: &str = include_str!("sql/clips/select_youtube_history.sql");
 const UPDATE_YOUTUBE_HISTORY: &str = "UPDATE clips SET youtube_json = ?1 WHERE path = ?2";
 const CLEAR_YOUTUBE_HISTORY: &str = "UPDATE clips SET youtube_json = NULL WHERE path = ?1 AND youtube_json IS NOT NULL";
 
