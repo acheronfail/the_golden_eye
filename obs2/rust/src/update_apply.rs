@@ -77,14 +77,19 @@ pub fn has_staged_update() -> bool {
     dir.join(STAGED_DIR_NAME).join(leaf).is_file()
 }
 
-/// No active monitor session and no in-flight recording/replay-buffer activity.
+/// No active monitor session and no in-flight recording activity.
+/// A running replay buffer is owned by OBS and survives a core reload, so it
+/// does not make applying an update unsafe by itself.
 /// Shared by the auto-apply loop and manual "apply now" -- re-check immediately
 /// before triggering (not just when staged) to close the "was safe"/"still safe" gap.
 pub fn is_safe_to_apply(state: &AppStateInner) -> bool {
-    let no_monitor = state.monitor.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).is_none();
-    let no_recording = state.recording_state.current().is_none();
-    let no_replay_buffer = !crate::recording::replay_buffer_active();
-    no_monitor && no_recording && no_replay_buffer
+    let monitor_active = state.monitor.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).is_some();
+    let recording_active = state.recording_state.current().is_some();
+    activity_is_safe_to_apply(monitor_active, recording_active)
+}
+
+fn activity_is_safe_to_apply(monitor_active: bool, recording_active: bool) -> bool {
+    !monitor_active && !recording_active
 }
 
 /// Wakes the shim's reload worker to apply whatever is staged. Must run on a plain OS

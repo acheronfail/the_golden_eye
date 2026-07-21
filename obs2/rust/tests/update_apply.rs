@@ -409,6 +409,36 @@ async fn apply_now_is_refused_while_monitoring() {
     server.await.unwrap();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn apply_now_succeeds_with_replay_buffer_running_after_monitor_stops() {
+    let core_leaf = "golden_core.test";
+    let (base_url, shutdown_tx, server) = start_mock_github(core_leaf, true).await;
+
+    unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", format!("{base_url}/latest")) };
+
+    let harness = Harness::start(Duration::ZERO).await;
+    let core_path = harness.temp.join(core_leaf);
+    let download_response = harness.client.post(format!("{API}/api/v1/updates/download")).send().await.unwrap();
+    assert_eq!(download_response.status().as_u16(), 204, "download-now should stage the update");
+    wait_for_staged_core(&core_path).await;
+
+    let start_response = harness.start_monitor().await;
+    assert!(start_response.status().is_success(), "failed to start monitor: {}", start_response.status());
+    harness.stop_monitor().await;
+    assert!(harness.obs.replay_active(), "the default setting should leave the replay buffer running");
+
+    let response = harness.client.post(format!("{API}/api/v1/updates/apply")).send().await.unwrap();
+    assert_eq!(response.status().as_u16(), 202, "replay-buffer activity alone should not block apply-now");
+    wait_for_core_trigger_reload(&harness).await;
+    assert_eq!(harness.obs.calls().core_trigger_reload, 1);
+
+    drop(harness);
+    unsafe { std::env::remove_var("GE_UPDATE_CHECK_URL") };
+    shutdown_tx.send(()).unwrap();
+    server.await.unwrap();
+}
+
 /// Proves the actual bug report this is fixing: the automatic startup check
 /// finding nothing must not block a manual "check now" a moment later from
 /// finding a release that appeared afterward -- `check_for_updates_now` has
