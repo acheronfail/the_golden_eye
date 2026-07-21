@@ -25,9 +25,15 @@ fn asset_zip_names_match_the_package_contract() {
 #[test]
 fn update_safety_only_blocks_monitoring_and_in_flight_recording() {
     assert!(activity_is_safe_to_apply(false, false));
-    assert!(!activity_is_safe_to_apply(true, false));
-    assert!(!activity_is_safe_to_apply(false, true));
-    assert!(!activity_is_safe_to_apply(true, true));
+    if cfg!(feature = "dev") {
+        assert!(activity_is_safe_to_apply(true, false));
+        assert!(activity_is_safe_to_apply(false, true));
+        assert!(activity_is_safe_to_apply(true, true));
+    } else {
+        assert!(!activity_is_safe_to_apply(true, false));
+        assert!(!activity_is_safe_to_apply(false, true));
+        assert!(!activity_is_safe_to_apply(true, true));
+    }
 }
 
 #[test]

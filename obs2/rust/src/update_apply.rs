@@ -77,9 +77,10 @@ pub fn has_staged_update() -> bool {
     dir.join(STAGED_DIR_NAME).join(leaf).is_file()
 }
 
-/// No active monitor session and no in-flight recording activity.
+/// In production, no active monitor session and no in-flight recording activity.
 /// A running replay buffer is owned by OBS and survives a core reload, so it
 /// does not make applying an update unsafe by itself.
+/// Dev builds intentionally relax the monitor/recording checks for hot reload.
 /// Shared by the auto-apply loop and manual "apply now" -- re-check immediately
 /// before triggering (not just when staged) to close the "was safe"/"still safe" gap.
 pub fn is_safe_to_apply(state: &AppStateInner) -> bool {
@@ -89,7 +90,7 @@ pub fn is_safe_to_apply(state: &AppStateInner) -> bool {
 }
 
 fn activity_is_safe_to_apply(monitor_active: bool, recording_active: bool) -> bool {
-    !monitor_active && !recording_active
+    cfg!(feature = "dev") || (!monitor_active && !recording_active)
 }
 
 /// Wakes the shim's reload worker to apply whatever is staged. Must run on a plain OS
