@@ -1,16 +1,16 @@
 use std::env;
 use std::path::PathBuf;
 
-use super::shared::env_os;
+use super::EnvVar;
 use crate::settings::SETTINGS_FILE_NAME;
 
 #[cfg(target_os = "windows")]
-const APPDATA: &str = "APPDATA";
-const HOME: &str = "HOME";
+static APPDATA: EnvVar = EnvVar::new("APPDATA");
+static HOME: EnvVar = EnvVar::new("HOME");
 #[cfg(target_os = "windows")]
-const USERPROFILE: &str = "USERPROFILE";
+static USERPROFILE: EnvVar = EnvVar::new("USERPROFILE");
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-const XDG_CONFIG_HOME: &str = "XDG_CONFIG_HOME";
+static XDG_CONFIG_HOME: EnvVar = EnvVar::new("XDG_CONFIG_HOME");
 
 /// Controls where the backend reads and writes the persistent settings file.
 pub(crate) fn default_settings_path() -> PathBuf {
@@ -23,7 +23,7 @@ pub(crate) fn default_settings_path() -> PathBuf {
 
     #[cfg(target_os = "windows")]
     {
-        if let Some(appdata) = env_os(APPDATA) {
+        if let Some(appdata) = APPDATA.os() {
             return PathBuf::from(appdata).join("The Golden Eye").join(SETTINGS_FILE_NAME);
         }
         if let Some(profile) = home_dir() {
@@ -33,7 +33,7 @@ pub(crate) fn default_settings_path() -> PathBuf {
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        if let Some(config_home) = env_os(XDG_CONFIG_HOME) {
+        if let Some(config_home) = XDG_CONFIG_HOME.os() {
             return PathBuf::from(config_home).join("the-golden-eye").join(SETTINGS_FILE_NAME);
         }
         if let Some(home) = home_dir() {
@@ -58,11 +58,11 @@ pub(crate) fn temp_dir() -> PathBuf {
 pub(crate) fn home_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
-        env_os(USERPROFILE).map(PathBuf::from)
+        USERPROFILE.os().map(PathBuf::from)
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        env_os(HOME).map(PathBuf::from)
+        HOME.os().map(PathBuf::from)
     }
 }

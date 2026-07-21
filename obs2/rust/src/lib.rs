@@ -1,6 +1,6 @@
 mod browser;
 mod browser_dock;
-mod config;
+pub mod config;
 pub mod cv;
 mod db;
 mod ffi;

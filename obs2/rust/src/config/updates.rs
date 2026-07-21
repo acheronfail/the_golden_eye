@@ -1,7 +1,7 @@
-use super::shared::{env_string, env_value_enabled};
+use super::EnvVar;
 
-const GE_UPDATE_CHECK_URL: &str = "GE_UPDATE_CHECK_URL";
-const GE_UPDATE_INCLUDE_PRERELEASES: &str = "GE_UPDATE_INCLUDE_PRERELEASES";
+static GE_UPDATE_CHECK_URL: EnvVar = EnvVar::new("GE_UPDATE_CHECK_URL");
+static GE_UPDATE_INCLUDE_PRERELEASES: EnvVar = EnvVar::new("GE_UPDATE_INCLUDE_PRERELEASES");
 
 /// Default GitHub endpoint used for stable plugin update checks.
 pub(crate) const LATEST_RELEASE_API_URL: &str =
@@ -19,14 +19,14 @@ pub(crate) struct UpdateEnvConfig {
 impl UpdateEnvConfig {
     /// Reads plugin update overrides from `GE_UPDATE_CHECK_URL` and `GE_UPDATE_INCLUDE_PRERELEASES`.
     pub(crate) fn from_env() -> Self {
-        Self::from_values(env_string(GE_UPDATE_CHECK_URL), env_string(GE_UPDATE_INCLUDE_PRERELEASES))
+        Self::from_values(GE_UPDATE_CHECK_URL.string(), GE_UPDATE_INCLUDE_PRERELEASES.string())
     }
 
     /// Builds update configuration from raw values for tests and non-environment callers.
     pub(crate) fn from_values(check_url: Option<String>, include_prereleases: Option<String>) -> Self {
         Self {
             check_url_override: check_url,
-            include_prereleases_override: include_prereleases.map(|value| env_value_enabled(&value)),
+            include_prereleases_override: include_prereleases.map(|value| EnvVar::truthy_value(&value)),
         }
     }
 
@@ -46,19 +46,19 @@ impl UpdateEnvConfig {
     /// Logs active update environment overrides so support logs show non-default update behavior.
     pub(crate) fn log(&self) {
         if let Some(url) = &self.check_url_override {
-            tracing::info!(env = GE_UPDATE_CHECK_URL, url = %url, "plugin update check URL overridden by environment");
+            tracing::info!(env = GE_UPDATE_CHECK_URL.key(), url = %url, "plugin update check URL overridden by environment");
         }
         if let Some(include_prereleases) = self.include_prereleases_override {
             tracing::info!(
-                env = GE_UPDATE_INCLUDE_PRERELEASES,
+                env = GE_UPDATE_INCLUDE_PRERELEASES.key(),
                 include_prereleases,
                 "plugin update pre-release selection overridden by environment"
             );
         }
         if self.check_url_override.is_some() && self.include_prereleases_override.is_some() {
             tracing::warn!(
-                url_env = GE_UPDATE_CHECK_URL,
-                ignored_for_endpoint_env = GE_UPDATE_INCLUDE_PRERELEASES,
+                url_env = GE_UPDATE_CHECK_URL.key(),
+                ignored_for_endpoint_env = GE_UPDATE_INCLUDE_PRERELEASES.key(),
                 "plugin update URL override takes precedence; pre-release env var will not change the release API endpoint"
             );
         }

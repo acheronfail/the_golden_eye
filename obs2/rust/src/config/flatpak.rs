@@ -1,14 +1,14 @@
-use super::shared::env_string;
+use super::EnvVar;
 
-const FLATPAK_ID: &str = "FLATPAK_ID";
-const XDG_RUNTIME_DIR: &str = "XDG_RUNTIME_DIR";
+static FLATPAK_ID: EnvVar = EnvVar::new("FLATPAK_ID");
+static XDG_RUNTIME_DIR: EnvVar = EnvVar::new("XDG_RUNTIME_DIR");
 
 /// Controls Flatpak-specific host path hints for frame-dump diagnostics.
 pub(crate) fn flatpak_id() -> Option<String> {
-    env_string(FLATPAK_ID)
+    FLATPAK_ID.string()
 }
 
 /// Controls Flatpak runtime directory mapping for frame-dump diagnostics.
 pub(crate) fn xdg_runtime_dir() -> Option<String> {
-    env_string(XDG_RUNTIME_DIR)
+    XDG_RUNTIME_DIR.string()
 }

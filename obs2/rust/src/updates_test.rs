@@ -137,10 +137,10 @@ fn env_config_false_prerelease_override_is_recorded_but_disabled() {
 #[test]
 fn env_value_enabled_accepts_common_truthy_values() {
     for value in ["1", "true", "TRUE", " yes ", "on"] {
-        assert!(crate::config::env_value_enabled(value));
+        assert!(crate::config::EnvVar::truthy_value(value));
     }
     for value in ["", "0", "false", "no", "off", "anything"] {
-        assert!(!crate::config::env_value_enabled(value));
+        assert!(!crate::config::EnvVar::truthy_value(value));
     }
 }
 
