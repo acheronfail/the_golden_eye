@@ -413,6 +413,61 @@ pub fn stop_replay_buffer_if_active() {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct RunIdentity {
+    mission: i32,
+    part: i32,
+    difficulty: i32,
+}
+
+impl RunIdentity {
+    fn from_match(m: &LevelMatch) -> Option<Self> {
+        ge::level_info(m.mission, m.part)?;
+        ge::difficulty_name(m.difficulty)?;
+        Some(Self { mission: m.mission, part: m.part, difficulty: m.difficulty })
+    }
+
+    fn apply_to(self, m: &mut LevelMatch) {
+        m.mission = self.mission;
+        m.part = self.part;
+        m.difficulty = self.difficulty;
+        if !m.raw_times.is_empty() {
+            m.times = ge::Times::classify(self.mission, self.part, self.difficulty, &m.raw_times);
+        }
+    }
+
+    fn immediately_precedes(self, next: Self) -> bool {
+        let Some(current) = ge::level_info(self.mission, self.part) else {
+            return false;
+        };
+        let Some(next) = ge::level_info(next.mission, next.part) else {
+            return false;
+        };
+        current.number.checked_add(1) == Some(next.number)
+    }
+}
+
+#[derive(Default)]
+struct RunIdentityVote {
+    counts: HashMap<RunIdentity, u32>,
+    best_count: u32,
+    winner: Option<RunIdentity>,
+}
+
+impl RunIdentityVote {
+    fn record(&mut self, identity: RunIdentity) {
+        let count = {
+            let count = self.counts.entry(identity).or_insert(0);
+            *count += 1;
+            *count
+        };
+        if count > self.best_count {
+            self.best_count = count;
+            self.winner = Some(identity);
+        }
+    }
+}
+
 /// A scheduled save that *will* happen, captured in full when the stats screen is
 /// seen. Decoupled from the active-run state: once scheduled it owns all it needs,
 /// so backing out or starting another run can't drop it -- it fires on its own timer.
@@ -500,15 +555,15 @@ fn record_stats_vote(pending: &mut PendingSave, m: &LevelMatch) -> bool {
     let mut changed = pending.time_vote.record(times.map(|t| t.time));
     changed |= pending.target_vote.record(times.and_then(|t| t.target_time));
     changed |= pending.best_vote.record(times.and_then(|t| t.best_time));
-    // Keep the newest frame as the naming/level source, then overwrite its times
-    // with the voted winners so downstream naming/metadata use the stable values.
-    let mut stats = m.clone();
-    stats.times = pending.time_vote.winner.map(|time| crate::ge::Times {
-        time,
-        target_time: pending.target_vote.winner,
-        best_time: pending.best_vote.winner,
-    });
-    pending.stats = Some(stats);
+    // Identity and diagnostics stay anchored to the run's canonical match; only
+    // the independently voted time fields are refined by later stats frames.
+    if let Some(stats) = pending.stats.as_mut() {
+        stats.times = pending.time_vote.winner.map(|time| crate::ge::Times {
+            time,
+            target_time: pending.target_vote.winner,
+            best_time: pending.best_vote.winner,
+        });
+    }
     changed
 }
 
@@ -588,6 +643,9 @@ pub struct RecordingState {
     /// if not reached. Presence means the run finished (so backing out still saves);
     /// absence means abandoned. Also names the clip when the stats screen is skipped.
     report: Option<LevelMatch>,
+    /// Majority identity observed on the active run's start/007-options screen.
+    /// This is the canonical level signal used to validate later report/stats frames.
+    identity_vote: RunIdentityVote,
     /// A scheduled save in flight, if any. Independent of the active run: once
     /// set it is always saved when its timer elapses, even if the user backs out
     /// or starts another run in the meantime.
@@ -623,6 +681,7 @@ impl RecordingState {
             clip_start: None,
             status: None,
             report: None,
+            identity_vote: RunIdentityVote::default(),
             pending: None,
             next_save_id: 1,
             event_tx,
@@ -656,16 +715,29 @@ impl RecordingState {
         self.rom_language = rom_language;
     }
 
+    fn canonicalize_match(&self, mut m: LevelMatch) -> LevelMatch {
+        if let Some(identity) = self.identity_vote.winner {
+            let observed = RunIdentity::from_match(&m);
+            if observed != Some(identity) {
+                tracing::info!(?identity, ?observed, "using start-screen identity for completed run");
+                identity.apply_to(&mut m);
+            }
+        }
+        m
+    }
+
     /// Schedule the replay-buffer save for a finished run, ending report tracking.
     /// `stats` names the clip (stats-screen match, or report-screen when skipped).
     /// Any earlier pending save is flushed first so it isn't dropped.
     fn schedule_save(&mut self, now: Instant, clip_start: Instant, stats: Option<LevelMatch>) -> bool {
         self.flush_pending(now);
+        let stats = stats.map(|m| self.canonicalize_match(m));
         let status = self.status.unwrap_or(RunStatus::Complete);
         if status.is_failed() && !self.options.save_failed_runs {
             tracing::info!("failed run reached an ending screen but failed-run saving is disabled");
             self.status = None;
             self.report = None;
+            self.identity_vote = RunIdentityVote::default();
             // The run is over and nothing will be saved, so drop the phase back to
             // idle ("waiting") and surface the outcome as a one-off notification
             // rather than a lingering "failed run not saved" phase.
@@ -806,6 +878,28 @@ impl RecordingState {
             if pending.time_vote.counts.is_empty() || pending.stats_vote_closed {
                 return;
             }
+            let expected = pending.stats.as_ref().and_then(RunIdentity::from_match);
+            let incoming = RunIdentity::from_match(m);
+            if let Some(expected) = expected {
+                let Some(incoming) = incoming else {
+                    return;
+                };
+                if expected.immediately_precedes(incoming) {
+                    tracing::info!(
+                        from_mission = expected.mission,
+                        from_part = expected.part,
+                        to_mission = incoming.mission,
+                        to_part = incoming.part,
+                        "next level header appeared before stats screen cleared; closing stats vote"
+                    );
+                    pending.stats_vote_closed = true;
+                    return;
+                }
+                if incoming != expected {
+                    tracing::debug!(?expected, ?incoming, "ignoring mismatched stats identity");
+                    return;
+                }
+            }
             record_stats_vote(pending, m)
         };
         self.sync_pending_notification(now, time_changed);
@@ -852,9 +946,13 @@ impl RecordingState {
                     self.clip_start = Some(now);
                     self.status = None;
                     self.report = None;
+                    self.identity_vote = RunIdentityVote::default();
                     ensure_replay_buffer_running_for_recording();
                     tracing::info!("recording session started");
                     self.emit(RecordingStatus::Started);
+                }
+                if let Some(identity) = RunIdentity::from_match(m) {
+                    self.identity_vote.record(identity);
                 }
             }
             // Returning to the mission grid. Meaning depends on whether the run
@@ -885,6 +983,7 @@ impl RecordingState {
                         // No report screen was seen: the run was abandoned mid-play,
                         // so there's nothing worth saving.
                         self.status = None;
+                        self.identity_vote = RunIdentityVote::default();
                         tracing::info!("recording session abandoned (returned to level select)");
                         self.emit(RecordingStatus::Cancelled);
                     }
@@ -895,7 +994,8 @@ impl RecordingState {
             // so clients see one transition; the screen picks the status/why it ended.
             Screen::Failed | Screen::Abort | Screen::Kia => {
                 if self.clip_start.is_some() {
-                    self.report.get_or_insert_with(|| m.clone());
+                    let report = self.canonicalize_match(m.clone());
+                    self.report.get_or_insert(report);
                     if !self.status.is_some_and(RunStatus::is_failed) {
                         self.status = RunStatus::from_failure_screen(m.screen);
                         self.emit(match m.screen {
@@ -912,7 +1012,8 @@ impl RecordingState {
             Screen::Complete => {
                 if self.clip_start.is_some() {
                     let first_report = self.report.is_none();
-                    self.report.get_or_insert_with(|| m.clone());
+                    let report = self.canonicalize_match(m.clone());
+                    self.report.get_or_insert(report);
                     if first_report || self.status.is_some_and(RunStatus::is_failed) {
                         self.status = Some(RunStatus::Complete);
                         self.emit(RecordingStatus::Complete);
@@ -929,7 +1030,8 @@ impl RecordingState {
                         // Seed the vote with this first reading; later stats frames
                         // refine `stats` toward the most-seen time.
                         if let Some(pending) = self.pending.as_mut() {
-                            record_stats_vote(pending, m);
+                            let initial = pending.stats.clone().expect("stats save retains its match");
+                            record_stats_vote(pending, &initial);
                         }
                         self.emit(RecordingStatus::SavePending);
                     }
