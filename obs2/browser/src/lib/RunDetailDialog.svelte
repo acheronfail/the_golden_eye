@@ -2,63 +2,32 @@
 	import { onDestroy } from 'svelte';
 	import { linear } from 'svelte/easing';
 	import { tweened } from 'svelte/motion';
+	import { backend, type EditableRunMetadata, type RunClip } from '$lib/api';
+	import { Select, settings } from '$lib';
 	import {
-		backend,
-		type EditableRunMetadata,
-		type RunClip,
-		type YouTubeUploadHistoryEntry,
-		type YouTubeUploadStatus
-	} from '$lib/api';
-	import { Select, settings, type SelectOption } from '$lib';
-	import { DIFFICULTY_OPTIONS, LANGUAGE_OPTIONS, STATUS_OPTIONS, fileRows, runDetail } from '$lib/runsView';
+		DIFFICULTY_OPTIONS,
+		LANGUAGE_OPTIONS,
+		STATUS_OPTIONS,
+		fileRows,
+		runDetail,
+		type RunDetailView
+	} from '$lib/runsView';
 	import { datetimeLocalForClip, renderYouTubeUploadPreview } from '$lib/youtubeMetadata';
+	import { youtube } from '$lib/youtube.svelte';
 	import YouTubeConnectButton from '$lib/YouTubeConnectButton.svelte';
 
 	let {
 		clip,
 		metadataDraft = $bindable(),
-		modalError,
-		modalBusy,
-		fileBrowserLabel,
-		levelOptions,
-		close,
-		deleteRun,
-		revealRun,
-		renameRun,
-		saveMetadata,
-		normalizeDraftTime,
-		youtubeEnabled,
-		youtubeConnected,
-		youtubeOAuthConfigured,
-		youtubeLoaded,
-		youtubeUpload,
-		youtubeHistory,
-		youtubeError,
-		uploadToYouTube,
-		forgetYouTubeUpload
+		view
 	}: {
 		clip: RunClip | null;
 		metadataDraft: EditableRunMetadata | null;
-		modalError: string | null;
-		modalBusy: string | null;
-		fileBrowserLabel: string;
-		levelOptions: SelectOption[];
-		close: () => void;
-		deleteRun: () => void;
-		revealRun: () => void;
-		renameRun: () => void;
-		saveMetadata: () => void;
-		normalizeDraftTime: () => void;
-		youtubeEnabled: boolean;
-		youtubeConnected: boolean;
-		youtubeOAuthConfigured: boolean;
-		youtubeLoaded: boolean;
-		youtubeUpload: YouTubeUploadStatus | null;
-		youtubeHistory: YouTubeUploadHistoryEntry | null;
-		youtubeError: string | null;
-		uploadToYouTube: () => void;
-		forgetYouTubeUpload: () => void;
+		view: RunDetailView;
 	} = $props();
+
+	let youtubeUpload = $derived(clip ? youtube.uploadForPath(clip.path) : null);
+	let youtubeHistory = $derived(clip ? youtube.historyForPath(clip.path) : null);
 
 	let youtubeHelpOpen = $state(false);
 	let youtubeHelpInitializedForClip = $state<string | null>(null);
@@ -89,7 +58,7 @@
 		return `${Math.round(youtubeDisplayProgressRatio * 100)}%`;
 	});
 	let youtubeButtonLabel = $derived.by(() => {
-		if (!youtubeLoaded) return 'Loading YouTube...';
+		if (!youtube.loaded) return 'Loading YouTube...';
 		if (!youtubeUpload && youtubeHistory) return 'Uploaded';
 		if (!youtubeUpload) return 'Upload';
 		if (youtubeUpload.state === 'queued') return 'Queued...';
@@ -100,8 +69,8 @@
 		return 'Upload';
 	});
 	let youtubeButtonDisabled = $derived(
-		!youtubeLoaded ||
-			(!youtubeConnected && !youtubeOAuthConfigured) ||
+		!youtube.loaded ||
+			(!youtube.connected && !youtube.oauthConfigured) ||
 			youtubeUpload?.state === 'queued' ||
 			youtubeUpload?.state === 'uploading' ||
 			youtubeUpload?.state === 'processing' ||
@@ -126,13 +95,15 @@
 			? (youtubeUpload.error ?? 'Upload failed')
 			: null
 	);
-	let visibleYoutubeError = $derived(youtubeError && youtubeError !== youtubeDismissedStoreError ? youtubeError : null);
+	let visibleYoutubeError = $derived(
+		youtube.error && youtube.error !== youtubeDismissedStoreError ? youtube.error : null
+	);
 
 	const scheduleMetadataSave = (debounceMs = 0) => {
 		if (metadataSaveTimer) clearTimeout(metadataSaveTimer);
 		metadataSaveTimer = setTimeout(() => {
 			metadataSaveTimer = null;
-			saveMetadata();
+			view.actions.saveMetadata();
 		}, debounceMs);
 	};
 	const saveMetadataNow = () => {
@@ -140,10 +111,10 @@
 			clearTimeout(metadataSaveTimer);
 			metadataSaveTimer = null;
 		}
-		saveMetadata();
+		view.actions.saveMetadata();
 	};
 	const normalizeAndSaveMetadataNow = () => {
-		normalizeDraftTime();
+		view.actions.normalizeDraftTime();
 		saveMetadataNow();
 	};
 	onDestroy(() => {
@@ -153,6 +124,18 @@
 	const openYoutubeVideo = () => {
 		if (!youtubeOpenUrl) return;
 		void backend.openYouTubeUrl(youtubeOpenUrl).catch((err) => console.warn('Failed to open YouTube video', err));
+	};
+	const uploadToYouTube = () => {
+		if (!clip) return;
+		const datetimeLocal = datetimeLocalForClip(
+			clip,
+			typeof navigator === 'undefined' ? undefined : navigator.languages
+		);
+		void youtube.upload(clip.path, { datetimeLocal }).catch((err) => console.warn('Failed to upload to YouTube', err));
+	};
+	const forgetYouTubeUpload = () => {
+		if (!clip) return;
+		void youtube.forget(clip.path).catch((err) => console.warn('Failed to forget YouTube upload', err));
 	};
 	const copyYouTubeUrl = () => {
 		if (!youtubeOpenUrl) return;
@@ -200,7 +183,11 @@
 
 {#if clip}
 	<div class="obs-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
-		<button type="button" aria-label="Close run viewer" class="absolute inset-0 cursor-default" onclick={close}
+		<button
+			type="button"
+			aria-label="Close run viewer"
+			class="absolute inset-0 cursor-default"
+			onclick={view.actions.close}
 		></button>
 		<dialog
 			open
@@ -216,30 +203,32 @@
 				<div class="mb-4 flex flex-wrap justify-end gap-2">
 					<button
 						type="button"
-						onclick={deleteRun}
-						disabled={modalBusy !== null}
+						onclick={view.actions.delete}
+						disabled={view.modal.busy !== null}
 						class="obs-text-button obs-button-danger px-2 py-1 font-mono text-xs">delete</button
 					>
 					<button
 						type="button"
-						onclick={revealRun}
-						disabled={modalBusy !== null}
+						onclick={view.actions.reveal}
+						disabled={view.modal.busy !== null}
 						class="obs-text-button px-2 py-1 font-mono text-xs"
 					>
-						{fileBrowserLabel}
+						{view.display.fileBrowserLabel}
 					</button>
 					<button
 						type="button"
-						onclick={renameRun}
-						disabled={modalBusy !== null}
+						onclick={view.actions.rename}
+						disabled={view.modal.busy !== null}
 						class="obs-text-button px-2 py-1 font-mono text-xs">rename</button
 					>
-					<button type="button" onclick={close} class="obs-text-button px-2 py-1 font-mono text-xs">close</button>
+					<button type="button" onclick={view.actions.close} class="obs-text-button px-2 py-1 font-mono text-xs"
+						>close</button
+					>
 				</div>
 				<!-- svelte-ignore a11y_media_has_caption -->
 				<video src={backend.runVideoUrl(clip.path)} controls class="obs-preview aspect-video w-full"></video>
 
-				{#if youtubeEnabled}
+				{#if youtube.enabled}
 					<section class="obs-subpanel mt-4 rounded px-4 py-3">
 						<div class="mb-3 flex items-center justify-between gap-3">
 							<h3 class="font-mono text-xs font-semibold tracking-[0.2em] text-(--obs-text-muted) uppercase">
@@ -317,7 +306,7 @@
 									</dl>
 								</div>
 								<div class="flex flex-wrap items-center justify-center gap-2">
-									{#if youtubeLoaded && !youtubeConnected}
+									{#if youtube.loaded && !youtube.connected}
 										<YouTubeConnectButton class="px-3 py-1.5 font-mono text-sm" />
 									{:else}
 										<button
@@ -372,7 +361,7 @@
 										{visibleYoutubeUploadError}
 									</p>
 								</div>
-							{:else if youtubeLoaded && !youtubeOAuthConfigured}
+							{:else if youtube.loaded && !youtube.oauthConfigured}
 								<p class="text-xs text-(--obs-danger)">YouTube OAuth is not configured in this build.</p>
 							{/if}
 							{#if visibleYoutubeError}
@@ -383,7 +372,7 @@
 											type="button"
 											class="obs-text-button obs-button-xs cursor-pointer"
 											aria-label="Dismiss YouTube error"
-											onclick={() => (youtubeDismissedStoreError = youtubeError)}>×</button
+											onclick={() => (youtubeDismissedStoreError = youtube.error)}>×</button
 										>
 									</div>
 									<p
@@ -397,10 +386,10 @@
 					</section>
 				{/if}
 
-				{#if modalError}
+				{#if view.modal.error}
 					<div class="obs-alert-error mt-4 rounded px-4 py-3">
 						<p class="obs-alert-error-title text-sm font-semibold">Run update failed</p>
-						<p class="obs-alert-error-body mt-1 font-mono text-xs">{modalError}</p>
+						<p class="obs-alert-error-body mt-1 font-mono text-xs">{view.modal.error}</p>
 					</div>
 				{/if}
 
@@ -412,7 +401,7 @@
 								class="w-full"
 								placeholder="select level"
 								bind:value={metadataDraft.level}
-								options={levelOptions}
+								options={view.display.levelOptions}
 								onChange={() => scheduleMetadataSave()}
 							/>
 						</label>

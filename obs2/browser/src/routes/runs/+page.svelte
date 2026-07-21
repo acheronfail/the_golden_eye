@@ -5,8 +5,6 @@
 	import RunList from '$lib/RunList.svelte';
 	import RunsFolderChooser from '$lib/RunsFolderChooser.svelte';
 	import { settings } from '$lib/settings.svelte';
-	import { datetimeLocalForClip } from '$lib/youtubeMetadata';
-	import { youtube } from '$lib/youtube.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
 		EMPTY_RUN_FILTERS,
@@ -16,6 +14,7 @@
 		hasActiveRunFilters,
 		activeRunFilterLabels,
 		visibleRunClips,
+		type RunDetailView,
 		type RunFilters
 	} from '$lib/runsView';
 	import { onDestroy, onMount } from 'svelte';
@@ -33,30 +32,15 @@
 	let folderBrowserLabel = $state('show clips folder');
 	let folderRevealBusy = $state(false);
 	let folderChooserOpen = $state(false);
-	let search = $state('');
-	let levelFilter = $state('');
-	let difficultyFilter = $state('');
-	let statusFilter = $state('');
-	let languageFilter = $state('');
-	let minTimeFilter = $state('');
-	let maxTimeFilter = $state('');
+	let filters = $state<RunFilters>({ ...EMPTY_RUN_FILTERS });
 	let filtersCollapsed = $state(false);
 	let reloadAbort: AbortController | null = null;
 	let metadataSaveInFlight = false;
 	let metadataSaveQueued = false;
 
-	const currentFilters = $derived<RunFilters>({
-		search,
-		level: levelFilter,
-		difficulty: difficultyFilter,
-		status: statusFilter,
-		language: languageFilter,
-		minTime: minTimeFilter,
-		maxTime: maxTimeFilter
-	});
 	const clips = $derived(runs?.clips ?? []);
 	const clipByPath = $derived(new Map(clips.map((clip) => [clip.path, clip])));
-	const visibleClips = $derived(visibleRunClips(clips, currentFilters));
+	const visibleClips = $derived(visibleRunClips(clips, filters));
 	const directoryErrors = $derived((runs?.directories ?? []).filter((dir) => dir.error));
 	const scannedDirectoryCount = $derived(runs?.directories.length ?? 0);
 	const completedDirectory = $derived((runs?.directories ?? []).find((dir) => dir.kind === 'completed' && dir.exists));
@@ -64,14 +48,12 @@
 	const revealableDirectories = $derived(
 		[completedDirectory, failedDirectory].filter((dir): dir is RunDirectoryScan => Boolean(dir))
 	);
-	const hasActiveFilters = $derived(hasActiveRunFilters(currentFilters));
-	const activeFilterLabels = $derived(activeRunFilterLabels(currentFilters));
+	const hasActiveFilters = $derived(hasActiveRunFilters(filters));
+	const activeFilterLabels = $derived(activeRunFilterLabels(filters));
 	let metadataDirty = $derived.by(() => {
 		if (!selected || !metadataDraft) return false;
 		return !sameMetadataDraft(metadataDraft, draftFromClip(selected));
 	});
-	let selectedYoutubeUpload = $derived(selected ? youtube.uploadForPath(selected.path) : null);
-	let selectedYoutubeHistory = $derived(selected ? youtube.historyForPath(selected.path) : null);
 
 	const reload = async (refresh = false) => {
 		if (loading) return;
@@ -128,13 +110,7 @@
 	};
 
 	const clearFilters = () => {
-		search = EMPTY_RUN_FILTERS.search;
-		levelFilter = EMPTY_RUN_FILTERS.level;
-		difficultyFilter = EMPTY_RUN_FILTERS.difficulty;
-		statusFilter = EMPTY_RUN_FILTERS.status;
-		languageFilter = EMPTY_RUN_FILTERS.language;
-		minTimeFilter = EMPTY_RUN_FILTERS.minTime;
-		maxTimeFilter = EMPTY_RUN_FILTERS.maxTime;
+		Object.assign(filters, EMPTY_RUN_FILTERS);
 	};
 
 	const close = () => {
@@ -143,19 +119,6 @@
 		metadataDraft = null;
 		modalError = null;
 		modalBusy = null;
-	};
-
-	const uploadSelectedToYouTube = () => {
-		if (!selected) return;
-		const path = selected.path;
-		const datetimeLocal = datetimeLocalForClip(selected, navigator.languages);
-		void youtube.upload(path, { datetimeLocal }).catch((err) => console.warn('Failed to upload to YouTube', err));
-	};
-
-	const forgetSelectedYouTubeUpload = () => {
-		if (!selected) return;
-		const path = selected.path;
-		void youtube.forget(path).catch((err) => console.warn('Failed to forget YouTube upload', err));
 	};
 
 	const onkeydown = (event: KeyboardEvent) => {
@@ -385,6 +348,25 @@
 		if (platform.includes('win')) return 'show clips in explorer';
 		return 'show clips folder';
 	}
+
+	let detailView = $derived<RunDetailView>({
+		modal: {
+			error: modalError,
+			busy: modalBusy
+		},
+		display: {
+			fileBrowserLabel,
+			levelOptions: levelSelectOptions
+		},
+		actions: {
+			close,
+			delete: deleteSelectedRun,
+			reveal: revealSelectedRun,
+			rename: renameSelectedRun,
+			saveMetadata,
+			normalizeDraftTime
+		}
+	});
 </script>
 
 <svelte:head>
@@ -422,13 +404,7 @@
 
 	<RunFiltersForm
 		bind:collapsed={filtersCollapsed}
-		bind:search
-		bind:level={levelFilter}
-		bind:difficulty={difficultyFilter}
-		bind:status={statusFilter}
-		bind:language={languageFilter}
-		bind:minTime={minTimeFilter}
-		bind:maxTime={maxTimeFilter}
+		{filters}
 		{activeFilterLabels}
 		{hasActiveFilters}
 		levelOptions={levelSelectOptions}
@@ -474,26 +450,4 @@
 	reveal={revealRunsFolder}
 />
 
-<RunDetailDialog
-	clip={selected}
-	bind:metadataDraft
-	{modalError}
-	{modalBusy}
-	{fileBrowserLabel}
-	levelOptions={levelSelectOptions}
-	{close}
-	deleteRun={deleteSelectedRun}
-	revealRun={revealSelectedRun}
-	renameRun={renameSelectedRun}
-	{saveMetadata}
-	{normalizeDraftTime}
-	youtubeEnabled={youtube.enabled}
-	youtubeConnected={youtube.connected}
-	youtubeOAuthConfigured={youtube.oauthConfigured}
-	youtubeLoaded={youtube.loaded}
-	youtubeUpload={selectedYoutubeUpload}
-	youtubeHistory={selectedYoutubeHistory}
-	youtubeError={youtube.error}
-	uploadToYouTube={uploadSelectedToYouTube}
-	forgetYouTubeUpload={forgetSelectedYouTubeUpload}
-/>
+<RunDetailDialog clip={selected} bind:metadataDraft view={detailView} />

@@ -1,23 +1,8 @@
 <script lang="ts">
 	import { Select, settings, type YoutubeVisibility } from '$lib';
+	import { optionsClasses as styles } from '$lib/optionsView';
 	import { youtube } from '$lib/youtube.svelte';
 	import YouTubeConnectButton from '$lib/YouTubeConnectButton.svelte';
-
-	let {
-		panelClass,
-		labelClass,
-		hintClass,
-		inputClass,
-		textareaClass,
-		templateTokenClass
-	}: {
-		panelClass: string;
-		labelClass: string;
-		hintClass: string;
-		inputClass: string;
-		textareaClass: string;
-		templateTokenClass: string;
-	} = $props();
 
 	const visibilityOptions: { value: YoutubeVisibility; label: string }[] = [
 		{ value: 'public', label: 'Public' },
@@ -53,11 +38,11 @@
 	};
 </script>
 
-<section class={panelClass}>
+<section class={styles.panel}>
 	<div class="grid gap-3">
-		<h2 class={labelClass}>YouTube</h2>
+		<h2 class={styles.label}>YouTube</h2>
 		{#if !youtube.connected}
-			<p class={hintClass}>Connect YouTube to upload videos directly from the Runs screen.</p>
+			<p class={styles.hint}>Connect YouTube to upload videos directly from the Runs screen.</p>
 			<div class="flex justify-center py-3">
 				<YouTubeConnectButton />
 			</div>
@@ -83,7 +68,7 @@
 			</div>
 
 			<label class="grid gap-1">
-				<span class={labelClass}>Visibility</span>
+				<span class={styles.label}>Visibility</span>
 				<Select
 					class="font-mono text-sm"
 					value={settings.youtubeVisibility}
@@ -93,28 +78,28 @@
 			</label>
 
 			<label class="grid gap-1">
-				<span class={labelClass}>Title</span>
+				<span class={styles.label}>Title</span>
 				<input
-					class={inputClass}
+					class={styles.input}
 					bind:value={settings.youtubeTitleTemplate}
 					onblur={() => settings.saveImmediately()}
 				/>
 			</label>
 
 			<label class="grid gap-1">
-				<span class={labelClass}>Description</span>
+				<span class={styles.label}>Description</span>
 				<textarea
-					class={textareaClass}
+					class={styles.textarea}
 					bind:value={settings.youtubeDescriptionTemplate}
 					onblur={() => settings.saveImmediately()}
 				></textarea>
 			</label>
 
 			<div class="grid gap-2">
-				<p class={hintClass}>Supported tokens</p>
+				<p class={styles.hint}>Supported tokens</p>
 				<div class="flex flex-wrap gap-1.5">
 					{#each tokens as token}
-						<code class={templateTokenClass}>{token}</code>
+						<code class={styles.templateToken}>{token}</code>
 					{/each}
 				</div>
 			</div>
