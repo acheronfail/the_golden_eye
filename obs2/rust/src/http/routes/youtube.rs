@@ -9,7 +9,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 
-use crate::http::{AppState, MonitorEvent, PendingOAuth};
+use crate::http::{AppEvent, AppState, PendingOAuth};
 use crate::youtube::{self, YoutubeStatus};
 
 #[derive(Debug, Deserialize)]
@@ -157,7 +157,7 @@ pub async fn handle_upload(State(state): State<AppState>, Json(req): Json<Upload
         youtube::render_youtube_metadata(&settings, &path, &metadata, req.datetime_local.as_deref());
     let status =
         state.youtube.insert_queued_upload(&path, display_path, title.clone(), description.clone(), total_bytes);
-    let _ = state.event_tx.send(MonitorEvent::YoutubeUploadChanged { upload: status.clone() });
+    let _ = state.event_tx.send(AppEvent::YoutubeUploadChanged { upload: status.clone() });
 
     let store = state.youtube.clone();
     let event_tx = state.event_tx.clone();

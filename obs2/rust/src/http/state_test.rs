@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn monitor_version_event_uses_frontend_field_name() {
-    let event = MonitorEvent::Version { build_id: "abc123".to_owned() };
+    let event = AppEvent::Version { build_id: "abc123".to_owned() };
     let json = serde_json::to_value(event).unwrap();
 
     assert_eq!(json["type"], "version");
@@ -42,7 +42,7 @@ fn test_snapshot() -> AppSnapshot {
 
 #[test]
 fn snapshot_event_contains_retained_app_state() {
-    let event = MonitorEvent::Snapshot { state: Box::new(test_snapshot()) };
+    let event = AppEvent::Snapshot { state: Box::new(test_snapshot()) };
     let json = serde_json::to_value(event).unwrap();
 
     assert_eq!(json["type"], "snapshot");
@@ -58,7 +58,7 @@ fn snapshot_event_contains_retained_app_state() {
 
 #[test]
 fn language_detected_event_uses_frontend_field_names() {
-    let event = MonitorEvent::LanguageDetected { lang: "en".to_owned() };
+    let event = AppEvent::LanguageDetected { lang: "en".to_owned() };
     let json = serde_json::to_value(event).unwrap();
 
     assert_eq!(json["type"], "languageDetected");
@@ -67,7 +67,7 @@ fn language_detected_event_uses_frontend_field_names() {
 
 #[test]
 fn monitor_fps_event_uses_frontend_field_names() {
-    let event = MonitorEvent::MonitorFps(MonitorFps { processed_fps: 59.5, source_fps: 60.0 });
+    let event = AppEvent::MonitorFps(MonitorFps { processed_fps: 59.5, source_fps: 60.0 });
     let json = serde_json::to_value(event).unwrap();
 
     assert_eq!(json["type"], "monitorFps");
@@ -78,7 +78,7 @@ fn monitor_fps_event_uses_frontend_field_names() {
 
 #[test]
 fn recording_save_pending_event_uses_frontend_field_names() {
-    let event = MonitorEvent::RecordingSavePending(RecordingSavePending {
+    let event = AppEvent::RecordingSavePending(RecordingSavePending {
         save_id: 7,
         save_in_secs: 5.0,
         estimated_duration_secs: 74.5,
@@ -104,7 +104,7 @@ fn recording_save_pending_event_uses_frontend_field_names() {
 
 #[test]
 fn recording_save_discarded_event_uses_frontend_field_names() {
-    let event = MonitorEvent::RecordingSaveDiscarded { save_id: 7 };
+    let event = AppEvent::RecordingSaveDiscarded { save_id: 7 };
     let json = serde_json::to_value(event).unwrap();
 
     assert_eq!(json["type"], "recordingSaveDiscarded");
@@ -113,7 +113,7 @@ fn recording_save_discarded_event_uses_frontend_field_names() {
 
 #[test]
 fn recording_saved_event_uses_frontend_field_names() {
-    let event = MonitorEvent::RecordingSaved(RecordingSaved {
+    let event = AppEvent::RecordingSaved(RecordingSaved {
         save_id: 7,
         path: "/tmp/clip.mp4".to_owned(),
         replay_path: "/tmp/replay.mp4".to_owned(),
@@ -174,13 +174,13 @@ fn recording_state_store_updates_snapshot_without_receivers() {
 
 #[test]
 fn monitor_stopped_event_uses_frontend_field_names() {
-    let event = MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped };
+    let event = AppEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped };
     let json = serde_json::to_value(event).unwrap();
 
     assert_eq!(json["type"], "monitorStopped");
     assert_eq!(json["reason"], "replayBufferStopped");
 
-    let event = MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::UserStopped };
+    let event = AppEvent::MonitorStopped { reason: MonitorStoppedReason::UserStopped };
     let json = serde_json::to_value(event).unwrap();
 
     assert_eq!(json["type"], "monitorStopped");

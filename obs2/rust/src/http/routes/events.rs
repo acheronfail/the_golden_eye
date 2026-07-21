@@ -5,13 +5,13 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use tokio::sync::{broadcast, watch};
 
-use crate::http::{AppState, MonitorEvent};
+use crate::http::{AppEvent, AppState};
 
 const UPDATE_APPLIED_NOTICE_WINDOW: Duration = Duration::from_secs(60);
 
-/// Upgrades the connection to a WebSocket streaming [`MonitorEvent`]s as JSON.
-/// The complete retained app snapshot is sent on connect and after every
-/// retained-state change; one-off events such as `recordingSaved` are forwarded as they occur.
+/// Upgrades the connection to the app-wide event stream. The complete retained
+/// snapshot is sent on connect and after every retained-state change; one-off
+/// events are forwarded as they occur.
 pub async fn handle_ws(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
@@ -20,9 +20,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let mut snapshots = state.snapshot.subscribe();
     let mut events = state.event_tx.subscribe();
 
-    // Announce which build serves this API first, so a stale tab can reload
-    // before it starts acting on snapshot or one-off events.
-    let version = MonitorEvent::Version { build_id: crate::http::routes::index::BUILD_ID.clone() };
+    let version = AppEvent::Version { build_id: crate::http::routes::index::BUILD_ID.clone() };
     if send_event(&mut socket, &version).await.is_err() {
         return;
     }
@@ -31,9 +29,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         return;
     }
 
-    // A one-off "plugin updated" notice for any client connecting shortly after
-    // this core was loaded via an applied update (not a cold start or rollback),
-    // bounded by a grace period so late-connecting clients don't see it stale.
+    // A one-off "plugin updated" notice for clients connecting shortly after
+    // an applied update. The grace period prevents stale notices in later tabs.
     if state.reloaded_at.is_some_and(|when| when.elapsed() < UPDATE_APPLIED_NOTICE_WINDOW) {
         let settings = state.settings.get();
         let release_url = if settings.last_known_update_version.as_deref() == Some(crate::PLUGIN_VERSION) {
@@ -41,7 +38,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         } else {
             None
         };
-        let applied = MonitorEvent::UpdateApplied { version: crate::PLUGIN_VERSION.to_owned(), release_url };
+        let applied = AppEvent::UpdateApplied { version: crate::PLUGIN_VERSION.to_owned(), release_url };
         if send_event(&mut socket, &applied).await.is_err() {
             return;
         }
@@ -64,36 +61,52 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             break;
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!(skipped, "app event client lagged; retained state will recover on the next snapshot");
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
             inbound = socket.recv() => {
                 match inbound {
-                    Some(Ok(_)) => {}
-                    _ => break,
+                    Some(Ok(Message::Ping(payload))) => {
+                        if socket.send(Message::Pong(payload)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Pong(_))) => {}
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    Some(Ok(message)) => {
+                        tracing::warn!(kind = message_kind(&message), "ignoring unexpected app event client message");
+                    }
                 }
             }
         }
     }
 }
 
-/// Serializes `event` to JSON and sends it over `socket`. A serialization error
-/// is swallowed (the event is skipped); a transport error propagates so the
-/// caller can drop the connection.
-async fn send_event(socket: &mut WebSocket, event: &MonitorEvent) -> Result<(), axum::Error> {
-    if let Ok(text) = serde_json::to_string(event) {
-        socket.send(Message::Text(text.into())).await?;
+fn message_kind(message: &Message) -> &'static str {
+    match message {
+        Message::Text(_) => "text",
+        Message::Binary(_) => "binary",
+        Message::Ping(_) => "ping",
+        Message::Pong(_) => "pong",
+        Message::Close(_) => "close",
+    }
+}
+
+async fn send_event(socket: &mut WebSocket, event: &AppEvent) -> Result<(), axum::Error> {
+    match serde_json::to_string(event) {
+        Ok(text) => socket.send(Message::Text(text.into())).await?,
+        Err(err) => tracing::warn!(%err, "failed to serialize app event"),
     }
     Ok(())
 }
 
-/// Sends the current retained app snapshot, marking the watch value as seen.
 async fn send_current_snapshot(
     socket: &mut WebSocket,
     rx: &mut watch::Receiver<crate::http::AppSnapshot>,
 ) -> Result<(), axum::Error> {
     let state = Box::new(rx.borrow_and_update().clone());
-    send_event(socket, &MonitorEvent::Snapshot { state }).await?;
-    Ok(())
+    send_event(socket, &AppEvent::Snapshot { state }).await
 }

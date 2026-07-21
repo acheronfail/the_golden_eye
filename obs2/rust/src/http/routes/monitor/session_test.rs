@@ -250,7 +250,7 @@ fn detected_language_switches_active_monitor_language_and_notifies_once() {
     assert!(language_notified);
 
     let event = event_rx.try_recv().expect("language detected event");
-    assert!(matches!(event, MonitorEvent::LanguageDetected { lang } if lang == "jp"));
+    assert!(matches!(event, AppEvent::LanguageDetected { lang } if lang == "jp"));
 
     let (stats_b, stats_w, stats_h) = load_bgra("screenshots-emu/jp - stats - 01 - Agent - 0137_0137.png");
     let stats = session.match_frame(&stats_b, stats_w, stats_h).expect("jp stats after switch");
@@ -296,7 +296,7 @@ fn detected_language_notifies_when_already_active() {
     assert_eq!(active_lang, "en");
     assert!(language_notified);
     let event = event_rx.try_recv().expect("language detected event");
-    assert!(matches!(event, MonitorEvent::LanguageDetected { lang } if lang == "en"));
+    assert!(matches!(event, AppEvent::LanguageDetected { lang } if lang == "en"));
 }
 
 #[test]
@@ -322,7 +322,7 @@ fn detected_language_can_switch_more_than_once_per_monitor_session() {
     assert_eq!(active_lang, "en");
     assert!(language_notified);
     let event = event_rx.try_recv().expect("language detected event");
-    assert!(matches!(event, MonitorEvent::LanguageDetected { lang } if lang == "en"));
+    assert!(matches!(event, AppEvent::LanguageDetected { lang } if lang == "en"));
 
     let (jp_b, jp_w, jp_h) = load_bgra("screenshots-emu/jp - start - 01 - Agent.png");
     let jp_mismatch = session.match_frame(&jp_b, jp_w, jp_h).expect("jp mismatch match");
@@ -339,7 +339,7 @@ fn detected_language_can_switch_more_than_once_per_monitor_session() {
     assert!(switched_to_jp, "language change should switch after notification");
     assert_eq!(active_lang, "jp");
     let event = event_rx.try_recv().expect("language detected event on switch");
-    assert!(matches!(event, MonitorEvent::LanguageDetected { lang } if lang == "jp"));
+    assert!(matches!(event, AppEvent::LanguageDetected { lang } if lang == "jp"));
 
     let en_mismatch = session.match_frame(&en_b, en_w, en_h).expect("en mismatch match");
     assert_eq!(en_mismatch.detected_lang.as_deref(), Some("en"));
@@ -355,7 +355,7 @@ fn detected_language_can_switch_more_than_once_per_monitor_session() {
     assert!(switched_back_to_en, "a second language change should still switch");
     assert_eq!(active_lang, "en");
     let event = event_rx.try_recv().expect("language detected event on switch back");
-    assert!(matches!(event, MonitorEvent::LanguageDetected { lang } if lang == "en"));
+    assert!(matches!(event, AppEvent::LanguageDetected { lang } if lang == "en"));
 }
 
 #[test]

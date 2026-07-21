@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde_json::{Value, json};
-use support::harness::{API, Harness, SOURCE_NAME, next_monitor_snapshot};
+use support::harness::{API, Harness, SOURCE_NAME, next_app_snapshot};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -57,8 +57,8 @@ async fn reload_sends_update_applied_notice_to_new_connections() {
     assert!(ge_rust::ge_rust_start(), "server failed to restart");
     ge_rust::ge_sources_changed();
 
-    let mut ws = harness.connect_monitor_ws().await;
-    let snapshot = next_monitor_snapshot(&mut ws, "reloaded source snapshot").await;
+    let mut ws = harness.connect_event_stream().await;
+    let snapshot = next_app_snapshot(&mut ws, "reloaded source snapshot").await;
     assert_eq!(snapshot["state"]["sources"], json!([{"name":SOURCE_NAME,"id":"test_input"}]));
     assert!(harness.obs.calls().source_names > 0, "reload should refresh sources without waiting for FINISHED_LOADING");
 
@@ -76,7 +76,7 @@ async fn reload_sends_update_applied_notice_to_new_connections() {
 async fn cold_start_does_not_send_update_applied_notice() {
     let harness = Harness::start(Duration::ZERO).await;
 
-    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap();
+    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap();
     let deadline = Instant::now() + Duration::from_millis(500);
     while Instant::now() < deadline {
         if let Ok(Some(Ok(Message::Text(text)))) = tokio::time::timeout(Duration::from_millis(100), ws.next()).await {
@@ -89,7 +89,7 @@ async fn cold_start_does_not_send_update_applied_notice() {
 }
 
 async fn wait_for_update_applied_event() -> Value {
-    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap();
+    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
 
     loop {
@@ -107,11 +107,11 @@ async fn wait_for_update_applied_event() -> Value {
                 }
             }
             Ok(Some(Ok(Message::Close(frame)))) => {
-                panic!("monitor websocket closed while waiting for updateApplied: {frame:?}");
+                panic!("app event stream closed while waiting for updateApplied: {frame:?}");
             }
             Ok(Some(Ok(_))) | Err(_) => {}
-            Ok(Some(Err(err))) => panic!("monitor websocket failed while waiting for updateApplied: {err}"),
-            Ok(None) => panic!("monitor websocket ended while waiting for updateApplied"),
+            Ok(Some(Err(err))) => panic!("app event stream failed while waiting for updateApplied: {err}"),
+            Ok(None) => panic!("app event stream ended while waiting for updateApplied"),
         }
 
         if Instant::now() >= deadline {

@@ -80,7 +80,7 @@ fn test_snapshot_store() -> SharedStateStore {
     })
 }
 
-fn test_recording(options: RecordingOptions) -> (RecordingState, tokio::sync::broadcast::Receiver<MonitorEvent>) {
+fn test_recording(options: RecordingOptions) -> (RecordingState, tokio::sync::broadcast::Receiver<AppEvent>) {
     let (event_tx, event_rx) = tokio::sync::broadcast::channel(8);
     let recording_state = RecordingStateStore::new(test_snapshot_store());
     let recording = RecordingState::new(
@@ -94,7 +94,7 @@ fn test_recording(options: RecordingOptions) -> (RecordingState, tokio::sync::br
     (recording, event_rx)
 }
 
-fn test_recording_saving_short_failed_runs() -> (RecordingState, tokio::sync::broadcast::Receiver<MonitorEvent>) {
+fn test_recording_saving_short_failed_runs() -> (RecordingState, tokio::sync::broadcast::Receiver<AppEvent>) {
     test_recording(RecordingOptions { minimum_failed_run_length_secs: 0.0, ..RecordingOptions::default() })
 }
 
@@ -181,15 +181,15 @@ fn match_for_screen(screen: Screen) -> LevelMatch {
     m
 }
 
-fn pending_save_event(events: &mut tokio::sync::broadcast::Receiver<MonitorEvent>) -> RecordingSavePending {
+fn pending_save_event(events: &mut tokio::sync::broadcast::Receiver<AppEvent>) -> RecordingSavePending {
     let pending = events.try_recv().expect("pending save event");
-    let MonitorEvent::RecordingSavePending(pending) = pending else {
+    let AppEvent::RecordingSavePending(pending) = pending else {
         panic!("expected pending save event");
     };
     pending
 }
 
-fn assert_no_monitor_event(events: &mut tokio::sync::broadcast::Receiver<MonitorEvent>) {
+fn assert_no_app_event(events: &mut tokio::sync::broadcast::Receiver<AppEvent>) {
     assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
 }
 
@@ -230,7 +230,7 @@ fn start_then_level_screen_cancels_active_session_without_save() {
     assert!(recording.report.is_none());
     assert!(recording.pending.is_none());
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Cancelled));
-    assert_no_monitor_event(&mut events);
+    assert_no_app_event(&mut events);
 }
 
 #[test]
@@ -448,7 +448,7 @@ fn pending_notification_is_reissued_when_the_voted_time_changes() {
 
     // A repeat of the settled reading doesn't spam another notification.
     recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(14));
-    assert_no_monitor_event(&mut events);
+    assert_no_app_event(&mut events);
     recording.pending = None;
 }
 
@@ -557,9 +557,9 @@ fn failed_run_discarded_when_failed_saves_are_disabled() {
     assert_eq!(recording.recording_state.current(), None);
     assert!(matches!(
         events.try_recv(),
-        Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::SavingDisabled })
+        Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::SavingDisabled })
     ));
-    assert_no_monitor_event(&mut events);
+    assert_no_app_event(&mut events);
 }
 
 #[test]
@@ -589,11 +589,8 @@ fn late_discard_does_not_knock_a_newly_started_run_out_of_recording() {
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Started));
     assert_eq!(recording.clip_start, Some(start + Duration::from_secs(7)));
     assert!(recording.pending.is_none());
-    assert!(matches!(
-        events.try_recv(),
-        Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })
-    ));
-    assert_no_monitor_event(&mut events);
+    assert!(matches!(events.try_recv(), Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })));
+    assert_no_app_event(&mut events);
 
     // Retire the still-active run 2 so the test-mode Drop check (no pending) passes.
     recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Levels));
@@ -679,7 +676,7 @@ fn terminal_screens_without_active_session_are_ignored() {
         assert!(recording.report.is_none());
         assert!(recording.pending.is_none());
         assert_eq!(recording.recording_state.current(), None);
-        assert_no_monitor_event(&mut events);
+        assert_no_app_event(&mut events);
     }
 }
 
@@ -796,7 +793,7 @@ fn shutdown_before_pending_save_fires_waits_and_preserves_save_job() {
     assert!(recording.schedule_save(stats_at, start, Some(match_with_time())));
 
     let pending = events.try_recv().expect("pending save event");
-    let MonitorEvent::RecordingSavePending(pending) = pending else {
+    let AppEvent::RecordingSavePending(pending) = pending else {
         panic!("expected pending save event");
     };
     assert_eq!(pending.save_id, 1);
@@ -867,17 +864,14 @@ fn failed_run_without_stats_shorter_than_minimum_length_is_discarded_at_save_tim
     // the save fires, once the canonical time is known.
     recording.status = Some(RunStatus::Failed);
     assert!(recording.schedule_save(failed_at, start, Some(match_without_time())));
-    assert_no_monitor_event(&mut events);
+    assert_no_app_event(&mut events);
 
     assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_none());
     assert!(recording.pending.is_none());
     // A too-short run is dropped at save time and surfaced as a notification;
     // the phase is left untouched (here it was never set off this direct call).
-    assert!(matches!(
-        events.try_recv(),
-        Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })
-    ));
-    assert_no_monitor_event(&mut events);
+    assert!(matches!(events.try_recv(), Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })));
+    assert_no_app_event(&mut events);
     assert_eq!(recording.recording_state.current(), None);
 }
 
@@ -914,17 +908,14 @@ fn failed_run_minimum_length_uses_stats_time_when_present() {
     // discarded when the save fires.
     recording.status = Some(RunStatus::Failed);
     assert!(recording.schedule_save(failed_at, start, Some(stats)));
-    assert_no_monitor_event(&mut events);
+    assert_no_app_event(&mut events);
 
     assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_none());
     assert!(recording.pending.is_none());
     // The voted stats time is below the minimum, so the run is dropped at save
     // time and surfaced as a notification, leaving the phase untouched.
-    assert!(matches!(
-        events.try_recv(),
-        Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })
-    ));
-    assert_no_monitor_event(&mut events);
+    assert!(matches!(events.try_recv(), Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })));
+    assert_no_app_event(&mut events);
     assert_eq!(recording.recording_state.current(), None);
 }
 
@@ -972,16 +963,13 @@ fn failed_run_minimum_length_gate_uses_voted_time_not_first_frame_misread() {
     // Once the voted time (14s) drops below the minimum, that notification is
     // withdrawn rather than left stuck, and no save is written.
     match events.try_recv().expect("discard event") {
-        MonitorEvent::RecordingSaveDiscarded { save_id } => assert_eq!(save_id, pending.save_id),
+        AppEvent::RecordingSaveDiscarded { save_id } => assert_eq!(save_id, pending.save_id),
         other => panic!("expected discard event, got {other:?}"),
     }
     assert!(recording.take_pending_job(stats_at + Duration::from_secs(1)).is_none());
     // The discard fires a notification; because this save's own `SavePending`
     // phase is still showing (no new run took over), it is cleared to idle.
-    assert!(matches!(
-        events.try_recv(),
-        Ok(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })
-    ));
+    assert!(matches!(events.try_recv(), Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })));
     assert_eq!(recording.recording_state.current(), None);
 }
 
@@ -998,7 +986,7 @@ fn failed_run_minimum_length_gate_saves_when_voted_time_clears_it() {
     recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Kia));
     // The first frame (5s) is below the minimum, so no notification is shown yet.
     recording.on_frame(stats_at, &stats_match(5));
-    assert_no_monitor_event(&mut events);
+    assert_no_app_event(&mut events);
     recording.on_frame(stats_at + Duration::from_millis(16), &stats_match(30));
     recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(30));
     assert_eq!(pending_stats_time(&recording), Some(30));

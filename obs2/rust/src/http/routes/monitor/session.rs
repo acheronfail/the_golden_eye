@@ -4,7 +4,7 @@ use tokio::sync::broadcast;
 
 use crate::cv::{CaptureRegion, CvMatcher, LevelMatch, Screen};
 use crate::ge;
-use crate::http::MonitorEvent;
+use crate::http::AppEvent;
 
 /// Frames voted over to steady the stats times shown live. The per-frame matcher
 /// can misread a look-alike digit on a single noisy capture frame; ~7 frames at
@@ -144,7 +144,7 @@ pub(super) fn handle_detected_language(
     session: &mut MonitorSession,
     active_lang: &mut String,
     language_notified: &mut bool,
-    event_tx: &broadcast::Sender<MonitorEvent>,
+    event_tx: &broadcast::Sender<AppEvent>,
     make_session: impl FnOnce(&str) -> anyhow::Result<MonitorSession>,
 ) -> bool {
     let Some(detected_lang) = info.detected_lang.as_deref().map(str::to_owned) else {
@@ -155,7 +155,7 @@ pub(super) fn handle_detected_language(
         if !*language_notified {
             tracing::info!(detected_lang, "detected ROM language");
             *language_notified = true;
-            let _ = event_tx.send(MonitorEvent::LanguageDetected { lang: active_lang.clone() });
+            let _ = event_tx.send(AppEvent::LanguageDetected { lang: active_lang.clone() });
         }
         return false;
     }
@@ -179,7 +179,7 @@ pub(super) fn handle_detected_language(
     // A real language switch is always worth re-notifying, even if we already
     // notified for the previous language this session.
     *language_notified = true;
-    let _ = event_tx.send(MonitorEvent::LanguageDetected { lang: active_lang.clone() });
+    let _ = event_tx.send(AppEvent::LanguageDetected { lang: active_lang.clone() });
 
     true
 }

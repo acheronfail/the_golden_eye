@@ -4,16 +4,16 @@ use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde_json::Value;
-use support::harness::{Harness, SOURCE_NAME, next_monitor_snapshot, snapshot_from_message};
+use support::harness::{Harness, SOURCE_NAME, next_app_snapshot, snapshot_from_message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn monitor_snapshot_tracks_start_match_and_stop() {
     let harness = Harness::start(Duration::ZERO).await;
-    let mut ws = harness.connect_monitor_ws().await;
+    let mut ws = harness.connect_event_stream().await;
 
-    let initial = next_monitor_snapshot(&mut ws, "initial snapshot").await;
+    let initial = next_app_snapshot(&mut ws, "initial snapshot").await;
     assert_eq!(initial["state"]["monitor"]["enabled"], false);
     assert!(initial["state"]["match"].is_null());
     assert!(initial["state"]["recordingState"].is_null());
@@ -49,7 +49,7 @@ async fn wait_for_snapshot(
 ) -> Value {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let snapshot = next_monitor_snapshot(ws, label).await;
+        let snapshot = next_app_snapshot(ws, label).await;
         if predicate(&snapshot) {
             return snapshot;
         }
@@ -77,8 +77,8 @@ async fn render_until_snapshot(
                     }
                 }
             }
-            Ok(Some(Err(err))) => panic!("monitor websocket failed while waiting for {label}: {err}"),
-            Ok(None) => panic!("monitor websocket ended while waiting for {label}"),
+            Ok(Some(Err(err))) => panic!("app event stream failed while waiting for {label}: {err}"),
+            Ok(None) => panic!("app event stream ended while waiting for {label}"),
             Err(_) => {}
         }
         assert!(Instant::now() < deadline, "timed out waiting for {label}; last snapshot: {last}");

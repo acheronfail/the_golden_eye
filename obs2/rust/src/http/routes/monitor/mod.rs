@@ -10,12 +10,11 @@ use axum::response::{IntoResponse, Result};
 use serde::Deserialize;
 
 use crate::cv::{CaptureRegion, LevelMatch};
-use crate::http::{AppState, MonitorEvent, MonitorFps, MonitorStoppedReason};
+use crate::http::{AppEvent, AppState, MonitorFps, MonitorStoppedReason};
 
 mod capture;
 mod frame_dump;
 mod session;
-mod socket;
 
 pub use capture::MonitorHandle;
 use capture::{
@@ -308,7 +307,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
 
             if now.duration_since(last_fps_emit) >= MONITOR_FPS_EMIT_INTERVAL {
                 if let Some(processed_fps) = slowest_frame_fps {
-                    let _ = event_tx.send(MonitorEvent::MonitorFps(MonitorFps { processed_fps, source_fps }));
+                    let _ = event_tx.send(AppEvent::MonitorFps(MonitorFps { processed_fps, source_fps }));
                 }
                 last_fps_emit = now;
                 slowest_frame_fps = None;
@@ -385,7 +384,7 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
     if !stop_monitor(&state).await {
         return Err((StatusCode::CONFLICT, "no monitor is running").into());
     }
-    let _ = state.event_tx.send(MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::UserStopped });
+    let _ = state.event_tx.send(AppEvent::MonitorStopped { reason: MonitorStoppedReason::UserStopped });
 
     Ok(StatusCode::OK)
 }
@@ -442,5 +441,3 @@ pub(crate) async fn stop_monitor(state: &AppState) -> bool {
 
     true
 }
-
-pub use socket::handle_ws;

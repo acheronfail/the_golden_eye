@@ -124,7 +124,7 @@ async fn failed_startup_update_check_does_not_persist_check_time() {
 }
 
 async fn wait_for_update_available_event(harness: &Harness, calls: &Arc<AtomicUsize>) -> Value {
-    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap();
+    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
 
     loop {
@@ -142,11 +142,11 @@ async fn wait_for_update_available_event(harness: &Harness, calls: &Arc<AtomicUs
                 }
             }
             Ok(Some(Ok(Message::Close(frame)))) => {
-                panic!("monitor websocket closed while waiting for snapshot update: {frame:?}");
+                panic!("app event stream closed while waiting for snapshot update: {frame:?}");
             }
             Ok(Some(Ok(_))) | Err(_) => {}
-            Ok(Some(Err(err))) => panic!("monitor websocket failed while waiting for snapshot update: {err}"),
-            Ok(None) => panic!("monitor websocket ended while waiting for snapshot update"),
+            Ok(Some(Err(err))) => panic!("app event stream failed while waiting for snapshot update: {err}"),
+            Ok(None) => panic!("app event stream ended while waiting for snapshot update"),
         }
 
         if Instant::now() >= deadline {

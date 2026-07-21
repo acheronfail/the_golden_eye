@@ -30,10 +30,6 @@ export class Backend {
 		return this.apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(source)}`);
 	}
 
-	public getSources(): Promise<ObsSource[]> {
-		return this.getJson('/api/v1/sources');
-	}
-
 	public getRuns(): Promise<RunsResponse> {
 		return this.getJson('/api/v1/runs');
 	}
@@ -130,11 +126,6 @@ export class Backend {
 	/** Fetch whether OBS's replay buffer is enabled/available (and running). */
 	public getReplayBufferStatus(): Promise<ReplayBufferStatus> {
 		return this.getJson('/api/v1/replay-buffer/status');
-	}
-
-	/** Fetch the plugin-owned settings JSON. */
-	public getSettings(): Promise<Settings> {
-		return this.getJson('/api/v1/settings');
 	}
 
 	/** Fetch settings plus the on-disk config status. */
@@ -244,12 +235,12 @@ export class Backend {
 		return document.querySelector('meta[name="ge-build-id"]')?.getAttribute('content') ?? null;
 	}
 
-	/** Open the app WebSocket and dispatch {@link AppSocketEvent} messages. */
-	public connectAppSocket(handlers: AppSocketHandlers): WebSocket {
-		const socket = new WebSocket(this.wsUrl('/api/v1/monitor/ws'));
+	/** Open the app event stream. */
+	public connectAppSocket(onEvent: (event: AppEvent) => void, onClose: () => void): WebSocket {
+		const socket = new WebSocket(this.wsUrl('/api/v1/events/ws'));
 		this.attachWebSocketLogging(socket);
-		socket.onmessage = (event) => this.handleAppSocketMessage(event, handlers);
-		if (handlers.onClose) socket.onclose = handlers.onClose;
+		socket.onmessage = (event) => this.handleAppSocketMessage(event, onEvent);
+		socket.onclose = onClose;
 		return socket;
 	}
 
@@ -346,64 +337,18 @@ export class Backend {
 		};
 	}
 
-	private reloadIfStale(backendBuildId: string): void {
-		const self = this.selfBuildId();
-		if (self !== null && self !== backendBuildId) {
-			console.warn(`frontend build ${self} differs from backend build ${backendBuildId}; reloading`);
-			window.location.reload();
-		}
-	}
-
-	private handleAppSocketMessage(event: MessageEvent, handlers: AppSocketHandlers): void {
+	private handleAppSocketMessage(event: MessageEvent, onEvent: (event: AppEvent) => void): void {
 		if (this.browserWsLogEnabled()) console.debug('[GE websocket] receive raw', event.data);
-		const msg = JSON.parse(event.data) as AppSocketEvent;
-		if (this.browserWsLogEnabled()) console.debug('[GE websocket] receive parsed', msg);
-		switch (msg.type) {
-			case 'version':
-				if (typeof msg.buildId === 'string') this.reloadIfStale(msg.buildId);
-				else console.warn('Ignoring malformed monitor version event', msg);
-				break;
-			case 'snapshot':
-				if (msg.state && typeof msg.state === 'object') handlers.onSnapshot?.(msg.state);
-				else console.warn('Ignoring malformed snapshot event', msg);
-				break;
-			case 'languageDetected':
-				handlers.onLanguageDetected?.(msg.lang);
-				break;
-			case 'monitorFps':
-				handlers.onMonitorFps?.(msg);
-				break;
-			case 'recordingSavePending':
-				handlers.onRecordingSavePending?.(msg);
-				break;
-			case 'recordingSaved':
-				handlers.onRecordingSaved?.(msg);
-				break;
-			case 'recordingSaveDiscarded':
-				handlers.onRecordingSaveDiscarded?.(msg);
-				break;
-			case 'failedRunNotSaved':
-				handlers.onFailedRunNotSaved?.(msg.reason);
-				break;
-			case 'monitorStopped':
-				handlers.onMonitorStopped?.(msg.reason);
-				break;
-			case 'settingsReloaded':
-				handlers.onSettingsReloaded?.(msg.settings, msg.configPath);
-				break;
-			case 'settingsInvalid':
-				handlers.onSettingsInvalid?.(msg.error, msg.configPath);
-				break;
-			case 'updateApplied':
-				if (typeof msg.version === 'string') handlers.onUpdateApplied?.(msg.version, msg.releaseUrl);
-				else console.warn('Ignoring malformed updateApplied event', msg);
-				break;
-			case 'updateStagingFailed':
-				handlers.onUpdateStagingFailed?.(msg.error);
-				break;
-			case 'youtubeUploadChanged':
-				handlers.onYoutubeUploadChanged?.(msg.upload);
-				break;
+		try {
+			const message = JSON.parse(event.data) as unknown;
+			if (!message || typeof message !== 'object' || !('type' in message) || typeof message.type !== 'string') {
+				console.warn('Ignoring malformed app event', message);
+				return;
+			}
+			if (this.browserWsLogEnabled()) console.debug('[GE websocket] receive parsed', message);
+			onEvent(message as AppEvent);
+		} catch (error) {
+			console.warn('Ignoring invalid app event JSON', error);
 		}
 	}
 }
@@ -660,7 +605,7 @@ export interface MonitorFps {
 	sourceFps: number;
 }
 
-/** A message pushed over the app WebSocket. Mirrors the Rust `MonitorEvent`. */
+/** A message pushed over the app event stream. Mirrors the Rust `AppEvent`. */
 export interface MonitorSnapshot {
 	enabled: boolean;
 	sourceName?: string;
@@ -676,7 +621,7 @@ export interface AppSnapshot {
 	update: PluginUpdate | null;
 }
 
-export type AppSocketEvent =
+export type AppEvent =
 	| { type: 'version'; buildId: string }
 	| { type: 'snapshot'; state: AppSnapshot }
 	| { type: 'languageDetected'; lang: 'en' | 'jp' }
@@ -691,24 +636,6 @@ export type AppSocketEvent =
 	| { type: 'updateApplied'; version: string; releaseUrl?: string }
 	| { type: 'updateStagingFailed'; error: string }
 	| { type: 'youtubeUploadChanged'; upload: YouTubeUploadStatus };
-
-/** Handlers for the messages the app WebSocket can push. All are optional. */
-export interface AppSocketHandlers {
-	onSnapshot?: (snapshot: AppSnapshot) => void;
-	onLanguageDetected?: (lang: 'en' | 'jp') => void;
-	onMonitorFps?: (fps: MonitorFps) => void;
-	onRecordingSavePending?: (pending: RecordingSavePending) => void;
-	onRecordingSaved?: (saved: RecordingSaved) => void;
-	onRecordingSaveDiscarded?: (discarded: RecordingSaveDiscarded) => void;
-	onFailedRunNotSaved?: (reason: FailedRunNotSavedReason) => void;
-	onMonitorStopped?: (reason: MonitorStoppedReason) => void;
-	onSettingsReloaded?: (settings: Settings, configPath: string) => void;
-	onSettingsInvalid?: (error: string, configPath: string) => void;
-	onUpdateApplied?: (version: string, releaseUrl?: string) => void;
-	onUpdateStagingFailed?: (error: string) => void;
-	onYoutubeUploadChanged?: (upload: YouTubeUploadStatus) => void;
-	onClose?: () => void;
-}
 
 export type MonitorStatus =
 	| { enabled: false; recordingState?: null }
