@@ -5,7 +5,7 @@ import {
 	replaceNotificationFlag,
 	type NotificationFlag
 } from './notifications.svelte';
-import type { UpdateButtonPhase } from './optionsView';
+export type UpdateButtonPhase = 'check' | 'checking' | 'download' | 'downloading' | 'apply' | 'applying';
 import { settings } from './settings.svelte';
 
 const idleStatus = (): UpdateStatus => ({ phase: 'idle', available: null });

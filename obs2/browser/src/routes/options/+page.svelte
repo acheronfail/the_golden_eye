@@ -3,19 +3,13 @@
 	import { page } from '$app/state';
 	import { backend, type FolderValidation } from '$lib/api';
 	import { dismissNotificationFlagsByKey } from '$lib/notifications.svelte';
-	import { monitor } from '$lib/monitor.svelte';
 	import { replayBuffer } from '$lib/replayBuffer.svelte';
-	import { Select, settings, updates, type UpdateCheckInterval } from '$lib';
+	import { Select, settings } from '$lib';
 	import OptionsGeneral from '$lib/OptionsGeneral.svelte';
 	import OptionsNotifications from '$lib/OptionsNotifications.svelte';
 	import OptionsRecording from '$lib/OptionsRecording.svelte';
 	import OptionsYouTube from '$lib/OptionsYouTube.svelte';
-	import {
-		optionsClasses,
-		type GeneralOptionsView,
-		type OptionsPathKind,
-		type RecordingOptionsView
-	} from '$lib/optionsView';
+	import { optionsClasses, type OptionsPathKind, type RecordingOptionsView } from '$lib/optionsView';
 	import { youtube } from '$lib/youtube.svelte';
 
 	type OptionsTab = 'general' | 'recording' | 'notifications' | 'youtube';
@@ -66,17 +60,6 @@
 	const { panel: panelClass, label: labelClass, hint: hintClass, pathButton: pathButtonClass } = optionsClasses;
 	const dangerPanelClass =
 		'grid gap-3 rounded border border-(--obs-danger) bg-[color-mix(in_srgb,var(--obs-danger)_14%,transparent)] px-4 py-4';
-	const updateCheckIntervals: { value: UpdateCheckInterval; label: string }[] = [
-		{ value: 'monthly', label: 'Monthly' },
-		{ value: 'weekly', label: 'Weekly' },
-		{ value: 'daily', label: 'Daily' },
-		{ value: 'never', label: 'Never' }
-	];
-
-	const onUpdateCheckIntervalChange = (value: string) => {
-		settings.updateCheckInterval = value as UpdateCheckInterval;
-	};
-
 	const normalizeFailedRunLimit = () => {
 		const value = Number(settings.failedRunLimit);
 		settings.failedRunLimit = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
@@ -313,19 +296,6 @@
 		}
 	};
 
-	let generalOptionsView = $derived<GeneralOptionsView>({
-		update: {
-			intervals: updateCheckIntervals,
-			phase: updates.buttonPhase,
-			pending: updates.pending,
-			applyBlockedReason: monitor.status?.enabled ? "The update can't be applied while the monitor is active." : null,
-			setInterval: onUpdateCheckIntervalChange,
-			check: () => updates.check(),
-			download: () => updates.download(),
-			apply: () => updates.apply()
-		}
-	});
-
 	let recordingOptionsView = $derived<RecordingOptionsView>({
 		template: {
 			separator: clipTemplateSeparator,
@@ -405,7 +375,7 @@
 
 	<fieldset disabled={!settings.canEdit} class="flex flex-col gap-4 border-0 p-0">
 		{#if activeTab === 'general'}
-			<OptionsGeneral view={generalOptionsView} />
+			<OptionsGeneral />
 		{:else if activeTab === 'recording'}
 			<OptionsRecording view={recordingOptionsView} />
 		{:else if activeTab === 'notifications'}

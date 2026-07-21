@@ -1,8 +1,6 @@
 import type { FolderValidation } from './api';
-import type { UpdateCheckInterval } from './settings.svelte';
 
 export type OptionsPathKind = 'completed' | 'failed';
-export type UpdateButtonPhase = 'check' | 'checking' | 'download' | 'downloading' | 'apply' | 'applying';
 
 export const optionsClasses = {
 	panel: 'obs-panel grid gap-3 rounded px-4 py-4',
@@ -16,19 +14,6 @@ export const optionsClasses = {
 	pathError: 'wrap-break-word text-xs text-(--obs-danger)',
 	templateToken: 'obs-token cursor-help break-all rounded px-1.5 py-1 font-mono text-xs'
 } as const;
-
-export interface GeneralOptionsView {
-	update: {
-		intervals: { value: UpdateCheckInterval; label: string }[];
-		phase: UpdateButtonPhase;
-		pending: boolean;
-		applyBlockedReason: string | null;
-		setInterval: (value: string) => void;
-		check: () => void;
-		download: () => void;
-		apply: () => void;
-	};
-}
 
 export interface RecordingOptionsView {
 	template: {
