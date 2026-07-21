@@ -153,7 +153,6 @@ export const settings = new (class {
 	//
 
 	loaded = $state(!browser);
-	loading = $state(false);
 	saving = $state(false);
 	saveError = $state<string | null>(null);
 	configPath = $state('');
@@ -162,7 +161,6 @@ export const settings = new (class {
 	lastSavedState = $state(initialSavedState);
 	defaults = $state(initialSettings);
 
-	private loadPromise: Promise<void> | null = null;
 	private savePromise: Promise<void> | null = null;
 	private saveQueued = false;
 
@@ -261,42 +259,6 @@ export const settings = new (class {
 	dirty = $derived(this.savedState !== this.lastSavedState);
 	canEdit = $derived(this.loaded && this.fileError === null);
 
-	async load(): Promise<void> {
-		if (!browser) return;
-		if (this.loadPromise) return this.loadPromise;
-
-		this.loading = true;
-		this.saveError = null;
-		this.loadPromise = (async () => {
-			try {
-				const status = await backend.getSettingsStatus();
-				this.defaults = parseSettings(status.defaults);
-				const remote = parseSettings(status.settings, this.defaults);
-
-				this.configPath = status.configPath;
-				this.pluginVersion = status.pluginVersion;
-				this.fileError = status.fileError ?? null;
-
-				if (this.dirty && this.fileError === null) {
-					this.loaded = true;
-					await this.saveNow();
-				} else {
-					this.apply(remote);
-					this.lastSavedState = this.savedState;
-					this.loaded = true;
-				}
-			} catch (err) {
-				this.saveError = errorMessage(err);
-				throw err;
-			} finally {
-				this.loading = false;
-				this.loadPromise = null;
-			}
-		})();
-
-		return this.loadPromise;
-	}
-
 	saveImmediately(): void {
 		void this.saveNow().catch((err) => {
 			console.warn('Failed to save settings', err);
@@ -305,7 +267,7 @@ export const settings = new (class {
 
 	async saveNow(): Promise<void> {
 		if (!browser) return;
-		if (!this.loaded) await this.load();
+		if (!this.loaded) return;
 		if (this.fileError !== null) return;
 		if (!this.dirty) return;
 

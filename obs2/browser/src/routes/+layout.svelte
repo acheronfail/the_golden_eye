@@ -6,7 +6,6 @@
 	import { startAppSocket, stopAppSocket } from '$lib/appSocket.svelte';
 	import KiaDeathOverlay from '$lib/KiaDeathOverlay.svelte';
 	import NotificationFlags from '$lib/NotificationFlags.svelte';
-	import { addNotificationFlag } from '$lib/notifications.svelte';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
 	import { youtube } from '$lib/youtube.svelte';
 	import { page } from '$app/state';
@@ -27,24 +26,6 @@
 
 		startAppSocket();
 		void youtube.load().catch((err) => console.warn('Failed to load YouTube status', err));
-		void settings
-			.load()
-			.then(() => {
-				if (settings.fileError) {
-					addNotificationFlag({
-						key: 'settings-config-error',
-						title: 'Config file invalid',
-						detail: settings.fileError,
-						meta: 'Click to open options.',
-						tone: 'error',
-						sticky: true,
-						href: '/options'
-					});
-				}
-			})
-			.catch((err) => {
-				console.warn('Failed to load settings', err);
-			});
 
 		return () => {
 			stopAppSocket();

@@ -16,8 +16,8 @@ use tokio::sync::broadcast;
 use crate::cv::{LevelMatch, Screen};
 use crate::db::run_catalog::{RunCatalog, RunCatalogSave};
 use crate::http::{
+    AppEvent,
     FailedRunNotSavedReason,
-    MonitorEvent,
     RecordingSavePending,
     RecordingSaved,
     RecordingStateStore,
@@ -595,10 +595,10 @@ pub struct RecordingState {
     /// Monotonic id assigned to the next scheduled save so frontend notifications
     /// can be replaced when that save completes.
     next_save_id: u64,
-    /// Broadcasts a [`MonitorEvent::RecordingSaved`] to WebSocket clients once a
+    /// Broadcasts an [`AppEvent::RecordingSaved`] to event-stream clients once a
     /// clip is written. Cloned into each save thread.
-    event_tx: broadcast::Sender<MonitorEvent>,
-    /// Retained recorder phase reported to status/WebSocket clients.
+    event_tx: broadcast::Sender<AppEvent>,
+    /// Retained recorder phase reported in app snapshots.
     recording_state: RecordingStateStore,
     /// Recording/output options fixed for this monitor session.
     options: RecordingOptions,
@@ -612,7 +612,7 @@ pub struct RecordingState {
 
 impl RecordingState {
     pub fn new(
-        event_tx: broadcast::Sender<MonitorEvent>,
+        event_tx: broadcast::Sender<AppEvent>,
         recording_state: RecordingStateStore,
         options: RecordingOptions,
         source_name: String,
@@ -635,7 +635,7 @@ impl RecordingState {
     }
 
     /// Publish a recorder state transition to the backend-retained phase store
-    /// (WebSocket clients see it via the monitor route's watch subscription).
+    /// Event-stream clients see it in the next app snapshot.
     /// For `SavePending`/`StatsSkipped`, records the generation on the pending
     /// save so its completion/discard can clear that exact transition later.
     fn emit(&mut self, status: RecordingStatus) {
@@ -670,8 +670,7 @@ impl RecordingState {
             // idle ("waiting") and surface the outcome as a one-off notification
             // rather than a lingering "failed run not saved" phase.
             self.recording_state.clear();
-            let _ =
-                self.event_tx.send(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::SavingDisabled });
+            let _ = self.event_tx.send(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::SavingDisabled });
             return false;
         }
 
@@ -712,11 +711,11 @@ impl RecordingState {
         if pending_is_savable(&self.options, pending) {
             if !pending.notified || time_changed {
                 let event = save_pending_event(pending, &self.options, now);
-                let _ = self.event_tx.send(MonitorEvent::RecordingSavePending(event));
+                let _ = self.event_tx.send(AppEvent::RecordingSavePending(event));
                 self.pending.as_mut().unwrap().notified = true;
             }
         } else if pending.notified {
-            let _ = self.event_tx.send(MonitorEvent::RecordingSaveDiscarded { save_id: pending.save_id });
+            let _ = self.event_tx.send(AppEvent::RecordingSaveDiscarded { save_id: pending.save_id });
             self.pending.as_mut().unwrap().notified = false;
         }
     }
@@ -747,9 +746,9 @@ impl RecordingState {
             // Guarantees the sticky "saving" toast is cleared even if this save
             // was never reconciled to unsavable earlier (normally already done).
             if pending.notified {
-                let _ = self.event_tx.send(MonitorEvent::RecordingSaveDiscarded { save_id: pending.save_id });
+                let _ = self.event_tx.send(AppEvent::RecordingSaveDiscarded { save_id: pending.save_id });
             }
-            let _ = self.event_tx.send(MonitorEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort });
+            let _ = self.event_tx.send(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort });
             return None;
         }
 
@@ -987,7 +986,7 @@ struct SaveAndTrimJob {
     options: RecordingOptions,
     source_name: String,
     rom_language: String,
-    event_tx: broadcast::Sender<MonitorEvent>,
+    event_tx: broadcast::Sender<AppEvent>,
     recording_state: RecordingStateStore,
     #[cfg_attr(test, allow(dead_code))]
     run_catalog: Arc<RunCatalog>,
@@ -1073,7 +1072,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
             }
             // Ignore send errors: with no WebSocket clients there are no
             // subscribers, but the save still succeeded.
-            let _ = job.event_tx.send(MonitorEvent::RecordingSaved(saved));
+            let _ = job.event_tx.send(AppEvent::RecordingSaved(saved));
             // Clear only this save's own phase transition, not the current value,
             // which a quick-restarted run may legitimately share for its own save.
             if let Some(generation) = job.phase_generation {

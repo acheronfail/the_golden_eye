@@ -107,7 +107,7 @@ pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<Plu
         tokio::spawn(async move {
             if let Err(err) = crate::update_apply::download_verify_and_stage(&update_for_stage, assets).await {
                 tracing::error!("failed to stage plugin update: {err:#}");
-                let _ = event_tx.send(crate::http::MonitorEvent::UpdateStagingFailed { error: format!("{err:#}") });
+                let _ = event_tx.send(crate::http::AppEvent::UpdateStagingFailed { error: format!("{err:#}") });
             }
         });
     }

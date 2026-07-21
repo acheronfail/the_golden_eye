@@ -687,7 +687,7 @@ pub struct UploadRequest {
 pub async fn upload_video(
     store: YoutubeUploadStore,
     req: UploadRequest,
-    event_tx: tokio::sync::broadcast::Sender<crate::http::MonitorEvent>,
+    event_tx: tokio::sync::broadcast::Sender<crate::http::AppEvent>,
 ) {
     let UploadRequest { upload_id, path, title, description, visibility } = req;
     let result = upload_video_inner(&store, &upload_id, &path, &title, &description, visibility, &event_tx).await;
@@ -704,7 +704,7 @@ pub async fn upload_video(
             });
             let _ = store.set_history(&path, YoutubeMetadata { video_id, video_url, uploaded_at: now_iso(), title });
             if let Some(status) = status {
-                let _ = event_tx.send(crate::http::MonitorEvent::YoutubeUploadChanged { upload: status });
+                let _ = event_tx.send(crate::http::AppEvent::YoutubeUploadChanged { upload: status });
             }
         }
         Err(err) => {
@@ -713,7 +713,7 @@ pub async fn upload_video(
                 status.state = YoutubeUploadState::Failed;
                 status.error = Some(format!("{err:#}"));
             }) {
-                let _ = event_tx.send(crate::http::MonitorEvent::YoutubeUploadChanged { upload: status });
+                let _ = event_tx.send(crate::http::AppEvent::YoutubeUploadChanged { upload: status });
             }
         }
     }
@@ -726,7 +726,7 @@ async fn upload_video_inner(
     title: &str,
     description: &str,
     visibility: YoutubeVisibility,
-    event_tx: &tokio::sync::broadcast::Sender<crate::http::MonitorEvent>,
+    event_tx: &tokio::sync::broadcast::Sender<crate::http::AppEvent>,
 ) -> anyhow::Result<String> {
     let _permit = store.semaphore().acquire_owned().await.context("acquiring YouTube upload slot")?;
     let total_bytes = fs::metadata(path).with_context(|| format!("reading metadata for {}", path.display()))?.len();
@@ -820,7 +820,7 @@ impl ProgressPublisher {
         &mut self,
         store: &YoutubeUploadStore,
         upload_id: &str,
-        event_tx: &tokio::sync::broadcast::Sender<crate::http::MonitorEvent>,
+        event_tx: &tokio::sync::broadcast::Sender<crate::http::AppEvent>,
         uploaded: u64,
         total: u64,
     ) {
@@ -839,7 +839,7 @@ impl ProgressPublisher {
         &mut self,
         store: &YoutubeUploadStore,
         upload_id: &str,
-        event_tx: &tokio::sync::broadcast::Sender<crate::http::MonitorEvent>,
+        event_tx: &tokio::sync::broadcast::Sender<crate::http::AppEvent>,
         uploaded: u64,
         total: u64,
     ) {
@@ -863,22 +863,22 @@ fn update_progress(
 }
 
 fn publish_status(
-    event_tx: &tokio::sync::broadcast::Sender<crate::http::MonitorEvent>,
+    event_tx: &tokio::sync::broadcast::Sender<crate::http::AppEvent>,
     status: Option<YoutubeUploadStatus>,
 ) {
     if let Some(upload) = status {
-        let _ = event_tx.send(crate::http::MonitorEvent::YoutubeUploadChanged { upload });
+        let _ = event_tx.send(crate::http::AppEvent::YoutubeUploadChanged { upload });
     }
 }
 
 fn publish_update(
     store: &YoutubeUploadStore,
     upload_id: &str,
-    event_tx: &tokio::sync::broadcast::Sender<crate::http::MonitorEvent>,
+    event_tx: &tokio::sync::broadcast::Sender<crate::http::AppEvent>,
     update: impl FnOnce(&mut YoutubeUploadStatus),
 ) {
     if let Some(status) = store.update_upload(upload_id, update) {
-        let _ = event_tx.send(crate::http::MonitorEvent::YoutubeUploadChanged { upload: status });
+        let _ = event_tx.send(crate::http::AppEvent::YoutubeUploadChanged { upload: status });
     }
 }
 

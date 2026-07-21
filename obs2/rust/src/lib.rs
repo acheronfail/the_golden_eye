@@ -26,10 +26,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use http::{
+    AppEvent,
     AppSnapshot,
     AppState,
     AppStateInner,
-    MonitorEvent,
     MonitorSnapshot,
     MonitorStoppedReason,
     RecordingStateStore,
@@ -293,14 +293,14 @@ async fn watch_settings_file(state: AppState) {
             SettingsReload::Unchanged => {}
             SettingsReload::Reloaded(settings) => {
                 state.snapshot.set_settings_status(state.settings.status_without_runtime_defaults());
-                let _ = state.event_tx.send(MonitorEvent::SettingsReloaded {
+                let _ = state.event_tx.send(AppEvent::SettingsReloaded {
                     config_path: state.settings.path().to_string_lossy().into_owned(),
                     settings: *settings,
                 });
             }
             SettingsReload::Invalid(error) => {
                 state.snapshot.set_settings_status(state.settings.status_without_runtime_defaults());
-                let _ = state.event_tx.send(MonitorEvent::SettingsInvalid {
+                let _ = state.event_tx.send(AppEvent::SettingsInvalid {
                     config_path: state.settings.path().to_string_lossy().into_owned(),
                     error,
                 });
@@ -530,8 +530,7 @@ pub extern "C" fn ge_replay_buffer_stopped() {
     runtime_handle.spawn(async move {
         if http::stop_monitor(&state).await {
             tracing::warn!("replay buffer stopped while monitoring was active; monitoring disabled");
-            let _ =
-                state.event_tx.send(MonitorEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped });
+            let _ = state.event_tx.send(AppEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped });
         }
     });
 }

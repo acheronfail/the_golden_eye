@@ -17,7 +17,7 @@ type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 async fn monitor_detects_rom_language_and_switches_matchers_back_and_forth() {
     let harness = Harness::start(Duration::ZERO).await;
     harness.start_monitor().await.error_for_status().unwrap();
-    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap();
+    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap();
 
     let en_start = harness.frame("test/screenshots-emu/en - start - 01 - Agent.png");
     render_until_match(&harness, &mut ws, &en_start, "initial en start", |m| is_match(m, "Start", 1, 1, 0, Some("en")))
@@ -87,11 +87,11 @@ async fn render_until_match(
                 }
             }
             Ok(Some(Ok(Message::Close(frame)))) => {
-                panic!("monitor websocket closed while waiting for {label}: {frame:?}");
+                panic!("app event stream closed while waiting for {label}: {frame:?}");
             }
             Ok(Some(Ok(_))) | Err(_) => {}
-            Ok(Some(Err(err))) => panic!("monitor websocket failed while waiting for {label}: {err}"),
-            Ok(None) => panic!("monitor websocket ended while waiting for {label}"),
+            Ok(Some(Err(err))) => panic!("app event stream failed while waiting for {label}: {err}"),
+            Ok(None) => panic!("app event stream ended while waiting for {label}"),
         }
 
         assert!(

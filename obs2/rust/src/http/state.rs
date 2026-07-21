@@ -23,9 +23,9 @@ pub struct AppStateInner {
     /// The single retained app/session state object. New browser clients receive
     /// this on connect, then every retained-state change as a fresh snapshot.
     pub snapshot: SharedStateStore,
-    /// One-off monitor events broadcast to connected WebSocket clients (e.g. a
-    /// clip being saved). Discrete events are not retained for late joiners.
-    pub event_tx: broadcast::Sender<MonitorEvent>,
+    /// One-off app events broadcast to connected clients (e.g. a clip being
+    /// saved). Discrete events are not retained for late joiners.
+    pub event_tx: broadcast::Sender<AppEvent>,
     /// Latest recorder phase from the running monitor, with generation-aware
     /// timeout clearing. Writes also update `snapshot.recording_state`.
     pub recording_state: RecordingStateStore,
@@ -165,12 +165,12 @@ pub struct StreamMessage {
     pub webhook_url: String,
 }
 
-/// Messages pushed to app WebSocket clients, internally tagged by `type` for
-/// the SPA. Retained state is carried by `Snapshot`; the other variants are
-/// one-off events sent only to connected clients.
+/// Messages pushed to app event-stream clients, internally tagged by `type`.
+/// Retained state is carried by `Snapshot`; the other variants are one-off
+/// events sent only to connected clients.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
-pub enum MonitorEvent {
+pub enum AppEvent {
     /// Sent once on connect: the build id of the SPA this backend serves. The
     /// SPA compares it against its own served build and reloads on mismatch, so
     /// a stale tab picks up the new frontend. See [`routes::index::BUILD_ID`].
@@ -240,7 +240,7 @@ pub enum MonitorEvent {
 }
 
 /// Why the backend stopped an active monitor. Serialized as a plain string
-/// inside [`MonitorEvent::MonitorStopped`].
+/// inside [`AppEvent::MonitorStopped`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MonitorStoppedReason {
@@ -251,7 +251,7 @@ pub enum MonitorStoppedReason {
 }
 
 /// Why a failed run reached an ending screen without a clip being written.
-/// Serialized as a plain string inside [`MonitorEvent::FailedRunNotSaved`].
+/// Serialized as a plain string inside [`AppEvent::FailedRunNotSaved`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FailedRunNotSavedReason {
@@ -298,11 +298,11 @@ pub enum RecordingStatus {
     Complete,
     /// A *completed* run backed out of the report screen to the level grid,
     /// bypassing the stats screen. The clip is still saved and a
-    /// [`MonitorEvent::RecordingSaved`] follows. (A failed run does this normally.)
+    /// [`AppEvent::RecordingSaved`] follows. (A failed run does this normally.)
     StatsSkipped,
     /// A run ended at the stats screen (or, via `StatsSkipped`, the report
     /// screen): a save has been scheduled and will fire a few seconds later. A
-    /// [`MonitorEvent::RecordingSaved`] follows once the clip is written.
+    /// [`AppEvent::RecordingSaved`] follows once the clip is written.
     SavePending,
 }
 
@@ -407,7 +407,7 @@ impl RecordingStateStore {
 }
 
 /// Details of a clip save that has been scheduled after a run ending was seen,
-/// pushed to WebSocket clients as a [`MonitorEvent::RecordingSavePending`].
+/// pushed to clients as an [`AppEvent::RecordingSavePending`].
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordingSavePending {
@@ -444,7 +444,7 @@ pub struct RecordingSavePending {
 }
 
 /// Details of a clip saved out of the replay buffer at the end of a run, pushed
-/// to WebSocket clients as a [`MonitorEvent::RecordingSaved`].
+/// to clients as an [`AppEvent::RecordingSaved`].
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordingSaved {

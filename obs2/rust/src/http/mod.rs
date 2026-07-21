@@ -10,7 +10,7 @@ use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 pub(crate) use routes::monitor::stop_monitor;
 pub use routes::record::ReplayBufferStatus;
 use tokio::net::{TcpListener, TcpSocket};
@@ -86,8 +86,8 @@ pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state
         .route("/api/v1/replay-buffer/status", get(routes::record::handle_replay_status))
         .route("/api/v1/monitor/start", post(routes::monitor::handle_start))
         .route("/api/v1/monitor/stop", post(routes::monitor::handle_stop))
-        .route("/api/v1/monitor/ws", get(routes::monitor::handle_ws))
-        .route("/api/v1/settings", get(routes::settings::handle_get).put(routes::settings::handle_put))
+        .route("/api/v1/events/ws", get(routes::events::handle_ws))
+        .route("/api/v1/settings", put(routes::settings::handle_put))
         .route("/api/v1/settings/status", get(routes::settings::handle_status))
         .route("/api/v1/settings/reset", post(routes::settings::handle_reset))
         .route("/api/v1/folders/pick", post(routes::folders::handle_pick))

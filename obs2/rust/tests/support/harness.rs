@@ -123,7 +123,7 @@ impl Harness {
     }
 
     pub async fn render_until_state(&self, frame: &Frame, expected: &str) {
-        let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap();
+        let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap();
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut last_status = Value::Null;
         loop {
@@ -138,9 +138,9 @@ impl Harness {
                     }
                 }
                 Ok(Some(Err(err))) => {
-                    panic!("monitor websocket failed while waiting for recording state {expected}: {err}")
+                    panic!("app event stream failed while waiting for recording state {expected}: {err}")
                 }
-                Ok(None) => panic!("monitor websocket ended while waiting for recording state {expected}"),
+                Ok(None) => panic!("app event stream ended while waiting for recording state {expected}"),
                 Err(_) => {}
             }
             assert!(
@@ -158,8 +158,8 @@ impl Harness {
         }
     }
 
-    pub async fn connect_monitor_ws(&self) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
-        connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap().0
+    pub async fn connect_event_stream(&self) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
+        connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap().0
     }
 }
 
@@ -481,7 +481,7 @@ async fn wait_for_server(client: &reqwest::Client) {
 }
 
 async fn wait_for_monitor_snapshot(predicate: impl Fn(&Value) -> bool) -> Value {
-    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/monitor/ws").await.unwrap();
+    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut last_status = Value::Null;
     loop {
@@ -495,15 +495,15 @@ async fn wait_for_monitor_snapshot(predicate: impl Fn(&Value) -> bool) -> Value 
                     }
                 }
             }
-            Ok(Some(Err(err))) => panic!("monitor websocket failed while waiting for status: {err}"),
-            Ok(None) => panic!("monitor websocket ended while waiting for status"),
+            Ok(Some(Err(err))) => panic!("app event stream failed while waiting for status: {err}"),
+            Ok(None) => panic!("app event stream ended while waiting for status"),
             Err(_) => {}
         }
         assert!(Instant::now() < deadline, "timed out waiting for monitor status; last: {last_status}");
     }
 }
 
-pub async fn next_monitor_snapshot(ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>, label: &str) -> Value {
+pub async fn next_app_snapshot(ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>, label: &str) -> Value {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match tokio::time::timeout(Duration::from_millis(200), ws.next()).await {
@@ -512,8 +512,8 @@ pub async fn next_monitor_snapshot(ws: &mut WebSocketStream<MaybeTlsStream<TcpSt
                     return snapshot;
                 }
             }
-            Ok(Some(Err(err))) => panic!("monitor websocket failed while waiting for {label}: {err}"),
-            Ok(None) => panic!("monitor websocket ended while waiting for {label}"),
+            Ok(Some(Err(err))) => panic!("app event stream failed while waiting for {label}: {err}"),
+            Ok(None) => panic!("app event stream ended while waiting for {label}"),
             Err(_) => {}
         }
         assert!(Instant::now() < deadline, "timed out waiting for {label}");
@@ -524,7 +524,7 @@ pub fn snapshot_from_message(message: Message) -> Option<Value> {
     let value: Value = match message {
         Message::Text(text) => serde_json::from_str(&text).unwrap(),
         Message::Binary(bytes) => serde_json::from_slice(&bytes).unwrap(),
-        Message::Close(frame) => panic!("monitor websocket closed while waiting for snapshot: {frame:?}"),
+        Message::Close(frame) => panic!("app event stream closed while waiting for snapshot: {frame:?}"),
         _ => return None,
     };
     (value["type"] == "snapshot").then_some(value)

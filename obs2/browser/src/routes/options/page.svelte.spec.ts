@@ -10,7 +10,6 @@ import { settings } from '$lib/settings.svelte';
 const mocks = vi.hoisted(() => {
 	const api = {
 		getReplayBufferStatus: vi.fn(),
-		getSettingsStatus: vi.fn(),
 		getUpdateStatus: vi.fn(),
 		checkForUpdateNow: vi.fn(),
 		downloadUpdateNow: vi.fn(),
@@ -61,7 +60,6 @@ vi.mock('$lib/api', async (importOriginal) => {
 		backend: {
 			...actual.backend,
 			getReplayBufferStatus: mocks.api.getReplayBufferStatus,
-			getSettingsStatus: mocks.api.getSettingsStatus,
 			getUpdateStatus: mocks.api.getUpdateStatus,
 			checkForUpdateNow: mocks.api.checkForUpdateNow,
 			downloadUpdateNow: mocks.api.downloadUpdateNow,
@@ -121,12 +119,6 @@ beforeEach(() => {
 	settings.applyReloaded(defaultSettings, '/tmp/the-golden-eye/settings.json', defaultSettings);
 	settings.loaded = true;
 	mocks.api.getReplayBufferStatus.mockResolvedValue(availableReplayBuffer);
-	mocks.api.getSettingsStatus.mockResolvedValue({
-		settings: defaultSettings,
-		defaults: defaultSettings,
-		configPath: '/tmp/the-golden-eye/settings.json',
-		fileError: null
-	});
 	mocks.api.putSettings.mockImplementation(async (next: Settings) => next);
 	mocks.api.resetSettingsToDefaults.mockResolvedValue(defaultSettings);
 	mocks.api.getUpdateStatus.mockResolvedValue({ staged: false });
@@ -264,12 +256,11 @@ describe('/options', () => {
 
 	it('shows and persists the first-run welcome acknowledgement', async () => {
 		const user = userEvent.setup();
-		mocks.api.getSettingsStatus.mockResolvedValue({
-			settings: { ...defaultSettings, welcomeModalShown: false },
-			defaults: defaultSettings,
-			configPath: '/tmp/the-golden-eye/settings.json',
-			fileError: null
-		});
+		settings.applyReloaded(
+			{ ...defaultSettings, welcomeModalShown: false },
+			'/tmp/the-golden-eye/settings.json',
+			defaultSettings
+		);
 
 		render(OptionsPageHarness);
 

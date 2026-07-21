@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { backend, type PluginUpdate } from './api';
+import { backend, type AppEvent, type AppSnapshot, type PluginUpdate } from './api';
 import {
 	applyFailedRunNotSaved,
 	applyLanguageDetected,
@@ -21,7 +21,6 @@ import { refreshReplayBuffer, setReplayBufferStatus } from './replayBuffer.svelt
 import { settings } from './settings.svelte';
 import { setObsSources } from './sources.svelte';
 import { youtube } from './youtube.svelte';
-import type { AppSnapshot } from './api';
 
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -139,16 +138,115 @@ const notifyYoutubeUploadChanged = (upload: import('./api').YouTubeUploadStatus)
 	}
 };
 
+const dismissSettingsError = (): void => {
+	dismissNotificationFlagsByKey('settings-config-error');
+	if (settingsErrorNotificationId !== null) {
+		dismissNotificationFlag(settingsErrorNotificationId);
+		settingsErrorNotificationId = null;
+	}
+};
+
+const showSettingsError = (error: string): void => {
+	const notification = {
+		key: 'settings-config-error',
+		title: 'Config file invalid',
+		detail: error,
+		meta: 'Click to open options.',
+		tone: 'error' as const,
+		sticky: true,
+		href: '/options'
+	};
+	if (settingsErrorNotificationId !== null && replaceNotificationFlag(settingsErrorNotificationId, notification)) {
+		return;
+	}
+	settingsErrorNotificationId = addNotificationFlag(notification).id;
+};
+
 const applyAppSnapshot = (snapshot: AppSnapshot): void => {
 	applyMonitorSnapshot(snapshot);
 	setObsSources(snapshot.sources);
 	setReplayBufferStatus(snapshot.replayBuffer);
-	if (!settings.dirty) settings.applyStatus(snapshot.settingsStatus);
+	if (!settings.dirty) {
+		settings.applyStatus(snapshot.settingsStatus);
+		if (settings.fileError) showSettingsError(settings.fileError);
+		else dismissSettingsError();
+	}
 	if (snapshot.update) {
 		applyUpdateAvailable(snapshot.update);
 	} else {
 		dismissUpdateAvailableNotification();
 		dismissedUpdateVersion = null;
+	}
+};
+
+const handleAppEvent = (event: AppEvent): void => {
+	switch (event.type) {
+		case 'version': {
+			if (typeof event.buildId !== 'string') {
+				console.warn('Ignoring malformed app version event', event);
+				return;
+			}
+			const self = backend.selfBuildId();
+			if (self !== null && self !== event.buildId) {
+				console.warn(`frontend build ${self} differs from backend build ${event.buildId}; reloading`);
+				window.location.reload();
+			}
+			break;
+		}
+		case 'snapshot':
+			if (event.state && typeof event.state === 'object') applyAppSnapshot(event.state);
+			else console.warn('Ignoring malformed snapshot event', event);
+			break;
+		case 'languageDetected':
+			applyLanguageDetected(event.lang);
+			break;
+		case 'monitorFps':
+			applyMonitorFps(event);
+			break;
+		case 'recordingSavePending':
+			applyRecordingSavePending(event);
+			break;
+		case 'recordingSaved':
+			applyRecordingSaved(event);
+			break;
+		case 'recordingSaveDiscarded':
+			applyRecordingSaveDiscarded(event);
+			break;
+		case 'failedRunNotSaved':
+			applyFailedRunNotSaved(event.reason);
+			break;
+		case 'monitorStopped':
+			applyMonitorStopped(event.reason);
+			void refreshReplayBuffer();
+			break;
+		case 'settingsReloaded':
+			settings.applyReloaded(event.settings, event.configPath);
+			dismissSettingsError();
+			addNotificationFlag({ title: 'Config reloaded', detail: event.configPath, tone: 'success' });
+			break;
+		case 'settingsInvalid':
+			settings.applyInvalid(event.error, event.configPath);
+			showSettingsError(event.error);
+			break;
+		case 'updateApplied':
+			if (typeof event.version === 'string') handleUpdateApplied(event.version, event.releaseUrl);
+			else console.warn('Ignoring malformed updateApplied event', event);
+			break;
+		case 'updateStagingFailed':
+			addNotificationFlag({
+				key: 'plugin-update-staging-failed',
+				title: 'Plugin update failed',
+				detail: event.error,
+				tone: 'error',
+				sticky: true
+			});
+			break;
+		case 'youtubeUploadChanged':
+			youtube.applyUpload(event.upload);
+			notifyYoutubeUploadChanged(event.upload);
+			break;
+		default:
+			console.warn('Ignoring unknown app event', event);
 	}
 };
 
@@ -192,65 +290,9 @@ const scheduleReconnect = (): void => {
 const connect = (): void => {
 	if (!browser || stopped || socket !== null) return;
 
-	const nextSocket = backend.connectAppSocket({
-		onSnapshot: applyAppSnapshot,
-		onLanguageDetected: applyLanguageDetected,
-		onMonitorFps: applyMonitorFps,
-		onRecordingSavePending: applyRecordingSavePending,
-		onRecordingSaved: applyRecordingSaved,
-		onRecordingSaveDiscarded: applyRecordingSaveDiscarded,
-		onFailedRunNotSaved: applyFailedRunNotSaved,
-		onMonitorStopped: (reason) => {
-			applyMonitorStopped(reason);
-			void refreshReplayBuffer();
-		},
-		onSettingsReloaded: (nextSettings, configPath) => {
-			settings.applyReloaded(nextSettings, configPath);
-			dismissNotificationFlagsByKey('settings-config-error');
-			if (settingsErrorNotificationId !== null) {
-				dismissNotificationFlag(settingsErrorNotificationId);
-				settingsErrorNotificationId = null;
-			}
-			addNotificationFlag({
-				title: 'Config reloaded',
-				detail: configPath,
-				tone: 'success'
-			});
-		},
-		onSettingsInvalid: (error, configPath) => {
-			settings.applyInvalid(error, configPath);
-			const notification = {
-				key: 'settings-config-error',
-				title: 'Config file invalid',
-				detail: error,
-				meta: 'Click to open options.',
-				tone: 'error' as const,
-				sticky: true,
-				href: '/options'
-			};
-			if (settingsErrorNotificationId !== null && replaceNotificationFlag(settingsErrorNotificationId, notification)) {
-				return;
-			}
-			settingsErrorNotificationId = addNotificationFlag(notification).id;
-		},
-		onUpdateApplied: handleUpdateApplied,
-		onUpdateStagingFailed: (error) => {
-			addNotificationFlag({
-				key: 'plugin-update-staging-failed',
-				title: 'Plugin update failed',
-				detail: error,
-				tone: 'error',
-				sticky: true
-			});
-		},
-		onYoutubeUploadChanged: (upload) => {
-			youtube.applyUpload(upload);
-			notifyYoutubeUploadChanged(upload);
-		},
-		onClose: () => {
-			if (socket === nextSocket) socket = null;
-			scheduleReconnect();
-		}
+	const nextSocket = backend.connectAppSocket(handleAppEvent, () => {
+		if (socket === nextSocket) socket = null;
+		scheduleReconnect();
 	});
 	socket = nextSocket;
 };

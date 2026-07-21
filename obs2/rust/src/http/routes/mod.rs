@@ -1,3 +1,4 @@
+pub mod events;
 pub mod files;
 pub mod folders;
 pub mod index;
