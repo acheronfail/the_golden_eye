@@ -197,11 +197,11 @@ export function runDetail(clip: RunClip): string {
 export function statusTone(status: string): string {
 	switch (status === 'completed' ? 'complete' : status) {
 		case 'complete':
-			return 'border-[color-mix(in_srgb,var(--obs-success),var(--obs-border)_35%)] bg-[var(--obs-success-surface)] text-[var(--obs-success)]';
+			return 'border-[color-mix(in_srgb,var(--obs-success),var(--obs-border)_35%)] bg-(--obs-success-surface) text-(--obs-success)';
 		case 'failed':
 		case 'abort':
 		case 'kia':
-			return 'border-[color-mix(in_srgb,var(--obs-danger),var(--obs-border)_35%)] bg-[var(--obs-danger-surface)] text-[var(--obs-danger)]';
+			return 'border-[color-mix(in_srgb,var(--obs-danger),var(--obs-border)_35%)] bg-(--obs-danger-surface) text-(--obs-danger)';
 		default:
 			return 'obs-token';
 	}

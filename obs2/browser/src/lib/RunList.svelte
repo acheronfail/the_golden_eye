@@ -66,7 +66,7 @@
 					<span class="flex min-w-0 flex-col gap-1">
 						<MetaPills chips={runMetaChips(clip)} containerClass="obs-list-title" pillClass="text-[11px]" />
 						<span
-							class="min-w-0 truncate font-mono text-[10px] text-[var(--obs-text-muted)]"
+							class="min-w-0 truncate font-mono text-[10px] text-(--obs-text-muted)"
 							title={formatDate(clip.metadata.timestamp)}
 						>
 							Achieved: {formatDate(clip.metadata.timestamp)}

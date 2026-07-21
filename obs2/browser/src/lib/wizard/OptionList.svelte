@@ -81,11 +81,11 @@
 				{/if}
 				<span class="flex min-w-0 items-center gap-3">
 					<span class="flex min-w-0 flex-1 flex-col">
-						<span class="obs-list-title block min-w-0 font-medium break-words sm:truncate">
+						<span class="obs-list-title block min-w-0 font-medium wrap-break-word sm:truncate">
 							{option.title}
 						</span>
 						{#if option.detail}
-							<span class="obs-list-detail block min-w-0 font-mono text-xs break-words sm:truncate">
+							<span class="obs-list-detail block min-w-0 font-mono text-xs wrap-break-word sm:truncate">
 								{option.detail}
 							</span>
 						{/if}

@@ -67,9 +67,9 @@
 		{:else}
 			<div class="flex items-center justify-between gap-3">
 				<div class="min-w-0 text-left">
-					<p class="truncate font-mono text-xs text-[var(--obs-text)]">Connected as {accountLabel}</p>
+					<p class="truncate font-mono text-xs text-(--obs-text)">Connected as {accountLabel}</p>
 					{#if accountEmail}
-						<p class="truncate text-xs text-[var(--obs-text-muted)]">{accountEmail}</p>
+						<p class="truncate text-xs text-(--obs-text-muted)">{accountEmail}</p>
 					{/if}
 				</div>
 				<button

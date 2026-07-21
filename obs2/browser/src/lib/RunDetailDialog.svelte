@@ -242,7 +242,7 @@
 				{#if youtubeEnabled}
 					<section class="obs-subpanel mt-4 rounded px-4 py-3">
 						<div class="mb-3 flex items-center justify-between gap-3">
-							<h3 class="font-mono text-xs font-semibold tracking-[0.2em] text-[var(--obs-text-muted)] uppercase">
+							<h3 class="font-mono text-xs font-semibold tracking-[0.2em] text-(--obs-text-muted) uppercase">
 								YouTube
 							</h3>
 							{#if youtubeIsUploaded}
@@ -256,7 +256,7 @@
 							{/if}
 						</div>
 						{#if youtubeIsUploaded && youtubeHelpOpen}
-							<div class="mb-3 grid gap-2 text-xs leading-relaxed text-[var(--obs-text-muted)]">
+							<div class="mb-3 grid gap-2 text-xs leading-relaxed text-(--obs-text-muted)">
 								<p>
 									The plugin remembers videos it uploaded from this computer and links them to the clip's file path. If
 									a clip is moved, renamed, or edited with other video apps, it may not recognise it as the same video
@@ -279,15 +279,15 @@
 						<div class="flex flex-col items-center gap-2 text-center">
 							{#if youtubeIsUploaded}
 								<div
-									class="mb-1 w-full rounded border border-[var(--obs-border)] bg-[var(--obs-bg-elevated)] px-3 py-2 text-left shadow-[inset_0_1px_0_var(--obs-border-soft)]"
+									class="mb-1 w-full rounded border border-(--obs-border) bg-(--obs-bg-elevated) px-3 py-2 text-left shadow-[inset_0_1px_0_var(--obs-border-soft)]"
 								>
-									<p class="font-mono text-xs text-[var(--obs-text)]">Already uploaded to YouTube.</p>
+									<p class="font-mono text-xs text-(--obs-text)">Already uploaded to YouTube.</p>
 									<p class="obs-dim mt-1 text-xs">Use the link below to copy or open the uploaded video.</p>
 								</div>
 							{/if}
 							{#if !youtubeIsUploaded && youtubeUploadPreview}
 								<div
-									class="mb-1 grid w-full gap-3 rounded border border-[var(--obs-border)] bg-[var(--obs-bg-elevated)] p-3 text-left shadow-[inset_0_1px_0_var(--obs-border-soft)]"
+									class="mb-1 grid w-full gap-3 rounded border border-(--obs-border) bg-(--obs-bg-elevated) p-3 text-left shadow-[inset_0_1px_0_var(--obs-border-soft)]"
 								>
 									<div class="flex flex-wrap items-center justify-between gap-2">
 										<p class="obs-dim font-mono text-[11px] tracking-[0.18em] uppercase">Upload preview</p>
@@ -296,20 +296,20 @@
 									<dl class="grid gap-2.5 text-xs sm:grid-cols-[5.5rem_minmax(0,1fr)]">
 										<dt class="obs-dim pt-1 font-mono">Title</dt>
 										<dd
-											class="rounded border border-[var(--obs-border)] bg-[var(--obs-panel)] px-2 py-1.5 font-mono text-[11px] leading-relaxed break-words text-[var(--obs-text)] shadow-[inset_0_1px_2px_rgb(0_0_0_/_24%)]"
+											class="rounded border border-(--obs-border) bg-(--obs-panel) px-2 py-1.5 font-mono text-[11px] leading-relaxed wrap-break-word text-(--obs-text) shadow-[inset_0_1px_2px_rgb(0_0_0/24%)]"
 										>
 											{youtubeUploadPreview.title}
 										</dd>
 										<dt class="obs-dim pt-1 font-mono">Description</dt>
 										<dd
-											class="rounded border border-[var(--obs-border)] bg-[var(--obs-panel)] px-2 py-1.5 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap text-[var(--obs-text)] shadow-[inset_0_1px_2px_rgb(0_0_0_/_24%)]"
+											class="rounded border border-(--obs-border) bg-(--obs-panel) px-2 py-1.5 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap text-(--obs-text) shadow-[inset_0_1px_2px_rgb(0_0_0/24%)]"
 										>
 											{youtubeUploadPreview.description || 'No description'}
 										</dd>
 										<dt class="obs-dim font-mono">Visibility</dt>
 										<dd>
 											<span
-												class="inline-flex rounded border border-[var(--obs-border-soft)] bg-[var(--obs-control)] px-2 py-0.5 font-mono text-[11px] text-[var(--obs-text-muted)] shadow-[inset_0_1px_0_var(--obs-border-soft)]"
+												class="inline-flex rounded border border-(--obs-border-soft) bg-(--obs-control) px-2 py-0.5 font-mono text-[11px] text-(--obs-text-muted) shadow-[inset_0_1px_0_var(--obs-border-soft)]"
 											>
 												{youtubeUploadPreview.visibilityLabel}
 											</span>
@@ -334,7 +334,7 @@
 							{#if youtubeOpenUrl}
 								<div class="flex w-full items-center justify-center gap-2 px-2 sm:px-8">
 									<input
-										class="obs-input min-w-0 flex-1 truncate border-[var(--obs-border-strong)] px-3 py-1.5 text-center font-mono text-xs shadow-[inset_0_1px_0_var(--obs-border-soft)]"
+										class="obs-input min-w-0 flex-1 truncate border-(--obs-border-strong) px-3 py-1.5 text-center font-mono text-xs shadow-[inset_0_1px_0_var(--obs-border-soft)]"
 										readonly
 										value={youtubeOpenUrl}
 										aria-label="YouTube video URL"
@@ -350,7 +350,7 @@
 							{#if youtubeUpload?.state === 'uploading' && youtubeUpload.progressRatio !== null}
 								<div class="h-2 w-full max-w-sm overflow-hidden rounded bg-black/30">
 									<div
-										class="h-full bg-[var(--obs-gold)]"
+										class="h-full bg-(--obs-gold)"
 										style={`width: ${Math.max(0, Math.min(100, youtubeDisplayProgressRatio * 100))}%`}
 									></div>
 								</div>
@@ -367,7 +367,7 @@
 										>
 									</div>
 									<p
-										class="obs-alert-error-body mt-1 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap"
+										class="obs-alert-error-body mt-1 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap"
 									>
 										{visibleYoutubeUploadError}
 									</p>
@@ -387,7 +387,7 @@
 										>
 									</div>
 									<p
-										class="obs-alert-error-body mt-1 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap"
+										class="obs-alert-error-body mt-1 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap"
 									>
 										{visibleYoutubeError}
 									</p>

@@ -57,16 +57,16 @@
 
 	const panelClass = 'obs-panel grid gap-3 rounded px-4 py-4';
 	const dangerPanelClass =
-		'grid gap-3 rounded border border-[var(--obs-danger)] bg-[color-mix(in_srgb,var(--obs-danger)_14%,transparent)] px-4 py-4';
+		'grid gap-3 rounded border border-(--obs-danger) bg-[color-mix(in_srgb,var(--obs-danger)_14%,transparent)] px-4 py-4';
 	const labelClass = 'text-sm font-semibold';
 	const hintClass = 'obs-dim font-mono text-xs';
 	const inputClass = 'obs-input font-mono text-sm disabled:cursor-not-allowed disabled:opacity-50';
 	const textareaClass = `${inputClass} min-h-24 resize-y`;
 	const pathButtonClass =
 		'obs-button px-3 py-1.5 text-xs whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50';
-	const pathStatusClass = 'text-xs text-[var(--obs-success)]';
+	const pathStatusClass = 'text-xs text-(--obs-success)';
 	const pathPendingClass = 'obs-dim break-all font-mono text-xs';
-	const pathErrorClass = 'break-words text-xs text-[var(--obs-danger)]';
+	const pathErrorClass = 'wrap-break-word text-xs text-(--obs-danger)';
 	const templateTokenClass = 'obs-token cursor-help break-all rounded px-1.5 py-1 font-mono text-xs';
 	const updateCheckIntervals: { value: UpdateCheckInterval; label: string }[] = [
 		{ value: 'monthly', label: 'Monthly' },
