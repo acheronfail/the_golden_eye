@@ -9,10 +9,16 @@
 	import OptionsNotifications from '$lib/OptionsNotifications.svelte';
 	import OptionsRecording from '$lib/OptionsRecording.svelte';
 	import OptionsYouTube from '$lib/OptionsYouTube.svelte';
+	import {
+		optionsClasses,
+		type GeneralOptionsView,
+		type OptionsPathKind,
+		type RecordingOptionsView,
+		type UpdateButtonPhase
+	} from '$lib/optionsView';
 	import { youtube } from '$lib/youtube.svelte';
 
 	type OptionsTab = 'general' | 'recording' | 'notifications' | 'youtube';
-	type PathKind = 'completed' | 'failed';
 
 	const optionSections = $derived<{ value: OptionsTab; label: string }[]>([
 		{ value: 'general', label: 'General' },
@@ -25,7 +31,7 @@
 		value === 'recording' || value === 'notifications' || (value === 'youtube' && youtube.enabled) ? value : 'general';
 
 	let activeTab = $derived(tabFromUrl(page.url.searchParams.get('tab')));
-	let pickingPath: PathKind | null = $state(null);
+	let pickingPath: OptionsPathKind | null = $state(null);
 	let revealingConfigFile = $state(false);
 	let resettingConfigFile = $state(false);
 	let showResetConfirmation = $state(false);
@@ -57,19 +63,9 @@
 		selectTab(value as OptionsTab);
 	};
 
-	const panelClass = 'obs-panel grid gap-3 rounded px-4 py-4';
+	const { panel: panelClass, label: labelClass, hint: hintClass, pathButton: pathButtonClass } = optionsClasses;
 	const dangerPanelClass =
 		'grid gap-3 rounded border border-(--obs-danger) bg-[color-mix(in_srgb,var(--obs-danger)_14%,transparent)] px-4 py-4';
-	const labelClass = 'text-sm font-semibold';
-	const hintClass = 'obs-dim font-mono text-xs';
-	const inputClass = 'obs-input font-mono text-sm disabled:cursor-not-allowed disabled:opacity-50';
-	const textareaClass = `${inputClass} min-h-24 resize-y`;
-	const pathButtonClass =
-		'obs-button px-3 py-1.5 text-xs whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50';
-	const pathStatusClass = 'text-xs text-(--obs-success)';
-	const pathPendingClass = 'obs-dim break-all font-mono text-xs';
-	const pathErrorClass = 'wrap-break-word text-xs text-(--obs-danger)';
-	const templateTokenClass = 'obs-token cursor-help break-all rounded px-1.5 py-1 font-mono text-xs';
 	const updateCheckIntervals: { value: UpdateCheckInterval; label: string }[] = [
 		{ value: 'monthly', label: 'Monthly' },
 		{ value: 'weekly', label: 'Weekly' },
@@ -84,7 +80,6 @@
 	// Drives the update button's label and click action: check (idle), checking,
 	// download (update found, auto-install off), downloading, apply (verified
 	// update staged), applying.
-	type UpdateButtonPhase = 'check' | 'checking' | 'download' | 'downloading' | 'apply' | 'applying';
 	let updatePhase = $state<UpdateButtonPhase>('check');
 	const updateActionPending = $derived(
 		updatePhase === 'checking' || updatePhase === 'downloading' || updatePhase === 'applying'
@@ -281,7 +276,7 @@
 		return null;
 	}
 
-	const outputPath = (kind: PathKind): string =>
+	const outputPath = (kind: OptionsPathKind): string =>
 		kind === 'completed' ? settings.completedOutputPath : settings.failedOutputPath;
 
 	const joinPath = (base: string, child: string): string => {
@@ -308,7 +303,7 @@
 			'GoldenEye - failed'
 	);
 
-	const setOutputPath = (kind: PathKind, value: string) => {
+	const setOutputPath = (kind: OptionsPathKind, value: string) => {
 		if (kind === 'completed') {
 			settings.completedOutputPath = value;
 		} else {
@@ -316,7 +311,7 @@
 		}
 	};
 
-	const setPathValidation = (kind: PathKind, validation: FolderValidation | null) => {
+	const setPathValidation = (kind: OptionsPathKind, validation: FolderValidation | null) => {
 		if (kind === 'completed') {
 			completedValidation = validation;
 		} else {
@@ -324,7 +319,7 @@
 		}
 	};
 
-	const setPathValidating = (kind: PathKind, value: boolean) => {
+	const setPathValidating = (kind: OptionsPathKind, value: boolean) => {
 		if (kind === 'completed') {
 			completedPathValidating = value;
 		} else {
@@ -332,13 +327,13 @@
 		}
 	};
 
-	const nextValidationSeq = (kind: PathKind): number =>
+	const nextValidationSeq = (kind: OptionsPathKind): number =>
 		kind === 'completed' ? ++completedValidationSeq : ++failedValidationSeq;
 
-	const currentValidationSeq = (kind: PathKind): number =>
+	const currentValidationSeq = (kind: OptionsPathKind): number =>
 		kind === 'completed' ? completedValidationSeq : failedValidationSeq;
 
-	const clearPathValidation = (kind: PathKind) => {
+	const clearPathValidation = (kind: OptionsPathKind) => {
 		nextValidationSeq(kind);
 		setPathValidation(kind, null);
 		setPathValidating(kind, false);
@@ -354,7 +349,7 @@
 		error: message
 	});
 
-	const validateOutputPath = async (kind: PathKind) => {
+	const validateOutputPath = async (kind: OptionsPathKind) => {
 		const value = outputPath(kind).trim();
 		const seq = nextValidationSeq(kind);
 
@@ -381,7 +376,7 @@
 		}
 	};
 
-	const chooseOutputPath = async (kind: PathKind) => {
+	const chooseOutputPath = async (kind: OptionsPathKind) => {
 		const currentPath =
 			kind === 'failed'
 				? settings.failedOutputPath.trim() || failedOutputPathPlaceholder
@@ -407,7 +402,7 @@
 	const folderStatusMessage = (validation: FolderValidation): string =>
 		validation.willCreate ? 'Ready: folder will be created' : 'Ready: folder exists';
 
-	const clearOutputPath = (kind: PathKind) => {
+	const clearOutputPath = (kind: OptionsPathKind) => {
 		setOutputPath(kind, '');
 		clearPathValidation(kind);
 	};
@@ -457,6 +452,50 @@
 			resettingConfigFile = false;
 		}
 	};
+
+	let generalOptionsView = $derived<GeneralOptionsView>({
+		update: {
+			intervals: updateCheckIntervals,
+			phase: updatePhase,
+			pending: updateActionPending,
+			setInterval: onUpdateCheckIntervalChange,
+			check: onCheckForUpdateNow,
+			download: onDownloadUpdateNow,
+			apply: onApplyUpdateNow
+		}
+	});
+
+	let recordingOptionsView = $derived<RecordingOptionsView>({
+		template: {
+			separator: clipTemplateSeparator,
+			error: clipTemplateError,
+			set: setClipFilenameTemplate
+		},
+		paths: {
+			picking: pickingPath,
+			completed: {
+				validating: completedPathValidating,
+				validation: completedValidation,
+				placeholder: completedOutputPathPlaceholder
+			},
+			failed: {
+				validating: failedPathValidating,
+				validation: failedValidation,
+				placeholder: failedOutputPathPlaceholder
+			},
+			choose: chooseOutputPath,
+			clear: clearOutputPath,
+			clearValidation: clearPathValidation,
+			validate: validateOutputPath,
+			statusMessage: folderStatusMessage
+		},
+		normalize: {
+			failedRunLimit: normalizeFailedRunLimit,
+			minimumFailedRunLength: normalizeMinimumFailedRunLength,
+			preRunPadding: normalizePreRunPadding,
+			postRunPadding: normalizePostRunPadding
+		}
+	});
 </script>
 
 <svelte:head>
@@ -505,54 +544,13 @@
 
 	<fieldset disabled={!settings.canEdit} class="flex flex-col gap-4 border-0 p-0">
 		{#if activeTab === 'general'}
-			<OptionsGeneral
-				{panelClass}
-				{labelClass}
-				{hintClass}
-				{pathButtonClass}
-				{updateCheckIntervals}
-				{updatePhase}
-				{updateActionPending}
-				{onUpdateCheckIntervalChange}
-				{onCheckForUpdateNow}
-				{onDownloadUpdateNow}
-				{onApplyUpdateNow}
-			/>
+			<OptionsGeneral view={generalOptionsView} />
 		{:else if activeTab === 'recording'}
-			<OptionsRecording
-				{panelClass}
-				{labelClass}
-				{hintClass}
-				{inputClass}
-				{pathButtonClass}
-				{pathStatusClass}
-				{pathPendingClass}
-				{pathErrorClass}
-				{templateTokenClass}
-				{pickingPath}
-				{completedPathValidating}
-				{failedPathValidating}
-				{completedValidation}
-				{failedValidation}
-				{clipTemplateSeparator}
-				{clipTemplateError}
-				{completedOutputPathPlaceholder}
-				{failedOutputPathPlaceholder}
-				{setClipFilenameTemplate}
-				{chooseOutputPath}
-				{clearOutputPath}
-				{clearPathValidation}
-				{validateOutputPath}
-				{folderStatusMessage}
-				{normalizeFailedRunLimit}
-				{normalizeMinimumFailedRunLength}
-				{normalizePreRunPadding}
-				{normalizePostRunPadding}
-			/>
+			<OptionsRecording view={recordingOptionsView} />
 		{:else if activeTab === 'notifications'}
-			<OptionsNotifications {panelClass} {labelClass} {hintClass} {inputClass} {textareaClass} {templateTokenClass} />
+			<OptionsNotifications />
 		{:else}
-			<OptionsYouTube {panelClass} {labelClass} {hintClass} {inputClass} {textareaClass} {templateTokenClass} />
+			<OptionsYouTube />
 		{/if}
 	</fieldset>
 

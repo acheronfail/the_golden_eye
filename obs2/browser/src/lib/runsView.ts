@@ -1,5 +1,25 @@
 import type { LevelMatch, RunClip } from './api';
 import type { MetaPill } from './metaPills';
+import type { SelectOption } from './Select.svelte';
+
+export interface RunDetailView {
+	modal: {
+		error: string | null;
+		busy: string | null;
+	};
+	display: {
+		fileBrowserLabel: string;
+		levelOptions: SelectOption[];
+	};
+	actions: {
+		close: () => void;
+		delete: () => void;
+		reveal: () => void;
+		rename: () => void;
+		saveMetadata: () => void;
+		normalizeDraftTime: () => void;
+	};
+}
 
 export interface RunFilters {
 	search: string;

@@ -4,26 +4,14 @@
 
 	let {
 		collapsed = $bindable(),
-		search = $bindable(),
-		level = $bindable(),
-		difficulty = $bindable(),
-		status = $bindable(),
-		language = $bindable(),
-		minTime = $bindable(),
-		maxTime = $bindable(),
+		filters,
 		activeFilterLabels,
 		hasActiveFilters,
 		levelOptions,
 		clearFilters
 	}: {
 		collapsed: boolean;
-		search: string;
-		level: string;
-		difficulty: string;
-		status: string;
-		language: string;
-		minTime: string;
-		maxTime: string;
+		filters: RunFilters;
 		activeFilterLabels: string[];
 		hasActiveFilters: boolean;
 		levelOptions: SelectOption[];
@@ -69,14 +57,14 @@
 				class="obs-input px-3 py-2 font-mono text-sm"
 				type="search"
 				placeholder="search runs"
-				bind:value={search}
+				bind:value={filters.search}
 			/>
 			<div class="grid grid-cols-2 gap-2">
 				<label class="sr-only" for="runs-level">Level</label>
 				<Select
 					id="runs-level"
 					class="w-full text-xs"
-					bind:value={level}
+					bind:value={filters.level}
 					options={[{ value: '', label: 'all levels' }, ...levelOptions]}
 				/>
 
@@ -84,7 +72,7 @@
 				<Select
 					id="runs-difficulty"
 					class="w-full text-xs"
-					bind:value={difficulty}
+					bind:value={filters.difficulty}
 					options={[{ value: '', label: 'all difficulties' }, ...DIFFICULTY_OPTIONS]}
 				/>
 
@@ -92,7 +80,7 @@
 				<Select
 					id="runs-status"
 					class="w-full text-xs"
-					bind:value={status}
+					bind:value={filters.status}
 					options={[{ value: '', label: 'all statuses' }, ...STATUS_OPTIONS]}
 				/>
 
@@ -100,7 +88,7 @@
 				<Select
 					id="runs-language"
 					class="w-full text-xs"
-					bind:value={language}
+					bind:value={filters.language}
 					options={[{ value: '', label: 'all languages' }, ...LANGUAGE_OPTIONS]}
 				/>
 			</div>
@@ -111,7 +99,7 @@
 					class="obs-input px-2 py-2 font-mono text-xs"
 					inputmode="numeric"
 					placeholder="min time"
-					bind:value={minTime}
+					bind:value={filters.minTime}
 				/>
 
 				<label class="sr-only" for="runs-max-time">Maximum time</label>
@@ -120,7 +108,7 @@
 					class="obs-input px-2 py-2 font-mono text-xs"
 					inputmode="numeric"
 					placeholder="max time"
-					bind:value={maxTime}
+					bind:value={filters.maxTime}
 				/>
 			</div>
 		</div>
