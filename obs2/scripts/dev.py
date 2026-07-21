@@ -19,7 +19,7 @@ import urllib.request
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import FrameType
-from typing import NoReturn, Optional
+from typing import Callable, NoReturn, Optional
 
 IS_LINUX = sys.platform.startswith("linux")
 
@@ -32,6 +32,38 @@ PLUGIN_NAME = "the_golden_eye"
 API_BASE = "http://127.0.0.1:31337"
 ZELLIJ_LAYOUT = Path(__file__).with_name("dev.kdl")
 DEV_READY_FILE_ENV = "GE_DEV_READY_FILE"
+PLUGIN_LOG_PREFIX = b"[the_golden_eye]"
+ANSI_RESET = b"\x1b[0m"
+
+
+def plugin_log_color_enabled() -> bool:
+    return (
+        sys.stdout.isatty()
+        and "NO_COLOR" not in os.environ
+        and os.environ.get("TERM") != "dumb"
+    )
+
+
+def colorize_plugin_log_line(line: bytes, *, enabled: bool) -> bytes:
+    marker = line.find(PLUGIN_LOG_PREFIX)
+    if not enabled or marker < 0:
+        return line
+
+    plugin_log = line[marker:]
+    if b"ERROR" in plugin_log:
+        color = b"\x1b[1;91m"
+    elif b"WARN" in plugin_log:
+        color = b"\x1b[1;93m"
+    elif b"DEBUG" in plugin_log:
+        color = b"\x1b[36m"
+    elif b"TRACE" in plugin_log:
+        color = b"\x1b[2;36m"
+    else:
+        color = b"\x1b[33m"
+
+    ending = b"\n" if line.endswith(b"\n") else b""
+    content = line[: -len(ending)] if ending else line
+    return color + content + ANSI_RESET + ending
 
 
 def obs_plugin_paths() -> tuple[Path, Path]:
@@ -114,6 +146,7 @@ def trigger_reload_apply() -> None:
 class ProcessManager:
     def __init__(self) -> None:
         self.processes: list[subprocess.Popen[bytes]] = []
+        self.output_threads: dict[subprocess.Popen[bytes], threading.Thread] = {}
         self.lock = threading.Lock()
         self.stopping = False
 
@@ -136,16 +169,37 @@ class ProcessManager:
         *,
         cwd: Optional[Path] = None,
         env: Optional[Mapping[str, str]] = None,
+        output_filter: Optional[Callable[[bytes], bytes]] = None,
     ) -> subprocess.Popen[bytes]:
-        proc = subprocess.Popen(args, cwd=cwd, env=env, start_new_session=True)
+        output = subprocess.PIPE if output_filter else None
+        proc = subprocess.Popen(
+            args,
+            cwd=cwd,
+            env=env,
+            start_new_session=True,
+            stdout=output,
+            stderr=subprocess.STDOUT if output_filter else None,
+        )
         with self.lock:
             self.processes.append(proc)
+        if output_filter:
+            output_thread = threading.Thread(
+                target=forward_output,
+                args=(proc, output_filter),
+                daemon=True,
+            )
+            with self.lock:
+                self.output_threads[proc] = output_thread
+            output_thread.start()
         return proc
 
     def forget(self, proc: subprocess.Popen[bytes]) -> None:
         with self.lock:
             if proc in self.processes:
                 self.processes.remove(proc)
+            output_thread = self.output_threads.pop(proc, None)
+        if output_thread:
+            output_thread.join(timeout=1)
 
     def stop_all(self) -> None:
         with self.lock:
@@ -183,6 +237,20 @@ def terminate_process_group(proc: subprocess.Popen[bytes], sig: signal.Signals) 
             proc.send_signal(sig)
         except ProcessLookupError:
             pass
+
+
+def forward_output(
+    proc: subprocess.Popen[bytes], output_filter: Callable[[bytes], bytes]
+) -> None:
+    if proc.stdout is None:
+        return
+
+    try:
+        for line in proc.stdout:
+            sys.stdout.buffer.write(output_filter(line))
+            sys.stdout.buffer.flush()
+    except BrokenPipeError:
+        pass
 
 
 def newest_rust_mtime() -> float:
@@ -294,7 +362,6 @@ def run_dev(*, frontend: bool, backend: bool, obs: bool) -> int:
                 return 128 - vite_status if vite_status < 0 else vite_status
 
         if obs and not backend and not wait_for_backend():
-            close_zellij_tab()
             return 1
 
         if backend:
@@ -315,13 +382,25 @@ def run_dev(*, frontend: bool, backend: bool, obs: bool) -> int:
 
         if obs:
             if IS_LINUX:
-                obs_process = manager.start(["just", "_run-obs-flatpak"], cwd=ROOT)
+                obs_process = manager.start(
+                    ["just", "_run-obs-flatpak"],
+                    cwd=ROOT,
+                    output_filter=lambda line: colorize_plugin_log_line(
+                        line, enabled=plugin_log_color_enabled()
+                    ),
+                )
             else:
                 plugin_path, data_path = obs_plugin_paths()
                 env = os.environ.copy()
                 env["OBS_PLUGINS_PATH"] = str(plugin_path)
                 env["OBS_PLUGINS_DATA_PATH"] = str(data_path)
-                obs_process = manager.start(["obs"], env=env)
+                obs_process = manager.start(
+                    ["obs"],
+                    env=env,
+                    output_filter=lambda line: colorize_plugin_log_line(
+                        line, enabled=plugin_log_color_enabled()
+                    ),
+                )
             obs_status = obs_process.wait()
             manager.forget(obs_process)
 
@@ -331,8 +410,16 @@ def run_dev(*, frontend: bool, backend: bool, obs: bool) -> int:
                 watcher.join(timeout=2)
             if frontend:
                 manager.forget(vite)
-            close_zellij_tab()
-            return 128 - obs_status if obs_status < 0 else obs_status
+            exit_status = 128 - obs_status if obs_status < 0 else obs_status
+            if exit_status == 0:
+                close_zellij_tab()
+            else:
+                print(
+                    f"[dev] OBS exited with status {exit_status}; leaving this tab open",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            return exit_status
 
         if backend:
             while not stop_event.wait(1):
@@ -341,6 +428,11 @@ def run_dev(*, frontend: bool, backend: bool, obs: bool) -> int:
 
         raise ValueError("at least one dev process must be selected")
     except subprocess.CalledProcessError as error:
+        print(
+            f"[dev] command failed with status {error.returncode}: {' '.join(error.cmd)}",
+            file=sys.stderr,
+            flush=True,
+        )
         if backend and not obs:
             backend_failed = True
             set_backend_status("failed")

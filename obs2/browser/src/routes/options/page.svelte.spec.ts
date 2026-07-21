@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Settings } from '$lib/settings.svelte';
@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
 		downloadUpdateNow: vi.fn(),
 		applyUpdateNow: vi.fn(),
 		putSettings: vi.fn(),
+		resetSettingsToDefaults: vi.fn(),
 		getYouTubeStatus: vi.fn()
 	};
 	return {
@@ -66,6 +67,7 @@ vi.mock('$lib/api', async (importOriginal) => {
 			downloadUpdateNow: mocks.api.downloadUpdateNow,
 			applyUpdateNow: mocks.api.applyUpdateNow,
 			putSettings: mocks.api.putSettings,
+			resetSettingsToDefaults: mocks.api.resetSettingsToDefaults,
 			getYouTubeStatus: mocks.api.getYouTubeStatus
 		}
 	};
@@ -75,6 +77,7 @@ const defaultSettings: Settings = {
 	stopReplayBufferWhenMonitorStopped: false,
 	showMonitorFps: false,
 	showDeveloperSettings: false,
+	showSourcePreviews: true,
 	welcomeModalShown: true,
 	completedOutputPath: '',
 	saveFailedRuns: true,
@@ -125,6 +128,7 @@ beforeEach(() => {
 		fileError: null
 	});
 	mocks.api.putSettings.mockImplementation(async (next: Settings) => next);
+	mocks.api.resetSettingsToDefaults.mockResolvedValue(defaultSettings);
 	mocks.api.getUpdateStatus.mockResolvedValue({ staged: false });
 	mocks.api.checkForUpdateNow.mockResolvedValue({ update: null });
 	mocks.api.downloadUpdateNow.mockResolvedValue(undefined);
@@ -193,6 +197,36 @@ describe('/options', () => {
 		await waitFor(() =>
 			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ updateCheckInterval: 'daily' }))
 		);
+	});
+
+	it('confirms before resetting settings to defaults', async () => {
+		const user = userEvent.setup();
+		settings.applyReloaded(
+			{ ...defaultSettings, discordWebhookUrl: 'https://discord.example/secret' },
+			'/tmp/the-golden-eye/settings.json',
+			defaultSettings
+		);
+		render(OptionsPageHarness);
+
+		await user.click(await screen.findByRole('button', { name: /^Reset to defaults$/i }));
+		const dialog = screen.getByRole('dialog', { name: /Reset settings/i });
+		expect(dialog).toHaveTextContent(/Discord webhook URL/i);
+		expect(mocks.api.resetSettingsToDefaults).not.toHaveBeenCalled();
+
+		await user.click(screen.getByRole('button', { name: /^Cancel$/i }));
+		expect(dialog).not.toBeInTheDocument();
+		expect(mocks.api.resetSettingsToDefaults).not.toHaveBeenCalled();
+
+		await user.click(screen.getByRole('button', { name: /^Reset to defaults$/i }));
+		await user.click(
+			within(screen.getByRole('dialog', { name: /Reset settings/i })).getByRole('button', {
+				name: /^Reset to defaults$/i
+			})
+		);
+
+		await waitFor(() => expect(mocks.api.resetSettingsToDefaults).toHaveBeenCalledOnce());
+		await waitFor(() => expect(screen.queryByRole('dialog', { name: /Reset settings/i })).not.toBeInTheDocument());
+		expect(settings.discordWebhookUrl).toBe('');
 	});
 
 	it('checks, then offers an explicit download and apply when auto-install is off', async () => {
