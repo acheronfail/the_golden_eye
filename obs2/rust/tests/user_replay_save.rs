@@ -18,6 +18,18 @@ fn clip_count(dir: &Path) -> usize {
         .unwrap_or(0)
 }
 
+async fn wait_for_clip_count(dir: &Path, expected: usize) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let actual = clip_count(dir);
+        if actual == expected {
+            return;
+        }
+        assert!(std::time::Instant::now() < deadline, "expected {expected} clips, saw {actual}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// Drive one completed run to its stats screen, leaving a save scheduled.
 async fn run_to_stats(harness: &Harness, start: &str, complete: &str, stats: &str) {
     let start = harness.frame(start);
@@ -122,13 +134,8 @@ async fn overlapping_plugin_saves_each_get_their_own_clip() {
     .await;
 
     // Wait for both clips (the delayed saves are serialized, so the second lands after the first).
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while clip_count(&completed) < 2 {
-        assert!(std::time::Instant::now() < deadline, "expected two clips, saw {}", clip_count(&completed));
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    wait_for_clip_count(&completed, 2).await;
 
-    assert_eq!(clip_count(&completed), 2, "each run should produce its own clip");
     assert_eq!(harness.obs.calls().replay_save, 2);
 
     harness.stop_monitor().await.error_for_status().unwrap();
@@ -158,7 +165,7 @@ async fn normal_run_deletes_its_own_replay_source() {
     wait_for_clip(&completed).await;
     assert_eq!(clip_count(&completed), 1);
     // The single replay source we wrote was trimmed and then removed.
-    assert_eq!(clip_count(&harness.replay_dir), 0, "the plugin's own replay source should be deleted after trimming");
+    wait_for_clip_count(&harness.replay_dir, 0).await;
 
     harness.stop_monitor().await.error_for_status().unwrap();
 }

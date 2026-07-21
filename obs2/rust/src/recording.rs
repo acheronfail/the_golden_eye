@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, c_char};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Context;
@@ -14,6 +14,7 @@ use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::cv::{LevelMatch, Screen};
+use crate::db::run_catalog::{RunCatalog, RunCatalogSave};
 use crate::http::{
     FailedRunNotSavedReason,
     MonitorEvent,
@@ -22,6 +23,7 @@ use crate::http::{
     RecordingStateStore,
     RecordingStatus,
 };
+use crate::models::clip_metadata::RunStatus;
 use crate::template_tokens::{RunTemplateTokens, format_iso_utc, format_time};
 use crate::{ffmpeg, ge};
 
@@ -510,14 +512,6 @@ fn record_stats_vote(pending: &mut PendingSave, m: &LevelMatch) -> bool {
     changed
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RunStatus {
-    Complete,
-    Failed,
-    Abort,
-    Kia,
-}
-
 impl RunStatus {
     fn from_failure_screen(screen: Screen) -> Option<Self> {
         match screen {
@@ -525,29 +519,6 @@ impl RunStatus {
             Screen::Abort => Some(RunStatus::Abort),
             Screen::Kia => Some(RunStatus::Kia),
             _ => None,
-        }
-    }
-
-    fn from_str(value: &str) -> Option<Self> {
-        match value {
-            "complete" => Some(RunStatus::Complete),
-            "failed" => Some(RunStatus::Failed),
-            "abort" => Some(RunStatus::Abort),
-            "kia" => Some(RunStatus::Kia),
-            _ => None,
-        }
-    }
-
-    fn is_failed(self) -> bool {
-        !matches!(self, RunStatus::Complete)
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            RunStatus::Complete => "complete",
-            RunStatus::Failed => "failed",
-            RunStatus::Abort => "abort",
-            RunStatus::Kia => "kia",
         }
     }
 }
@@ -635,6 +606,8 @@ pub struct RecordingState {
     source_name: String,
     /// ROM/template language this monitor session matches, stored in clip metadata.
     rom_language: String,
+    /// Index of saved run clips, updated after successful trims.
+    run_catalog: Arc<RunCatalog>,
 }
 
 impl RecordingState {
@@ -644,6 +617,7 @@ impl RecordingState {
         options: RecordingOptions,
         source_name: String,
         rom_language: String,
+        run_catalog: Arc<RunCatalog>,
     ) -> Self {
         RecordingState {
             clip_start: None,
@@ -656,6 +630,7 @@ impl RecordingState {
             options,
             source_name,
             rom_language,
+            run_catalog,
         }
     }
 
@@ -794,6 +769,7 @@ impl RecordingState {
             rom_language: pending.rom_language,
             event_tx: self.event_tx.clone(),
             recording_state: self.recording_state.clone(),
+            run_catalog: self.run_catalog.clone(),
             phase_generation: pending.phase_generation,
         })
     }
@@ -1013,6 +989,8 @@ struct SaveAndTrimJob {
     rom_language: String,
     event_tx: broadcast::Sender<MonitorEvent>,
     recording_state: RecordingStateStore,
+    #[cfg_attr(test, allow(dead_code))]
+    run_catalog: Arc<RunCatalog>,
     /// See [`PendingSave::phase_generation`].
     phase_generation: Option<u64>,
 }
@@ -1028,6 +1006,7 @@ struct TrimClipRequest<'a> {
     options: &'a RecordingOptions,
     source_name: &'a str,
     rom_language: &'a str,
+    run_catalog: &'a RunCatalog,
 }
 
 #[cfg(not(test))]
@@ -1080,6 +1059,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
         options: &job.options,
         source_name: &job.source_name,
         rom_language: &job.rom_language,
+        run_catalog: &job.run_catalog,
     }) {
         Ok(saved) => {
             if safe_to_delete {
@@ -1202,10 +1182,14 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
         clip_metadata(req.status, req.completed_at, req.stats.as_ref(), req.source_name, req.rom_language);
     ffmpeg::trim_with_metadata(input, &output, start, end, Some(&clip_metadata))?;
     tracing::info!(output = %output.display(), "saved trimmed clip");
-    if failed
-        && let Err(err) =
-            prune_failed_clips(output.parent().unwrap_or_else(|| Path::new(".")), req.options.failed_run_limit)
-    {
+    if let Err(err) = req.run_catalog.record_saved_clip(RunCatalogSave {
+        path: output.clone(),
+        duration_secs: Some(end - start),
+        metadata: clip_metadata,
+    }) {
+        tracing::warn!(path = %output.display(), "failed to update run catalog after saving clip: {err:#}");
+    }
+    if failed && let Err(err) = req.run_catalog.prune_failed_clips(req.options.failed_run_limit) {
         tracing::warn!("failed to prune old failed clips: {err:#}");
     }
 
@@ -1255,7 +1239,7 @@ fn clip_metadata(
         level: level_info.map(|info| info.name.to_owned()).unwrap_or_else(|| "unknown".to_owned()),
         level_number: level_info.map(|info| info.number),
         difficulty: stats.and_then(|m| ge::difficulty_name(m.difficulty)).map(str::to_owned),
-        status: status.as_str().to_owned(),
+        status,
         rom_language: rom_language.to_owned(),
         source_name: source_name.to_owned(),
         comment: format!("Created by The Golden Eye OBS plugin v{}", crate::PLUGIN_VERSION),
@@ -1324,54 +1308,6 @@ fn unique_output_path(path: &Path) -> PathBuf {
     }
 
     unreachable!("unbounded filename suffix search should always return")
-}
-
-fn prune_failed_clips(dir: &Path, keep: usize) -> anyhow::Result<()> {
-    if keep == 0 {
-        return Ok(());
-    }
-
-    let mut clips = Vec::new();
-    for entry in std::fs::read_dir(dir).with_context(|| format!("reading failed clip directory {}", dir.display()))? {
-        let Ok(entry) = entry else {
-            continue;
-        };
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        if !file_type.is_file() {
-            continue;
-        }
-
-        let path = entry.path();
-        if let Some(metadata) = failed_clip_metadata(&path) {
-            clips.push((metadata.timestamp, path));
-        }
-    }
-
-    clips.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
-
-    for (_, path) in clips.into_iter().skip(keep) {
-        tracing::info!(path = %path.display(), "pruning old failed clip");
-        std::fs::remove_file(&path).with_context(|| format!("removing old failed clip {}", path.display()))?;
-    }
-
-    Ok(())
-}
-
-fn failed_clip_metadata(path: &Path) -> Option<ffmpeg::ClipMetadata> {
-    match ffmpeg::read_clip_metadata(path) {
-        Ok(Some(metadata)) if is_failed_clip_status(&metadata.status) => Some(metadata),
-        Ok(_) => None,
-        Err(err) => {
-            tracing::debug!(path = %path.display(), "ignoring clip while pruning failed clips: {err:#}");
-            None
-        }
-    }
-}
-
-fn is_failed_clip_status(status: &str) -> bool {
-    RunStatus::from_str(status.trim()).is_some_and(RunStatus::is_failed)
 }
 
 /// Build an output path from the configured template and matched level info.

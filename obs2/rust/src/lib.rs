@@ -2,11 +2,13 @@ mod browser;
 mod browser_dock;
 mod config;
 pub mod cv;
+mod db;
 mod ffi;
 mod ffmpeg;
 pub mod ge;
 mod http;
 mod logging;
+pub mod models;
 mod recording;
 mod settings;
 mod stream_notifier;
@@ -95,6 +97,29 @@ pub extern "C" fn ge_browser_dock_post_load() {
     browser_dock::post_load();
 }
 
+#[cfg(feature = "test-hooks")]
+pub fn ge_test_write_tagged_clip(input: &Path, output: &Path, status: &str, timestamp: &str) {
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).expect("create tagged clip parent");
+    }
+    let duration = ffmpeg::duration_secs(input).expect("probe tagged clip input");
+    let metadata = ffmpeg::ClipMetadata {
+        timestamp: timestamp.to_owned(),
+        time: Some("02:03".to_owned()),
+        time_seconds: Some(123),
+        level: "Surface 2".to_owned(),
+        level_number: Some(8),
+        difficulty: Some("00 Agent".to_owned()),
+        status: status.parse().expect("valid run status"),
+        rom_language: "en".to_owned(),
+        source_name: "N64 Capture".to_owned(),
+        comment: "Created by The Golden Eye OBS plugin test".to_owned(),
+        plugin_version: "test".to_owned(),
+    };
+    ffmpeg::trim_with_metadata(input, output, 1.0, (duration - 1.0).max(2.0), Some(&metadata))
+        .expect("write tagged clip");
+}
+
 /// Holds the tokio runtime that is driving the HTTP server, along with the
 /// signal used to ask the server to shut down gracefully.
 struct ServerHandle {
@@ -164,7 +189,14 @@ pub extern "C" fn ge_rust_start() -> bool {
     configure_cv_template_dir();
 
     let settings = SettingsStore::load_default();
-
+    let catalog_was_missing = !crate::db::run_catalog::RunCatalog::exists_for_settings(settings.path());
+    let run_catalog = match crate::db::run_catalog::RunCatalog::open_for_settings(settings.path()) {
+        Ok(catalog) => Arc::new(catalog),
+        Err(error) => {
+            tracing::error!("failed to open run catalog: {error:#}");
+            return false;
+        }
+    };
     let mut guard = match SERVER.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
@@ -217,7 +249,7 @@ pub extern "C" fn ge_rust_start() -> bool {
     let recording_state = RecordingStateStore::new(snapshot.clone());
     let state = Arc::new(AppStateInner {
         oauth_pending: tokio::sync::Mutex::new(None),
-        youtube: youtube::YoutubeUploadStore::new(settings.path()),
+        youtube: youtube::YoutubeUploadStore::new(settings.path(), run_catalog.clone()),
         stream_message: tokio::sync::Mutex::new(None),
         monitor: std::sync::Mutex::new(None),
         snapshot,
@@ -226,6 +258,8 @@ pub extern "C" fn ge_rust_start() -> bool {
         monitor_annotations_enabled: AtomicBool::new(false),
         frame_dump: std::sync::Mutex::new(None),
         frontend_ready_tx,
+        run_catalog,
+        run_catalog_needs_seed: Mutex::new(catalog_was_missing),
         settings,
         reloaded_at: was_reloaded.then(std::time::Instant::now),
     });

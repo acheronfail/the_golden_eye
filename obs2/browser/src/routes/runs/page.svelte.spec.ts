@@ -100,6 +100,19 @@ beforeEach(() => {
 });
 
 describe('/runs', () => {
+	it('passes refresh=true when the user reloads runs', async () => {
+		const user = userEvent.setup();
+		render(RunsPage);
+
+		const reload = await screen.findByRole('button', { name: /reload/i });
+		await waitFor(() => expect(mocks.streamRuns).toHaveBeenCalledTimes(1));
+		expect(mocks.streamRuns.mock.calls[0][2]).toEqual({ refresh: false });
+
+		await user.click(reload);
+		await waitFor(() => expect(mocks.streamRuns).toHaveBeenCalledTimes(2));
+		expect(mocks.streamRuns.mock.calls[1][2]).toEqual({ refresh: true });
+	});
+
 	it('keeps filters applied when the filter controls are collapsed', async () => {
 		const user = userEvent.setup();
 		render(RunsPage);

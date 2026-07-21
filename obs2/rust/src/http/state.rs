@@ -40,6 +40,11 @@ pub struct AppStateInner {
     /// Signals when OBS has emitted `OBS_FRONTEND_EVENT_FINISHED_LOADING` and
     /// frontend replay-buffer APIs are safe to query.
     pub frontend_ready_tx: watch::Sender<bool>,
+    /// SQLite-backed index of saved run clips.
+    pub run_catalog: std::sync::Arc<crate::db::run_catalog::RunCatalog>,
+    /// Whether a new catalog needs its first clip import. The mutex prevents
+    /// concurrent Runs requests from observing a partially seeded catalog.
+    pub run_catalog_needs_seed: std::sync::Mutex<bool>,
     /// Plugin-owned user settings, loaded from and persisted to JSON.
     pub settings: crate::settings::SettingsStore,
     /// `Some(start instant)` if this core load followed a successful update apply

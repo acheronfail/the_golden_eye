@@ -7,93 +7,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, anyhow};
 use ffmpeg_next::ffi::AV_TIME_BASE;
 use ffmpeg_next::{Dictionary, DictionaryRef, Rescale, codec, encoder, format, media, rescale};
-use serde::Serialize;
 
-const TAG_CREATED_BY: &str = "fail.acheron.thegoldeneye.created_by";
-const TAG_CREATED_BY_VALUE: &str = "the-golden-eye";
-const TAG_SCHEMA_VERSION: &str = "fail.acheron.thegoldeneye.schema_version";
-const TAG_SCHEMA_VERSION_VALUE: &str = "1";
-const TAG_PLUGIN_VERSION: &str = "fail.acheron.thegoldeneye.plugin_version";
-const TAG_RUN_TIMESTAMP: &str = "fail.acheron.thegoldeneye.run_timestamp";
-const TAG_RUN_TIME: &str = "fail.acheron.thegoldeneye.time";
-const TAG_RUN_TIME_SECONDS: &str = "fail.acheron.thegoldeneye.time_seconds";
-const TAG_LEVEL: &str = "fail.acheron.thegoldeneye.level";
-const TAG_LEVEL_NUMBER: &str = "fail.acheron.thegoldeneye.level_number";
-const TAG_DIFFICULTY: &str = "fail.acheron.thegoldeneye.difficulty";
-const TAG_STATUS: &str = "fail.acheron.thegoldeneye.status";
-const TAG_ROM_LANGUAGE: &str = "fail.acheron.thegoldeneye.rom_language";
-const TAG_SOURCE_NAME: &str = "fail.acheron.thegoldeneye.source_name";
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClipMetadata {
-    pub timestamp: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub time: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub time_seconds: Option<i32>,
-    pub level: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub level_number: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub difficulty: Option<String>,
-    pub status: String,
-    pub rom_language: String,
-    pub source_name: String,
-    pub comment: String,
-    pub plugin_version: String,
-}
-
-impl ClipMetadata {
-    fn write_to(&self, metadata: &mut Dictionary) {
-        metadata.set(TAG_CREATED_BY, TAG_CREATED_BY_VALUE);
-        metadata.set(TAG_SCHEMA_VERSION, TAG_SCHEMA_VERSION_VALUE);
-        metadata.set(TAG_PLUGIN_VERSION, &clean_metadata_value(&self.plugin_version));
-        metadata.set(TAG_RUN_TIMESTAMP, &clean_metadata_value(&self.timestamp));
-        set_optional_metadata(metadata, TAG_RUN_TIME, self.time.as_deref());
-        set_optional_metadata(metadata, TAG_RUN_TIME_SECONDS, self.time_seconds.map(|s| s.to_string()).as_deref());
-        metadata.set(TAG_LEVEL, &clean_metadata_value(&self.level));
-        set_optional_metadata(metadata, TAG_LEVEL_NUMBER, self.level_number.map(|n| n.to_string()).as_deref());
-        set_optional_metadata(metadata, TAG_DIFFICULTY, self.difficulty.as_deref());
-        metadata.set(TAG_STATUS, &clean_metadata_value(&self.status));
-        metadata.set(TAG_ROM_LANGUAGE, &clean_metadata_value(&self.rom_language));
-        metadata.set(TAG_SOURCE_NAME, &clean_metadata_value(&self.source_name));
-        metadata.set("comment", &clean_metadata_value(&self.comment));
-    }
-
-    fn from_dictionary(metadata: &DictionaryRef<'_>) -> Option<Self> {
-        let created_by = get_metadata(metadata, TAG_CREATED_BY)?;
-        if created_by != TAG_CREATED_BY_VALUE {
-            return None;
-        }
-
-        let timestamp = get_metadata(metadata, TAG_RUN_TIMESTAMP)?;
-        let status = get_metadata(metadata, TAG_STATUS)?;
-        let level = get_metadata(metadata, TAG_LEVEL).unwrap_or_else(|| "unknown".to_owned());
-        let comment = get_metadata(metadata, "comment").unwrap_or_default();
-        let plugin_version = get_metadata(metadata, TAG_PLUGIN_VERSION).unwrap_or_default();
-        let time = get_metadata(metadata, TAG_RUN_TIME);
-        let time_seconds = get_metadata(metadata, TAG_RUN_TIME_SECONDS).and_then(|value| value.parse::<i32>().ok());
-        let level_number = get_metadata(metadata, TAG_LEVEL_NUMBER).and_then(|value| value.parse::<i32>().ok());
-        let difficulty = get_metadata(metadata, TAG_DIFFICULTY);
-        let rom_language = get_metadata(metadata, TAG_ROM_LANGUAGE).unwrap_or_default();
-        let source_name = get_metadata(metadata, TAG_SOURCE_NAME).unwrap_or_default();
-
-        Some(Self {
-            timestamp,
-            time,
-            time_seconds,
-            level,
-            level_number,
-            difficulty,
-            status,
-            rom_language,
-            source_name,
-            comment,
-            plugin_version,
-        })
-    }
-}
+pub use crate::models::clip_metadata::ClipMetadata;
+use crate::models::clip_metadata::is_ffmpeg_plugin_tag;
 
 /// Initialise FFmpeg. Cheap and safe to call repeatedly (libav guards its own
 /// one-time setup), so each entry point calls it rather than relying on a
@@ -115,7 +31,7 @@ pub fn duration_secs(path: &Path) -> anyhow::Result<f64> {
 pub fn read_clip_metadata(path: &Path) -> anyhow::Result<Option<ClipMetadata>> {
     init()?;
     let ictx = format::input(path).with_context(|| format!("opening {}", path.display()))?;
-    Ok(ClipMetadata::from_dictionary(&ictx.metadata()))
+    Ok(ClipMetadata::from_ffmpeg_tags(&ictx.metadata()))
 }
 
 /// Rewrites only the container metadata for `path`, preserving streams without
@@ -275,32 +191,12 @@ fn remux_with_metadata(
 fn metadata_with_plugin_tags(source: &DictionaryRef<'_>, clip_metadata: &ClipMetadata) -> Dictionary<'static> {
     let mut metadata = Dictionary::new();
     for (key, value) in source.iter() {
-        if !is_plugin_metadata_key(key) {
+        if !is_ffmpeg_plugin_tag(key) {
             metadata.set(key, value);
         }
     }
-    clip_metadata.write_to(&mut metadata);
+    clip_metadata.write_ffmpeg_tags(&mut metadata);
     metadata
-}
-
-fn is_plugin_metadata_key(key: &str) -> bool {
-    [
-        TAG_CREATED_BY,
-        TAG_SCHEMA_VERSION,
-        TAG_PLUGIN_VERSION,
-        TAG_RUN_TIMESTAMP,
-        TAG_RUN_TIME,
-        TAG_RUN_TIME_SECONDS,
-        TAG_LEVEL,
-        TAG_LEVEL_NUMBER,
-        TAG_DIFFICULTY,
-        TAG_STATUS,
-        TAG_ROM_LANGUAGE,
-        TAG_SOURCE_NAME,
-        "comment",
-    ]
-    .iter()
-    .any(|candidate| key.eq_ignore_ascii_case(candidate))
 }
 
 fn sibling_temp_path(path: &Path, role: &str) -> anyhow::Result<PathBuf> {
@@ -350,26 +246,6 @@ fn replace_file_with_backup(path: &Path, replacement: &Path, backup: &Path) -> a
             }
         }
     }
-}
-
-fn set_optional_metadata(metadata: &mut Dictionary, key: &str, value: Option<&str>) {
-    if let Some(value) = value
-        && !value.is_empty()
-    {
-        metadata.set(key, &clean_metadata_value(value));
-    }
-}
-
-fn get_metadata(metadata: &DictionaryRef<'_>, key: &str) -> Option<String> {
-    metadata
-        .get(key)
-        .or_else(|| metadata.iter().find(|(candidate, _)| candidate.eq_ignore_ascii_case(key)).map(|(_, value)| value))
-        .map(str::to_owned)
-        .filter(|value| !value.is_empty())
-}
-
-fn clean_metadata_value(value: &str) -> String {
-    value.chars().filter(|&c| c != '\0').collect()
 }
 
 fn write_header(octx: &mut format::context::Output, output: &Path) -> anyhow::Result<()> {
