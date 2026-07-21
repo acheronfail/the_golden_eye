@@ -46,7 +46,7 @@ pub struct YoutubeConfig {
 impl YoutubeConfig {
     pub fn from_env() -> Self {
         let endpoints = config::YoutubeEndpoints::resolve();
-        let client_secret = youtube_client_secret();
+        let client_secret = config::client_secret();
         let enabled = config::youtube_enabled(&endpoints, &client_secret);
         Self {
             client_id: endpoints.client_id,
@@ -911,17 +911,6 @@ fn unix_secs(time: SystemTime) -> u64 {
 
 fn now_iso() -> String {
     crate::template_tokens::format_iso_utc(SystemTime::now())
-}
-
-fn youtube_client_secret() -> String {
-    #[cfg(feature = "test-hooks")]
-    if let Some(secret) = config::test_client_secret() {
-        return secret;
-    }
-    obfstr::obfstring!(match option_env!("GE_YOUTUBE_CLIENT_SECRET") {
-        Some(value) => value,
-        None => "",
-    })
 }
 
 impl YoutubeVisibility {

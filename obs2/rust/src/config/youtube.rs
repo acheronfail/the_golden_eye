@@ -1,6 +1,26 @@
-use super::shared::{env_truthy, env_value_enabled};
+use super::EnvVar;
 
-const GE_YOUTUBE_ENABLED: &str = "GE_YOUTUBE_ENABLED";
+static GE_YOUTUBE_ENABLED: EnvVar = EnvVar::new("GE_YOUTUBE_ENABLED");
+#[cfg(feature = "test-hooks")]
+static GE_TEST_YOUTUBE_AUTH_URL: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_AUTH_URL");
+#[cfg(feature = "test-hooks")]
+static GE_TEST_YOUTUBE_CLIENT_ID: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_CLIENT_ID");
+#[cfg(feature = "test-hooks")]
+static GE_TEST_YOUTUBE_CLIENT_SECRET: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_CLIENT_SECRET");
+#[cfg(feature = "test-hooks")]
+static GE_TEST_YOUTUBE_FORCE_KEYRING_FAILURE: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_FORCE_KEYRING_FAILURE");
+#[cfg(feature = "test-hooks")]
+static GE_TEST_YOUTUBE_OAUTH_STATE: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_OAUTH_STATE");
+#[cfg(feature = "test-hooks")]
+static GE_TEST_YOUTUBE_REDIRECT_URI: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_REDIRECT_URI");
+#[cfg(feature = "test-hooks")]
+static GE_TEST_YOUTUBE_TOKEN_FILE: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_TOKEN_FILE");
+#[cfg(feature = "test-hooks")]
+static GE_TEST_YOUTUBE_TOKEN_URL: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_TOKEN_URL");
+#[cfg(feature = "test-hooks")]
+static GE_TEST_YOUTUBE_UPLOAD_URL: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_UPLOAD_URL");
+#[cfg(feature = "test-hooks")]
+static GE_TEST_YOUTUBE_USERINFO_URL: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_USERINFO_URL");
 
 /// Compile-time value of GE_YOUTUBE_ENABLED
 const BUILD_TIME_ENABLED: &str = match option_env!("GE_YOUTUBE_ENABLED") {
@@ -13,6 +33,20 @@ pub(crate) const CLIENT_ID: &str = match option_env!("GE_YOUTUBE_CLIENT_ID") {
     Some(value) => value,
     None => "",
 };
+
+/// Resolves the build-time YouTube client secret, with test-only runtime
+/// overrides kept behind the `test-hooks` feature.
+pub(crate) fn client_secret() -> String {
+    #[cfg(feature = "test-hooks")]
+    if let Some(secret) = GE_TEST_YOUTUBE_CLIENT_SECRET.string() {
+        return secret;
+    }
+
+    obfstr::obfstring!(match option_env!("GE_YOUTUBE_CLIENT_SECRET") {
+        Some(value) => value,
+        None => "",
+    })
+}
 /// Google OAuth 2.0 authorization endpoint.
 pub(crate) const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 /// Google OAuth 2.0 token endpoint.
@@ -29,7 +63,7 @@ pub(crate) const REDIRECT_URI: &str = "http://127.0.0.1:31337/oauth/callback";
 /// missing, to explain why the feature stays hidden. Takes the already-resolved
 /// endpoints and secret so the caller reads them only once.
 pub(crate) fn youtube_enabled(endpoints: &YoutubeEndpoints, client_secret: &str) -> bool {
-    if !env_value_enabled(BUILD_TIME_ENABLED) && !env_truthy(GE_YOUTUBE_ENABLED) {
+    if !EnvVar::truthy_value(BUILD_TIME_ENABLED) && !GE_YOUTUBE_ENABLED.truthy() {
         return false;
     }
     let client_id_present = !endpoints.client_id.is_empty();
@@ -75,30 +109,22 @@ impl YoutubeEndpoints {
     // the real GE_YOUTUBE_* build/runtime configuration.
     #[cfg(feature = "test-hooks")]
     pub(crate) fn resolve() -> Self {
-        use super::shared::env_string;
         Self {
-            client_id: env_string("GE_TEST_YOUTUBE_CLIENT_ID").unwrap_or_else(|| CLIENT_ID.to_owned()),
-            auth_url: env_string("GE_TEST_YOUTUBE_AUTH_URL").unwrap_or_else(|| AUTH_URL.to_owned()),
-            token_url: env_string("GE_TEST_YOUTUBE_TOKEN_URL").unwrap_or_else(|| TOKEN_URL.to_owned()),
-            upload_url: env_string("GE_TEST_YOUTUBE_UPLOAD_URL").unwrap_or_else(|| UPLOAD_URL.to_owned()),
-            userinfo_url: env_string("GE_TEST_YOUTUBE_USERINFO_URL").unwrap_or_else(|| USERINFO_URL.to_owned()),
-            redirect_uri: env_string("GE_TEST_YOUTUBE_REDIRECT_URI").unwrap_or_else(|| REDIRECT_URI.to_owned()),
+            client_id: GE_TEST_YOUTUBE_CLIENT_ID.string().unwrap_or_else(|| CLIENT_ID.to_owned()),
+            auth_url: GE_TEST_YOUTUBE_AUTH_URL.string().unwrap_or_else(|| AUTH_URL.to_owned()),
+            token_url: GE_TEST_YOUTUBE_TOKEN_URL.string().unwrap_or_else(|| TOKEN_URL.to_owned()),
+            upload_url: GE_TEST_YOUTUBE_UPLOAD_URL.string().unwrap_or_else(|| UPLOAD_URL.to_owned()),
+            userinfo_url: GE_TEST_YOUTUBE_USERINFO_URL.string().unwrap_or_else(|| USERINFO_URL.to_owned()),
+            redirect_uri: GE_TEST_YOUTUBE_REDIRECT_URI.string().unwrap_or_else(|| REDIRECT_URI.to_owned()),
         }
     }
-}
-
-/// Test-only client secret override so integration tests can supply a secret
-/// without a compiled-in value. Always `None` in shipping builds.
-#[cfg(feature = "test-hooks")]
-pub(crate) fn test_client_secret() -> Option<String> {
-    super::shared::env_string("GE_TEST_YOUTUBE_CLIENT_SECRET")
 }
 
 /// Test-only override for the OAuth `state` value so the callback can be driven
 /// deterministically. Always `None` in shipping builds.
 #[cfg(feature = "test-hooks")]
 pub(crate) fn test_oauth_state() -> Option<String> {
-    super::shared::env_string("GE_TEST_YOUTUBE_OAUTH_STATE")
+    GE_TEST_YOUTUBE_OAUTH_STATE.string()
 }
 
 /// Test-only override that stores OAuth tokens in a plain file instead of the OS
@@ -106,10 +132,10 @@ pub(crate) fn test_oauth_state() -> Option<String> {
 /// `None` in shipping builds.
 #[cfg(feature = "test-hooks")]
 pub(crate) fn token_file_override() -> Option<std::path::PathBuf> {
-    super::shared::env_string("GE_TEST_YOUTUBE_TOKEN_FILE").map(std::path::PathBuf::from)
+    GE_TEST_YOUTUBE_TOKEN_FILE.string().map(std::path::PathBuf::from)
 }
 
 #[cfg(feature = "test-hooks")]
 pub(crate) fn force_keyring_failure() -> bool {
-    super::shared::env_truthy("GE_TEST_YOUTUBE_FORCE_KEYRING_FAILURE")
+    GE_TEST_YOUTUBE_FORCE_KEYRING_FAILURE.truthy()
 }
