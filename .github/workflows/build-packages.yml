@@ -133,6 +133,7 @@ jobs:
       - name: Build Linux package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
         env:
+          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
           GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
           GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
@@ -237,6 +238,7 @@ jobs:
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
         env:
+          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
           GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
           GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
@@ -432,6 +434,7 @@ jobs:
         shell: bash
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
         env:
+          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
           GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
           GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
