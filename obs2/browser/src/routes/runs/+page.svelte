@@ -28,7 +28,9 @@
 	let metadataDraft = $state<EditableRunMetadata | null>(null);
 	let modalError = $state<string | null>(null);
 	let modalBusy = $state<string | null>(null);
-	let fileBrowserLabel = $state('show in file browser');
+	let listActionError = $state<string | null>(null);
+	let listActionBusyPath = $state<string | null>(null);
+	let fileBrowserLabel = $state('Show in file browser');
 	let folderBrowserLabel = $state('show clips folder');
 	let folderRevealBusy = $state(false);
 	let folderChooserOpen = $state(false);
@@ -259,6 +261,25 @@
 		}
 	}
 
+	async function renameRunFromList(clip: RunClip) {
+		const next = prompt('New filename (extension preserved if omitted):', clip.fileName);
+		if (next === null) return;
+		const fileName = next.trim();
+		if (!fileName || fileName === clip.fileName) return;
+
+		listActionBusyPath = clip.path;
+		listActionError = null;
+		try {
+			const updated = await backend.renameRun(clip.path, fileName);
+			updateClipInList(clip.path, updated);
+			if (selected?.path === clip.path) replaceClip(clip.path, updated);
+		} catch (err) {
+			listActionError = err instanceof Error ? err.message : String(err);
+		} finally {
+			listActionBusyPath = null;
+		}
+	}
+
 	async function revealSelectedRun() {
 		if (!selected) return;
 		modalBusy = 'reveal';
@@ -269,6 +290,18 @@
 			modalError = err instanceof Error ? err.message : String(err);
 		} finally {
 			modalBusy = null;
+		}
+	}
+
+	async function revealRunFromList(clip: RunClip) {
+		listActionBusyPath = clip.path;
+		listActionError = null;
+		try {
+			await backend.revealRun(clip.path);
+		} catch (err) {
+			listActionError = err instanceof Error ? err.message : String(err);
+		} finally {
+			listActionBusyPath = null;
 		}
 	}
 
@@ -318,6 +351,26 @@
 		}
 	}
 
+	async function deleteRunFromList(clip: RunClip) {
+		const confirmed = confirm(`Delete "${clip.fileName}" from disk?\n\nThis cannot be undone.`);
+		if (!confirmed) return;
+
+		listActionBusyPath = clip.path;
+		listActionError = null;
+		try {
+			await backend.deleteRun(clip.path);
+			removeClip(clip.path);
+			if (selected?.path === clip.path) {
+				selected = null;
+				metadataDraft = null;
+			}
+		} catch (err) {
+			listActionError = err instanceof Error ? err.message : String(err);
+		} finally {
+			listActionBusyPath = null;
+		}
+	}
+
 	function normalizeDraftTime() {
 		if (!metadataDraft) return;
 		metadataDraft.time = normalizeTimeInput(metadataDraft.time);
@@ -337,9 +390,9 @@
 
 	function platformFileBrowserLabel(): string {
 		const platform = navigator.platform.toLowerCase();
-		if (platform.includes('mac')) return 'show in finder';
-		if (platform.includes('win')) return 'show in explorer';
-		return 'show in file browser';
+		if (platform.includes('mac')) return 'Show in Finder';
+		if (platform.includes('win')) return 'Show in Explorer';
+		return 'Show in file browser';
 	}
 
 	function platformFolderBrowserLabel(): string {
@@ -429,6 +482,13 @@
 		</div>
 	{/if}
 
+	{#if listActionError}
+		<div class="obs-alert-error mb-4 rounded px-4 py-3">
+			<p class="obs-alert-error-title text-sm font-semibold">Run action failed</p>
+			<p class="obs-alert-error-body mt-1 font-mono text-xs">{listActionError}</p>
+		</div>
+	{/if}
+
 	<RunList
 		{loading}
 		{clips}
@@ -437,7 +497,12 @@
 		directoryCount={runs?.directories.length ?? null}
 		{hasActiveFilters}
 		{clearFilters}
-		{select}
+		{fileBrowserLabel}
+		busyPath={listActionBusyPath}
+		open={select}
+		rename={renameRunFromList}
+		reveal={revealRunFromList}
+		remove={deleteRunFromList}
 	/>
 </main>
 

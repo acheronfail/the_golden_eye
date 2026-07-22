@@ -33,7 +33,11 @@
 		{scannedDirectoryCount}
 		{directoryCount}
 		{hasActiveFilters}
+		fileBrowserLabel="Show in file browser"
 		clearFilters={() => {}}
-		select={() => {}}
+		open={() => {}}
+		rename={() => {}}
+		reveal={() => {}}
+		remove={() => {}}
 	/>
 </main>

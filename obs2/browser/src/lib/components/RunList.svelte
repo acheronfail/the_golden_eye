@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { RunClip } from '$lib/api';
-	import MetaPills from '$lib/components/MetaPills.svelte';
-	import { isCompleted, formatDate, runMetaChips } from '$lib/utils/runsView';
+	import RunListItem from '$lib/components/RunListItem.svelte';
 
 	let {
 		loading,
@@ -11,7 +10,12 @@
 		directoryCount,
 		hasActiveFilters,
 		clearFilters,
-		select
+		busyPath = null,
+		fileBrowserLabel,
+		open,
+		rename,
+		reveal,
+		remove
 	}: {
 		loading: boolean;
 		clips: RunClip[];
@@ -20,8 +24,23 @@
 		directoryCount: number | null;
 		hasActiveFilters: boolean;
 		clearFilters: () => void;
-		select: (clip: RunClip) => void;
+		busyPath?: string | null;
+		fileBrowserLabel: string;
+		open: (clip: RunClip) => void;
+		rename: (clip: RunClip) => void | Promise<void>;
+		reveal: (clip: RunClip) => void | Promise<void>;
+		remove: (clip: RunClip) => void | Promise<void>;
 	} = $props();
+
+	let openMenuPath = $state<string | null>(null);
+
+	function setMenuOpen(path: string, open: boolean) {
+		if (open) {
+			openMenuPath = path;
+		} else if (openMenuPath === path) {
+			openMenuPath = null;
+		}
+	}
 </script>
 
 {#if loading && clips.length === 0}
@@ -57,29 +76,17 @@
 	<ul class="flex flex-col gap-1.5">
 		{#each visibleClips as clip (clip.path)}
 			<li>
-				<button
-					type="button"
-					class="obs-list-button group grid min-h-16 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-3 py-2 text-left transition-colors"
-					class:obs-list-button-success={isCompleted(clip)}
-					onclick={() => select(clip)}
-				>
-					<span class="flex min-w-0 flex-col gap-1">
-						<MetaPills chips={runMetaChips(clip)} containerClass="obs-list-title" pillClass="text-[11px]" />
-						<span
-							class="min-w-0 truncate font-mono text-[10px] text-(--obs-text-muted)"
-							title={formatDate(clip.metadata.timestamp)}
-						>
-							Achieved: {formatDate(clip.metadata.timestamp)}
-						</span>
-						<span class="obs-list-detail min-w-0 truncate font-mono text-[10px]" title={clip.fileName}
-							>{clip.fileName}</span
-						>
-					</span>
-					<span
-						class="obs-list-arrow shrink-0 font-mono transition-transform group-hover:translate-x-1"
-						aria-hidden="true">→</span
-					>
-				</button>
+				<RunListItem
+					{clip}
+					busy={busyPath === clip.path}
+					menuOpen={openMenuPath === clip.path}
+					onMenuOpenChange={(isOpen) => setMenuOpen(clip.path, isOpen)}
+					{fileBrowserLabel}
+					{open}
+					{rename}
+					{reveal}
+					{remove}
+				/>
 			</li>
 		{/each}
 	</ul>
