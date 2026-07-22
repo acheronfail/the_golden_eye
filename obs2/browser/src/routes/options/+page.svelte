@@ -10,6 +10,7 @@
 	import OptionsNotifications from '$lib/components/OptionsNotifications.svelte';
 	import OptionsRecording from '$lib/components/OptionsRecording.svelte';
 	import OptionsYouTube from '$lib/components/OptionsYouTube.svelte';
+	import ResetSettingsDialog from '$lib/components/ResetSettingsDialog.svelte';
 	import { optionsClasses, type OptionsPathKind, type RecordingOptionsView } from '$lib/utils/optionsView';
 	import { youtube } from '$lib/stores/youtube.svelte';
 
@@ -30,7 +31,6 @@
 	let revealingConfigFile = $state(false);
 	let resettingConfigFile = $state(false);
 	let showResetConfirmation = $state(false);
-	let resetCancelButton: HTMLButtonElement | undefined = $state();
 	let configActionError = $state<string | null>(null);
 	let completedPathValidating = $state(false);
 	let failedPathValidating = $state(false);
@@ -272,17 +272,6 @@
 		if (!resettingConfigFile) showResetConfirmation = false;
 	};
 
-	$effect(() => {
-		if (!showResetConfirmation) return;
-		queueMicrotask(() => resetCancelButton?.focus());
-
-		const onKeydown = (event: KeyboardEvent) => {
-			if (event.key === 'Escape') cancelConfigReset();
-		};
-		window.addEventListener('keydown', onKeydown);
-		return () => window.removeEventListener('keydown', onKeydown);
-	});
-
 	const resetConfigFile = async () => {
 		resettingConfigFile = true;
 		configActionError = null;
@@ -411,45 +400,10 @@
 </main>
 
 {#if showResetConfirmation}
-	<div class="obs-overlay fixed inset-0 z-50 flex items-center justify-center p-4" role="presentation">
-		<div
-			class="obs-dialog w-full max-w-md overflow-hidden rounded"
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="reset-settings-dialog-title"
-			aria-describedby="reset-settings-dialog-body"
-		>
-			<div class="obs-dialog-header px-4 py-3">
-				<h2 id="reset-settings-dialog-title" class="obs-heading text-lg font-semibold">Reset settings?</h2>
-			</div>
-			<div id="reset-settings-dialog-body" class="grid gap-3 px-4 py-4 text-sm leading-6">
-				<p>
-					This will permanently remove your changes, including saved secrets such as your Discord webhook URL. This
-					action cannot be undone.
-				</p>
-				{#if configActionError}
-					<p class="text-xs text-(--obs-danger)">{configActionError}</p>
-				{/if}
-			</div>
-			<div class="flex justify-end gap-2 px-4 pb-4">
-				<button
-					bind:this={resetCancelButton}
-					type="button"
-					class="obs-button px-4 py-2"
-					disabled={resettingConfigFile}
-					onclick={cancelConfigReset}
-				>
-					Cancel
-				</button>
-				<button
-					type="button"
-					class="obs-button obs-button-danger px-4 py-2"
-					disabled={resettingConfigFile}
-					onclick={resetConfigFile}
-				>
-					{resettingConfigFile ? 'Resetting...' : 'Reset to defaults'}
-				</button>
-			</div>
-		</div>
-	</div>
+	<ResetSettingsDialog
+		busy={resettingConfigFile}
+		error={configActionError}
+		cancel={cancelConfigReset}
+		reset={resetConfigFile}
+	/>
 {/if}

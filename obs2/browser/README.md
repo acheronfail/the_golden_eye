@@ -40,3 +40,14 @@ npm run build
 You can preview the production build with `npm run preview`.
 
 > To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+
+## Component catalogue
+
+Run the local Storybook catalogue to preview application components and their states without an OBS backend:
+
+```sh
+npm run storybook
+```
+
+Build the static catalogue with `npm run build-storybook`. Storybook rendering checks are included in `npm test`; inspect known
+accessibility findings from each story's Accessibility panel.

@@ -92,6 +92,9 @@ jobs:
       - name: Set up repository
         run: just setup
 
+      - name: Install Storybook test browser
+        run: cd obs2/browser && npx playwright install --with-deps chromium
+
       - name: Check formatting
         if: matrix.arch == 'x86_64'
         run: |
@@ -117,6 +120,9 @@ jobs:
 
       - name: Run Browser tests
         run: just test-browser
+
+      - name: Run Storybook tests
+        run: just test-storybook
 
       - name: Run Rust tests
         run: just test-rust
@@ -207,8 +213,20 @@ jobs:
       - name: Set up repository
         run: just setup
 
+      - name: Install Storybook test browser
+        run: cd obs2/browser && npx playwright install chromium
+
       - name: Run shim reload tests
         run: just test-shim
+
+      - name: Run frame regression tests
+        run: just test-cv
+
+      - name: Run Browser tests
+        run: just test-browser
+
+      - name: Run Storybook tests
+        run: just test-storybook
 
       - name: Run Rust tests
         run: just test-rust
@@ -343,6 +361,10 @@ jobs:
           cd obs2/browser && npm install
           cd ../../test && npm install
 
+      - name: Install Storybook test browser
+        shell: bash
+        run: cd obs2/browser && npx playwright install chromium
+
       # Runs vcvarsall once and persists the resulting environment (INCLUDE,
       # LIB, LIBPATH, PATH, etc.) via $GITHUB_ENV for every later step in this
       # job -- `set`'s own "NAME=value" per-line output format happens to be
@@ -385,6 +407,18 @@ jobs:
       - name: Run shim reload tests
         shell: bash
         run: just test-shim
+
+      - name: Run frame regression tests
+        shell: bash
+        run: just test-cv
+
+      - name: Run Browser tests
+        shell: bash
+        run: just test-browser
+
+      - name: Run Storybook tests
+        shell: bash
+        run: just test-storybook
 
       - name: Run Rust tests
         shell: bash

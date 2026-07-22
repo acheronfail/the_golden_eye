@@ -6,6 +6,7 @@
 	import { obsSources } from '$lib/stores/sources.svelte';
 	import WizardFrame from '$lib/components/wizard/WizardFrame.svelte';
 	import OptionList, { type Option } from '$lib/components/wizard/OptionList.svelte';
+	import SourcePreview from '$lib/components/SourcePreview.svelte';
 	import { onMount } from 'svelte';
 
 	let missingPreviewBySource = $state<Record<string, boolean>>({});
@@ -84,26 +85,13 @@
 	preserve aspect ratio; broken/uncaptured sources show a fixed-size placeholder. -->
 {#snippet leading(option: Option)}
 	{@const key = previewKey(option)}
-	{#if missingPreviewBySource[key]}
-		<div class="obs-preview-missing aspect-video max-h-36 w-full shrink-0 sm:h-36 sm:w-64">
-			<span class="px-3 font-mono text-xs leading-snug">No image returned from OBS</span>
-			<img
-				src="{backend.screenshotUrl(option.title)}&v={previewVersion}"
-				alt=""
-				aria-hidden="true"
-				class="hidden"
-				onload={() => markPreviewAvailable(key)}
-			/>
-		</div>
-	{:else}
-		<img
-			src="{backend.screenshotUrl(option.title)}&v={previewVersion}"
-			alt="Preview of {option.title}"
-			loading="lazy"
-			onerror={() => markPreviewMissing(key)}
-			class="obs-preview aspect-video max-h-36 w-full shrink-0 object-contain sm:h-36 sm:w-auto"
-		/>
-	{/if}
+	<SourcePreview
+		src="{backend.screenshotUrl(option.title)}&v={previewVersion}"
+		alt="Preview of {option.title}"
+		missing={Boolean(missingPreviewBySource[key])}
+		markMissing={() => markPreviewMissing(key)}
+		markAvailable={() => markPreviewAvailable(key)}
+	/>
 {/snippet}
 
 <WizardFrame title="Choose your capture source" subtitle="Pick the OBS source attached to your N64's video output.">
