@@ -1,24 +1,15 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
-	import type { LevelMatch } from '$lib/api';
 	import MonitorView from '$lib/components/MonitorView.svelte';
-
-	const match = (screen: string, times: LevelMatch['times'] = null): LevelMatch => ({
-		screen,
-		mission: 2,
-		part: 1,
-		difficulty: 0,
-		detected_lang: 'en',
-		times,
-		runtime_ms: 8.4
-	});
+	import { monitorMatch as match } from './monitorStoryFixtures';
 
 	const { Story } = defineMeta({
-		title: 'Monitor/Monitor states',
+		title: 'Monitor/Monitor states/Mission glass',
 		component: MonitorView,
 		parameters: { layout: 'fullscreen' },
 		args: {
-			design: 'signal-band',
+			design: 'mission-glass',
+			sourceName: 'N64 Capture',
 			verified: true,
 			monitoring: true,
 			recordingState: null,
@@ -32,29 +23,13 @@
 <Story name="Starting monitor" args={{ monitoring: false, transition: 'starting' }} />
 <Story name="Waiting" />
 <Story name="Recording" args={{ recordingState: 'started', match: match('start') }} />
-<Story name="Mission glass · waiting" args={{ design: 'mission-glass' }} />
-<Story
-	name="Mission glass · recording"
-	args={{ design: 'mission-glass', recordingState: 'started', match: match('start') }}
-/>
-<Story
-	name="Mission glass · complete"
-	args={{
-		design: 'mission-glass',
-		recordingState: 'complete',
-		match: match('stats', { time: 58, target_time: 65, best_time: 61 })
-	}}
-/>
 <Story name="Cancelled" args={{ recordingState: 'cancelled', match: match('level select') }} />
 <Story name="Failed" args={{ recordingState: 'failed', match: match('failed') }} />
 <Story name="Aborted" args={{ recordingState: 'aborted', match: match('abort') }} />
 <Story name="Killed in action" args={{ recordingState: 'kia', match: match('kia') }} />
 <Story
 	name="Complete"
-	args={{
-		recordingState: 'complete',
-		match: match('stats', { time: 58, target_time: 65, best_time: 61 })
-	}}
+	args={{ recordingState: 'complete', match: match('stats', { time: 58, target_time: 65, best_time: 61 }) }}
 />
 <Story name="Skipped stats" args={{ recordingState: 'statsSkipped', match: match('level select') }} />
 <Story name="Saving clip" args={{ recordingState: 'savePending', match: match('stats') }} />

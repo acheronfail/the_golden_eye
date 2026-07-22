@@ -6,7 +6,8 @@
 
 	const monitorDesignOptions: { value: MonitorDesign; label: string }[] = [
 		{ value: 'signal-band', label: 'Signal band' },
-		{ value: 'mission-glass', label: 'Mission glass' }
+		{ value: 'mission-glass', label: 'Mission glass' },
+		{ value: 'debug', label: 'For Your Eyes Only' }
 	];
 
 	const clipTemplateTokens = [

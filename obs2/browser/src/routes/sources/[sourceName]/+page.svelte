@@ -4,9 +4,10 @@
 	import { backend } from '$lib/api';
 	import MonitorView, { type MonitorTransition } from '$lib/components/MonitorView.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { monitor } from '$lib/stores/monitor.svelte';
+	import { monitor, monitorPresentationPhase } from '$lib/stores/monitor.svelte';
 	import { refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import { obsSources } from '$lib/stores/sources.svelte';
+	import { onDestroy } from 'svelte';
 	import type { PageProps } from './$types';
 
 	let { params }: PageProps = $props();
@@ -20,6 +21,15 @@
 	const sourcePath = $derived(`/sources/${encodeURIComponent(params.sourceName)}`);
 	const isCurrentPage = $derived(page.url.pathname === sourcePath);
 	const sourceExists = $derived((obsSources.items ?? []).some((source) => source.name === params.sourceName));
+
+	$effect(() => {
+		if (!isCurrentPage) return;
+		monitor.chromePhase = monitorPresentationPhase(monitor.recordingState, transition !== null, verified);
+	});
+
+	onDestroy(() => {
+		monitor.chromePhase = null;
+	});
 
 	const navigate = (href: string, options: { replaceState?: boolean } = {}) => {
 		if (page.url.pathname === href || pendingNavigation === href) return;
@@ -135,6 +145,7 @@
 
 <MonitorView
 	design={settings.monitorDesign}
+	sourceName={params.sourceName}
 	{verified}
 	{monitoring}
 	{transition}

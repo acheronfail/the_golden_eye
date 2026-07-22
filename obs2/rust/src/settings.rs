@@ -32,12 +32,14 @@ pub const DEFAULT_FAILED_OUTPUT_DIR_SUFFIX: &str = " - failed";
 pub enum MonitorDesign {
     SignalBand,
     MissionGlass,
+    Debug,
 }
 
 impl MonitorDesign {
     pub fn from_json_value(value: Option<&Value>) -> Self {
         match value.and_then(Value::as_str) {
             Some("mission-glass") => MonitorDesign::MissionGlass,
+            Some("debug") => MonitorDesign::Debug,
             _ => DEFAULT_MONITOR_DESIGN,
         }
     }

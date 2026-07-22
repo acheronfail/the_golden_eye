@@ -64,3 +64,31 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 		expect(screen.getByText('0:58')).toBeInTheDocument();
 	});
 });
+
+describe('debug monitor', () => {
+	it('shows all available recording diagnostics without animation wrappers', () => {
+		const levelMatch: LevelMatch = {
+			...match('stats', { time: 58, target_time: 65, best_time: 61 }),
+			raw_times: [58, 65, 61],
+			match_regions: [{ label: 'time', x: 10, y: 20, w: 30, h: 40, score: 0.98 }]
+		};
+		const view = render(MonitorView, {
+			...props('debug', 'complete', levelMatch),
+			sourceName: 'N64 Capture',
+			showMonitorFps: true,
+			fps: { processedFps: 60, sourceFps: 60 }
+		});
+
+		expect(screen.getByRole('heading', { name: /^complete$/i })).toBeInTheDocument();
+		expect(screen.getByText('N64 Capture')).toBeInTheDocument();
+		expect(screen.getAllByText('60')).toHaveLength(2);
+		expect(screen.getByText('[58,65,61]')).toBeInTheDocument();
+		expect(screen.getByText(/"score": 0.98/)).toBeInTheDocument();
+		expect(screen.queryByText(/show FPS setting/i)).not.toBeInTheDocument();
+		expect(view.container.querySelectorAll('.state-cell')).toHaveLength(5);
+		expect(view.container.querySelectorAll('[data-value-kind="true"]')).not.toHaveLength(0);
+		expect(view.container.querySelectorAll('[data-value-kind="false"]')).not.toHaveLength(0);
+		expect(view.container.querySelectorAll('[data-value-kind="null"]')).not.toHaveLength(0);
+		expect(view.container.querySelector('[class*="motion"], [class*="sweep"]')).not.toBeInTheDocument();
+	});
+});

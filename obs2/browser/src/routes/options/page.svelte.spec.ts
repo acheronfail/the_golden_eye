@@ -119,6 +119,7 @@ beforeEach(() => {
 	monitor.loaded = true;
 	monitor.match = null;
 	monitor.recordingState = null;
+	monitor.chromePhase = null;
 	settings.applyReloaded(defaultSettings, '/tmp/the-golden-eye/settings.json', defaultSettings);
 	settings.loaded = true;
 	updates.applyStatus({ phase: 'idle', available: null });
@@ -189,10 +190,10 @@ describe('/options', () => {
 
 		const design = await screen.findByRole('combobox', { name: /Monitor design/i });
 		await user.click(design);
-		await user.click(await screen.findByRole('option', { name: /Mission glass/i }));
+		await user.click(await screen.findByRole('option', { name: /^For Your Eyes Only$/i }));
 
 		await waitFor(() =>
-			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ monitorDesign: 'mission-glass' }))
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ monitorDesign: 'debug' }))
 		);
 	});
 

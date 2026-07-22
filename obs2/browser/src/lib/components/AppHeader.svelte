@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { RecordingStatus } from '$lib/api';
-	import { monitorPhaseStyle } from '$lib/stores/monitor.svelte';
+	import { monitorPhaseStyle, monitorPhaseStyleForPhase, type MonitorPhase } from '$lib/stores/monitor.svelte';
 
 	export interface AppHeaderLink {
 		href: string;
@@ -13,6 +13,7 @@
 		pluginVersion,
 		activeMonitorHref = null,
 		recordingState = null,
+		monitorPhase = null,
 		menuOpen = $bindable(false)
 	}: {
 		links: AppHeaderLink[];
@@ -20,13 +21,20 @@
 		pluginVersion: string;
 		activeMonitorHref?: string | null;
 		recordingState?: RecordingStatus | null;
+		monitorPhase?: MonitorPhase | null;
 		menuOpen?: boolean;
 	} = $props();
 
 	let menuButton = $state<HTMLButtonElement>();
 	let menuPanel = $state<HTMLElement>();
 
-	const activeMonitorStyle = $derived(monitorPhaseStyle(recordingState));
+	const activeMonitorStyle = $derived(
+		monitorPhase
+			? monitorPhaseStyleForPhase(monitorPhase)
+			: activeMonitorHref
+				? monitorPhaseStyle(recordingState)
+				: monitorPhaseStyleForPhase('complete')
+	);
 	const bannerClass =
 		'obs-banner inline-block max-w-full p-2 text-left font-mono text-[10px] leading-[1.17] whitespace-pre';
 	const bannerText = `\
@@ -34,8 +42,7 @@
  ┃ ┣┓┏┓  ┃┓┏┓┃┏┫┏┓┏┓  ┣ ┓┏┏┓
  ┻ ┛┗┗   ┗┛┗┛┗┗┻┗ ┛┗  ┗┛┗┫┗
                          ┛`;
-	const menuButtonClass =
-		'obs-icon-button obs-phase-gold-button inline-flex h-8 w-8 shrink-0 items-center justify-center';
+	const menuButtonClass = 'obs-icon-button inline-flex h-8 w-8 shrink-0 items-center justify-center';
 	const menuPanelClass =
 		'obs-menu-panel absolute top-full right-2 z-40 mt-2 w-[min(20rem,calc(100vw-1rem))] rounded p-2 text-sm';
 	const menuLinkCommon =
@@ -67,7 +74,7 @@
 
 <header class="obs-app-header relative flex shrink-0 items-center">
 	<a href="/" aria-label="The Golden Eye home" class="block min-w-0 shrink overflow-hidden">
-		<pre class={bannerClass}>{bannerText}</pre>
+		<pre class="{bannerClass} {activeMonitorStyle.heading}">{bannerText}</pre>
 	</a>
 
 	{#if menuOpen}
@@ -107,7 +114,7 @@
 		<button
 			bind:this={menuButton}
 			type="button"
-			class={menuButtonClass}
+			class="{menuButtonClass} {activeMonitorStyle.button}"
 			aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
 			aria-controls="global-navigation-menu"
 			aria-expanded={menuOpen}

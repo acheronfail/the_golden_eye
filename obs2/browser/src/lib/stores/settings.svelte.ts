@@ -8,7 +8,7 @@ const UpdateCheckIntervalSchema = z.enum(['monthly', 'weekly', 'daily', 'never']
 export type UpdateCheckInterval = z.infer<typeof UpdateCheckIntervalSchema>;
 const YoutubeVisibilitySchema = z.enum(['public', 'unlisted', 'private']);
 export type YoutubeVisibility = z.infer<typeof YoutubeVisibilitySchema>;
-const MonitorDesignSchema = z.enum(['signal-band', 'mission-glass']);
+const MonitorDesignSchema = z.enum(['signal-band', 'mission-glass', 'debug']);
 
 export interface Settings {
 	stopReplayBufferWhenMonitorStopped: boolean;

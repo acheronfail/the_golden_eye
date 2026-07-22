@@ -66,6 +66,7 @@ beforeEach(() => {
 	monitor.loaded = true;
 	monitor.match = null;
 	monitor.recordingState = null;
+	monitor.chromePhase = null;
 	settings.loaded = true;
 	mocks.api.getReplayBufferStatus.mockResolvedValue({
 		enabled: true,

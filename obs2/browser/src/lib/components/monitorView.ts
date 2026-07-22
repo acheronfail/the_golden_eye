@@ -1,11 +1,12 @@
 import type { LevelMatch, MonitorFps, RecordingStatus } from '$lib/api';
-import { monitorPhaseStyle } from '$lib/stores/monitor.svelte';
+import { monitorPhaseStyle, monitorPresentationPhase, type MonitorPhase } from '$lib/stores/monitor.svelte';
 
 export type MonitorTransition = 'starting' | 'stopping' | null;
-export type MonitorDesign = 'signal-band' | 'mission-glass';
-export type MonitorPhase = 'waiting' | 'recording' | 'complete' | 'danger' | 'neutral';
+export type MonitorDesign = 'signal-band' | 'mission-glass' | 'debug';
+export type { MonitorPhase } from '$lib/stores/monitor.svelte';
 
 export interface MonitorViewProps {
+	sourceName?: string;
 	verified: boolean;
 	monitoring: boolean;
 	transition?: MonitorTransition;
@@ -27,25 +28,6 @@ export interface MonitorPresentation {
 	fpsText: string | null;
 	fpsLagging: boolean;
 }
-
-const phaseFor = (state: RecordingStatus | null, waitingForObs: boolean): MonitorPhase => {
-	if (waitingForObs) return 'neutral';
-	switch (state) {
-		case 'started':
-			return 'recording';
-		case 'complete':
-			return 'complete';
-		case 'failed':
-		case 'aborted':
-		case 'kia':
-		case 'statsSkipped':
-			return 'danger';
-		case 'cancelled':
-			return 'neutral';
-		default:
-			return 'waiting';
-	}
-};
 
 export const monitorPresentation = ({
 	verified,
@@ -75,7 +57,7 @@ export const monitorPresentation = ({
 		title,
 		detail,
 		showDetail: waitingForObs || detail.trim().toLowerCase() !== 'unknown',
-		phase: verified ? phaseFor(recordingState, waitingForObs) : 'neutral',
+		phase: monitorPresentationPhase(recordingState, waitingForObs, verified),
 		animationKey: [
 			verified ? 'verified' : 'unverified',
 			transition ? `transition-${transition}` : (recordingState ?? 'waiting')
