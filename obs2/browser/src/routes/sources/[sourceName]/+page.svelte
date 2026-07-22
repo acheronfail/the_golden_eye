@@ -37,23 +37,32 @@
 		void goto(href, options);
 	};
 
+	const syncMonitorStatus = () => {
+		if (!isCurrentPage || !monitor.loaded) return;
+		statusChecked = true;
+		const status = monitor.status;
+		if (!status?.enabled) return;
+		if (status.sourceName !== params.sourceName) {
+			navigate(`/sources/${encodeURIComponent(status.sourceName)}`, { replaceState: true });
+			return;
+		}
+		monitoring = true;
+	};
+
 	afterNavigate(async () => {
 		pendingNavigation = null;
 		if (!isCurrentPage) return;
 
 		verified = false;
 		statusChecked = false;
-		const status = monitor.status;
-		if (status?.enabled) {
-			if (status.sourceName !== params.sourceName) {
-				navigate(`/sources/${encodeURIComponent(status.sourceName)}`, { replaceState: true });
-				return;
-			}
-			monitoring = true;
-		} else {
-			monitoring = false;
-		}
-		statusChecked = true;
+		monitoring = false;
+		syncMonitorStatus();
+	});
+
+	$effect(() => {
+		monitor.loaded;
+		monitor.status;
+		syncMonitorStatus();
 	});
 
 	$effect(() => {
@@ -76,7 +85,16 @@
 
 	$effect(() => {
 		if (!isCurrentPage) return;
-		if (!statusChecked || monitoring || transition || pendingNavigation || !verified) return;
+		if (
+			!monitor.loaded ||
+			monitor.status?.enabled ||
+			!statusChecked ||
+			monitoring ||
+			transition ||
+			pendingNavigation ||
+			!verified
+		)
+			return;
 		void startMonitor();
 	});
 

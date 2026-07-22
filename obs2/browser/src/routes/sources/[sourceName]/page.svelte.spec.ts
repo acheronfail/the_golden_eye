@@ -82,6 +82,42 @@ beforeEach(() => {
 });
 
 describe('/sources/[sourceName]', () => {
+	it('reuses an active monitor when its snapshot arrives after the page mounts', async () => {
+		monitor.status = null;
+		monitor.loaded = false;
+		obsSources.items = null;
+		obsSources.loaded = false;
+
+		render(SourcePage, { props: { data: {}, params: { sourceName: 'N64 Capture' } } });
+
+		await Promise.resolve();
+		expect(mocks.api.startMonitor).not.toHaveBeenCalled();
+
+		monitor.status = { enabled: true, sourceName: 'N64 Capture', recordingState: null };
+		monitor.loaded = true;
+		obsSources.items = [{ name: 'N64 Capture', id: 'video_capture_device' }];
+		obsSources.loaded = true;
+
+		await screen.findByRole('button', { name: /stop monitoring/i });
+		expect(mocks.api.startMonitor).not.toHaveBeenCalled();
+		expect(mocks.goto).not.toHaveBeenCalled();
+	});
+
+	it('waits for an inactive snapshot before starting a monitor', async () => {
+		monitor.status = null;
+		monitor.loaded = false;
+
+		render(SourcePage, { props: { data: {}, params: { sourceName: 'N64 Capture' } } });
+
+		await Promise.resolve();
+		expect(mocks.api.startMonitor).not.toHaveBeenCalled();
+
+		monitor.status = { enabled: false, recordingState: null };
+		monitor.loaded = true;
+
+		await waitFor(() => expect(mocks.api.startMonitor).toHaveBeenCalledTimes(1));
+	});
+
 	it('stops a monitor when it is already started', async () => {
 		const user = userEvent.setup();
 		render(SourcePage, { props: { data: {}, params: { sourceName: 'N64 Capture' } } });

@@ -174,10 +174,15 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let source_name =
         CString::new(params.source_name).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
-    // Only one monitor may run at a time; reject the request if one already is.
+    // Starting the current source is idempotent so a reconnecting frontend can
+    // safely converge on backend state. A different source remains a conflict.
     let mut guard = state.monitor.lock().unwrap_or_else(|p| p.into_inner());
-    if guard.is_some() {
-        return Err((StatusCode::CONFLICT, "a monitor is already running").into());
+    if let Some(handle) = guard.as_ref() {
+        return if handle.source_name == status_source_name {
+            Ok(StatusCode::OK)
+        } else {
+            Err((StatusCode::CONFLICT, "a monitor is already running").into())
+        };
     }
 
     if !crate::recording::ensure_replay_buffer_running() {
