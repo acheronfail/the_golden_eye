@@ -2,8 +2,9 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { monitor, monitorHref, monitorPhaseStyle } from '$lib/stores/monitor.svelte';
+	import { monitor, monitorHref } from '$lib/stores/monitor.svelte';
 	import { startAppSocket, stopAppSocket } from '$lib/stores/appSocket.svelte';
+	import AppHeader from '$lib/components/AppHeader.svelte';
 	import KiaDeathOverlay from '$lib/components/KiaDeathOverlay.svelte';
 	import NotificationFlags from '$lib/components/NotificationFlags.svelte';
 	import WelcomeDialog from '$lib/components/WelcomeDialog.svelte';
@@ -15,8 +16,6 @@
 
 	let { children } = $props();
 	let contentScroller: HTMLDivElement | undefined;
-	let menuButton = $state<HTMLButtonElement>();
-	let menuPanel = $state<HTMLElement>();
 	let menuOpen = $state(false);
 	let windowFocused = $state(true);
 	let pendingNavigation = $state<string | null>(null);
@@ -94,32 +93,6 @@
 		menuOpen = false;
 	});
 
-	const toggleMenu = () => {
-		menuOpen = !menuOpen;
-	};
-
-	const closeMenu = () => {
-		menuOpen = false;
-	};
-
-	const onWindowClick = (event: MouseEvent) => {
-		if (!menuOpen) return;
-
-		const target = event.target;
-		if (!(target instanceof Node)) return;
-		if (menuButton?.contains(target) || menuPanel?.contains(target)) return;
-
-		closeMenu();
-	};
-
-	const onWindowKeydown = (event: KeyboardEvent) => {
-		if (event.key !== 'Escape' || !menuOpen) return;
-
-		event.preventDefault();
-		closeMenu();
-		menuButton?.focus();
-	};
-
 	const onWindowFocus = () => {
 		windowFocused = true;
 	};
@@ -127,23 +100,6 @@
 	const onWindowBlur = () => {
 		windowFocused = false;
 	};
-
-	const bannerClass =
-		'obs-banner inline-block max-w-full p-2 text-left font-mono text-[10px] leading-[1.17] whitespace-pre';
-	const bannerText = `\
-┏┳┓┓     ┏┓  ┓ ┓      ┏┓
- ┃ ┣┓┏┓  ┃┓┏┓┃┏┫┏┓┏┓  ┣ ┓┏┏┓
- ┻ ┛┗┗   ┗┛┗┛┗┗┻┗ ┛┗  ┗┛┗┫┗
-                         ┛`;
-
-	const menuButtonClass =
-		'obs-icon-button obs-phase-gold-button inline-flex h-8 w-8 shrink-0 items-center justify-center';
-	const menuPanelClass =
-		'obs-menu-panel absolute top-full right-2 z-40 mt-2 w-[min(20rem,calc(100vw-1rem))] rounded p-2 text-sm';
-	const menuLinkCommon =
-		'obs-menu-link flex min-h-11 items-center justify-end rounded px-3 py-2 text-right transition-colors';
-	const menuLinkClass = menuLinkCommon;
-	const menuLinkActiveClass = `${menuLinkCommon} obs-menu-link-active`;
 
 	const links = $derived([
 		{ href: '/', label: 'Monitor' },
@@ -154,7 +110,6 @@
 
 	const pluginVersion = $derived(settings.pluginVersion);
 	const activeMonitorHref = $derived(monitorHref(monitor.status));
-	const activeMonitorStyle = $derived(monitorPhaseStyle(monitor.recordingState));
 	const showWelcomeModal = $derived(settings.loaded && settings.fileError === null && !settings.welcomeModalShown);
 
 	const dismissWelcomeModal = () => {
@@ -163,68 +118,20 @@
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
-<svelte:window onclick={onWindowClick} onkeydown={onWindowKeydown} onfocus={onWindowFocus} onblur={onWindowBlur} />
+<svelte:window onfocus={onWindowFocus} onblur={onWindowBlur} />
 
 <div
 	class="obs-app-shell flex h-screen min-h-0 min-w-100 flex-col overflow-hidden"
 	class:obs-window-focused={windowFocused}
 >
-	<header class="obs-app-header relative flex shrink-0 items-center">
-		<a href="/" aria-label="The Golden Eye home" class="block min-w-0 shrink overflow-hidden">
-			<pre class={bannerClass}>{bannerText}</pre>
-		</a>
-
-		{#if menuOpen}
-			<nav bind:this={menuPanel} id="global-navigation-menu" class={menuPanelClass} aria-label="Primary navigation">
-				<ul class="flex flex-col gap-1">
-					{#each links as link}
-						{@const isActive = page.url.pathname === link.href}
-						<li>
-							<a
-								class={isActive ? menuLinkActiveClass : menuLinkClass}
-								href={link.href}
-								aria-current={isActive ? 'page' : undefined}
-								onclick={closeMenu}
-							>
-								{link.label}
-							</a>
-						</li>
-					{/each}
-				</ul>
-				<div class="obs-menu-footer mt-2 px-3 pt-2 pb-1 text-right text-xs">
-					v{pluginVersion}
-				</div>
-			</nav>
-		{/if}
-
-		<div class="ml-auto flex shrink-0 items-center gap-2 px-2 font-mono text-sm">
-			{#if activeMonitorHref}
-				<a
-					href={activeMonitorHref}
-					class="obs-button obs-phase-button inline-flex items-center gap-2 px-2 py-1 {activeMonitorStyle.button}"
-					aria-label="Return to monitoring screen"
-				>
-					<span class="obs-phase-dot h-2 w-2 rounded-full {activeMonitorStyle.dot}" aria-hidden="true"></span>
-					<span>Monitoring</span>
-				</a>
-			{/if}
-			<button
-				bind:this={menuButton}
-				type="button"
-				class={menuButtonClass}
-				aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
-				aria-controls="global-navigation-menu"
-				aria-expanded={menuOpen}
-				onclick={toggleMenu}
-			>
-				<span class="flex flex-col gap-1.5" aria-hidden="true">
-					<span class="block h-0.5 w-5 rounded bg-current"></span>
-					<span class="block h-0.5 w-5 rounded bg-current"></span>
-					<span class="block h-0.5 w-5 rounded bg-current"></span>
-				</span>
-			</button>
-		</div>
-	</header>
+	<AppHeader
+		{links}
+		currentPath={page.url.pathname}
+		{pluginVersion}
+		{activeMonitorHref}
+		recordingState={monitor.recordingState}
+		bind:menuOpen
+	/>
 
 	<div bind:this={contentScroller} class="obs-content-scroller min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
 		{@render children()}

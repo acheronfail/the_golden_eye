@@ -1,6 +1,7 @@
 import type { Preview } from '@storybook/sveltekit';
 import { MINIMAL_VIEWPORTS } from 'storybook/viewport';
 import '../src/routes/layout.css';
+import './preview.css';
 
 const preview: Preview = {
 	parameters: {

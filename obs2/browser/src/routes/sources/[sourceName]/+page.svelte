@@ -2,8 +2,9 @@
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { backend } from '$lib/api';
+	import MonitorView, { type MonitorTransition } from '$lib/components/MonitorView.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { monitor, monitorPhaseStyle } from '$lib/stores/monitor.svelte';
+	import { monitor } from '$lib/stores/monitor.svelte';
 	import { refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import { obsSources } from '$lib/stores/sources.svelte';
 	import type { PageProps } from './$types';
@@ -13,52 +14,12 @@
 	let monitoring = $state(false);
 	let verified = $state(false);
 	let statusChecked = $state(false);
-	let transition = $state<'starting' | 'stopping' | null>(null);
+	let transition = $state<MonitorTransition>(null);
 	let pendingNavigation = $state<string | null>(null);
-	const obsTransitionStyle = {
-		title: 'waiting for OBS',
-		border: 'obs-phase-neutral-border',
-		heading: 'obs-phase-neutral-text',
-		tag: 'obs-phase-neutral-text',
-		button: 'obs-phase-neutral-button',
-		dot: 'obs-phase-neutral-dot'
-	};
 
 	const sourcePath = $derived(`/sources/${encodeURIComponent(params.sourceName)}`);
 	const isCurrentPage = $derived(page.url.pathname === sourcePath);
 	const sourceExists = $derived((obsSources.items ?? []).some((source) => source.name === params.sourceName));
-	const waitingForObs = $derived(transition !== null);
-	const currentMatch = $derived(monitor.match);
-	const currentTimes = $derived(monitor.match?.times ?? null);
-	const style = $derived(waitingForObs ? obsTransitionStyle : monitorPhaseStyle(monitor.recordingState));
-	const statusLabel = $derived(
-		transition === 'starting' ? 'Starting monitor' : transition === 'stopping' ? 'Stopping monitor' : 'Monitoring'
-	);
-	const title = $derived(waitingForObs ? 'waiting for OBS' : style.title);
-	const detail = $derived(
-		transition === 'starting'
-			? 'replay buffer is stopping or starting'
-			: transition === 'stopping'
-				? 'stopping monitor'
-				: (currentMatch?.screen ?? '...')
-	);
-	const showDetail = $derived(waitingForObs || detail.trim().toLowerCase() !== 'unknown');
-	const monitorFpsText = $derived(
-		monitor.fps
-			? monitor.fps.sourceFps > 0
-				? `${monitor.fps.processedFps.toFixed(1)} / ${monitor.fps.sourceFps.toFixed(1)} FPS`
-				: `${monitor.fps.processedFps.toFixed(1)} FPS`
-			: null
-	);
-	const monitorFpsLagging = $derived(
-		Boolean(monitor.fps && monitor.fps.sourceFps > 0 && monitor.fps.processedFps + 0.5 < monitor.fps.sourceFps)
-	);
-
-	const formatTime = (secs: number): string => {
-		const m = Math.floor(secs / 60);
-		const s = secs % 60;
-		return `${m}:${s.toString().padStart(2, '0')}`;
-	};
 
 	const navigate = (href: string, options: { replaceState?: boolean } = {}) => {
 		if (page.url.pathname === href || pendingNavigation === href) return;
@@ -172,71 +133,13 @@
 
 <svelte:window {onkeydown} />
 
-<main
-	class="relative flex h-full min-h-0 flex-col items-center justify-center overflow-hidden px-6 py-12 text-center"
-	aria-busy={waitingForObs || !verified}
-	aria-live="polite"
->
-	<div class="pointer-events-none absolute inset-0 z-10 border-8 {style.border}"></div>
-
-	{#if monitoring}
-		<div class="absolute top-6 left-1/2 z-20 flex -translate-x-1/2 flex-col items-center">
-			<button
-				type="button"
-				class="obs-button obs-button-danger min-h-11 px-5 py-2 text-sm shadow-lg shadow-black/25"
-				disabled={transition === 'stopping'}
-				aria-label="Stop monitoring"
-				onclick={stopMonitor}
-			>
-				{transition === 'stopping' ? 'stopping monitor' : 'stop monitor'}
-			</button>
-			<p class="obs-subtitle mt-2 text-xs whitespace-nowrap">
-				{waitingForObs ? 'OBS is finishing the replay buffer transition' : 'press escape or space to stop monitoring'}
-			</p>
-		</div>
-	{/if}
-
-	{#if monitoring && settings.showMonitorFps && monitorFpsText}
-		<div
-			class="absolute right-6 bottom-6 z-20 font-mono text-xs whitespace-nowrap tabular-nums {monitorFpsLagging
-				? 'text-(--obs-danger)'
-				: 'obs-dim'}"
-			aria-label={monitorFpsLagging ? 'Monitor FPS is below OBS FPS' : 'Monitor FPS'}
-		>
-			{monitorFpsText}
-		</div>
-	{/if}
-
-	<p class="font-mono text-xs tracking-widest {style.tag} uppercase">
-		{verified ? statusLabel : 'Verifying source'}
-	</p>
-	<h1 class="mt-4 text-6xl font-semibold wrap-break-word {style.heading}">
-		{verified ? title : 'checking source'}
-	</h1>
-	{#if showDetail && verified}
-		<p class="obs-dim mt-3 font-mono text-xs tracking-widest uppercase">
-			{detail}
-		</p>
-	{/if}
-
-	{#if currentTimes && !waitingForObs}
-		<div class="mt-6 flex flex-wrap justify-center gap-6 font-mono">
-			<span class="flex flex-col items-center">
-				<span class="obs-dim text-xs tracking-widest uppercase">time</span>
-				<span class="text-4xl">{formatTime(currentTimes.time)}</span>
-			</span>
-			{#if currentTimes.target_time != null}
-				<span class="flex flex-col items-center">
-					<span class="obs-dim text-xs tracking-widest uppercase">target</span>
-					<span class="text-4xl">{formatTime(currentTimes.target_time)}</span>
-				</span>
-			{/if}
-			{#if currentTimes.best_time != null}
-				<span class="flex flex-col items-center">
-					<span class="obs-dim text-xs tracking-widest uppercase">best</span>
-					<span class="text-4xl">{formatTime(currentTimes.best_time)}</span>
-				</span>
-			{/if}
-		</div>
-	{/if}
-</main>
+<MonitorView
+	{verified}
+	{monitoring}
+	{transition}
+	recordingState={monitor.recordingState}
+	match={monitor.match}
+	fps={monitor.fps}
+	showMonitorFps={settings.showMonitorFps}
+	onStop={stopMonitor}
+/>

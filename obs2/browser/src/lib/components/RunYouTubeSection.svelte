@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { linear } from 'svelte/easing';
-	import { tweened } from 'svelte/motion';
+	import { Tween } from 'svelte/motion';
 	import { backend, type RunClip } from '$lib/api';
 	import YouTubeConnectButton from '$lib/components/YouTubeConnectButton.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -20,18 +20,9 @@
 	let dismissedStoreError = $state<string | null>(null);
 	let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
 	let forgetResetTimer: ReturnType<typeof setTimeout> | null = null;
-	const displayProgress = tweened(0, { duration: 650, easing: linear });
-	let displayProgressRatio = $state(0);
-
-	$effect(() => {
-		void displayProgress.set(Math.max(0, Math.min(1, upload?.progressRatio ?? 0)));
-	});
-
-	$effect(() => {
-		const unsubscribe = displayProgress.subscribe((value) => {
-			displayProgressRatio = value;
-		});
-		return unsubscribe;
+	const displayProgress = Tween.of(() => Math.max(0, Math.min(1, upload?.progressRatio ?? 0)), {
+		duration: 650,
+		easing: linear
 	});
 
 	$effect(() => {
@@ -44,7 +35,7 @@
 	let progressLabel = $derived(
 		upload?.progressRatio === null || upload?.progressRatio === undefined
 			? null
-			: `${Math.round(displayProgressRatio * 100)}%`
+			: `${Math.round(displayProgress.current * 100)}%`
 	);
 	let buttonLabel = $derived.by(() => {
 		if (!youtube.loaded) return 'Loading YouTube...';
@@ -238,7 +229,7 @@
 				<div class="h-2 w-full max-w-sm overflow-hidden rounded bg-black/30">
 					<div
 						class="h-full bg-(--obs-gold)"
-						style={`width: ${Math.max(0, Math.min(100, displayProgressRatio * 100))}%`}
+						style={`width: ${Math.max(0, Math.min(100, displayProgress.current * 100))}%`}
 					></div>
 				</div>
 			{/if}

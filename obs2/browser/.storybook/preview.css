@@ -1,0 +1,4 @@
+.sb-show-main.sb-main-fullscreen #storybook-root {
+	height: 100%;
+	min-height: 0;
+}
