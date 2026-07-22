@@ -116,7 +116,7 @@ export const updates = new (class {
 			title: 'Plugin updated',
 			detail: `Now running v${version}`,
 			tone: 'success',
-			meta: releaseUrl ? 'Click to view the changelog.' : undefined,
+			meta: releaseUrl ? 'Click here to view the changelog.' : undefined,
 			action: releaseUrl
 				? () => backend.openUpdateRelease(releaseUrl).catch((err) => console.warn('Failed to open changelog', err))
 				: undefined
@@ -163,6 +163,7 @@ export const updates = new (class {
 				detail: 'The verified update is ready to apply.',
 				tone: 'success',
 				sticky: true,
+				meta: 'Click here to apply the update.',
 				action: async () => {
 					await this.apply();
 				}
@@ -185,7 +186,7 @@ export const updates = new (class {
 			key: 'plugin-update-available',
 			title: 'Plugin update available',
 			detail: `${update.currentVersion} -> ${update.latestVersion}`,
-			meta: 'Click to download and install.',
+			meta: 'Click here to download and install.',
 			tone: 'info' as const,
 			sticky: true,
 			onDismiss: () => {

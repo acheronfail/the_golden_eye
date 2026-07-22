@@ -40,14 +40,14 @@
 			<div
 				class="obs-notification pointer-events-auto relative w-full overflow-hidden px-4 py-3 text-left font-mono {toneClass(
 					flag.tone
-				)}"
+				)} {flag.href || flag.action ? 'obs-notification-actionable' : ''}"
 				role="status"
 			>
 				<div class="flex min-w-0 items-start gap-3">
 					{#if flag.href || flag.action}
 						<button
 							type="button"
-							class="min-w-0 flex-1 border-0 bg-transparent p-0 text-left font-mono text-inherit"
+							class="min-w-0 flex-1 cursor-pointer rounded-sm border-0 bg-transparent p-0 text-left font-mono text-inherit focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--obs-notification-accent)]"
 							onclick={() => activateNotification(flag)}
 						>
 							<p class="text-xs tracking-widest uppercase">{flag.title}</p>
