@@ -171,7 +171,7 @@ export class Backend {
 	}
 
 	/** Whether a verified update is currently staged and ready to apply. */
-	public getUpdateStatus(): Promise<{ staged: boolean }> {
+	public getUpdateStatus(): Promise<UpdateStatus> {
 		return this.getJson('/api/v1/updates/status');
 	}
 
@@ -618,7 +618,14 @@ export interface AppSnapshot {
 	sources: ObsSource[];
 	replayBuffer: ReplayBufferStatus;
 	settingsStatus: SettingsStatus;
-	update: PluginUpdate | null;
+	update: UpdateStatus;
+}
+
+export type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'staged' | 'applying';
+
+export interface UpdateStatus {
+	phase: UpdatePhase;
+	available: PluginUpdate | null;
 }
 
 export type AppEvent =

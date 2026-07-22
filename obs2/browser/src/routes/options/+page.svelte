@@ -2,20 +2,14 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { backend, type FolderValidation } from '$lib/api';
-	import { addNotificationFlag, dismissNotificationFlagsByKey } from '$lib/notifications.svelte';
+	import { dismissNotificationFlagsByKey } from '$lib/notifications.svelte';
 	import { replayBuffer } from '$lib/replayBuffer.svelte';
-	import { Select, settings, type UpdateCheckInterval } from '$lib';
+	import { Select, settings } from '$lib';
 	import OptionsGeneral from '$lib/OptionsGeneral.svelte';
 	import OptionsNotifications from '$lib/OptionsNotifications.svelte';
 	import OptionsRecording from '$lib/OptionsRecording.svelte';
 	import OptionsYouTube from '$lib/OptionsYouTube.svelte';
-	import {
-		optionsClasses,
-		type GeneralOptionsView,
-		type OptionsPathKind,
-		type RecordingOptionsView,
-		type UpdateButtonPhase
-	} from '$lib/optionsView';
+	import { optionsClasses, type OptionsPathKind, type RecordingOptionsView } from '$lib/optionsView';
 	import { youtube } from '$lib/youtube.svelte';
 
 	type OptionsTab = 'general' | 'recording' | 'notifications' | 'youtube';
@@ -66,157 +60,6 @@
 	const { panel: panelClass, label: labelClass, hint: hintClass, pathButton: pathButtonClass } = optionsClasses;
 	const dangerPanelClass =
 		'grid gap-3 rounded border border-(--obs-danger) bg-[color-mix(in_srgb,var(--obs-danger)_14%,transparent)] px-4 py-4';
-	const updateCheckIntervals: { value: UpdateCheckInterval; label: string }[] = [
-		{ value: 'monthly', label: 'Monthly' },
-		{ value: 'weekly', label: 'Weekly' },
-		{ value: 'daily', label: 'Daily' },
-		{ value: 'never', label: 'Never' }
-	];
-
-	const onUpdateCheckIntervalChange = (value: string) => {
-		settings.updateCheckInterval = value as UpdateCheckInterval;
-	};
-
-	// Drives the update button's label and click action: check (idle), checking,
-	// download (update found, auto-install off), downloading, apply (verified
-	// update staged), applying.
-	let updatePhase = $state<UpdateButtonPhase>('check');
-	const updateActionPending = $derived(
-		updatePhase === 'checking' || updatePhase === 'downloading' || updatePhase === 'applying'
-	);
-
-	// Polls the staging status until a verified update is ready or the timeout
-	// elapses. Tolerates fetch errors (e.g. the server briefly dropping mid
-	// swap) by treating them as "not yet." Returns whether one became ready.
-	const pollUntilStaged = async (timeoutMs: number): Promise<boolean> => {
-		const deadline = Date.now() + timeoutMs;
-		while (Date.now() < deadline) {
-			try {
-				if ((await backend.getUpdateStatus()).staged) return true;
-			} catch (err) {
-				console.warn('Failed to fetch update status', err);
-			}
-			await new Promise((resolve) => setTimeout(resolve, 1000));
-		}
-		return false;
-	};
-
-	// Runs once on mount (nothing reactive is read, so $effect never re-fires):
-	// reflect an update already staged in the background as "apply now," since
-	// there's no push-based "something got staged" signal to react to.
-	$effect(() => {
-		void (async () => {
-			try {
-				if ((await backend.getUpdateStatus()).staged) updatePhase = 'apply';
-			} catch (err) {
-				console.warn('Failed to fetch update status', err);
-			}
-		})();
-	});
-
-	const onCheckForUpdateNow = async () => {
-		updatePhase = 'checking';
-		try {
-			const { update } = await backend.checkForUpdateNow();
-			if (!update) {
-				addNotificationFlag({ title: "You're up to date", tone: 'success' });
-				updatePhase = 'check';
-				return;
-			}
-			if (!settings.autoUpdateEnabled) {
-				// No automatic download -- let the user start it explicitly. No toast:
-				// the backend pushes the sticky "update available" notice and the
-				// button flips to "Download now," so a second toast is just noise.
-				updatePhase = 'download';
-				return;
-			}
-			// Auto-install is on: the backend is already downloading, so wait for it
-			// to stage. The sticky notice is suppressed here, so this toast is the
-			// only feedback for the interaction.
-			addNotificationFlag({
-				title: 'Update found',
-				detail: `Downloading and verifying ${update.latestVersion}...`,
-				tone: 'info'
-			});
-			updatePhase = 'downloading';
-			if (await pollUntilStaged(30_000)) {
-				updatePhase = 'apply';
-			} else {
-				addNotificationFlag({
-					title: 'Still downloading',
-					detail: "It's taking longer than expected -- finish it from the button.",
-					tone: 'info'
-				});
-				// Offer an actionable button rather than a stuck spinner; the
-				// download endpoint just finishes what's already in flight.
-				updatePhase = 'download';
-			}
-		} catch (err) {
-			addNotificationFlag({
-				title: 'Update check failed',
-				detail: err instanceof Error ? err.message : String(err),
-				tone: 'error'
-			});
-			updatePhase = 'check';
-		}
-	};
-
-	const onDownloadUpdateNow = async () => {
-		updatePhase = 'downloading';
-		try {
-			// Resolves only once the update is downloaded, verified, and staged.
-			await backend.downloadUpdateNow();
-			updatePhase = 'apply';
-		} catch (err) {
-			addNotificationFlag({
-				title: 'Update download failed',
-				detail: err instanceof Error ? err.message : String(err),
-				tone: 'error'
-			});
-			updatePhase = 'download';
-		}
-	};
-
-	const onApplyUpdateNow = async () => {
-		updatePhase = 'applying';
-		try {
-			await backend.applyUpdateNow();
-			addNotificationFlag({
-				title: 'Applying update',
-				detail: 'The plugin will briefly reconnect while the update is installed.',
-				tone: 'success'
-			});
-			// The swap happens in the background and briefly drops the HTTP server,
-			// so keep the button disabled and poll (tolerating connection errors)
-			// until the staged update is gone.
-			const deadline = Date.now() + 20_000;
-			let stillStaged = true;
-			while (Date.now() < deadline && stillStaged) {
-				await new Promise((resolve) => setTimeout(resolve, 1000));
-				try {
-					stillStaged = (await backend.getUpdateStatus()).staged;
-				} catch {
-					// Server is briefly gone mid-swap; keep waiting.
-				}
-			}
-			updatePhase = stillStaged ? 'apply' : 'check';
-		} catch (err) {
-			addNotificationFlag({
-				title: 'Could not apply update',
-				detail: err instanceof Error ? err.message : String(err),
-				tone: 'error'
-			});
-			// The failure might mean it was never staged in the first place
-			// (e.g. it got applied or cleared by another client) -- reflect the
-			// real status rather than leaving a stale "Apply update now" showing.
-			try {
-				updatePhase = (await backend.getUpdateStatus()).staged ? 'apply' : 'check';
-			} catch {
-				updatePhase = 'apply';
-			}
-		}
-	};
-
 	const normalizeFailedRunLimit = () => {
 		const value = Number(settings.failedRunLimit);
 		settings.failedRunLimit = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
@@ -453,18 +296,6 @@
 		}
 	};
 
-	let generalOptionsView = $derived<GeneralOptionsView>({
-		update: {
-			intervals: updateCheckIntervals,
-			phase: updatePhase,
-			pending: updateActionPending,
-			setInterval: onUpdateCheckIntervalChange,
-			check: onCheckForUpdateNow,
-			download: onDownloadUpdateNow,
-			apply: onApplyUpdateNow
-		}
-	});
-
 	let recordingOptionsView = $derived<RecordingOptionsView>({
 		template: {
 			separator: clipTemplateSeparator,
@@ -544,7 +375,7 @@
 
 	<fieldset disabled={!settings.canEdit} class="flex flex-col gap-4 border-0 p-0">
 		{#if activeTab === 'general'}
-			<OptionsGeneral view={generalOptionsView} />
+			<OptionsGeneral />
 		{:else if activeTab === 'recording'}
 			<OptionsRecording view={recordingOptionsView} />
 		{:else if activeTab === 'notifications'}

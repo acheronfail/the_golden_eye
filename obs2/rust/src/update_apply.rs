@@ -100,6 +100,21 @@ pub fn trigger_apply() {
     std::thread::spawn(|| unsafe { crate::ffi::ge_core_trigger_reload() });
 }
 
+/// Applies a staged update immediately when the frontend is ready and runtime
+/// activity is safe. Returns whether a reload was requested.
+pub fn trigger_apply_if_safe(state: &AppStateInner) -> bool {
+    if !*state.frontend_ready_tx.borrow() || !has_staged_update() || !is_safe_to_apply(state) {
+        return false;
+    }
+    let status = state.snapshot.current_update_status();
+    state.snapshot.set_update_status(crate::updates::UpdateStatus {
+        phase: crate::updates::UpdatePhase::Applying,
+        available: status.available,
+    });
+    trigger_apply();
+    true
+}
+
 /// Background task: periodically applies a staged update when opted in
 /// (`autoUpdateEnabled`) and safe. Spawned once from `ge_rust_start`. Dev builds
 /// always count as opted in and poll faster (hot-reload fallback for `just dev`).
@@ -117,14 +132,9 @@ pub async fn auto_apply_when_safe(state: AppState) {
         if !cfg!(feature = "dev") && !state.settings.get().auto_update_enabled {
             continue;
         }
-        if !has_staged_update() {
-            continue;
+        if trigger_apply_if_safe(&state) {
+            tracing::info!("a staged update is ready and safe to apply");
         }
-        if !is_safe_to_apply(&state) {
-            continue;
-        }
-        tracing::info!("a staged update is ready and safe to apply");
-        trigger_apply();
     }
 }
 
@@ -133,6 +143,9 @@ pub async fn auto_apply_when_safe(state: AppState) {
 /// `cv_templates`/`locale`, ready for `trigger_apply`. `assets` is reused from `updates.rs`.
 pub async fn download_verify_and_stage(update: &PluginUpdate, assets: Vec<GithubAsset>) -> anyhow::Result<()> {
     let _stage_guard = STAGE_LOCK.lock().await;
+    if has_staged_update() {
+        return Ok(());
+    }
     let install_dir = install_dir()?;
     let core_leaf_name =
         canonical_core_path()?.file_name().context("core binary path has no file name")?.to_os_string();

@@ -638,11 +638,8 @@ fn best_label_match_with_wider_ties(
         dbg_cv!("[label] idx={} scale={scale:.3} score={s:.3} x={} y={}", i + 1, r.x, r.y);
         candidates.push((i as i32 + 1, r));
     }
-    let Some(mut best) = candidates
-        .iter()
-        .copied()
-        .filter(|(_, r)| r.score >= threshold)
-        .max_by(|a, b| a.1.score.total_cmp(&b.1.score))
+    let Some(mut best) =
+        candidates.iter().copied().filter(|(_, r)| r.score >= threshold).max_by(|a, b| a.1.score.total_cmp(&b.1.score))
     else {
         return Ok(None);
     };
@@ -691,10 +688,8 @@ fn best_label_near_row(
         return Ok(None);
     }
     let band = region.roi(Rect::new(0, y0, region.cols(), y1 - y0))?;
-    Ok(
-        best_label_match_with_wider_ties(&band, templates, scale, threshold, prefer_wider_ties)?
-            .map(|(idx, r)| (idx, r.offset(0, y0))),
-    )
+    Ok(best_label_match_with_wider_ties(&band, templates, scale, threshold, prefer_wider_ties)?
+        .map(|(idx, r)| (idx, r.offset(0, y0))))
 }
 
 // Like `best_label_match`, but also sweeps `scales`. Used to recover the true
@@ -907,9 +902,7 @@ fn find_mission_from_colons(
     for colon in by_y {
         let cy = colon.y + colon_h / 2;
         if let Some(group) = row_groups.last_mut()
-            && group
-                .last()
-                .is_some_and(|last| (cy - (last.y + colon_h / 2)).abs() <= (colon_h as f64 * 0.45) as i32)
+            && group.last().is_some_and(|last| (cy - (last.y + colon_h / 2)).abs() <= (colon_h as f64 * 0.45) as i32)
         {
             group.push(colon);
         } else {
@@ -954,13 +947,7 @@ fn find_mission_from_colons(
                 colon_cx: colon.x + colon_w / 2,
                 colon_cy: colon.y + colon_h / 2,
                 colon: Some(MatchRect { x: colon.x, y: colon.y, w: colon.w, h: colon.h, score: colon.score }),
-                digit: Some(MatchRect {
-                    x: digit_x,
-                    y: digit_y,
-                    w: digit_w,
-                    h: digit_h,
-                    score: confidence,
-                }),
+                digit: Some(MatchRect { x: digit_x, y: digit_y, w: digit_w, h: digit_h, score: confidence }),
             });
         }
     }
@@ -972,8 +959,7 @@ fn find_mission_from_colons(
     // Each (colon, digit) pair is an independent template search -- the bulk of
     // the mission cost at native resolution. Fan the pairs across cores; each
     // returns its best candidate, reduced to the serial "highest digit wins".
-    let work: Vec<(usize, usize)> =
-        (0..fallback_colons.len()).flat_map(|c| (1..=9).map(move |v| (c, v))).collect();
+    let work: Vec<(usize, usize)> = (0..fallback_colons.len()).flat_map(|c| (1..=9).map(move |v| (c, v))).collect();
     let search_digit = |k: usize| {
         let (ci, v) = work[k];
         let colon = fallback_colons[ci];

@@ -1,8 +1,22 @@
 <script lang="ts">
-	import { Select, settings } from '$lib';
-	import { optionsClasses as styles, type GeneralOptionsView } from '$lib/optionsView';
+	import { Select, settings, updates, type UpdateCheckInterval } from '$lib';
+	import { monitor } from '$lib/monitor.svelte';
+	import { optionsClasses as styles } from '$lib/optionsView';
 
-	let { view }: { view: GeneralOptionsView } = $props();
+	const updateCheckIntervals: { value: UpdateCheckInterval; label: string }[] = [
+		{ value: 'monthly', label: 'Monthly' },
+		{ value: 'weekly', label: 'Weekly' },
+		{ value: 'daily', label: 'Daily' },
+		{ value: 'never', label: 'Never' }
+	];
+
+	const onUpdateCheckIntervalChange = (value: string) => {
+		settings.updateCheckInterval = value as UpdateCheckInterval;
+	};
+
+	let applyBlockedReason = $derived(
+		monitor.status?.enabled ? "The update can't be applied while the monitor is active." : null
+	);
 </script>
 
 <section class={styles.panel}>
@@ -11,8 +25,8 @@
 		id="update-check-interval"
 		class="font-mono text-sm"
 		value={settings.updateCheckInterval}
-		onChange={view.update.setInterval}
-		options={view.update.intervals}
+		onChange={onUpdateCheckIntervalChange}
+		options={updateCheckIntervals}
 	/>
 	<p class={styles.hint}>
 		Checks GitHub releases on app startup and shows a notice to download and install a newer version when one exists.
@@ -33,17 +47,23 @@
 		progress). The plugin keeps running throughout -- no OBS restart needed.
 	</p>
 	<div>
-		{#if view.update.phase === 'apply' || view.update.phase === 'applying'}
-			<button type="button" class={styles.pathButton} disabled={view.update.pending} onclick={view.update.apply}
-				>{view.update.phase === 'applying' ? 'Applying…' : 'Apply update now'}</button
+		{#if updates.buttonPhase === 'apply' || updates.buttonPhase === 'applying'}
+			<button
+				type="button"
+				class={styles.pathButton}
+				disabled={updates.pending || applyBlockedReason !== null}
+				onclick={() => updates.apply()}>{updates.buttonPhase === 'applying' ? 'Applying…' : 'Apply update now'}</button
 			>
-		{:else if view.update.phase === 'download' || view.update.phase === 'downloading'}
-			<button type="button" class={styles.pathButton} disabled={view.update.pending} onclick={view.update.download}
-				>{view.update.phase === 'downloading' ? 'Downloading…' : 'Download now'}</button
+			{#if applyBlockedReason}
+				<p class={`${styles.hint} mt-2`}>{applyBlockedReason}</p>
+			{/if}
+		{:else if updates.buttonPhase === 'download' || updates.buttonPhase === 'downloading'}
+			<button type="button" class={styles.pathButton} disabled={updates.pending} onclick={() => updates.download()}
+				>{updates.buttonPhase === 'downloading' ? 'Downloading…' : 'Download now'}</button
 			>
 		{:else}
-			<button type="button" class={styles.pathButton} disabled={view.update.pending} onclick={view.update.check}
-				>{view.update.phase === 'checking' ? 'Checking…' : 'Check now'}</button
+			<button type="button" class={styles.pathButton} disabled={updates.pending} onclick={() => updates.check()}
+				>{updates.buttonPhase === 'checking' ? 'Checking…' : 'Check now'}</button
 			>
 		{/if}
 	</div>

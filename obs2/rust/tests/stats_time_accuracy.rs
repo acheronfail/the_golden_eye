@@ -154,8 +154,7 @@ async fn next_level_header_transition_does_not_rename_the_completed_run() {
     let stats = harness.frame("test/screenshots-rad2x/jp - stats - 7 - Secret Agent - 0153_0430_0144.png");
     harness.render_until_state(&stats, "savePending").await;
 
-    let transition =
-        harness.frame("test/screenshots-rad2x/jp - stats - 8 - Secret Agent - 0153 - transition.png");
+    let transition = harness.frame("test/screenshots-rad2x/jp - stats - 8 - Secret Agent - 0153 - transition.png");
     harness.obs.render(transition);
     tokio::time::sleep(Duration::from_millis(100)).await;
 

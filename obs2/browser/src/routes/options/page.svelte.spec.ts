@@ -6,6 +6,7 @@ import OptionsPageHarness from './page.test-harness.svelte';
 import { monitor } from '$lib/monitor.svelte';
 import { replayBuffer } from '$lib/replayBuffer.svelte';
 import { settings } from '$lib/settings.svelte';
+import { updates } from '$lib/updates.svelte';
 
 const mocks = vi.hoisted(() => {
 	const api = {
@@ -118,10 +119,11 @@ beforeEach(() => {
 	monitor.recordingState = null;
 	settings.applyReloaded(defaultSettings, '/tmp/the-golden-eye/settings.json', defaultSettings);
 	settings.loaded = true;
+	updates.applyStatus({ phase: 'idle', available: null });
 	mocks.api.getReplayBufferStatus.mockResolvedValue(availableReplayBuffer);
 	mocks.api.putSettings.mockImplementation(async (next: Settings) => next);
 	mocks.api.resetSettingsToDefaults.mockResolvedValue(defaultSettings);
-	mocks.api.getUpdateStatus.mockResolvedValue({ staged: false });
+	mocks.api.getUpdateStatus.mockResolvedValue({ phase: 'idle', available: null });
 	mocks.api.checkForUpdateNow.mockResolvedValue({ update: null });
 	mocks.api.downloadUpdateNow.mockResolvedValue(undefined);
 	mocks.api.applyUpdateNow.mockResolvedValue(undefined);
@@ -222,9 +224,15 @@ describe('/options', () => {
 	});
 
 	it('checks, then offers an explicit download and apply when auto-install is off', async () => {
-		mocks.api.checkForUpdateNow.mockResolvedValue({
-			update: { currentVersion: 'v1.0.0', latestVersion: 'v1.1.0', releaseUrl: 'https://example.com/release' }
-		});
+		const update = {
+			currentVersion: 'v1.0.0',
+			latestVersion: 'v1.1.0',
+			releaseUrl: 'https://example.com/release'
+		};
+		mocks.api.checkForUpdateNow.mockResolvedValue({ update });
+		mocks.api.getUpdateStatus
+			.mockResolvedValueOnce({ phase: 'available', available: update })
+			.mockResolvedValueOnce({ phase: 'staged', available: update });
 		const user = userEvent.setup();
 		render(OptionsPageHarness);
 
@@ -246,12 +254,22 @@ describe('/options', () => {
 	});
 
 	it('shows "Apply update now" when an update is already staged', async () => {
-		mocks.api.getUpdateStatus.mockResolvedValue({ staged: true });
+		updates.applyStatus({ phase: 'staged', available: null });
 		render(OptionsPageHarness);
 
 		const applyButton = await screen.findByRole('button', { name: /^Apply update now$/i });
 		expect(applyButton).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /^Check now$/i })).not.toBeInTheDocument();
+	});
+
+	it('disables applying while the monitor is active and explains why', async () => {
+		monitor.status = { enabled: true, sourceName: 'N64 Capture', recordingState: null };
+		updates.applyStatus({ phase: 'staged', available: null });
+		render(OptionsPageHarness);
+
+		const applyButton = await screen.findByRole('button', { name: /^Apply update now$/i });
+		expect(applyButton).toBeDisabled();
+		expect(screen.getByText("The update can't be applied while the monitor is active.")).toBeInTheDocument();
 	});
 
 	it('shows and persists the first-run welcome acknowledgement', async () => {

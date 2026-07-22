@@ -1,3 +1,4 @@
+use std::sync::LazyLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -20,6 +21,27 @@ pub struct PluginUpdate {
     pub latest_version: String,
     pub release_url: String,
 }
+
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdatePhase {
+    #[default]
+    Idle,
+    Checking,
+    Available,
+    Downloading,
+    Staged,
+    Applying,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateStatus {
+    pub phase: UpdatePhase,
+    pub available: Option<PluginUpdate>,
+}
+
+static CHECK_LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 #[derive(Debug, Deserialize)]
 struct GithubRelease {
@@ -49,6 +71,10 @@ pub async fn check_for_updates_on_startup(state: AppState) {
         tracing::debug!("skipping plugin update check in a dev build");
         return;
     }
+    if crate::update_apply::has_staged_update() {
+        tracing::debug!("skipping plugin update check while an update is staged");
+        return;
+    }
 
     let settings = state.settings.get();
     if !is_check_due(settings.update_check_interval, settings.last_update_check_time, now_unix_seconds()) {
@@ -65,19 +91,49 @@ pub async fn check_for_updates_on_startup(state: AppState) {
 /// the startup check and the manual "check now" endpoint. Records the check time, pushes
 /// the retained app snapshot, and (if opted in) stages in the background. `Ok(None)` if up to date.
 pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<PluginUpdate>> {
+    let _check_guard = CHECK_LOCK.lock().await;
+    let current = state.snapshot.current_update_status();
+    if matches!(current.phase, UpdatePhase::Downloading | UpdatePhase::Staged | UpdatePhase::Applying) {
+        return Ok(current.available);
+    }
+    state
+        .snapshot
+        .set_update_status(UpdateStatus { phase: UpdatePhase::Checking, available: current.available.clone() });
+
     if state.settings.status_without_runtime_defaults().file_error.is_some() {
         tracing::info!("settings file is invalid; skipping plugin update check");
+        state.snapshot.set_update_status(UpdateStatus {
+            phase: if current.available.is_some() { UpdatePhase::Available } else { UpdatePhase::Idle },
+            available: current.available,
+        });
         return Ok(None);
     }
 
     let checked_at = now_unix_seconds();
-    let found = fetch_latest_update(crate::PLUGIN_VERSION).await?;
-    state.settings.set_last_update_check_time(checked_at).context("saving last update check time")?;
+    let found = match fetch_latest_update(crate::PLUGIN_VERSION).await {
+        Ok(found) => found,
+        Err(err) => {
+            let current = state.snapshot.current_update_status();
+            state.snapshot.set_update_status(UpdateStatus {
+                phase: if current.available.is_some() { UpdatePhase::Available } else { UpdatePhase::Idle },
+                available: current.available,
+            });
+            return Err(err);
+        }
+    };
+    if let Err(err) = state.settings.set_last_update_check_time(checked_at).context("saving last update check time") {
+        let current = state.snapshot.current_update_status();
+        state.snapshot.set_update_status(UpdateStatus {
+            phase: if current.available.is_some() { UpdatePhase::Available } else { UpdatePhase::Idle },
+            available: current.available,
+        });
+        return Err(err);
+    }
     state.snapshot.set_settings_status(state.settings.status_without_runtime_defaults());
 
     let Some((update, assets)) = found else {
         tracing::info!(version = crate::PLUGIN_VERSION, "plugin is up to date");
-        state.snapshot.set_update(None);
+        state.snapshot.set_update_status(UpdateStatus::default());
         return Ok(None);
     };
 
@@ -87,7 +143,11 @@ pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<Plu
         release_url = %update.release_url,
         "plugin update available"
     );
-    state.snapshot.set_update(Some(update.clone()));
+    let auto_update_enabled = state.settings.get().auto_update_enabled;
+    state.snapshot.set_update_status(UpdateStatus {
+        phase: if auto_update_enabled { UpdatePhase::Downloading } else { UpdatePhase::Available },
+        available: Some(update.clone()),
+    });
 
     // Best-effort: this only feeds the "click to view the changelog" link on
     // the later "plugin updated" notice (see `routes::monitor::handle_socket`),
@@ -99,15 +159,27 @@ pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<Plu
     // Only download/stage automatically when opted into auto installs. Otherwise the
     // "Download now" button / notice (via `download_and_stage_latest`) drives it on an
     // explicit click, so we don't fetch a release the user hasn't asked for.
-    if state.settings.get().auto_update_enabled {
+    if auto_update_enabled {
         // Reuses this same fetch's asset list rather than fetching the release
         // again, which would double GitHub API traffic for every check.
         let update_for_stage = update.clone();
+        let state_for_stage = state.clone();
         let event_tx = state.event_tx.clone();
         tokio::spawn(async move {
             if let Err(err) = crate::update_apply::download_verify_and_stage(&update_for_stage, assets).await {
                 tracing::error!("failed to stage plugin update: {err:#}");
+                state_for_stage.snapshot.set_update_status(UpdateStatus {
+                    phase: UpdatePhase::Available,
+                    available: Some(update_for_stage),
+                });
                 let _ = event_tx.send(crate::http::AppEvent::UpdateStagingFailed { error: format!("{err:#}") });
+            } else {
+                state_for_stage
+                    .snapshot
+                    .set_update_status(UpdateStatus { phase: UpdatePhase::Staged, available: Some(update_for_stage) });
+                if state_for_stage.settings.get().auto_update_enabled {
+                    crate::update_apply::trigger_apply_if_safe(&state_for_stage);
+                }
             }
         });
     }
@@ -118,11 +190,34 @@ pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<Plu
 /// Fetches the latest release and, if newer, downloads/verifies/stages it, blocking
 /// until staging finishes. The explicit-download path (behind "Download now"/notice),
 /// runs regardless of auto-update. Returns whether staged; then apply can install it.
-pub async fn download_and_stage_latest() -> anyhow::Result<bool> {
-    let Some((update, assets)) = fetch_latest_update(crate::PLUGIN_VERSION).await? else {
+pub async fn download_and_stage_latest(state: AppState) -> anyhow::Result<bool> {
+    let previous = state.snapshot.current_update_status();
+    if matches!(previous.phase, UpdatePhase::Staged | UpdatePhase::Applying) {
+        return Ok(true);
+    }
+    state
+        .snapshot
+        .set_update_status(UpdateStatus { phase: UpdatePhase::Downloading, available: previous.available.clone() });
+    let found = match fetch_latest_update(crate::PLUGIN_VERSION).await {
+        Ok(found) => found,
+        Err(err) => {
+            state.snapshot.set_update_status(UpdateStatus {
+                phase: if previous.available.is_some() { UpdatePhase::Available } else { UpdatePhase::Idle },
+                available: previous.available,
+            });
+            return Err(err);
+        }
+    };
+    let Some((update, assets)) = found else {
+        state.snapshot.set_update_status(UpdateStatus::default());
         return Ok(false);
     };
-    crate::update_apply::download_verify_and_stage(&update, assets).await?;
+    state.snapshot.set_update_status(UpdateStatus { phase: UpdatePhase::Downloading, available: Some(update.clone()) });
+    if let Err(err) = crate::update_apply::download_verify_and_stage(&update, assets).await {
+        state.snapshot.set_update_status(UpdateStatus { phase: UpdatePhase::Available, available: Some(update) });
+        return Err(err);
+    }
+    state.snapshot.set_update_status(UpdateStatus { phase: UpdatePhase::Staged, available: Some(update) });
     Ok(true)
 }
 
