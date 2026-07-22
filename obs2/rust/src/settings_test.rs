@@ -61,10 +61,7 @@ fn default_settings_use_five_second_pre_run_padding() {
     );
     assert!(!AppSettings::from_json_value(json!({})).stop_replay_buffer_when_monitor_stopped);
     assert_eq!(AppSettings::from_json_value(json!({})).monitor_design, DEFAULT_MONITOR_DESIGN);
-    assert_eq!(
-        AppSettings::from_json_value(json!({ "monitorDesign": "debug" })).monitor_design,
-        MonitorDesign::Debug
-    );
+    assert_eq!(AppSettings::from_json_value(json!({ "monitorDesign": "debug" })).monitor_design, MonitorDesign::Debug);
     assert!(!AppSettings::from_json_value(json!({})).show_monitor_fps);
     assert!(!AppSettings::from_json_value(json!({})).show_developer_settings);
     assert!(AppSettings::from_json_value(json!({})).show_source_previews);
