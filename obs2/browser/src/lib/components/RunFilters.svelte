@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Select, type SelectOption } from '$lib';
-	import { DIFFICULTY_OPTIONS, LANGUAGE_OPTIONS, STATUS_OPTIONS, type RunFilters } from '$lib/runsView';
+	import Select, { type SelectOption } from '$lib/components/Select.svelte';
+	import { DIFFICULTY_OPTIONS, LANGUAGE_OPTIONS, STATUS_OPTIONS, type RunFilters } from '$lib/utils/runsView';
 
 	let {
 		collapsed = $bindable(),

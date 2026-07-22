@@ -1,4 +1,4 @@
-import type { Settings } from './settings.svelte';
+import type { Settings } from '$lib/stores/settings.svelte';
 
 // In dev the SPA is Vite-served on its own port while the API lives on 31337, so
 // point API calls at that absolute origin. Production serves the SPA itself, so

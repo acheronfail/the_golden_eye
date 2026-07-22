@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { MetaPill } from './metaPills';
+	import type { MetaPill } from '$lib/utils/metaPills';
 
 	let {
 		chips,

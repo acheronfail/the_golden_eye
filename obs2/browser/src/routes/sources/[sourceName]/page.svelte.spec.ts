@@ -2,9 +2,9 @@ import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SourcePage from './+page.svelte';
-import { monitor } from '$lib/monitor.svelte';
-import { settings } from '$lib/settings.svelte';
-import { obsSources } from '$lib/sources.svelte';
+import { monitor } from '$lib/stores/monitor.svelte';
+import { settings } from '$lib/stores/settings.svelte';
+import { obsSources } from '$lib/stores/sources.svelte';
 
 const mocks = vi.hoisted(() => {
 	const api = {

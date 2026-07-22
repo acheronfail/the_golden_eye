@@ -1,4 +1,4 @@
-import { backend, type ReplayBufferStatus } from './api';
+import { backend, type ReplayBufferStatus } from '$lib/api';
 
 /** Shared, reactive replay-buffer status (what clips are saved from). The root
  * layout polls it on navigation and bounces to `/` while unusable. `status` is

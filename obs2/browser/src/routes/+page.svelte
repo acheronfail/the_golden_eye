@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { backend } from '../lib/api';
-	import { settings } from '$lib/settings.svelte';
-	import { refreshReplayBuffer, replayBuffer } from '$lib/replayBuffer.svelte';
-	import { obsSources } from '$lib/sources.svelte';
-	import WizardFrame from '$lib/wizard/WizardFrame.svelte';
-	import OptionList, { type Option } from '$lib/wizard/OptionList.svelte';
+	import { backend } from '$lib/api';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { refreshReplayBuffer, replayBuffer } from '$lib/stores/replayBuffer.svelte';
+	import { obsSources } from '$lib/stores/sources.svelte';
+	import WizardFrame from '$lib/components/wizard/WizardFrame.svelte';
+	import OptionList, { type Option } from '$lib/components/wizard/OptionList.svelte';
 	import { onMount } from 'svelte';
 
 	let missingPreviewBySource = $state<Record<string, boolean>>({});

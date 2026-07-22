@@ -1,4 +1,4 @@
-import type { FolderValidation } from './api';
+import type { FolderValidation } from '$lib/api';
 
 export type OptionsPathKind = 'completed' | 'failed';
 

@@ -1,6 +1,6 @@
-import type { LevelMatch, RunClip } from './api';
+import type { LevelMatch, RunClip } from '$lib/api';
 import type { MetaPill } from './metaPills';
-import type { SelectOption } from './Select.svelte';
+import type { SelectOption } from '$lib/components/Select.svelte';
 
 export interface RunDetailView {
 	modal: {

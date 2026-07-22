@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { backend, type AppEvent, type AppSnapshot } from './api';
+import { backend, type AppEvent, type AppSnapshot } from '$lib/api';
 import {
 	applyFailedRunNotSaved,
 	applyLanguageDetected,
@@ -9,18 +9,18 @@ import {
 	applyRecordingSaved,
 	applyRecordingSaveDiscarded,
 	applyRecordingSavePending
-} from './monitor.svelte';
+} from '$lib/stores/monitor.svelte';
 import {
 	addNotificationFlag,
 	dismissNotificationFlag,
 	dismissNotificationFlagsByKey,
 	replaceNotificationFlag
-} from './notifications.svelte';
-import { refreshReplayBuffer, setReplayBufferStatus } from './replayBuffer.svelte';
-import { settings } from './settings.svelte';
-import { setObsSources } from './sources.svelte';
-import { updates } from './updates.svelte';
-import { youtube } from './youtube.svelte';
+} from '$lib/stores/notifications.svelte';
+import { refreshReplayBuffer, setReplayBufferStatus } from '$lib/stores/replayBuffer.svelte';
+import { settings } from '$lib/stores/settings.svelte';
+import { setObsSources } from '$lib/stores/sources.svelte';
+import { updates } from '$lib/stores/updates.svelte';
+import { youtube } from '$lib/stores/youtube.svelte';
 
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -39,7 +39,7 @@ const discardPersistedUpdateAppliedNotification = (): void => {
 	}
 };
 
-const notifyYoutubeUploadChanged = (upload: import('./api').YouTubeUploadStatus): void => {
+const notifyYoutubeUploadChanged = (upload: import('$lib/api').YouTubeUploadStatus): void => {
 	if ((upload.state === 'queued' || upload.state === 'uploading') && !youtubeStartedNotificationIds.has(upload.id)) {
 		const flag = addNotificationFlag({
 			key: `youtube-upload-${upload.id}`,

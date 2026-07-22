@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { backend, type EditableRunMetadata, type RunClip, type RunDirectoryScan, type RunsResponse } from '$lib/api';
-	import RunDetailDialog from '$lib/RunDetailDialog.svelte';
-	import RunFiltersForm from '$lib/RunFilters.svelte';
-	import RunList from '$lib/RunList.svelte';
-	import RunsFolderChooser from '$lib/RunsFolderChooser.svelte';
-	import { settings } from '$lib/settings.svelte';
+	import RunDetailDialog from '$lib/components/RunDetailDialog.svelte';
+	import RunFiltersForm from '$lib/components/RunFilters.svelte';
+	import RunList from '$lib/components/RunList.svelte';
+	import RunsFolderChooser from '$lib/components/RunsFolderChooser.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
 		EMPTY_RUN_FILTERS,
@@ -16,7 +16,7 @@
 		visibleRunClips,
 		type RunDetailView,
 		type RunFilters
-	} from '$lib/runsView';
+	} from '$lib/utils/runsView';
 	import { onDestroy, onMount } from 'svelte';
 
 	const levelSelectOptions = LEVEL_OPTIONS.map((level) => ({ value: level, label: level }));

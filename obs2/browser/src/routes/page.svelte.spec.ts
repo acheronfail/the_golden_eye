@@ -2,9 +2,9 @@ import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import HomePage from './+page.svelte';
-import { replayBuffer } from '$lib/replayBuffer.svelte';
-import { obsSources } from '$lib/sources.svelte';
-import { settings } from '$lib/settings.svelte';
+import { replayBuffer } from '$lib/stores/replayBuffer.svelte';
+import { obsSources } from '$lib/stores/sources.svelte';
+import { settings } from '$lib/stores/settings.svelte';
 
 const mocks = vi.hoisted(() => ({
 	goto: vi.fn(),

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RunsPage from './+page.svelte';
 import type { RunClip, RunsStreamEvent } from '$lib/api';
-import { settings } from '$lib/settings.svelte';
+import { settings } from '$lib/stores/settings.svelte';
 
 const mocks = vi.hoisted(() => ({
 	revealRunFolder: vi.fn(),

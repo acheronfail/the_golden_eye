@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { settings } from '$lib';
-	import { optionsClasses as styles } from '$lib/optionsView';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { optionsClasses as styles } from '$lib/utils/optionsView';
 
 	const notificationTemplateTokens = [
 		{ value: '{broadcast_url}', description: 'YouTube broadcast URL for the stream.' },

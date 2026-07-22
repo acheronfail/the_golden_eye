@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { youtube } from '$lib/youtube.svelte';
+	import { youtube } from '$lib/stores/youtube.svelte';
 
 	// Shared Connect/Cancel control. While the OAuth flow is pending the button
 	// flips to a danger-styled Cancel that resets the flow, so a user whose

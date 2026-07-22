@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { Select, settings, updates, type UpdateCheckInterval } from '$lib';
-	import { monitor } from '$lib/monitor.svelte';
-	import { optionsClasses as styles } from '$lib/optionsView';
+	import Select from '$lib/components/Select.svelte';
+	import { settings, type UpdateCheckInterval } from '$lib/stores/settings.svelte';
+	import { updates } from '$lib/stores/updates.svelte';
+	import { monitor } from '$lib/stores/monitor.svelte';
+	import { optionsClasses as styles } from '$lib/utils/optionsView';
 
 	const updateCheckIntervals: { value: UpdateCheckInterval; label: string }[] = [
 		{ value: 'monthly', label: 'Monthly' },

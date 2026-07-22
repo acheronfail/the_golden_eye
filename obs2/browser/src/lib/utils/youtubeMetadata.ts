@@ -1,5 +1,5 @@
-import type { RunClip } from './api';
-import type { YoutubeVisibility } from './settings.svelte';
+import type { RunClip } from '$lib/api';
+import type { YoutubeVisibility } from '$lib/stores/settings.svelte';
 
 export interface YouTubeUploadPreviewOptions {
 	titleTemplate: string;

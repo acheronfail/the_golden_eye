@@ -4,7 +4,7 @@ import {
 	type YouTubeAccount,
 	type YouTubeUploadHistoryEntry,
 	type YouTubeUploadStatus
-} from './api';
+} from '$lib/api';
 
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const terminalUploadStates = new Set(['uploaded', 'failed']);

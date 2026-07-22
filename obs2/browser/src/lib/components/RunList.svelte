@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { RunClip } from '$lib/api';
-	import MetaPills from '$lib/MetaPills.svelte';
-	import { isCompleted, formatDate, runMetaChips } from '$lib/runsView';
+	import MetaPills from '$lib/components/MetaPills.svelte';
+	import { isCompleted, formatDate, runMetaChips } from '$lib/utils/runsView';
 
 	let {
 		loading,

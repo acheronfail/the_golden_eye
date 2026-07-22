@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { RecordingSaved, RecordingSavePending } from './api';
+import type { RecordingSaved, RecordingSavePending } from '$lib/api';
 import {
 	applyFailedRunNotSaved,
 	applyRecordingSaved,
 	applyRecordingSaveDiscarded,
 	applyRecordingSavePending
-} from './monitor.svelte';
-import { notifications } from './notifications.svelte';
+} from '$lib/stores/monitor.svelte';
+import { notifications } from '$lib/stores/notifications.svelte';
 
 const pending = (overrides: Partial<RecordingSavePending> = {}): RecordingSavePending => ({
 	saveId: 1,

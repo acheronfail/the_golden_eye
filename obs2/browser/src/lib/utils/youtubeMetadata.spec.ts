@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { RunClip } from './api';
+import type { RunClip } from '$lib/api';
 import { datetimeLocalForClip, formatDatetimeLocal, renderYouTubeUploadPreview } from './youtubeMetadata';
 
 const clip = (timestamp = '2026-07-18T10:30:45Z'): RunClip => ({
