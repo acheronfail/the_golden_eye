@@ -231,7 +231,7 @@ pub extern "C" fn ge_rust_start() -> bool {
         match http::bind_listener() {
             Ok(listener) => listener,
             Err(error) => {
-                tracing::error!("failed to bind port {}: {error}", http::SERVER_PORT);
+                tracing::error!("failed to bind port {}: {error}", config::server_port());
                 return false;
             }
         }

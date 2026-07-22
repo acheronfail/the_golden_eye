@@ -1,7 +1,7 @@
 pub(crate) mod routes;
 mod state;
 
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 use axum::Router;
@@ -21,7 +21,6 @@ use tower_http::BoxError;
 const API_REQUEST_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
 pub use state::*;
-pub const SERVER_PORT: u16 = 31337;
 pub const OAUTH_CALLBACK_PATH: &str = "/oauth/callback";
 
 pub fn collect_sources() -> Vec<routes::sources::Source> {
@@ -51,7 +50,7 @@ async fn log_requests(req: Request, next: Next) -> Response {
 /// learn immediately whether the port bound. Must run inside a `runtime.enter()`
 /// guard; sets `SO_REUSEADDR` so the port can rebind across a reload (TIME_WAIT).
 pub fn bind_listener() -> std::io::Result<TcpListener> {
-    let addr = SocketAddr::from(([0, 0, 0, 0], SERVER_PORT));
+    let addr = listener_addr(crate::config::server_port());
     let socket = TcpSocket::new_v4()?;
     socket.set_reuseaddr(true)?;
     socket.bind(addr)?;
@@ -146,4 +145,20 @@ pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state
         })
         .await;
     Ok(())
+}
+
+fn listener_addr(port: u16) -> SocketAddr {
+    SocketAddr::from((Ipv4Addr::LOCALHOST, port))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn listener_is_restricted_to_loopback() {
+        let addr = listener_addr(31337);
+        assert!(addr.ip().is_loopback());
+        assert_eq!(addr.port(), 31337);
+    }
 }

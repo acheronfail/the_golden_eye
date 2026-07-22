@@ -151,6 +151,8 @@ test-integration *args:
     just configure-release
     cmake --build "$build_dir" --target browser_build
     source "$build_dir/rust-cargo-env.sh"
+    # Keep the fake-OBS backend separate from a running plugin instance.
+    export GE_SERVER_PORT="${GE_INTEGRATION_SERVER_PORT:-31338}"
     # Share Cargo's release target by default so builds, tests, and packaging
     # reuse the same incremental artifacts. Opt into isolation only when needed.
     if [ "${GE_ISOLATE_CARGO_TEST_TARGETS:-}" = "1" ]; then

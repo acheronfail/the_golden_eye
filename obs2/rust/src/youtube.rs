@@ -985,7 +985,7 @@ mod tests {
             token_url: "https://example.test/token".to_owned(),
             upload_url: "https://example.test/upload".to_owned(),
             userinfo_url: "https://example.test/userinfo".to_owned(),
-            redirect_uri: config::REDIRECT_URI.to_owned(),
+            redirect_uri: config::loopback_http_url(crate::http::OAUTH_CALLBACK_PATH),
             scope: YOUTUBE_UPLOAD_SCOPE.to_owned(),
             enabled: true,
         };

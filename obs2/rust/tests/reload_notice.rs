@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde_json::{Value, json};
-use support::harness::{API, Harness, SOURCE_NAME, next_app_snapshot};
+use support::harness::{API, Harness, SOURCE_NAME, event_ws_url, next_app_snapshot};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -76,7 +76,7 @@ async fn reload_sends_update_applied_notice_to_new_connections() {
 async fn cold_start_does_not_send_update_applied_notice() {
     let harness = Harness::start(Duration::ZERO).await;
 
-    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap();
+    let (mut ws, _) = connect_async(event_ws_url()).await.unwrap();
     let deadline = Instant::now() + Duration::from_millis(500);
     while Instant::now() < deadline {
         if let Ok(Some(Ok(Message::Text(text)))) = tokio::time::timeout(Duration::from_millis(100), ws.next()).await {
@@ -89,7 +89,7 @@ async fn cold_start_does_not_send_update_applied_notice() {
 }
 
 async fn wait_for_update_applied_event() -> Value {
-    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap();
+    let (mut ws, _) = connect_async(event_ws_url()).await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
 
     loop {

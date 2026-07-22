@@ -35,9 +35,6 @@ pub(crate) const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 pub(crate) const UPLOAD_URL: &str = "https://www.googleapis.com/upload/youtube/v3/videos";
 /// Google OpenID Connect userinfo endpoint.
 pub(crate) const USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v3/userinfo";
-/// Loopback redirect the plugin's local server handles after consent.
-pub(crate) const REDIRECT_URI: &str = "http://127.0.0.1:31337/oauth/callback";
-
 /// Whether the YouTube UI/API is enabled: requires the runtime flag plus a
 /// resolved client ID and secret. Warns when the flag is set but credentials are
 /// missing, to explain why the feature stays hidden. Takes the already-resolved
@@ -81,7 +78,7 @@ impl YoutubeEndpoints {
             token_url: TOKEN_URL.to_owned(),
             upload_url: UPLOAD_URL.to_owned(),
             userinfo_url: USERINFO_URL.to_owned(),
-            redirect_uri: REDIRECT_URI.to_owned(),
+            redirect_uri: super::loopback_http_url(crate::http::OAUTH_CALLBACK_PATH),
         }
     }
 
@@ -97,7 +94,7 @@ impl YoutubeEndpoints {
 pub(crate) mod test_hooks {
     use std::path::PathBuf;
 
-    use super::{AUTH_URL, CLIENT_ID, EnvVar, REDIRECT_URI, TOKEN_URL, UPLOAD_URL, USERINFO_URL, YoutubeEndpoints};
+    use super::{AUTH_URL, CLIENT_ID, EnvVar, TOKEN_URL, UPLOAD_URL, USERINFO_URL, YoutubeEndpoints};
 
     static AUTH_URL_OVERRIDE: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_AUTH_URL");
     static CLIENT_ID_OVERRIDE: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_CLIENT_ID");
@@ -121,7 +118,9 @@ pub(crate) mod test_hooks {
             token_url: TOKEN_URL_OVERRIDE.string().unwrap_or_else(|| TOKEN_URL.to_owned()),
             upload_url: UPLOAD_URL_OVERRIDE.string().unwrap_or_else(|| UPLOAD_URL.to_owned()),
             userinfo_url: USERINFO_URL_OVERRIDE.string().unwrap_or_else(|| USERINFO_URL.to_owned()),
-            redirect_uri: REDIRECT_URI_OVERRIDE.string().unwrap_or_else(|| REDIRECT_URI.to_owned()),
+            redirect_uri: REDIRECT_URI_OVERRIDE
+                .string()
+                .unwrap_or_else(|| super::super::loopback_http_url(crate::http::OAUTH_CALLBACK_PATH)),
         }
     }
 

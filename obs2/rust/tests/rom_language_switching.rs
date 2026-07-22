@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde_json::Value;
-use support::harness::Harness;
+use support::harness::{Harness, event_ws_url};
 use support::test_obs::Frame;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -17,7 +17,7 @@ type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 async fn monitor_detects_rom_language_and_switches_matchers_back_and_forth() {
     let harness = Harness::start(Duration::ZERO).await;
     harness.start_monitor().await.error_for_status().unwrap();
-    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap();
+    let (mut ws, _) = connect_async(event_ws_url()).await.unwrap();
 
     let en_start = harness.frame("test/screenshots-emu/en - start - 01 - Agent.png");
     render_until_match(&harness, &mut ws, &en_start, "initial en start", |m| is_match(m, "Start", 1, 1, 0, Some("en")))
