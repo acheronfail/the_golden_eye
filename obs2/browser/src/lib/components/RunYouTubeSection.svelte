@@ -178,7 +178,7 @@
 			{#if !isUploaded && youtube.connected}
 				<div class="mb-1 grid w-full gap-3 text-left">
 					<div class="flex flex-wrap items-center justify-between gap-2">
-						<p class="obs-dim font-mono text-[11px] tracking-[0.18em] uppercase">Upload preview</p>
+						<p class="obs-dim font-mono text-[11px] tracking-[0.18em] uppercase">Preview</p>
 						<div class="flex items-center gap-2">
 							<a class="obs-text-button obs-button-xs" href="/options?tab=youtube">Edit templates</a>
 							<button

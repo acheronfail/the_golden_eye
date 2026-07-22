@@ -173,10 +173,10 @@ describe('/runs', () => {
 		expect(screen.getByRole('heading', { name: 'Metadata' })).toBeInTheDocument();
 		expect(screen.getByText('Connect YouTube to upload videos.')).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Connect YouTube' })).toBeInTheDocument();
-		expect(screen.queryByText('Upload preview')).not.toBeInTheDocument();
+		expect(screen.queryByText('Preview')).not.toBeInTheDocument();
 	});
 
-	it('shows the YouTube upload preview after connecting', async () => {
+	it('shows the YouTube Preview after connecting', async () => {
 		const user = userEvent.setup();
 		youtube.enabled = true;
 		youtube.oauthConfigured = true;
@@ -185,7 +185,7 @@ describe('/runs', () => {
 
 		await user.click(await screen.findByRole('button', { name: /facility-0058\.mov/i }));
 
-		expect(screen.getByText('Upload preview')).toBeInTheDocument();
+		expect(screen.getByText('Preview')).toBeInTheDocument();
 		expect(screen.getByRole('link', { name: 'Edit templates' })).toBeInTheDocument();
 		expect(screen.queryByText('Connect YouTube to upload videos.')).not.toBeInTheDocument();
 	});
