@@ -22,9 +22,14 @@ export default defineConfig({
 			}
 		: undefined,
 	optimizeDeps: {
-		// Storybook loads this nested CommonJS dependency dynamically, so Vite's
-		// Windows scanner does not otherwise discover it before browser startup.
-		include: ['@testing-library/dom > aria-query']
+		// Storybook loads Testing Library dynamically, so Vite's Windows scanner
+		// misses its CommonJS dependencies before browser startup.
+		include: [
+			'@testing-library/dom',
+			'@testing-library/dom > aria-query',
+			'@testing-library/dom > lz-string',
+			'@testing-library/dom > pretty-format'
+		]
 	},
 	build: {
 		rolldownOptions: {
