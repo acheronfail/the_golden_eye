@@ -77,7 +77,7 @@ const notifyYoutubeUploadChanged = (upload: import('$lib/api').YouTubeUploadStat
 			key: `youtube-upload-${upload.id}`,
 			title: 'YouTube upload completed',
 			detail: upload.title || upload.fileName,
-			meta: 'Click to open YouTube.',
+			meta: 'Click here to open YouTube.',
 			tone: 'success' as const,
 			timeoutMs: 8000,
 			action: () => {
@@ -106,7 +106,7 @@ const showSettingsError = (error: string): void => {
 		key: 'settings-config-error',
 		title: 'Config file invalid',
 		detail: error,
-		meta: 'Click to open options.',
+		meta: 'Click here to open options.',
 		tone: 'error' as const,
 		sticky: true,
 		href: '/options'
