@@ -2,6 +2,8 @@
 	export interface Option {
 		/** Primary label, shown prominently. */
 		title: string;
+		/** Optional group heading, rendered when it changes between rows. */
+		section?: string;
 		/** Optional secondary detail, rendered monospace beneath the title. */
 		detail?: string;
 		/** Stable key for the `{#each}` block. Defaults to `title`. */
@@ -12,6 +14,7 @@
 </script>
 
 <script lang="ts">
+	import SectionTitle from '$lib/components/SectionTitle.svelte';
 	import type { Snippet } from 'svelte';
 
 	let {
@@ -66,6 +69,11 @@
 
 <ul class="flex flex-col gap-3">
 	{#each options as option, i (option.key ?? option.title)}
+		{#if option.section && option.section !== options[i - 1]?.section}
+			<li class:mt-2={i > 0}>
+				<SectionTitle title={option.section} />
+			</li>
+		{/if}
 		<li>
 			<button
 				bind:this={items[i]}

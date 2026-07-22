@@ -6,17 +6,25 @@
 	let {
 		state = 'available',
 		previews = true,
-		disabled = false
+		disabled = false,
+		lastUsed = true
 	}: {
 		state?: 'loading' | 'empty' | 'available' | 'missing' | 'mixed';
 		previews?: boolean;
 		disabled?: boolean;
+		lastUsed?: boolean;
 	} = $props();
 
-	const options: Option[] = [
+	const sources = [
 		{ title: 'Nintendo 64', detail: 'av_capture_input', key: 'n64' },
 		{ title: 'Capture Card 2', detail: 'decklink_input', key: 'capture-2' }
 	];
+	const options = $derived<Option[]>(
+		sources.map((source, index) => ({
+			...source,
+			section: lastUsed && index === 0 ? 'last used source' : 'sources'
+		}))
+	);
 	const previewImage =
 		'data:image/svg+xml;charset=utf-8,' +
 		encodeURIComponent(

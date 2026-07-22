@@ -16,6 +16,7 @@ export interface Settings {
 	showMonitorFps: boolean;
 	showDeveloperSettings: boolean;
 	showSourcePreviews: boolean;
+	lastUsedSourceName: string | null;
 	welcomeModalShown: boolean;
 	completedOutputPath: string;
 	saveFailedRuns: boolean;
@@ -64,6 +65,7 @@ const bootstrapSettings: Settings = {
 	showMonitorFps: false,
 	showDeveloperSettings: false,
 	showSourcePreviews: true,
+	lastUsedSourceName: null,
 	welcomeModalShown: false,
 	completedOutputPath: '',
 	saveFailedRuns: true,
@@ -92,6 +94,7 @@ const settingsSchema = (defaults: Settings) =>
 		showMonitorFps: z.boolean().catch(defaults.showMonitorFps),
 		showDeveloperSettings: z.boolean().catch(defaults.showDeveloperSettings),
 		showSourcePreviews: z.boolean().catch(defaults.showSourcePreviews),
+		lastUsedSourceName: z.string().nullable().catch(defaults.lastUsedSourceName),
 		welcomeModalShown: z.boolean().catch(defaults.welcomeModalShown),
 		completedOutputPath: z.string().catch(defaults.completedOutputPath),
 		saveFailedRuns: z.boolean().catch(defaults.saveFailedRuns),
@@ -178,6 +181,7 @@ export const settings = new (class {
 	showMonitorFps = $state(initialSettings.showMonitorFps);
 	showDeveloperSettings = $state(initialSettings.showDeveloperSettings);
 	showSourcePreviews = $state(initialSettings.showSourcePreviews);
+	lastUsedSourceName = $state<string | null>(initialSettings.lastUsedSourceName);
 	welcomeModalShown = $state(initialSettings.welcomeModalShown);
 	updateCheckInterval = $state<UpdateCheckInterval>(initialSettings.updateCheckInterval);
 	lastUpdateCheckTime = $state<number | null>(initialSettings.lastUpdateCheckTime);
@@ -238,6 +242,7 @@ export const settings = new (class {
 			showMonitorFps: this.showMonitorFps,
 			showDeveloperSettings: this.showDeveloperSettings,
 			showSourcePreviews: this.showSourcePreviews,
+			lastUsedSourceName: this.lastUsedSourceName,
 			welcomeModalShown: this.welcomeModalShown,
 			completedOutputPath: this.completedOutputPath,
 			saveFailedRuns: this.saveFailedRuns,
@@ -376,6 +381,7 @@ export const settings = new (class {
 		this.showMonitorFps = next.showMonitorFps;
 		this.showDeveloperSettings = next.showDeveloperSettings;
 		this.showSourcePreviews = next.showSourcePreviews;
+		this.lastUsedSourceName = next.lastUsedSourceName;
 		this.welcomeModalShown = next.welcomeModalShown;
 		this.updateCheckInterval = next.updateCheckInterval;
 		this.lastUpdateCheckTime = next.lastUpdateCheckTime;

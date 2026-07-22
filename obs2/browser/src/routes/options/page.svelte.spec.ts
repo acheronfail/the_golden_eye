@@ -78,6 +78,7 @@ const defaultSettings: Settings = {
 	showMonitorFps: false,
 	showDeveloperSettings: false,
 	showSourcePreviews: true,
+	lastUsedSourceName: null,
 	welcomeModalShown: true,
 	completedOutputPath: '',
 	saveFailedRuns: true,
