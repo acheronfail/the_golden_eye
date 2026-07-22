@@ -21,6 +21,11 @@ export default defineConfig({
 				conditions: ['browser']
 			}
 		: undefined,
+	optimizeDeps: {
+		// Storybook loads this nested CommonJS dependency dynamically, so Vite's
+		// Windows scanner does not otherwise discover it before browser startup.
+		include: ['@testing-library/dom > aria-query']
+	},
 	build: {
 		rolldownOptions: {
 			// SvelteKit's inline bundle strategy can intentionally emit non-ESM chunks
