@@ -9,6 +9,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
+use futures_util::StreamExt;
 use ge_rust::models::clip_metadata::RunStatus;
 use serde_json::{Value, json};
 use support::harness::{API, Harness, recording_settings};
@@ -125,6 +126,7 @@ async fn youtube_oauth_dance_connects_and_stores_account_info() {
     let _ = std::fs::remove_file(&token_file);
     set_youtube_env(&base_url, Some(&token_file));
     let harness = Harness::start(Duration::ZERO).await;
+    let mut events = harness.connect_event_stream().await;
 
     let connect = harness.client.post(format!("{API}/api/v1/youtube/connect")).send();
     let callback = async {
@@ -146,6 +148,11 @@ async fn youtube_oauth_dance_connects_and_stores_account_info() {
     assert_eq!(status["account"]["name"], "Runner Account");
     assert!(mock.token_calls.lock().unwrap()[0]["body"].as_str().unwrap().contains("grant_type=authorization_code"));
 
+    let event = wait_for_youtube_status_changed(&mut events).await;
+    assert_eq!(event["status"]["connected"], true);
+    assert_eq!(event["status"]["account"]["email"], "runner@example.com");
+
+    drop(events);
     drop(harness);
     clear_youtube_env();
     shutdown.send(()).unwrap();
@@ -260,6 +267,26 @@ async fn connect_youtube(harness: &Harness) {
 
 async fn wait_for_pending_oauth() {
     tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+async fn wait_for_youtube_status_changed(
+    events: &mut tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let message = tokio::time::timeout(remaining, events.next())
+            .await
+            .expect("timed out waiting for YouTube status event")
+            .expect("app event stream closed")
+            .expect("app event stream failed");
+        if let Ok(text) = message.into_text() {
+            let event: Value = serde_json::from_str(&text).unwrap();
+            if event["type"] == "youtubeStatusChanged" {
+                return event;
+            }
+        }
+    }
 }
 
 async fn prepare_clip(harness: &Harness) -> String {

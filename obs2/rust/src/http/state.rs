@@ -241,6 +241,8 @@ pub enum AppEvent {
     UpdateStagingFailed { error: String },
     /// A YouTube upload was queued, progressed, completed, or failed.
     YoutubeUploadChanged { upload: crate::youtube::YoutubeUploadStatus },
+    /// YouTube connection state changed in another browser client.
+    YoutubeStatusChanged { status: crate::youtube::YoutubeStatus },
 }
 
 /// Why the backend stopped an active monitor. Serialized as a plain string

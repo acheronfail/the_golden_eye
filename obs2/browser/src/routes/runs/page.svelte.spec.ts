@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RunsPage from './+page.svelte';
 import type { RunClip, RunsStreamEvent } from '$lib/api';
 import { settings } from '$lib/stores/settings.svelte';
+import { youtube } from '$lib/stores/youtube.svelte';
 
 const mocks = vi.hoisted(() => ({
 	revealRunFolder: vi.fn(),
@@ -93,6 +94,13 @@ const streamEvents: RunsStreamEvent[] = [
 beforeEach(() => {
 	vi.clearAllMocks();
 	settings.saveFailedRuns = true;
+	youtube.loaded = true;
+	youtube.enabled = false;
+	youtube.oauthConfigured = false;
+	youtube.connected = false;
+	youtube.account = null;
+	youtube.uploads = [];
+	youtube.history = [];
 	mocks.revealRunFolder.mockResolvedValue(undefined);
 	mocks.streamRuns.mockImplementation(async (onEvent: (event: RunsStreamEvent) => void) => {
 		for (const event of streamEvents) onEvent(event);
@@ -151,5 +159,34 @@ describe('/runs', () => {
 
 		expect(screen.queryByRole('dialog', { name: /Choose clips folder/i })).not.toBeInTheDocument();
 		expect(mocks.revealRunFolder).toHaveBeenCalledWith('completed');
+	});
+
+	it('prompts for a YouTube connection without showing the upload preview', async () => {
+		const user = userEvent.setup();
+		youtube.enabled = true;
+		youtube.oauthConfigured = true;
+		render(RunsPage);
+
+		await user.click(await screen.findByRole('button', { name: /facility-0058\.mov/i }));
+
+		expect(screen.getByRole('heading', { name: 'YouTube' })).toBeInTheDocument();
+		expect(screen.getByRole('heading', { name: 'Metadata' })).toBeInTheDocument();
+		expect(screen.getByText('Connect YouTube to upload videos.')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Connect YouTube' })).toBeInTheDocument();
+		expect(screen.queryByText('Upload preview')).not.toBeInTheDocument();
+	});
+
+	it('shows the YouTube upload preview after connecting', async () => {
+		const user = userEvent.setup();
+		youtube.enabled = true;
+		youtube.oauthConfigured = true;
+		youtube.connected = true;
+		render(RunsPage);
+
+		await user.click(await screen.findByRole('button', { name: /facility-0058\.mov/i }));
+
+		expect(screen.getByText('Upload preview')).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: 'Edit templates' })).toBeInTheDocument();
+		expect(screen.queryByText('Connect YouTube to upload videos.')).not.toBeInTheDocument();
 	});
 });

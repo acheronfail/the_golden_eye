@@ -642,7 +642,8 @@ export type AppEvent =
 	| { type: 'settingsInvalid'; configPath: string; error: string }
 	| { type: 'updateApplied'; version: string; releaseUrl?: string }
 	| { type: 'updateStagingFailed'; error: string }
-	| { type: 'youtubeUploadChanged'; upload: YouTubeUploadStatus };
+	| { type: 'youtubeUploadChanged'; upload: YouTubeUploadStatus }
+	| { type: 'youtubeStatusChanged'; status: YouTubeStatus };
 
 export type MonitorStatus =
 	| { enabled: false; recordingState?: null }

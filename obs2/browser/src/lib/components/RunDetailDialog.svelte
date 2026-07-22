@@ -230,8 +230,8 @@
 				<video src={backend.runVideoUrl(clip.path)} controls class="obs-preview aspect-video w-full"></video>
 
 				{#if youtube.enabled}
-					<section class="obs-subpanel mt-4 rounded px-4 py-3">
-						<div class="mb-3 flex items-center justify-between gap-3">
+					<section class="mt-4">
+						<div class="mb-3 flex items-center justify-between gap-3 border-b border-(--obs-border) pb-2">
 							<h3 class="font-mono text-xs font-semibold tracking-[0.2em] text-(--obs-text-muted) uppercase">
 								YouTube
 							</h3>
@@ -268,31 +268,37 @@
 						{/if}
 						<div class="flex flex-col items-center gap-2 text-center">
 							{#if youtubeIsUploaded}
-								<div
-									class="mb-1 w-full rounded border border-(--obs-border) bg-(--obs-bg-elevated) px-3 py-2 text-left shadow-[inset_0_1px_0_var(--obs-border-soft)]"
-								>
+								<div class="mb-1 w-full text-left">
 									<p class="font-mono text-xs text-(--obs-text)">Already uploaded to YouTube.</p>
 									<p class="obs-dim mt-1 text-xs">Use the link below to copy or open the uploaded video.</p>
 								</div>
 							{/if}
-							{#if !youtubeIsUploaded && youtubeUploadPreview}
-								<div
-									class="mb-1 grid w-full gap-3 rounded border border-(--obs-border) bg-(--obs-bg-elevated) p-3 text-left shadow-[inset_0_1px_0_var(--obs-border-soft)]"
-								>
+							{#if !youtubeIsUploaded && youtube.connected && youtubeUploadPreview}
+								<div class="mb-1 grid w-full gap-3 text-left">
 									<div class="flex flex-wrap items-center justify-between gap-2">
 										<p class="obs-dim font-mono text-[11px] tracking-[0.18em] uppercase">Upload preview</p>
-										<a class="obs-text-button obs-button-xs" href="/options?tab=youtube">Edit templates</a>
+										<div class="flex items-center gap-2">
+											<a class="obs-text-button obs-button-xs" href="/options?tab=youtube">Edit templates</a>
+											<button
+												type="button"
+												onclick={uploadToYouTube}
+												disabled={youtubeButtonDisabled}
+												class="obs-button obs-button-gold obs-button-xs disabled:cursor-not-allowed disabled:opacity-50"
+											>
+												{youtubeButtonLabel}
+											</button>
+										</div>
 									</div>
 									<dl class="grid gap-2.5 text-xs sm:grid-cols-[5.5rem_minmax(0,1fr)]">
 										<dt class="obs-dim pt-1 font-mono">Title</dt>
 										<dd
-											class="rounded border border-(--obs-border) bg-(--obs-panel) px-2 py-1.5 font-mono text-[11px] leading-relaxed wrap-break-word text-(--obs-text) shadow-[inset_0_1px_2px_rgb(0_0_0/24%)]"
+											class="obs-input px-3 py-2 font-mono text-[11px] leading-relaxed wrap-break-word text-(--obs-text)"
 										>
 											{youtubeUploadPreview.title}
 										</dd>
 										<dt class="obs-dim pt-1 font-mono">Description</dt>
 										<dd
-											class="rounded border border-(--obs-border) bg-(--obs-panel) px-2 py-1.5 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap text-(--obs-text) shadow-[inset_0_1px_2px_rgb(0_0_0/24%)]"
+											class="obs-input px-3 py-2 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap text-(--obs-text)"
 										>
 											{youtubeUploadPreview.description || 'No description'}
 										</dd>
@@ -306,20 +312,11 @@
 										</dd>
 									</dl>
 								</div>
-								<div class="flex flex-wrap items-center justify-center gap-2">
-									{#if youtube.loaded && !youtube.connected}
-										<YouTubeConnectButton class="px-3 py-1.5 font-mono text-sm" />
-									{:else}
-										<button
-											type="button"
-											onclick={uploadToYouTube}
-											disabled={youtubeButtonDisabled}
-											class="obs-button obs-button-gold px-3 py-1.5 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-50"
-										>
-											{youtubeButtonLabel}
-										</button>
-									{/if}
-								</div>
+							{:else if !youtubeIsUploaded}
+								<p class="obs-dim text-xs leading-relaxed">Connect YouTube to upload videos.</p>
+								{#if youtube.loaded}
+									<YouTubeConnectButton class="mt-1 px-3 py-1.5 font-mono text-sm" />
+								{/if}
 							{/if}
 							{#if youtubeOpenUrl}
 								<div class="flex w-full items-center justify-center gap-2 px-2 sm:px-8">
@@ -395,60 +392,67 @@
 				{/if}
 
 				{#if metadataDraft}
-					<div class="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-						<label class="flex min-w-0 flex-col gap-1">
-							<span class="obs-dim font-mono text-xs">Level</span>
-							<Select
-								class="w-full"
-								placeholder="select level"
-								bind:value={metadataDraft.level}
-								options={view.display.levelOptions}
-								onChange={() => scheduleMetadataSave()}
-							/>
-						</label>
-						<label class="flex min-w-0 flex-col gap-1">
-							<span class="obs-dim font-mono text-xs">ROM language</span>
-							<Select
-								class="w-full"
-								placeholder="select language"
-								bind:value={metadataDraft.romLanguage}
-								options={LANGUAGE_OPTIONS}
-								onChange={() => scheduleMetadataSave()}
-							/>
-						</label>
-						<label class="flex min-w-0 flex-col gap-1">
-							<span class="obs-dim font-mono text-xs">Time</span>
-							<input
-								class="obs-input px-3 py-2 font-mono"
-								bind:value={metadataDraft.time}
-								oninput={() => scheduleMetadataSave(650)}
-								onblur={normalizeAndSaveMetadataNow}
-								inputmode="numeric"
-								pattern="[0-9]+:[0-5][0-9]"
-								placeholder="mm:ss"
-							/>
-						</label>
-						<label class="flex min-w-0 flex-col gap-1">
-							<span class="obs-dim font-mono text-xs">Difficulty</span>
-							<Select
-								class="w-full"
-								placeholder="select difficulty"
-								bind:value={metadataDraft.difficulty}
-								options={DIFFICULTY_OPTIONS}
-								onChange={() => scheduleMetadataSave()}
-							/>
-						</label>
-						<label class="flex min-w-0 flex-col gap-1">
-							<span class="obs-dim font-mono text-xs">Status</span>
-							<Select
-								class="w-full"
-								placeholder="select status"
-								bind:value={metadataDraft.status}
-								options={STATUS_OPTIONS}
-								onChange={() => scheduleMetadataSave()}
-							/>
-						</label>
-					</div>
+					<section class="mt-4">
+						<h3
+							class="mb-3 border-b border-(--obs-border) pb-2 font-mono text-xs font-semibold tracking-[0.2em] text-(--obs-text-muted) uppercase"
+						>
+							Metadata
+						</h3>
+						<div class="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+							<label class="flex min-w-0 flex-col gap-1">
+								<span class="obs-dim font-mono text-xs">Level</span>
+								<Select
+									class="w-full"
+									placeholder="select level"
+									bind:value={metadataDraft.level}
+									options={view.display.levelOptions}
+									onChange={() => scheduleMetadataSave()}
+								/>
+							</label>
+							<label class="flex min-w-0 flex-col gap-1">
+								<span class="obs-dim font-mono text-xs">ROM language</span>
+								<Select
+									class="w-full"
+									placeholder="select language"
+									bind:value={metadataDraft.romLanguage}
+									options={LANGUAGE_OPTIONS}
+									onChange={() => scheduleMetadataSave()}
+								/>
+							</label>
+							<label class="flex min-w-0 flex-col gap-1">
+								<span class="obs-dim font-mono text-xs">Time</span>
+								<input
+									class="obs-input px-3 py-2 font-mono"
+									bind:value={metadataDraft.time}
+									oninput={() => scheduleMetadataSave(650)}
+									onblur={normalizeAndSaveMetadataNow}
+									inputmode="numeric"
+									pattern="[0-9]+:[0-5][0-9]"
+									placeholder="mm:ss"
+								/>
+							</label>
+							<label class="flex min-w-0 flex-col gap-1">
+								<span class="obs-dim font-mono text-xs">Difficulty</span>
+								<Select
+									class="w-full"
+									placeholder="select difficulty"
+									bind:value={metadataDraft.difficulty}
+									options={DIFFICULTY_OPTIONS}
+									onChange={() => scheduleMetadataSave()}
+								/>
+							</label>
+							<label class="flex min-w-0 flex-col gap-1">
+								<span class="obs-dim font-mono text-xs">Status</span>
+								<Select
+									class="w-full"
+									placeholder="select status"
+									bind:value={metadataDraft.status}
+									options={STATUS_OPTIONS}
+									onChange={() => scheduleMetadataSave()}
+								/>
+							</label>
+						</div>
+					</section>
 				{/if}
 
 				<dl class="mt-4 grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-[9rem_minmax(0,1fr)]">
