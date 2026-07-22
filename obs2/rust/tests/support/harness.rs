@@ -267,9 +267,6 @@ pub fn recording_settings(completed: &Path, failed: &Path) -> Value {
     json!({
         "completedOutputPath": completed,
         "failedOutputPath": failed,
-        "saveFailedRuns": true,
-        "minimumFailedRunLengthSecs": 0,
-        "failedRunLimit": 0,
         "clipFilenameTemplate": "integration-{status}-{level}",
         "preRunPaddingSecs": 0,
         "postRunPaddingSecs": 0,

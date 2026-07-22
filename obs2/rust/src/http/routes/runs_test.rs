@@ -132,7 +132,6 @@ fn list_configured_runs_creates_missing_output_directories_before_scanning() {
     let failed = dir.join("failed/deeply/nested");
     let settings = AppSettings {
         completed_output_path: completed.to_string_lossy().into_owned(),
-        save_failed_runs: true,
         failed_output_path: failed.to_string_lossy().into_owned(),
         ..AppSettings::default()
     };
@@ -165,7 +164,6 @@ fn list_configured_runs_reads_seeded_catalog_without_rescanning() {
     write_tagged_clip(&failed_clip, "failed", "2026-01-01T00:00:00Z");
     let settings = AppSettings {
         completed_output_path: completed.to_string_lossy().into_owned(),
-        save_failed_runs: true,
         failed_output_path: failed.to_string_lossy().into_owned(),
         ..AppSettings::default()
     };
@@ -187,11 +185,8 @@ fn stream_configured_runs_refreshes_catalog_before_emitting() {
     let old_clip = completed.join("old.mov");
     let new_clip = completed.join("new.mov");
     write_tagged_clip(&old_clip, "complete", "2026-01-01T00:00:00Z");
-    let settings = AppSettings {
-        completed_output_path: completed.to_string_lossy().into_owned(),
-        save_failed_runs: false,
-        ..AppSettings::default()
-    };
+    let settings =
+        AppSettings { completed_output_path: completed.to_string_lossy().into_owned(), ..AppSettings::default() };
     let catalog = test_catalog(&dir);
     seed_catalog_from_settings(&catalog, &settings).unwrap();
     fs::remove_file(&old_clip).unwrap();

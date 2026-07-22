@@ -1,11 +1,9 @@
 import {
 	type AppSnapshot,
-	type FailedRunNotSavedReason,
 	type LevelMatch,
 	type MonitorFps,
 	type MonitorStatus,
 	type MonitorStoppedReason,
-	type RecordingSaveDiscarded,
 	type RecordingSavePending,
 	type RecordingSaved,
 	type RecordingStatus
@@ -288,34 +286,6 @@ export const applyRecordingSavePending = (pending: RecordingSavePending): void =
 	}
 	const flag = addNotificationFlag(notification);
 	pendingSaveNotificationIds.set(pending.saveId, flag.id);
-};
-
-export const applyRecordingSaveDiscarded = (discarded: RecordingSaveDiscarded): void => {
-	const flagId = pendingSaveNotificationIds.get(discarded.saveId);
-	if (flagId === undefined) return;
-	pendingSaveNotificationIds.delete(discarded.saveId);
-	dismissNotificationFlag(flagId);
-};
-
-const failedRunNotSavedDetail = (reason: FailedRunNotSavedReason): string => {
-	switch (reason) {
-		case 'savingDisabled':
-			return 'Saving failed runs is turned off in options.';
-		case 'tooShort':
-			return 'The run was shorter than the minimum failed-run length.';
-	}
-};
-
-/** A failed run reached an ending but wasn't saved. Shown as a transient
- * notification -- never as a recorder phase, so a late-firing discard from an
- * earlier run can't knock a newly-started run out of its "recording" state. */
-export const applyFailedRunNotSaved = (reason: FailedRunNotSavedReason): void => {
-	addNotificationFlag({
-		title: 'Failed run not saved',
-		detail: failedRunNotSavedDetail(reason),
-		tone: 'info',
-		sticky: false
-	});
 };
 
 export const applyRecordingSaved = (saved: RecordingSaved): void => {

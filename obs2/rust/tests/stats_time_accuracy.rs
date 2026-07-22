@@ -17,9 +17,6 @@ async fn first_stats_frame_misread_does_not_poison_the_saved_run_time() {
         json!({
             "completedOutputPath": temp.join("completed"),
             "failedOutputPath": temp.join("failed"),
-            "saveFailedRuns": true,
-            "minimumFailedRunLengthSecs": 0,
-            "failedRunLimit": 0,
             "clipFilenameTemplate": "stats-{status}-{time}",
             "preRunPaddingSecs": 0,
             "postRunPaddingSecs": 1
@@ -81,9 +78,6 @@ async fn rt4k_completed_run_records_the_correct_stats_time() {
         json!({
             "completedOutputPath": temp.join("completed"),
             "failedOutputPath": temp.join("failed"),
-            "saveFailedRuns": true,
-            "minimumFailedRunLengthSecs": 0,
-            "failedRunLimit": 0,
             "clipFilenameTemplate": "stats-{status}-{time}",
             "preRunPaddingSecs": 0,
             "postRunPaddingSecs": 1
@@ -185,20 +179,15 @@ async fn next_level_header_transition_does_not_rename_the_completed_run() {
     harness.stop_monitor().await.error_for_status().unwrap();
 }
 
-/// The minimum-failed-run-length gate must use the corrected time too: with a
-/// 100s minimum, the KIA run (real 14s) is discarded despite the 374s first-frame
-/// misread. Guards the deferred gate in `RecordingState::take_pending_job`.
+/// Short failed clips are always captured and enter review, even when the first
+/// stats frame is badly misread. This protects recoverable footage from filters.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
-async fn minimum_failed_run_length_gate_uses_the_corrected_time() {
+async fn short_failed_run_is_saved_for_review() {
     let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
         json!({
             "completedOutputPath": temp.join("completed"),
             "failedOutputPath": temp.join("failed"),
-            "saveFailedRuns": true,
-            // Longer than the real 14s but shorter than the 374s misread.
-            "minimumFailedRunLengthSecs": 100,
-            "failedRunLimit": 0,
             "clipFilenameTemplate": "stats-{status}-{time}",
             "preRunPaddingSecs": 0,
             "postRunPaddingSecs": 1
@@ -213,8 +202,6 @@ async fn minimum_failed_run_length_gate_uses_the_corrected_time() {
         tokio::time::sleep(Duration::from_millis(40)).await;
     }
 
-    // Shutdown flushes any pending save synchronously, so the discard decision is
-    // final once stop returns.
     harness.stop_monitor().await.error_for_status().unwrap();
 
     let runs: Value = harness
@@ -230,9 +217,20 @@ async fn minimum_failed_run_length_gate_uses_the_corrected_time() {
         .unwrap();
     assert_eq!(
         runs["clips"].as_array().expect("clips array").len(),
-        0,
-        "run shorter than the minimum (by its corrected time) must not be saved"
+        1,
+        "short failed run must be preserved for explicit review"
     );
-    // The gate short-circuits before OBS is ever asked to save the buffer.
-    assert_eq!(harness.obs.calls().replay_save, 0, "no replay save should have been requested");
+    let reviews: Value = harness
+        .client
+        .get(format!("{API}/api/v1/runs/review"))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(reviews.as_array().expect("review array").len(), 1);
+    assert_eq!(harness.obs.calls().replay_save, 1);
 }

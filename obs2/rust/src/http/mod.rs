@@ -111,6 +111,9 @@ pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state
                 .patch(routes::runs::handle_update_metadata),
         )
         .route("/api/v1/runs/stream", get(routes::runs::handle_stream))
+        .route("/api/v1/runs/review", get(routes::runs::handle_pending_reviews))
+        .route("/api/v1/runs/review/keep", post(routes::runs::handle_keep_reviews))
+        .route("/api/v1/runs/review/discard", post(routes::runs::handle_discard_reviews))
         .route("/api/v1/runs/rename", post(routes::runs::handle_rename))
         .route("/api/v1/runs/video", get(routes::runs::handle_video))
         .route("/api/v1/sources", get(routes::sources::handler))

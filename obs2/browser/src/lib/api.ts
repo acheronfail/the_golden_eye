@@ -235,6 +235,18 @@ export class Backend {
 		return document.querySelector('meta[name="ge-build-id"]')?.getAttribute('content') ?? null;
 	}
 
+	public getPendingFailedReviews(): Promise<RunClip[]> {
+		return this.getJson<RunClip[]>('/api/v1/runs/review');
+	}
+
+	public keepFailedReviews(paths: string[]): Promise<void> {
+		return this.postJsonVoid('/api/v1/runs/review/keep', { paths });
+	}
+
+	public discardFailedReviews(paths: string[]): Promise<void> {
+		return this.postJsonVoid('/api/v1/runs/review/discard', { paths });
+	}
+
 	/** Open the app event stream. */
 	public connectAppSocket(onEvent: (event: AppEvent) => void, onClose: () => void): WebSocket {
 		const socket = new WebSocket(this.wsUrl('/api/v1/events/ws'));
@@ -550,11 +562,6 @@ export interface RecordingSaved {
 	stats?: LevelMatch;
 }
 
-/** A scheduled save that was dropped before any clip was written. */
-export interface RecordingSaveDiscarded {
-	saveId: number;
-}
-
 /** Details of a clip save that has been scheduled after a run ending was seen. */
 export interface RecordingSavePending {
 	saveId: number;
@@ -574,10 +581,7 @@ export interface RecordingSavePending {
 /** Recording configuration stored by the Rust backend. */
 export interface RecordingOptions {
 	completedOutputPath: string;
-	saveFailedRuns: boolean;
 	failedOutputPath: string;
-	failedRunLimit: number;
-	minimumFailedRunLengthSecs: number;
 	clipFilenameTemplate: string;
 	preRunPaddingSecs: number;
 	postRunPaddingSecs: number;
@@ -593,9 +597,6 @@ export type RecordingStatus =
 	| 'complete'
 	| 'statsSkipped'
 	| 'savePending';
-
-/** Why a failed run reached an ending screen without a clip being saved. */
-export type FailedRunNotSavedReason = 'savingDisabled' | 'tooShort';
 
 /** Why the backend stopped monitoring. Mirrors the Rust `MonitorStoppedReason`. */
 export type MonitorStoppedReason = 'userStopped' | 'replayBufferStopped';
@@ -635,8 +636,6 @@ export type AppEvent =
 	| ({ type: 'monitorFps' } & MonitorFps)
 	| ({ type: 'recordingSavePending' } & RecordingSavePending)
 	| ({ type: 'recordingSaved' } & RecordingSaved)
-	| ({ type: 'recordingSaveDiscarded' } & RecordingSaveDiscarded)
-	| { type: 'failedRunNotSaved'; reason: FailedRunNotSavedReason }
 	| { type: 'monitorStopped'; reason: MonitorStoppedReason }
 	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
 	| { type: 'settingsInvalid'; configPath: string; error: string }

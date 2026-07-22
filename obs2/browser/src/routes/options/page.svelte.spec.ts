@@ -80,10 +80,7 @@ const defaultSettings: Settings = {
 	showSourcePreviews: true,
 	welcomeModalShown: true,
 	completedOutputPath: '',
-	saveFailedRuns: true,
 	failedOutputPath: '',
-	failedRunLimit: 10,
-	minimumFailedRunLengthSecs: 20,
 	clipFilenameTemplate: '{level} - {time} - {difficulty} - {status}',
 	preRunPaddingSecs: 5,
 	postRunPaddingSecs: 5,
@@ -195,6 +192,17 @@ describe('/options', () => {
 		await waitFor(() =>
 			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ monitorDesign: 'debug' }))
 		);
+	});
+
+	it('shows the simplified always-capture failed-run policy', async () => {
+		mocks.page.url = new URL('http://localhost/options?tab=recording');
+		render(OptionsPageHarness);
+
+		expect(await screen.findByLabelText(/Failed run clips/i)).toBeInTheDocument();
+		expect(screen.getByText(/Every failed, aborted, or KIA run is saved here for review/i)).toBeInTheDocument();
+		expect(screen.queryByRole('checkbox', { name: /Save failed runs/i })).not.toBeInTheDocument();
+		expect(screen.queryByLabelText(/How many failed runs/i)).not.toBeInTheDocument();
+		expect(screen.queryByLabelText(/Minimum failed run length/i)).not.toBeInTheDocument();
 	});
 
 	it('saves the developer settings visibility option', async () => {

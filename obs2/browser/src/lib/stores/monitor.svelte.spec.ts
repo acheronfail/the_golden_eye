@@ -2,9 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { RecordingSaved, RecordingSavePending } from '$lib/api';
 import {
-	applyFailedRunNotSaved,
 	applyRecordingSaved,
-	applyRecordingSaveDiscarded,
 	applyRecordingSavePending,
 	monitorPhaseStyleForPhase,
 	monitorPresentationPhase
@@ -78,31 +76,5 @@ describe('recording save notifications', () => {
 		expect(notifications.flags).toHaveLength(1);
 		expect(notifications.flags[0].id).toBe(pendingId);
 		expect(notifications.flags[0].title).toBe('Clip saved');
-	});
-
-	it('dismisses the pending notification when the save is discarded', () => {
-		applyRecordingSavePending(pending());
-		expect(notifications.flags).toHaveLength(1);
-
-		applyRecordingSaveDiscarded({ saveId: 1 });
-		expect(notifications.flags).toHaveLength(0);
-	});
-
-	it('ignores a discard for a save with no pending notification', () => {
-		applyRecordingSaveDiscarded({ saveId: 99 });
-		expect(notifications.flags).toHaveLength(0);
-	});
-
-	it('surfaces a failed-run-not-saved outcome as a transient notification', () => {
-		applyFailedRunNotSaved('tooShort');
-		expect(notifications.flags).toHaveLength(1);
-		expect(notifications.flags[0].title).toBe('Failed run not saved');
-		expect(notifications.flags[0].detail).toContain('minimum');
-		// Auto-dismissing, not a sticky phase indicator.
-		expect(notifications.flags[0].timeoutMs).toBeGreaterThan(0);
-
-		applyFailedRunNotSaved('savingDisabled');
-		expect(notifications.flags).toHaveLength(2);
-		expect(notifications.flags[1].detail).toContain('turned off');
 	});
 });

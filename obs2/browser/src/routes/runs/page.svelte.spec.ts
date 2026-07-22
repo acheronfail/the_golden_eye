@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RunsPage from './+page.svelte';
 import type { RunClip, RunsStreamEvent } from '$lib/api';
-import { settings } from '$lib/stores/settings.svelte';
 import { youtube } from '$lib/stores/youtube.svelte';
 
 const mocks = vi.hoisted(() => ({
@@ -93,7 +92,6 @@ const streamEvents: RunsStreamEvent[] = [
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	settings.saveFailedRuns = true;
 	youtube.loaded = true;
 	youtube.enabled = false;
 	youtube.oauthConfigured = false;
@@ -147,18 +145,6 @@ describe('/runs', () => {
 		await user.click(screen.getByRole('button', { name: /Failed clips/i }));
 
 		expect(mocks.revealRunFolder).toHaveBeenCalledWith('failed');
-	});
-
-	it('opens completed clips directly when failed run saving is disabled', async () => {
-		const user = userEvent.setup();
-		settings.saveFailedRuns = false;
-		render(RunsPage);
-
-		const showFolder = await screen.findByRole('button', { name: /show clips/i });
-		await user.click(showFolder);
-
-		expect(screen.queryByRole('dialog', { name: /Choose clips folder/i })).not.toBeInTheDocument();
-		expect(mocks.revealRunFolder).toHaveBeenCalledWith('completed');
 	});
 
 	it('prompts for a YouTube connection without showing the upload preview', async () => {

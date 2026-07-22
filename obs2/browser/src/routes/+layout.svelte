@@ -13,6 +13,8 @@
 	import KiaDeathOverlay from '$lib/components/KiaDeathOverlay.svelte';
 	import NotificationFlags from '$lib/components/NotificationFlags.svelte';
 	import WelcomeDialog from '$lib/components/WelcomeDialog.svelte';
+	import FailedRunReviewDialog from '$lib/components/FailedRunReviewDialog.svelte';
+	import { failedReview } from '$lib/stores/failedReview.svelte';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import { youtube } from '$lib/stores/youtube.svelte';
 	import { page } from '$app/state';
@@ -29,6 +31,7 @@
 		windowFocused = document.hasFocus();
 
 		startAppSocket();
+		failedReview.showWhenAvailable();
 		void youtube.load().catch((err) => console.warn('Failed to load YouTube status', err));
 
 		return () => {
@@ -153,4 +156,15 @@
 	{#if showWelcomeModal}
 		<WelcomeDialog dismiss={dismissWelcomeModal} />
 	{/if}
+
+	<FailedRunReviewDialog
+		open={failedReview.open && !showWelcomeModal}
+		clips={failedReview.clips}
+		loading={failedReview.loading}
+		busy={failedReview.busy}
+		error={failedReview.error}
+		close={() => failedReview.close()}
+		keep={(paths) => void failedReview.keep(paths)}
+		discard={(paths) => void failedReview.discard(paths)}
+	/>
 </div>

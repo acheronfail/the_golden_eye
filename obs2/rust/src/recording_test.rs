@@ -94,8 +94,8 @@ fn test_recording(options: RecordingOptions) -> (RecordingState, tokio::sync::br
     (recording, event_rx)
 }
 
-fn test_recording_saving_short_failed_runs() -> (RecordingState, tokio::sync::broadcast::Receiver<AppEvent>) {
-    test_recording(RecordingOptions { minimum_failed_run_length_secs: 0.0, ..RecordingOptions::default() })
+fn test_default_recording() -> (RecordingState, tokio::sync::broadcast::Receiver<AppEvent>) {
+    test_recording(RecordingOptions::default())
 }
 
 fn sample_clip() -> PathBuf {
@@ -200,8 +200,6 @@ fn padding_defaults_to_five_and_adds_the_internal_buffer_at_both_ends() {
     let default = RecordingOptions::default();
     assert_eq!(default.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
     assert_eq!(default.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS);
-    assert_eq!(default.failed_run_limit, DEFAULT_FAILED_RUN_LIMIT);
-    assert_eq!(default.minimum_failed_run_length_secs, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS);
     assert_eq!(default.pre_run_padding_secs(), DEFAULT_PRE_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
     assert_eq!(default.post_run_padding_secs(), DEFAULT_POST_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
 
@@ -303,7 +301,7 @@ fn complete_report_then_stats_schedules_completed_save() {
 
 #[test]
 fn single_stats_frame_trusts_its_reading() {
-    let (mut recording, mut events) = test_recording_saving_short_failed_runs();
+    let (mut recording, mut events) = test_default_recording();
     let start = Instant::now();
 
     recording.on_frame(start, &match_for_screen(Screen::Start));
@@ -318,7 +316,7 @@ fn single_stats_frame_trusts_its_reading() {
 
 #[test]
 fn first_stats_frame_misread_is_corrected_by_later_frames() {
-    let (mut recording, mut events) = test_recording_saving_short_failed_runs();
+    let (mut recording, mut events) = test_default_recording();
     let start = Instant::now();
     let stats_at = start + Duration::from_secs(10);
 
@@ -341,7 +339,7 @@ fn first_stats_frame_misread_is_corrected_by_later_frames() {
 
 #[test]
 fn two_stats_frames_trust_the_second_reading() {
-    let (mut recording, _events) = test_recording_saving_short_failed_runs();
+    let (mut recording, _events) = test_default_recording();
     let start = Instant::now();
     let stats_at = start + Duration::from_secs(10);
 
@@ -360,7 +358,7 @@ fn best_time_flicker_is_outvoted_independently_of_the_run_time() {
     // while the run time and target stay steady. Each field votes on its own,
     // so best-time settles on the majority 28 even though the final frame read
     // 20 -- the exact live capture-card symptom this guards against.
-    let (mut recording, _events) = test_recording_saving_short_failed_runs();
+    let (mut recording, _events) = test_default_recording();
     let start = Instant::now();
     let mut at = start + Duration::from_secs(10);
     recording.on_frame(start, &match_for_screen(Screen::Start));
@@ -382,7 +380,7 @@ fn best_time_flicker_is_outvoted_independently_of_the_run_time() {
 fn run_time_flicker_does_not_disturb_the_voted_best_time() {
     // The reverse independence: a flickering run time must not drag the stable
     // best/target with it when the newest frame becomes the naming source.
-    let (mut recording, _events) = test_recording_saving_short_failed_runs();
+    let (mut recording, _events) = test_default_recording();
     let start = Instant::now();
     let mut at = start + Duration::from_secs(10);
     recording.on_frame(start, &match_for_screen(Screen::Start));
@@ -405,7 +403,7 @@ fn persistent_first_frame_misread_is_outvoted_by_the_stable_reading() {
     // The misread spans several frames (as it can live, where the transitional
     // overlay frame is matched more than once), yet the stable reading fills the
     // rest of the window and wins -- there is no fixed sampling cap to defeat.
-    let (mut recording, mut events) = test_recording_saving_short_failed_runs();
+    let (mut recording, mut events) = test_default_recording();
     let start = Instant::now();
     let mut at = start + Duration::from_secs(10);
 
@@ -431,7 +429,7 @@ fn persistent_first_frame_misread_is_outvoted_by_the_stable_reading() {
 
 #[test]
 fn pending_notification_is_reissued_when_the_voted_time_changes() {
-    let (mut recording, mut events) = test_recording_saving_short_failed_runs();
+    let (mut recording, mut events) = test_default_recording();
     let start = Instant::now();
     let stats_at = start + Duration::from_secs(10);
 
@@ -456,7 +454,7 @@ fn pending_notification_is_reissued_when_the_voted_time_changes() {
 
 #[test]
 fn leaving_the_stats_screen_locks_the_voted_time() {
-    let (mut recording, mut events) = test_recording_saving_short_failed_runs();
+    let (mut recording, mut events) = test_default_recording();
     let start = Instant::now();
     let stats_at = start + Duration::from_secs(10);
 
@@ -476,7 +474,7 @@ fn leaving_the_stats_screen_locks_the_voted_time() {
 
 #[test]
 fn poll_pending_waits_for_the_padding_window_before_firing() {
-    let (mut recording, mut events) = test_recording_saving_short_failed_runs();
+    let (mut recording, mut events) = test_default_recording();
     let start = Instant::now();
     let stats_at = start + Duration::from_secs(10);
 
@@ -538,64 +536,6 @@ fn failed_report_then_level_screen_schedules_save_without_stats_skipped() {
     let job = recording.take_pending_job(levels_at + Duration::from_secs(5)).expect("save job");
     assert_eq!(job.status, RunStatus::Failed);
     assert_eq!(job.stats.as_ref().map(|m| m.screen), Some(Screen::Failed));
-}
-
-#[test]
-fn failed_run_discarded_when_failed_saves_are_disabled() {
-    let options = RecordingOptions { save_failed_runs: false, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
-    let start = Instant::now();
-
-    recording.on_frame(start, &match_for_screen(Screen::Start));
-    recording.on_frame(start + Duration::from_secs(10), &match_for_screen(Screen::Failed));
-    recording.on_frame(start + Duration::from_secs(12), &match_with_time());
-
-    assert_eq!(recording.clip_start, None);
-    assert_eq!(recording.status, None);
-    assert!(recording.report.is_none());
-    assert!(recording.pending.is_none());
-    // The run is over and nothing is saved: the phase returns to idle and the
-    // outcome is surfaced as a one-off notification rather than a phase.
-    assert_eq!(recording.recording_state.current(), None);
-    assert!(matches!(
-        events.try_recv(),
-        Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::SavingDisabled })
-    ));
-    assert_no_app_event(&mut events);
-}
-
-#[test]
-fn late_discard_does_not_knock_a_newly_started_run_out_of_recording() {
-    // Reproduces the quick-restart bug: a failed run is aborted, then the user
-    // restarts before the earlier run's (too-short) save timer fires. When it
-    // does fire, its discard must not clobber the new run's "recording" phase.
-    let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
-    let start = Instant::now();
-
-    // Run 1: a short KIA'd run whose save will be discarded when it fires.
-    recording.on_frame(start, &match_for_screen(Screen::Start));
-    recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Kia));
-    recording.on_frame(start + Duration::from_secs(6), &stats_match(5));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
-    assert!(recording.pending.is_some());
-
-    // Run 2 starts (quick restart) before run 1's save timer (~11.5s) fires.
-    recording.on_frame(start + Duration::from_secs(7), &match_for_screen(Screen::Start));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Started));
-
-    // Run 1's save timer fires while run 2 is recording: the too-short run is
-    // discarded, but the phase must stay "recording", not fall back to idle.
-    recording.on_frame(start + Duration::from_secs(12), &match_for_screen(Screen::Start));
-
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Started));
-    assert_eq!(recording.clip_start, Some(start + Duration::from_secs(7)));
-    assert!(recording.pending.is_none());
-    assert!(matches!(events.try_recv(), Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })));
-    assert_no_app_event(&mut events);
-
-    // Retire the still-active run 2 so the test-mode Drop check (no pending) passes.
-    recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Levels));
 }
 
 #[test]
@@ -792,7 +732,7 @@ fn shutdown_before_pending_save_fires_waits_and_preserves_save_job() {
     let start = Instant::now();
     let stats_at = start + Duration::from_secs(10);
 
-    assert!(recording.schedule_save(stats_at, start, Some(match_with_time())));
+    recording.schedule_save(stats_at, start, Some(match_with_time()));
 
     let pending = events.try_recv().expect("pending save event");
     let AppEvent::RecordingSavePending(pending) = pending else {
@@ -836,7 +776,7 @@ fn shutdown_after_pending_save_fire_time_flushes_without_waiting() {
     let start = Instant::now();
     let stats_at = start + Duration::from_secs(10);
 
-    assert!(recording.schedule_save(stats_at, start, Some(match_with_time())));
+    recording.schedule_save(stats_at, start, Some(match_with_time()));
 
     let slept = RefCell::new(None);
     let saved_job = RefCell::new(None);
@@ -855,83 +795,49 @@ fn shutdown_after_pending_save_fire_time_flushes_without_waiting() {
 }
 
 #[test]
-fn failed_run_without_stats_shorter_than_minimum_length_is_discarded_at_save_time() {
-    let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
+fn short_failed_run_without_stats_is_saved() {
+    let (mut recording, mut events) = test_recording(RecordingOptions::default());
     let start = Instant::now();
-    let failed_at = start + Duration::from_secs(19);
-
-    // The run is still scheduled up front, but it is already too short to save,
-    // so no "saving" notification is shown; the length gate is re-applied when
-    // the save fires, once the canonical time is known.
-    recording.status = Some(RunStatus::Failed);
-    assert!(recording.schedule_save(failed_at, start, Some(match_without_time())));
-    assert_no_app_event(&mut events);
-
-    assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_none());
-    assert!(recording.pending.is_none());
-    // A too-short run is dropped at save time and surfaced as a notification;
-    // the phase is left untouched (here it was never set off this direct call).
-    assert!(matches!(events.try_recv(), Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })));
-    assert_no_app_event(&mut events);
-    assert_eq!(recording.recording_state.current(), None);
-}
-
-#[test]
-fn failed_run_without_stats_at_or_above_minimum_length_is_saved() {
-    let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
-    let start = Instant::now();
-    let failed_at = start + Duration::from_secs(20);
+    let failed_at = start + Duration::from_secs(1);
 
     recording.status = Some(RunStatus::Failed);
-    assert!(recording.schedule_save(failed_at, start, Some(match_without_time())));
+    recording.schedule_save(failed_at, start, Some(match_without_time()));
 
     let pending = pending_save_event(&mut events);
     assert!(pending.failed);
     assert_eq!(pending.status, "failed");
-    assert!((pending.estimated_duration_secs - 31.0).abs() < f64::EPSILON);
+    assert!((pending.estimated_duration_secs - 12.0).abs() < f64::EPSILON);
 
     let job = recording.take_pending_job(failed_at + Duration::from_secs(5)).expect("save job");
     assert_eq!(job.status, RunStatus::Failed);
 }
 
 #[test]
-fn failed_run_minimum_length_uses_stats_time_when_present() {
-    let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
+fn failed_run_with_short_stats_time_is_saved() {
+    let (mut recording, mut events) = test_recording(RecordingOptions::default());
     let start = Instant::now();
     let failed_at = start + Duration::from_secs(25);
     let mut stats = match_with_time();
     stats.times = Some(Times { time: 19, target_time: None, best_time: None });
 
-    // Wall-clock length is 25s, but the stats time (19s) is what counts and it
-    // is below the 20s minimum, so no notification is shown and the run is
-    // discarded when the save fires.
     recording.status = Some(RunStatus::Failed);
-    assert!(recording.schedule_save(failed_at, start, Some(stats)));
-    assert_no_app_event(&mut events);
-
-    assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_none());
+    recording.schedule_save(failed_at, start, Some(stats));
+    assert_eq!(pending_save_event(&mut events).time_secs, Some(19));
+    assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_some());
     assert!(recording.pending.is_none());
-    // The voted stats time is below the minimum, so the run is dropped at save
-    // time and surfaced as a notification, leaving the phase untouched.
-    assert!(matches!(events.try_recv(), Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })));
     assert_no_app_event(&mut events);
-    assert_eq!(recording.recording_state.current(), None);
 }
 
 #[test]
-fn failed_run_minimum_length_accepts_stats_time_at_threshold() {
-    let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
+fn failed_run_with_stats_time_is_saved() {
+    let (mut recording, mut events) = test_recording(RecordingOptions::default());
     let start = Instant::now();
     let failed_at = start + Duration::from_secs(10);
     let mut stats = match_with_time();
     stats.times = Some(Times { time: 20, target_time: None, best_time: None });
 
     recording.status = Some(RunStatus::Failed);
-    assert!(recording.schedule_save(failed_at, start, Some(stats)));
+    recording.schedule_save(failed_at, start, Some(stats));
 
     let pending = pending_save_event(&mut events);
     assert!(pending.failed);
@@ -944,58 +850,38 @@ fn failed_run_minimum_length_accepts_stats_time_at_threshold() {
 }
 
 #[test]
-fn failed_run_minimum_length_gate_uses_voted_time_not_first_frame_misread() {
-    // A minimum longer than the real time but shorter than the misread: the
-    // run must be discarded because the *canonical* voted time (14s) is used,
-    // not the first stats frame's misread (374s).
-    let options = RecordingOptions { minimum_failed_run_length_secs: 100.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
+fn failed_run_uses_voted_time_not_first_frame_misread() {
+    let (mut recording, mut events) = test_recording(RecordingOptions::default());
     let start = Instant::now();
     let stats_at = start + Duration::from_secs(30);
 
     recording.on_frame(start, &match_for_screen(Screen::Start));
     recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Kia));
     recording.on_frame(stats_at, &stats_match(374));
-    // The misread (374s) clears the minimum, so a "saving" notification shows.
-    let pending = pending_save_event(&mut events);
+    pending_save_event(&mut events);
     recording.on_frame(stats_at + Duration::from_millis(16), &stats_match(14));
     recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(14));
     assert_eq!(pending_stats_time(&recording), Some(14));
 
-    // Once the voted time (14s) drops below the minimum, that notification is
-    // withdrawn rather than left stuck, and no save is written.
-    match events.try_recv().expect("discard event") {
-        AppEvent::RecordingSaveDiscarded { save_id } => assert_eq!(save_id, pending.save_id),
-        other => panic!("expected discard event, got {other:?}"),
-    }
-    assert!(recording.take_pending_job(stats_at + Duration::from_secs(1)).is_none());
-    // The discard fires a notification; because this save's own `SavePending`
-    // phase is still showing (no new run took over), it is cleared to idle.
-    assert!(matches!(events.try_recv(), Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })));
-    assert_eq!(recording.recording_state.current(), None);
+    let job = recording.take_pending_job(stats_at + Duration::from_secs(1)).expect("save job");
+    assert_eq!(job.stats.as_ref().and_then(|m| m.times).map(|t| t.time), Some(14));
 }
 
 #[test]
-fn failed_run_minimum_length_gate_saves_when_voted_time_clears_it() {
+fn failed_run_voted_time_refines_the_pending_save() {
     // The mirror case: the first frame misreads a too-short time (5s) but the
     // voted time (30s) clears the 20s minimum, so the run is saved.
-    let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
+    let (mut recording, mut events) = test_recording(RecordingOptions::default());
     let start = Instant::now();
     let stats_at = start + Duration::from_secs(30);
 
     recording.on_frame(start, &match_for_screen(Screen::Start));
     recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Kia));
-    // The first frame (5s) is below the minimum, so no notification is shown yet.
     recording.on_frame(stats_at, &stats_match(5));
-    assert_no_app_event(&mut events);
+    pending_save_event(&mut events);
     recording.on_frame(stats_at + Duration::from_millis(16), &stats_match(30));
     recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(30));
     assert_eq!(pending_stats_time(&recording), Some(30));
-
-    // Once the voted time (30s) clears the minimum, the notification appears.
-    let pending = pending_save_event(&mut events);
-    assert_eq!(pending.time_secs, Some(30));
 
     let job = recording.take_pending_job(stats_at + Duration::from_secs(1)).expect("save job");
     assert_eq!(job.status, RunStatus::Kia);
@@ -1003,13 +889,12 @@ fn failed_run_minimum_length_gate_saves_when_voted_time_clears_it() {
 }
 
 #[test]
-fn zero_minimum_failed_run_length_saves_all_failed_runs() {
-    let options = RecordingOptions { minimum_failed_run_length_secs: 0.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
+fn failed_runs_are_always_saved() {
+    let (mut recording, mut events) = test_recording(RecordingOptions::default());
     let start = Instant::now();
 
     recording.status = Some(RunStatus::Failed);
-    assert!(recording.schedule_save(start, start, Some(match_without_time())));
+    recording.schedule_save(start, start, Some(match_without_time()));
 
     let pending = pending_save_event(&mut events);
     assert!(pending.failed);

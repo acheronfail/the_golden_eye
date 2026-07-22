@@ -127,15 +127,6 @@ fn recording_save_pending_event_uses_frontend_field_names() {
 }
 
 #[test]
-fn recording_save_discarded_event_uses_frontend_field_names() {
-    let event = AppEvent::RecordingSaveDiscarded { save_id: 7 };
-    let json = serde_json::to_value(event).unwrap();
-
-    assert_eq!(json["type"], "recordingSaveDiscarded");
-    assert_eq!(json["saveId"], 7);
-}
-
-#[test]
 fn recording_saved_event_uses_frontend_field_names() {
     let event = AppEvent::RecordingSaved(RecordingSaved {
         save_id: 7,

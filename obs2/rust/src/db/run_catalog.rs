@@ -133,12 +133,6 @@ impl RunCatalog {
         Ok(())
     }
 
-    pub fn resync_and_prune(&self, roots: &[RunCatalogRoot], keep_failed: usize) -> anyhow::Result<()> {
-        self.resync(roots)?;
-        self.prune_failed_clips(keep_failed)?;
-        Ok(())
-    }
-
     pub fn record_saved_clip(&self, save: RunCatalogSave) -> anyhow::Result<IndexedRunClip> {
         let clip = clips::record_saved(save)?;
         tracing::info!(path = %clip.path.display(), status = clip.metadata.status.as_str(), "recording saved clip in run catalog");
@@ -176,20 +170,19 @@ impl RunCatalog {
         clips::remove_path(&conn, &path)
     }
 
-    pub fn prune_failed_clips(&self, keep: usize) -> anyhow::Result<()> {
-        if keep == 0 {
-            return Ok(());
-        }
-        let failed = self.failed_clip_paths_by_timestamp()?;
-        for path in failed.into_iter().skip(keep) {
-            tracing::info!(path = %path.display(), "pruning old failed clip");
-            match fs::remove_file(&path) {
-                Ok(()) => self.remove_path(&path)?,
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => self.remove_path(&path)?,
-                Err(err) => return Err(err).with_context(|| format!("removing old failed clip {}", path.display())),
-            }
-        }
-        Ok(())
+    pub fn pending_failed_reviews(&self) -> anyhow::Result<Vec<IndexedRunClip>> {
+        let conn = self.lock();
+        clips::pending_failed_reviews(&conn)
+    }
+
+    pub fn failed_review_is_pending(&self, path: &Path) -> anyhow::Result<bool> {
+        let conn = self.lock();
+        clips::failed_review_is_pending(&conn, path)
+    }
+
+    pub fn keep_failed_reviews(&self, paths: &[PathBuf]) -> anyhow::Result<()> {
+        let mut conn = self.lock();
+        clips::keep_failed_reviews(&mut conn, paths)
     }
 
     pub fn youtube_history(&self) -> anyhow::Result<Vec<UploadHistoryEntry>> {
@@ -208,18 +201,13 @@ impl RunCatalog {
     }
 
     fn upsert_clip(&self, clip: &IndexedRunClip) -> anyhow::Result<()> {
-        let conn = self.lock();
-        clips::upsert(&conn, clip)
+        let mut conn = self.lock();
+        clips::upsert(&mut conn, clip)
     }
 
     fn indexed_paths(&self) -> anyhow::Result<Vec<PathBuf>> {
         let conn = self.lock();
         clips::indexed_paths(&conn)
-    }
-
-    fn failed_clip_paths_by_timestamp(&self) -> anyhow::Result<Vec<PathBuf>> {
-        let conn = self.lock();
-        clips::failed_clip_paths_by_timestamp(&conn)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Connection> {

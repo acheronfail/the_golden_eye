@@ -48,6 +48,12 @@ pub struct RunMetadataUpdateRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FailedReviewRequest {
+    paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EditableRunMetadata {
     rom_language: String,
     status: String,
@@ -262,6 +268,100 @@ pub async fn handle_delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn handle_pending_reviews(State(state): State<AppState>) -> Result<impl IntoResponse> {
+    let settings = state.settings.get_effective();
+    let clips = tokio::task::spawn_blocking(move || {
+        seed_catalog_if_needed(&state, &settings);
+        let dirs = configured_run_directories(&settings);
+        let roots = catalog_roots(&dirs);
+        state.run_catalog.list(&roots)?;
+        let pending = state
+            .run_catalog
+            .pending_failed_reviews()?
+            .into_iter()
+            .filter(|clip| clips::is_under_roots(&clip.path, &roots))
+            .map(run_clip_from_indexed)
+            .collect::<Vec<_>>();
+        Ok::<_, anyhow::Error>(pending)
+    })
+    .await
+    .map_err(|err| {
+        tracing::error!("failed review list task failed: {err:#}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "failed review list failed").into_response()
+    })?
+    .map_err(|err| RunPathError::Internal(err).into_response())?;
+
+    Ok((StatusCode::OK, Json(clips)))
+}
+
+pub async fn handle_keep_reviews(
+    State(state): State<AppState>,
+    Json(req): Json<FailedReviewRequest>,
+) -> Result<impl IntoResponse> {
+    let settings = state.settings.get_effective();
+    let catalog = state.run_catalog.clone();
+    tokio::task::spawn_blocking(move || {
+        let paths = pending_review_paths(&settings, &catalog, req.paths)?;
+        catalog.keep_failed_reviews(&paths).map_err(RunPathError::Internal)
+    })
+    .await
+    .map_err(|err| {
+        tracing::error!("failed review keep task failed: {err:#}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "failed review keep failed").into_response()
+    })?
+    .map_err(RunPathError::into_response)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn handle_discard_reviews(
+    State(state): State<AppState>,
+    Json(req): Json<FailedReviewRequest>,
+) -> Result<impl IntoResponse> {
+    let settings = state.settings.get_effective();
+    let catalog = state.run_catalog.clone();
+    tokio::task::spawn_blocking(move || {
+        let paths = pending_review_paths(&settings, &catalog, req.paths)?;
+        for path in paths {
+            fs::remove_file(&path)
+                .with_context(|| format!("discarding failed clip {}", path.display()))
+                .map_err(RunPathError::Internal)?;
+            catalog.remove_path(&path).map_err(RunPathError::Internal)?;
+        }
+        Ok::<_, RunPathError>(())
+    })
+    .await
+    .map_err(|err| {
+        tracing::error!("failed review discard task failed: {err:#}");
+        (StatusCode::INTERNAL_SERVER_ERROR, "failed review discard failed").into_response()
+    })?
+    .map_err(RunPathError::into_response)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn pending_review_paths(
+    settings: &AppSettings,
+    catalog: &RunCatalog,
+    raw_paths: Vec<String>,
+) -> std::result::Result<Vec<PathBuf>, RunPathError> {
+    if raw_paths.is_empty() {
+        return Err(RunPathError::BadRequest("at least one failed clip is required"));
+    }
+    let mut paths = Vec::with_capacity(raw_paths.len());
+    for raw_path in raw_paths {
+        let path = authorize_tagged_run_path(settings, &raw_path)?;
+        if paths.contains(&path) {
+            continue;
+        }
+        if !catalog.failed_review_is_pending(&path).map_err(RunPathError::Internal)? {
+            return Err(RunPathError::Conflict("failed clip is no longer pending review"));
+        }
+        paths.push(path);
+    }
+    Ok(paths)
+}
+
 pub async fn handle_rename(
     State(state): State<AppState>,
     Json(req): Json<RunRenameRequest>,
@@ -335,7 +435,7 @@ pub fn stream_configured_runs(
     mut emit: impl FnMut(RunsStreamEvent) -> bool,
 ) {
     let dirs = configured_run_directories(settings);
-    if refresh && let Err(err) = catalog.resync_and_prune(&catalog_roots(&dirs), settings.failed_run_limit) {
+    if refresh && let Err(err) = catalog.resync(&catalog_roots(&dirs)) {
         tracing::warn!("failed to refresh run catalog from filesystem: {err:#}");
     }
 
@@ -381,7 +481,7 @@ pub fn stream_configured_runs(
 
 pub fn seed_catalog_from_settings(catalog: &RunCatalog, settings: &AppSettings) -> anyhow::Result<()> {
     let dirs = configured_run_directories(settings);
-    catalog.resync_and_prune(&catalog_roots(&dirs), settings.failed_run_limit)
+    catalog.resync(&catalog_roots(&dirs))
 }
 
 pub(crate) fn ensure_configured_run_directory(dir: &Path) -> anyhow::Result<()> {
@@ -427,14 +527,8 @@ pub(crate) fn configured_run_directory_for_kind(
     match kind {
         RunDirectoryKind::Completed => configured_dir(&settings.completed_output_path)
             .ok_or(RunPathError::NotFound("completed run clip folder is not configured")),
-        RunDirectoryKind::Failed => {
-            if !settings.save_failed_runs {
-                Err(RunPathError::NotFound("failed run clip folder is not configured"))
-            } else {
-                configured_dir(&settings.failed_output_path)
-                    .ok_or(RunPathError::NotFound("failed run clip folder is not configured"))
-            }
-        }
+        RunDirectoryKind::Failed => configured_dir(&settings.failed_output_path)
+            .ok_or(RunPathError::NotFound("failed run clip folder is not configured")),
     }
 }
 
@@ -708,8 +802,7 @@ fn configured_run_directories(settings: &AppSettings) -> Vec<ConfiguredRunDirect
     if let Some(path) = configured_dir(&settings.completed_output_path) {
         dirs.push(ConfiguredRunDirectory { kind: RunDirectoryKind::Completed, path });
     }
-    if settings.save_failed_runs
-        && let Some(path) = configured_dir(&settings.failed_output_path)
+    if let Some(path) = configured_dir(&settings.failed_output_path)
         && !dirs.iter().any(|dir| dir.path == path)
     {
         dirs.push(ConfiguredRunDirectory { kind: RunDirectoryKind::Failed, path });

@@ -4,7 +4,6 @@
 	import RunFiltersForm from '$lib/components/RunFilters.svelte';
 	import RunList from '$lib/components/RunList.svelte';
 	import RunsFolderChooser from '$lib/components/RunsFolderChooser.svelte';
-	import { settings } from '$lib/stores/settings.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
 		EMPTY_RUN_FILTERS,
@@ -274,10 +273,6 @@
 
 	function openFolderChooser() {
 		if (revealableDirectories.length === 0) return;
-		if (!settings.saveFailedRuns) {
-			void revealRunsFolder('completed');
-			return;
-		}
 		folderChooserOpen = true;
 	}
 

@@ -96,28 +96,25 @@ fn seed_from_roots_indexes_nested_tagged_clips() {
 }
 
 #[test]
-fn resync_and_prune_counts_failed_clips_across_subdirectories() {
-    let dir = TestDir::new("prune-nested");
+fn failed_clip_reviews_persist_and_keep_never_deletes_the_clip() {
+    let dir = TestDir::new("failed-reviews");
     let failed = dir.join("failed");
-    let old = failed.join("Dam/Agent/old.mov");
-    let middle = failed.join("Facility/Agent/middle.mov");
-    let newest = failed.join("Runway/Agent/newest.mov");
-    let complete = failed.join("Surface/Agent/complete.mov");
-    write_tagged_clip(&old, "failed", "2026-01-01T00:00:00Z");
-    write_tagged_clip(&middle, "kia", "2026-01-02T00:00:00Z");
-    write_tagged_clip(&newest, "abort", "2026-01-03T00:00:00Z");
-    write_tagged_clip(&complete, "complete", "2026-01-04T00:00:00Z");
+    let clip = failed.join("Dam/Agent/failed.mov");
+    write_tagged_clip(&clip, "failed", "2026-01-01T00:00:00Z");
 
-    let catalog = catalog(&dir);
-    catalog.resync_and_prune(&[RunCatalogRoot { path: failed.clone() }], 2).unwrap();
+    let run_catalog = catalog(&dir);
+    run_catalog.resync(&[RunCatalogRoot { path: failed }]).unwrap();
+    let pending = run_catalog.pending_failed_reviews().unwrap();
+    assert_eq!(pending.len(), 1);
 
-    assert!(!old.exists(), "oldest failed clip should be pruned across nested dirs");
-    assert!(middle.exists());
-    assert!(newest.exists());
-    assert!(complete.exists(), "complete clip in failed root should not count toward failed limit");
-    let clips = catalog.list(&[RunCatalogRoot { path: failed }]).unwrap();
-    assert_eq!(clips.len(), 3);
-    assert!(!clips.iter().any(|clip| clip.path.ends_with("old.mov")));
+    run_catalog.keep_failed_reviews(&[pending[0].path.clone()]).unwrap();
+    assert!(run_catalog.pending_failed_reviews().unwrap().is_empty());
+    assert!(clip.exists(), "keeping a failed clip must never remove the file");
+
+    drop(run_catalog);
+    let reopened = catalog(&dir);
+    assert!(reopened.pending_failed_reviews().unwrap().is_empty());
+    assert!(clip.exists());
 }
 
 #[test]

@@ -196,20 +196,6 @@ pub enum AppEvent {
     RecordingSavePending(RecordingSavePending),
     /// A run's clip was saved out of the replay buffer and trimmed.
     RecordingSaved(RecordingSaved),
-    /// A scheduled save was dropped before any clip was written (e.g. a failed
-    /// run shorter than the configured minimum), so no `RecordingSaved` follows.
-    /// Clients use it to clear the pending "saving" notification for this save.
-    RecordingSaveDiscarded {
-        #[serde(rename = "saveId")]
-        save_id: u64,
-    },
-    /// A failed run reached an ending screen but no clip was written for it
-    /// (failed-run saving is disabled, or the run was shorter than the
-    /// configured minimum). Unlike a recording-phase transition this is a
-    /// one-off notification that never touches the retained recorder phase, so a
-    /// discard that fires late -- e.g. on the save timer, after a new run has
-    /// already started -- can't knock the new run out of its "recording" state.
-    FailedRunNotSaved { reason: FailedRunNotSavedReason },
     /// Monitoring stopped, either from a user request or an external OBS event.
     MonitorStopped { reason: MonitorStoppedReason },
     /// The settings JSON file changed on disk and was reloaded successfully.
@@ -254,17 +240,6 @@ pub enum MonitorStoppedReason {
     UserStopped,
     /// OBS reported that its replay buffer stopped while monitoring was active.
     ReplayBufferStopped,
-}
-
-/// Why a failed run reached an ending screen without a clip being written.
-/// Serialized as a plain string inside [`AppEvent::FailedRunNotSaved`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum FailedRunNotSavedReason {
-    /// Failed-run saving is disabled in the active recording options.
-    SavingDisabled,
-    /// The run was shorter than the configured minimum failed-run length.
-    TooShort,
 }
 
 /// Monitor throughput sampled by the worker thread and pushed to the frontend

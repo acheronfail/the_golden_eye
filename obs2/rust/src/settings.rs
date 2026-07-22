@@ -13,8 +13,6 @@ use serde_json::Value;
 
 use crate::recording::{
     DEFAULT_CLIP_FILENAME_TEMPLATE,
-    DEFAULT_FAILED_RUN_LIMIT,
-    DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
     DEFAULT_POST_RUN_PADDING_SECS,
     DEFAULT_PRE_RUN_PADDING_SECS,
     RecordingOptions,
@@ -112,10 +110,7 @@ pub struct AppSettings {
     pub show_source_previews: bool,
     pub welcome_modal_shown: bool,
     pub completed_output_path: String,
-    pub save_failed_runs: bool,
     pub failed_output_path: String,
-    pub failed_run_limit: usize,
-    pub minimum_failed_run_length_secs: f64,
     pub clip_filename_template: String,
     pub pre_run_padding_secs: f64,
     pub post_run_padding_secs: f64,
@@ -147,10 +142,7 @@ impl Default for AppSettings {
             show_source_previews: true,
             welcome_modal_shown: false,
             completed_output_path: String::new(),
-            save_failed_runs: true,
             failed_output_path: String::new(),
-            failed_run_limit: DEFAULT_FAILED_RUN_LIMIT,
-            minimum_failed_run_length_secs: DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
             pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
             post_run_padding_secs: DEFAULT_POST_RUN_PADDING_SECS,
@@ -188,13 +180,7 @@ impl AppSettings {
             show_source_previews: bool_field(object.get("showSourcePreviews"), default.show_source_previews),
             welcome_modal_shown: bool_field(object.get("welcomeModalShown"), default.welcome_modal_shown),
             completed_output_path: string_field(object.get("completedOutputPath"), &default.completed_output_path),
-            save_failed_runs: bool_field(object.get("saveFailedRuns"), default.save_failed_runs),
             failed_output_path: string_field(object.get("failedOutputPath"), &default.failed_output_path),
-            failed_run_limit: non_negative_usize(object.get("failedRunLimit"), default.failed_run_limit),
-            minimum_failed_run_length_secs: non_negative_f64(
-                object.get("minimumFailedRunLengthSecs"),
-                default.minimum_failed_run_length_secs,
-            ),
             clip_filename_template: clip_filename_template(object.get("clipFilenameTemplate")),
             pre_run_padding_secs: non_negative_f64(object.get("preRunPaddingSecs"), default.pre_run_padding_secs),
             post_run_padding_secs: non_negative_f64(object.get("postRunPaddingSecs"), default.post_run_padding_secs),
@@ -231,10 +217,7 @@ impl AppSettings {
     pub fn recording_options(&self) -> RecordingOptions {
         RecordingOptions {
             completed_output_path: self.completed_output_path.trim().to_owned(),
-            save_failed_runs: self.save_failed_runs,
             failed_output_path: self.failed_output_path.trim().to_owned(),
-            failed_run_limit: self.failed_run_limit,
-            minimum_failed_run_length_secs: self.minimum_failed_run_length_secs,
             clip_filename_template: self.clip_filename_template.trim().to_owned(),
             pre_run_padding_secs: self.pre_run_padding_secs,
             post_run_padding_secs: self.post_run_padding_secs,
@@ -588,10 +571,6 @@ fn message_template(value: Option<&Value>, fallback: &str) -> String {
 fn message_template_str(value: Option<&str>, fallback: &str) -> String {
     let value = value.unwrap_or(fallback);
     if value.trim().is_empty() { fallback.to_owned() } else { value.to_owned() }
-}
-
-fn non_negative_usize(value: Option<&Value>, fallback: usize) -> usize {
-    number_value(value).filter(|n| n.is_finite()).map(|n| n.max(0.0).trunc() as usize).unwrap_or(fallback)
 }
 
 fn non_negative_u64_option(value: Option<&Value>) -> Option<u64> {

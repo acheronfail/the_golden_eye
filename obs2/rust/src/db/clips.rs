@@ -16,12 +16,23 @@ const CREATE_LEVEL_DIFFICULTY_TIMESTAMP_INDEX: &str =
     include_str!("sql/clips/create_level_difficulty_timestamp_index.sql");
 const CREATE_TIME_INDEX: &str =
     "CREATE INDEX IF NOT EXISTS clips_time_idx ON clips(json_extract(metadata_json, '$.timeSeconds'))";
+const CREATE_FAILED_REVIEWS_TABLE: &str = "CREATE TABLE IF NOT EXISTS failed_clip_reviews (\
+    path TEXT PRIMARY KEY NOT NULL REFERENCES clips(path) ON UPDATE CASCADE ON DELETE CASCADE,\
+    state TEXT NOT NULL CHECK (state IN ('pending', 'kept'))\
+)";
+const BACKFILL_FAILED_REVIEWS: &str = "INSERT OR IGNORE INTO failed_clip_reviews(path, state) \
+    SELECT path, 'pending' FROM clips \
+    WHERE json_extract(metadata_json, '$.status') IN ('failed', 'abort', 'kia')";
 const SELECT_ALL: &str = "SELECT path, size_bytes, modified_unix, duration_secs, metadata_json FROM clips";
 const UPSERT_CLIP: &str = include_str!("sql/clips/upsert.sql");
 const UPDATE_PATH: &str = "UPDATE clips SET path = ?1 WHERE path = ?2";
 const DELETE_PATH: &str = "DELETE FROM clips WHERE path = ?1";
 const SELECT_PATHS: &str = "SELECT path FROM clips";
-const SELECT_FAILED_PATHS: &str = include_str!("sql/clips/select_failed_paths.sql");
+const SELECT_PENDING_REVIEWS: &str = "SELECT clips.path, clips.size_bytes, clips.modified_unix, \
+    clips.duration_secs, clips.metadata_json FROM failed_clip_reviews \
+    JOIN clips ON clips.path = failed_clip_reviews.path \
+    WHERE failed_clip_reviews.state = 'pending' \
+    ORDER BY json_extract(clips.metadata_json, '$.timestamp') DESC, clips.path DESC";
 const SELECT_YOUTUBE_HISTORY: &str = include_str!("sql/clips/select_youtube_history.sql");
 const UPDATE_YOUTUBE_HISTORY: &str = "UPDATE clips SET youtube_json = ?1 WHERE path = ?2";
 const CLEAR_YOUTUBE_HISTORY: &str = "UPDATE clips SET youtube_json = NULL WHERE path = ?1 AND youtube_json IS NOT NULL";
@@ -31,10 +42,13 @@ pub fn initialise(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(CREATE_STATUS_TIMESTAMP_INDEX)?;
     conn.execute_batch(CREATE_LEVEL_DIFFICULTY_TIMESTAMP_INDEX)?;
     conn.execute_batch(CREATE_TIME_INDEX)?;
+    conn.execute_batch(CREATE_FAILED_REVIEWS_TABLE)?;
+    conn.execute_batch(BACKFILL_FAILED_REVIEWS)?;
     Ok(())
 }
 
 pub fn drop_tables(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch("DROP TABLE IF EXISTS failed_clip_reviews")?;
     conn.execute_batch("DROP TABLE IF EXISTS clips")?;
     Ok(())
 }
@@ -78,9 +92,10 @@ pub fn read_from_disk(path: &Path) -> anyhow::Result<Option<IndexedRunClip>> {
     }))
 }
 
-pub fn upsert(conn: &Connection, clip: &IndexedRunClip) -> anyhow::Result<()> {
+pub fn upsert(conn: &mut Connection, clip: &IndexedRunClip) -> anyhow::Result<()> {
     let metadata_json = serde_json::to_string(&clip.metadata)?;
-    conn.execute(
+    let tx = conn.transaction()?;
+    tx.execute(
         UPSERT_CLIP,
         params![
             path_to_string(&clip.path),
@@ -90,6 +105,13 @@ pub fn upsert(conn: &Connection, clip: &IndexedRunClip) -> anyhow::Result<()> {
             metadata_json,
         ],
     )?;
+    let path = path_to_string(&clip.path);
+    if clip.metadata.status.is_failed() {
+        tx.execute("INSERT OR IGNORE INTO failed_clip_reviews(path, state) VALUES (?1, 'pending')", [path])?;
+    } else {
+        tx.execute("DELETE FROM failed_clip_reviews WHERE path = ?1", [path])?;
+    }
+    tx.commit()?;
     Ok(())
 }
 
@@ -109,10 +131,31 @@ pub fn indexed_paths(conn: &Connection) -> anyhow::Result<Vec<PathBuf>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-pub fn failed_clip_paths_by_timestamp(conn: &Connection) -> anyhow::Result<Vec<PathBuf>> {
-    let mut stmt = conn.prepare(SELECT_FAILED_PATHS)?;
-    let rows = stmt.query_map([], |row| Ok(PathBuf::from(row.get::<_, String>(0)?)))?;
+pub fn pending_failed_reviews(conn: &Connection) -> anyhow::Result<Vec<IndexedRunClip>> {
+    let mut stmt = conn.prepare(SELECT_PENDING_REVIEWS)?;
+    let rows = stmt.query_map([], row_to_clip)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn failed_review_is_pending(conn: &Connection, path: &Path) -> anyhow::Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM failed_clip_reviews WHERE path = ?1 AND state = 'pending')",
+        [path_to_string(&catalog_path(path))],
+        |row| row.get(0),
+    )?)
+}
+
+pub fn keep_failed_reviews(conn: &mut Connection, paths: &[PathBuf]) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    for path in paths {
+        let updated = tx.execute(
+            "UPDATE failed_clip_reviews SET state = 'kept' WHERE path = ?1 AND state = 'pending'",
+            [path_to_string(&catalog_path(path))],
+        )?;
+        anyhow::ensure!(updated == 1, "failed clip is not pending review: {}", path.display());
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 pub fn youtube_history(conn: &Connection) -> anyhow::Result<Vec<UploadHistoryEntry>> {

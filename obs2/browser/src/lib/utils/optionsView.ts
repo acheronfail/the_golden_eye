@@ -40,8 +40,6 @@ export interface RecordingOptionsView {
 		statusMessage: (validation: FolderValidation) => string;
 	};
 	normalize: {
-		failedRunLimit: () => void;
-		minimumFailedRunLength: () => void;
 		preRunPadding: () => void;
 		postRunPadding: () => void;
 	};

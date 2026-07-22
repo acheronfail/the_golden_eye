@@ -1,13 +1,11 @@
 import { browser } from '$app/environment';
 import { backend, type AppEvent, type AppSnapshot } from '$lib/api';
 import {
-	applyFailedRunNotSaved,
 	applyLanguageDetected,
 	applyMonitorFps,
 	applyMonitorSnapshot,
 	applyMonitorStopped,
 	applyRecordingSaved,
-	applyRecordingSaveDiscarded,
 	applyRecordingSavePending
 } from '$lib/stores/monitor.svelte';
 import {
@@ -17,6 +15,7 @@ import {
 	replaceNotificationFlag
 } from '$lib/stores/notifications.svelte';
 import { refreshReplayBuffer, setReplayBufferStatus } from '$lib/stores/replayBuffer.svelte';
+import { failedReview } from '$lib/stores/failedReview.svelte';
 import { settings } from '$lib/stores/settings.svelte';
 import { setObsSources } from '$lib/stores/sources.svelte';
 import { updates } from '$lib/stores/updates.svelte';
@@ -144,8 +143,10 @@ const handleAppEvent = (event: AppEvent): void => {
 			break;
 		}
 		case 'snapshot':
-			if (event.state && typeof event.state === 'object') applyAppSnapshot(event.state);
-			else console.warn('Ignoring malformed snapshot event', event);
+			if (event.state && typeof event.state === 'object') {
+				applyAppSnapshot(event.state);
+				if (event.state.monitor.enabled) failedReview.monitorStarted();
+			} else console.warn('Ignoring malformed snapshot event', event);
 			break;
 		case 'languageDetected':
 			applyLanguageDetected(event.lang);
@@ -158,15 +159,11 @@ const handleAppEvent = (event: AppEvent): void => {
 			break;
 		case 'recordingSaved':
 			applyRecordingSaved(event);
-			break;
-		case 'recordingSaveDiscarded':
-			applyRecordingSaveDiscarded(event);
-			break;
-		case 'failedRunNotSaved':
-			applyFailedRunNotSaved(event.reason);
+			if (event.failed) failedReview.refresh();
 			break;
 		case 'monitorStopped':
 			applyMonitorStopped(event.reason);
+			failedReview.showWhenAvailable();
 			void refreshReplayBuffer();
 			break;
 		case 'settingsReloaded':

@@ -85,18 +85,6 @@
 	const { panel: panelClass, label: labelClass, hint: hintClass, pathButton: pathButtonClass } = optionsClasses;
 	const dangerPanelClass =
 		'grid gap-3 rounded border border-(--obs-danger) bg-[color-mix(in_srgb,var(--obs-danger)_14%,transparent)] px-4 py-4';
-	const normalizeFailedRunLimit = () => {
-		const value = Number(settings.failedRunLimit);
-		settings.failedRunLimit = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
-	};
-
-	const normalizeMinimumFailedRunLength = () => {
-		const value = Number(settings.minimumFailedRunLengthSecs);
-		settings.minimumFailedRunLengthSecs = Number.isFinite(value)
-			? Math.max(0, value)
-			: settings.defaults.minimumFailedRunLengthSecs;
-	};
-
 	const normalizePreRunPadding = () => {
 		const value = Number(settings.preRunPaddingSecs);
 		settings.preRunPaddingSecs = Number.isFinite(value) ? Math.max(0, value) : settings.defaults.preRunPaddingSecs;
@@ -335,8 +323,6 @@
 			statusMessage: folderStatusMessage
 		},
 		normalize: {
-			failedRunLimit: normalizeFailedRunLimit,
-			minimumFailedRunLength: normalizeMinimumFailedRunLength,
 			preRunPadding: normalizePreRunPadding,
 			postRunPadding: normalizePostRunPadding
 		}

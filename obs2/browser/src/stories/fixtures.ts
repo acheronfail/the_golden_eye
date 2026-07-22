@@ -215,14 +215,6 @@ export const notificationScenarios = {
 			tone: 'warning'
 		})
 	],
-	failedRunNotSaved: [
-		notice(204, {
-			title: 'Failed run not saved',
-			detail: 'The run was shorter than the minimum failed-run length.',
-			tone: 'info',
-			timeoutMs: 600_000
-		})
-	],
 	clipSaved: [notificationFixtures[1]],
 	failedClipSaved: [
 		notice(205, {
