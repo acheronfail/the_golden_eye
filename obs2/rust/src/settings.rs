@@ -28,6 +28,26 @@ pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "GoldenEye";
 pub const DEFAULT_FAILED_OUTPUT_DIR_SUFFIX: &str = " - failed";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MonitorDesign {
+    SignalBand,
+    MissionGlass,
+    Debug,
+}
+
+impl MonitorDesign {
+    pub fn from_json_value(value: Option<&Value>) -> Self {
+        match value.and_then(Value::as_str) {
+            Some("mission-glass") => MonitorDesign::MissionGlass,
+            Some("debug") => MonitorDesign::Debug,
+            _ => DEFAULT_MONITOR_DESIGN,
+        }
+    }
+}
+
+pub const DEFAULT_MONITOR_DESIGN: MonitorDesign = MonitorDesign::SignalBand;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum UpdateCheckInterval {
     Monthly,
@@ -86,6 +106,7 @@ pub const DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE: &str =
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub stop_replay_buffer_when_monitor_stopped: bool,
+    pub monitor_design: MonitorDesign,
     pub show_monitor_fps: bool,
     pub show_developer_settings: bool,
     pub show_source_previews: bool,
@@ -120,6 +141,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             stop_replay_buffer_when_monitor_stopped: false,
+            monitor_design: DEFAULT_MONITOR_DESIGN,
             show_monitor_fps: false,
             show_developer_settings: false,
             show_source_previews: true,
@@ -160,6 +182,7 @@ impl AppSettings {
                 object.get("stopReplayBufferWhenMonitorStopped"),
                 default.stop_replay_buffer_when_monitor_stopped,
             ),
+            monitor_design: MonitorDesign::from_json_value(object.get("monitorDesign")),
             show_monitor_fps: bool_field(object.get("showMonitorFps"), default.show_monitor_fps),
             show_developer_settings: bool_field(object.get("showDeveloperSettings"), default.show_developer_settings),
             show_source_previews: bool_field(object.get("showSourcePreviews"), default.show_source_previews),

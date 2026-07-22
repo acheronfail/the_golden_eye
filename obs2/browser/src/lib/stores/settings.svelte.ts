@@ -1,15 +1,18 @@
 import { browser } from '$app/environment';
 import { z } from 'zod';
 import { backend, type SettingsStatus } from '$lib/api';
+import type { MonitorDesign } from '$lib/components/monitorView';
 
 const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
 const UpdateCheckIntervalSchema = z.enum(['monthly', 'weekly', 'daily', 'never']);
 export type UpdateCheckInterval = z.infer<typeof UpdateCheckIntervalSchema>;
 const YoutubeVisibilitySchema = z.enum(['public', 'unlisted', 'private']);
 export type YoutubeVisibility = z.infer<typeof YoutubeVisibilitySchema>;
+const MonitorDesignSchema = z.enum(['signal-band', 'mission-glass', 'debug']);
 
 export interface Settings {
 	stopReplayBufferWhenMonitorStopped: boolean;
+	monitorDesign: MonitorDesign;
 	showMonitorFps: boolean;
 	showDeveloperSettings: boolean;
 	showSourcePreviews: boolean;
@@ -57,6 +60,7 @@ const nonNegativeNumber = (value: unknown, fallback = 0): number => {
 
 const bootstrapSettings: Settings = {
 	stopReplayBufferWhenMonitorStopped: false,
+	monitorDesign: 'signal-band',
 	showMonitorFps: false,
 	showDeveloperSettings: false,
 	showSourcePreviews: true,
@@ -84,6 +88,7 @@ const bootstrapSettings: Settings = {
 const settingsSchema = (defaults: Settings) =>
 	z.object({
 		stopReplayBufferWhenMonitorStopped: z.boolean().catch(defaults.stopReplayBufferWhenMonitorStopped),
+		monitorDesign: MonitorDesignSchema.catch(defaults.monitorDesign),
 		showMonitorFps: z.boolean().catch(defaults.showMonitorFps),
 		showDeveloperSettings: z.boolean().catch(defaults.showDeveloperSettings),
 		showSourcePreviews: z.boolean().catch(defaults.showSourcePreviews),
@@ -169,6 +174,7 @@ export const settings = new (class {
 	//
 
 	stopReplayBufferWhenMonitorStopped = $state(initialSettings.stopReplayBufferWhenMonitorStopped);
+	monitorDesign = $state<MonitorDesign>(initialSettings.monitorDesign);
 	showMonitorFps = $state(initialSettings.showMonitorFps);
 	showDeveloperSettings = $state(initialSettings.showDeveloperSettings);
 	showSourcePreviews = $state(initialSettings.showSourcePreviews);
@@ -228,6 +234,7 @@ export const settings = new (class {
 	savedState = $derived(
 		JSON.stringify({
 			stopReplayBufferWhenMonitorStopped: this.stopReplayBufferWhenMonitorStopped,
+			monitorDesign: this.monitorDesign,
 			showMonitorFps: this.showMonitorFps,
 			showDeveloperSettings: this.showDeveloperSettings,
 			showSourcePreviews: this.showSourcePreviews,
@@ -365,6 +372,7 @@ export const settings = new (class {
 
 	private apply(next: Settings): void {
 		this.stopReplayBufferWhenMonitorStopped = next.stopReplayBufferWhenMonitorStopped;
+		this.monitorDesign = next.monitorDesign;
 		this.showMonitorFps = next.showMonitorFps;
 		this.showDeveloperSettings = next.showDeveloperSettings;
 		this.showSourcePreviews = next.showSourcePreviews;

@@ -26,9 +26,34 @@ export interface MonitorPhaseStyle {
 	dot: string;
 }
 
-export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseStyle => {
+export type MonitorPhase = 'waiting' | 'recording' | 'complete' | 'danger' | 'neutral';
+
+export const monitorPresentationPhase = (
+	state: RecordingStatus | null,
+	waitingForObs = false,
+	verified = true
+): MonitorPhase => {
+	if (!verified || waitingForObs) return 'neutral';
 	switch (state) {
 		case 'started':
+			return 'recording';
+		case 'complete':
+			return 'complete';
+		case 'failed':
+		case 'aborted':
+		case 'kia':
+		case 'statsSkipped':
+			return 'danger';
+		case 'cancelled':
+			return 'neutral';
+		default:
+			return 'waiting';
+	}
+};
+
+export const monitorPhaseStyleForPhase = (phase: MonitorPhase): MonitorPhaseStyle => {
+	switch (phase) {
+		case 'recording':
 			return {
 				title: 'recording',
 				border: 'obs-phase-recording-border',
@@ -37,6 +62,49 @@ export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseSt
 				button: 'obs-phase-recording-button',
 				dot: 'obs-phase-recording-dot'
 			};
+		case 'complete':
+			return {
+				title: 'complete',
+				border: 'obs-phase-gold-border',
+				heading: 'obs-phase-gold-text',
+				tag: 'obs-phase-gold-text',
+				button: 'obs-phase-gold-button',
+				dot: 'obs-phase-gold-dot'
+			};
+		case 'danger':
+			return {
+				title: 'failed',
+				border: 'obs-phase-danger-border',
+				heading: 'obs-phase-danger-text',
+				tag: 'obs-phase-danger-text',
+				button: 'obs-phase-danger-button',
+				dot: 'obs-phase-danger-dot'
+			};
+		case 'neutral':
+			return {
+				title: 'cancelled',
+				border: 'obs-phase-neutral-border',
+				heading: 'obs-phase-neutral-text',
+				tag: 'obs-phase-neutral-text',
+				button: 'obs-phase-neutral-button',
+				dot: 'obs-phase-neutral-dot'
+			};
+		case 'waiting':
+			return {
+				title: 'waiting',
+				border: 'obs-phase-waiting-border',
+				heading: 'obs-phase-waiting-text',
+				tag: 'obs-phase-waiting-text',
+				button: 'obs-phase-waiting-button',
+				dot: 'obs-phase-waiting-dot'
+			};
+	}
+};
+
+export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseStyle => {
+	switch (state) {
+		case 'started':
+			return monitorPhaseStyleForPhase('recording');
 		case 'cancelled':
 			return {
 				title: 'cancelled',
@@ -47,14 +115,7 @@ export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseSt
 				dot: 'obs-phase-neutral-dot'
 			};
 		case 'failed':
-			return {
-				title: 'failed',
-				border: 'obs-phase-danger-border',
-				heading: 'obs-phase-danger-text',
-				tag: 'obs-phase-danger-text',
-				button: 'obs-phase-danger-button',
-				dot: 'obs-phase-danger-dot'
-			};
+			return monitorPhaseStyleForPhase('danger');
 		case 'aborted':
 			return {
 				title: 'aborted',
@@ -74,14 +135,7 @@ export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseSt
 				dot: 'obs-phase-danger-dot'
 			};
 		case 'complete':
-			return {
-				title: 'complete',
-				border: 'obs-phase-gold-border',
-				heading: 'obs-phase-gold-text',
-				tag: 'obs-phase-gold-text',
-				button: 'obs-phase-gold-button',
-				dot: 'obs-phase-gold-dot'
-			};
+			return monitorPhaseStyleForPhase('complete');
 		case 'statsSkipped':
 			return {
 				title: 'skipped stats',
@@ -93,14 +147,7 @@ export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseSt
 			};
 		case null:
 		default:
-			return {
-				title: 'waiting',
-				border: 'obs-phase-gold-border',
-				heading: 'obs-phase-gold-text',
-				tag: 'obs-phase-gold-text',
-				button: 'obs-phase-gold-button',
-				dot: 'obs-phase-gold-dot'
-			};
+			return monitorPhaseStyleForPhase('waiting');
 	}
 };
 
@@ -112,6 +159,7 @@ export const monitor = $state<{
 	match: LevelMatch | null;
 	fps: MonitorFps | null;
 	recordingState: RecordingStatus | null;
+	chromePhase: MonitorPhase | null;
 	kiaEffectId: number;
 }>({
 	status: null,
@@ -119,6 +167,7 @@ export const monitor = $state<{
 	match: null,
 	fps: null,
 	recordingState: null,
+	chromePhase: null,
 	kiaEffectId: 0
 });
 

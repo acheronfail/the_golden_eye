@@ -28,6 +28,8 @@
 	--obs-danger-surface: rgb(224 107 107 / 14%);
 	--obs-success: #61c27c;
 	--obs-success-surface: rgb(97 194 124 / 14%);
+	--obs-monitor-waiting: #7fb7ff;
+	--obs-monitor-waiting-surface: rgb(127 183 255 / 14%);
 }
 
 html,
@@ -84,6 +86,10 @@ body {
 
 .obs-app-shell.obs-window-focused {
 	border-color: var(--obs-gold);
+}
+
+.obs-app-shell:not(.obs-window-focused) {
+	border-color: var(--obs-titlebar);
 }
 
 .obs-app-header {
@@ -682,6 +688,10 @@ body {
 	border-color: var(--obs-success);
 }
 
+.obs-app-shell.obs-window-focused.obs-phase-recording-border {
+	border-color: var(--obs-success);
+}
+
 .obs-phase-recording-text {
 	color: var(--obs-success);
 }
@@ -690,7 +700,27 @@ body {
 	background: var(--obs-success);
 }
 
+.obs-phase-waiting-border {
+	border-color: var(--obs-monitor-waiting);
+}
+
+.obs-app-shell.obs-window-focused.obs-phase-waiting-border {
+	border-color: var(--obs-monitor-waiting);
+}
+
+.obs-phase-waiting-text {
+	color: var(--obs-monitor-waiting);
+}
+
+.obs-phase-waiting-dot {
+	background: var(--obs-monitor-waiting);
+}
+
 .obs-phase-neutral-border {
+	border-color: var(--obs-border-soft);
+}
+
+.obs-app-shell.obs-window-focused.obs-phase-neutral-border {
 	border-color: var(--obs-border-soft);
 }
 
@@ -706,6 +736,10 @@ body {
 	border-color: var(--obs-danger);
 }
 
+.obs-app-shell.obs-window-focused.obs-phase-danger-border {
+	border-color: var(--obs-danger);
+}
+
 .obs-phase-danger-text {
 	color: var(--obs-danger);
 }
@@ -718,6 +752,10 @@ body {
 	border-color: var(--obs-gold);
 }
 
+.obs-app-shell.obs-window-focused.obs-phase-gold-border {
+	border-color: var(--obs-gold);
+}
+
 .obs-phase-gold-text {
 	color: var(--obs-gold-hover);
 }
@@ -727,6 +765,7 @@ body {
 }
 
 .obs-phase-recording-button,
+.obs-phase-waiting-button,
 .obs-phase-neutral-button,
 .obs-phase-danger-button,
 .obs-phase-gold-button {
@@ -745,6 +784,21 @@ body {
 
 .obs-phase-recording-button:active {
 	background: color-mix(in srgb, var(--obs-success), #111318 24%);
+	color: #111318;
+}
+
+.obs-phase-waiting-button {
+	border-color: var(--obs-monitor-waiting);
+	color: color-mix(in srgb, var(--obs-monitor-waiting), white 24%);
+}
+
+.obs-phase-waiting-button:hover {
+	background: var(--obs-monitor-waiting);
+	color: #111318;
+}
+
+.obs-phase-waiting-button:active {
+	background: color-mix(in srgb, var(--obs-monitor-waiting), #111318 24%);
 	color: #111318;
 }
 

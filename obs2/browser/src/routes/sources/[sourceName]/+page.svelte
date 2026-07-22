@@ -4,9 +4,10 @@
 	import { backend } from '$lib/api';
 	import MonitorView, { type MonitorTransition } from '$lib/components/MonitorView.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { monitor } from '$lib/stores/monitor.svelte';
+	import { monitor, monitorPresentationPhase } from '$lib/stores/monitor.svelte';
 	import { refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import { obsSources } from '$lib/stores/sources.svelte';
+	import { onDestroy } from 'svelte';
 	import type { PageProps } from './$types';
 
 	let { params }: PageProps = $props();
@@ -21,10 +22,31 @@
 	const isCurrentPage = $derived(page.url.pathname === sourcePath);
 	const sourceExists = $derived((obsSources.items ?? []).some((source) => source.name === params.sourceName));
 
+	$effect(() => {
+		if (!isCurrentPage) return;
+		monitor.chromePhase = monitorPresentationPhase(monitor.recordingState, transition !== null, verified);
+	});
+
+	onDestroy(() => {
+		monitor.chromePhase = null;
+	});
+
 	const navigate = (href: string, options: { replaceState?: boolean } = {}) => {
 		if (page.url.pathname === href || pendingNavigation === href) return;
 		pendingNavigation = href;
 		void goto(href, options);
+	};
+
+	const syncMonitorStatus = () => {
+		if (!isCurrentPage || !monitor.loaded) return;
+		statusChecked = true;
+		const status = monitor.status;
+		if (!status?.enabled) return;
+		if (status.sourceName !== params.sourceName) {
+			navigate(`/sources/${encodeURIComponent(status.sourceName)}`, { replaceState: true });
+			return;
+		}
+		monitoring = true;
 	};
 
 	afterNavigate(async () => {
@@ -33,17 +55,14 @@
 
 		verified = false;
 		statusChecked = false;
-		const status = monitor.status;
-		if (status?.enabled) {
-			if (status.sourceName !== params.sourceName) {
-				navigate(`/sources/${encodeURIComponent(status.sourceName)}`, { replaceState: true });
-				return;
-			}
-			monitoring = true;
-		} else {
-			monitoring = false;
-		}
-		statusChecked = true;
+		monitoring = false;
+		syncMonitorStatus();
+	});
+
+	$effect(() => {
+		monitor.loaded;
+		monitor.status;
+		syncMonitorStatus();
 	});
 
 	$effect(() => {
@@ -66,7 +85,16 @@
 
 	$effect(() => {
 		if (!isCurrentPage) return;
-		if (!statusChecked || monitoring || transition || pendingNavigation || !verified) return;
+		if (
+			!monitor.loaded ||
+			monitor.status?.enabled ||
+			!statusChecked ||
+			monitoring ||
+			transition ||
+			pendingNavigation ||
+			!verified
+		)
+			return;
 		void startMonitor();
 	});
 
@@ -134,6 +162,8 @@
 <svelte:window {onkeydown} />
 
 <MonitorView
+	design={settings.monitorDesign}
+	sourceName={params.sourceName}
 	{verified}
 	{monitoring}
 	{transition}

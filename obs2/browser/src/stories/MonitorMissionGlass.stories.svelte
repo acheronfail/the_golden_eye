@@ -1,23 +1,15 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
-	import type { LevelMatch } from '$lib/api';
 	import MonitorView from '$lib/components/MonitorView.svelte';
-
-	const match = (screen: string, times: LevelMatch['times'] = null): LevelMatch => ({
-		screen,
-		mission: 2,
-		part: 1,
-		difficulty: 0,
-		detected_lang: 'en',
-		times,
-		runtime_ms: 8.4
-	});
+	import { monitorMatch as match } from './monitorStoryFixtures';
 
 	const { Story } = defineMeta({
-		title: 'Monitor/Monitor states',
+		title: 'Monitor/Monitor states/Mission glass',
 		component: MonitorView,
 		parameters: { layout: 'fullscreen' },
 		args: {
+			design: 'mission-glass',
+			sourceName: 'N64 Capture',
 			verified: true,
 			monitoring: true,
 			recordingState: null,
@@ -37,10 +29,7 @@
 <Story name="Killed in action" args={{ recordingState: 'kia', match: match('kia') }} />
 <Story
 	name="Complete"
-	args={{
-		recordingState: 'complete',
-		match: match('stats', { time: 58, target_time: 65, best_time: 61 })
-	}}
+	args={{ recordingState: 'complete', match: match('stats', { time: 58, target_time: 65, best_time: 61 }) }}
 />
 <Story name="Skipped stats" args={{ recordingState: 'statsSkipped', match: match('level select') }} />
 <Story name="Saving clip" args={{ recordingState: 'savePending', match: match('stats') }} />

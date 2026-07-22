@@ -1,6 +1,14 @@
 <script lang="ts">
+	import Select from '$lib/components/Select.svelte';
+	import type { MonitorDesign } from '$lib/components/monitorView';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { optionsClasses as styles, type RecordingOptionsView } from '$lib/utils/optionsView';
+
+	const monitorDesignOptions: { value: MonitorDesign; label: string }[] = [
+		{ value: 'signal-band', label: 'Signal band' },
+		{ value: 'mission-glass', label: 'Mission glass' },
+		{ value: 'debug', label: 'For Your Eyes Only' }
+	];
 
 	const clipTemplateTokens = [
 		{ value: '{obs_replay_name}', description: 'Original OBS replay-buffer filename without the extension.' },
@@ -15,6 +23,18 @@
 
 	let { view }: { view: RecordingOptionsView } = $props();
 </script>
+
+<section class={styles.panel}>
+	<label class={styles.label} for="monitor-design">Monitor design</label>
+	<Select
+		id="monitor-design"
+		value={settings.monitorDesign}
+		onChange={(value) => (settings.monitorDesign = value as MonitorDesign)}
+		options={monitorDesignOptions}
+		class="font-mono text-sm"
+	/>
+	<p class={styles.hint}>Choose the full-screen monitor shown while watching a capture source.</p>
+</section>
 
 <section class={styles.panel}>
 	<label class={styles.label} for="clip-filename-template">Clip filename template</label>

@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import { backend, type FolderValidation } from '$lib/api';
 	import { dismissNotificationFlagsByKey } from '$lib/stores/notifications.svelte';
 	import { replayBuffer } from '$lib/stores/replayBuffer.svelte';
@@ -15,6 +17,7 @@
 	import { youtube } from '$lib/stores/youtube.svelte';
 
 	type OptionsTab = 'general' | 'recording' | 'notifications' | 'youtube';
+	const OPTIONS_TAB_STORAGE_KEY = 'the-golden-eye.options-tab';
 
 	const optionSections = $derived<{ value: OptionsTab; label: string }[]>([
 		{ value: 'general', label: 'General' },
@@ -26,7 +29,7 @@
 	const tabFromUrl = (value: string | null): OptionsTab =>
 		value === 'recording' || value === 'notifications' || (value === 'youtube' && youtube.enabled) ? value : 'general';
 
-	let activeTab = $derived(tabFromUrl(page.url.searchParams.get('tab')));
+	let activeTab = $state<OptionsTab>(tabFromUrl(page.url.searchParams.get('tab')));
 	let pickingPath: OptionsPathKind | null = $state(null);
 	let revealingConfigFile = $state(false);
 	let resettingConfigFile = $state(false);
@@ -40,7 +43,28 @@
 	let failedValidationSeq = 0;
 	let clipTemplateSeparator = $state('/');
 
+	const rememberTab = (tab: OptionsTab) => {
+		if (browser) localStorage.setItem(OPTIONS_TAB_STORAGE_KEY, tab);
+	};
+
+	onMount(() => {
+		const requestedTab = page.url.searchParams.get('tab');
+		const tab = tabFromUrl(requestedTab ?? localStorage.getItem(OPTIONS_TAB_STORAGE_KEY));
+		activeTab = tab;
+		rememberTab(tab);
+	});
+
+	$effect(() => {
+		const requestedTab = page.url.searchParams.get('tab');
+		if (requestedTab === null) return;
+		const tab = tabFromUrl(requestedTab);
+		activeTab = tab;
+		rememberTab(tab);
+	});
+
 	const selectTab = (tab: OptionsTab) => {
+		activeTab = tab;
+		rememberTab(tab);
 		const url = new URL(page.url);
 		if (tab === 'general') {
 			url.searchParams.delete('tab');

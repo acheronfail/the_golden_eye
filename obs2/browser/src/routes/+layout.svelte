@@ -2,7 +2,12 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { monitor, monitorHref } from '$lib/stores/monitor.svelte';
+	import {
+		monitor,
+		monitorHref,
+		monitorPhaseStyleForPhase,
+		monitorPresentationPhase
+	} from '$lib/stores/monitor.svelte';
 	import { startAppSocket, stopAppSocket } from '$lib/stores/appSocket.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import KiaDeathOverlay from '$lib/components/KiaDeathOverlay.svelte';
@@ -110,6 +115,10 @@
 
 	const pluginVersion = $derived(settings.pluginVersion);
 	const activeMonitorHref = $derived(monitorHref(monitor.status));
+	const activeMonitorPhase = $derived(
+		monitor.chromePhase ?? (activeMonitorHref ? monitorPresentationPhase(monitor.recordingState) : null)
+	);
+	const activeMonitorStyle = $derived(monitorPhaseStyleForPhase(activeMonitorPhase ?? 'complete'));
 	const showWelcomeModal = $derived(settings.loaded && settings.fileError === null && !settings.welcomeModalShown);
 
 	const dismissWelcomeModal = () => {
@@ -121,7 +130,7 @@
 <svelte:window onfocus={onWindowFocus} onblur={onWindowBlur} />
 
 <div
-	class="obs-app-shell flex h-screen min-h-0 min-w-100 flex-col overflow-hidden"
+	class="obs-app-shell flex h-screen min-h-0 min-w-100 flex-col overflow-hidden {activeMonitorStyle.border}"
 	class:obs-window-focused={windowFocused}
 >
 	<AppHeader
@@ -130,6 +139,7 @@
 		{pluginVersion}
 		{activeMonitorHref}
 		recordingState={monitor.recordingState}
+		monitorPhase={activeMonitorPhase}
 		bind:menuOpen
 	/>
 
