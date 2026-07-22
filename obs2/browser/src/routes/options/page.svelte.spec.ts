@@ -74,6 +74,7 @@ vi.mock('$lib/api', async (importOriginal) => {
 
 const defaultSettings: Settings = {
 	stopReplayBufferWhenMonitorStopped: false,
+	monitorDesign: 'signal-band',
 	showMonitorFps: false,
 	showDeveloperSettings: false,
 	showSourcePreviews: true,
@@ -110,6 +111,7 @@ const availableReplayBuffer = {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	localStorage.clear();
 	mocks.page.url = new URL('http://localhost/options');
 	replayBuffer.status = availableReplayBuffer;
 	replayBuffer.loaded = true;
@@ -138,6 +140,20 @@ beforeEach(() => {
 });
 
 describe('/options', () => {
+	it('reopens the last section saved in browser storage', async () => {
+		const user = userEvent.setup();
+		localStorage.setItem('the-golden-eye.options-tab', 'recording');
+		render(OptionsPageHarness);
+
+		expect(await screen.findByRole('combobox', { name: /Monitor design/i })).toBeInTheDocument();
+		const section = screen.getByRole('combobox', { name: /^Section$/i });
+		expect(section).toHaveTextContent('Recording');
+
+		await user.click(section);
+		await user.click(await screen.findByRole('option', { name: /^Notifications$/i }));
+		expect(localStorage.getItem('the-golden-eye.options-tab')).toBe('notifications');
+	});
+
 	it('saves to the backend after updating an option', async () => {
 		const user = userEvent.setup();
 		render(OptionsPageHarness);
@@ -163,6 +179,20 @@ describe('/options', () => {
 
 		await waitFor(() =>
 			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ showMonitorFps: true }))
+		);
+	});
+
+	it('saves the selected monitor design from recording options', async () => {
+		const user = userEvent.setup();
+		mocks.page.url = new URL('http://localhost/options?tab=recording');
+		render(OptionsPageHarness);
+
+		const design = await screen.findByRole('combobox', { name: /Monitor design/i });
+		await user.click(design);
+		await user.click(await screen.findByRole('option', { name: /Mission glass/i }));
+
+		await waitFor(() =>
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ monitorDesign: 'mission-glass' }))
 		);
 	});
 

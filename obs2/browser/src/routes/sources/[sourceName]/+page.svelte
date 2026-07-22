@@ -134,6 +134,7 @@
 <svelte:window {onkeydown} />
 
 <MonitorView
+	design={settings.monitorDesign}
 	{verified}
 	{monitoring}
 	{transition}

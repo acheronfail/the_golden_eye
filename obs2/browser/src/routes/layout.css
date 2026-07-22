@@ -28,6 +28,8 @@
 	--obs-danger-surface: rgb(224 107 107 / 14%);
 	--obs-success: #61c27c;
 	--obs-success-surface: rgb(97 194 124 / 14%);
+	--obs-monitor-waiting: #7fb7ff;
+	--obs-monitor-waiting-surface: rgb(127 183 255 / 14%);
 }
 
 html,

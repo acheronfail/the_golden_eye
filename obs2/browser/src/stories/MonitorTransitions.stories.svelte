@@ -6,10 +6,13 @@
 		title: 'Monitor/State transitions',
 		component: MonitorTransitionStory,
 		parameters: { layout: 'fullscreen' },
-		args: { outcome: 'complete', stepDurationMs: 1600, loop: true }
+		args: { outcome: 'complete', design: 'signal-band', stepDurationMs: 1600, loop: true }
 	});
 </script>
 
-<Story name="Completed run" />
-<Story name="Aborted run" args={{ outcome: 'aborted' }} />
-<Story name="KIA run" args={{ outcome: 'kia' }} />
+<Story name="Signal band · completed run" />
+<Story name="Signal band · rapid states" args={{ stepDurationMs: 180 }} />
+<Story name="Signal band · KIA run" args={{ outcome: 'kia' }} />
+<Story name="Mission glass · completed run" args={{ design: 'mission-glass' }} />
+<Story name="Mission glass · rapid states" args={{ design: 'mission-glass', stepDurationMs: 180 }} />
+<Story name="Mission glass · aborted run" args={{ design: 'mission-glass', outcome: 'aborted' }} />

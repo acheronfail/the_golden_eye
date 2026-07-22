@@ -18,6 +18,7 @@
 		component: MonitorView,
 		parameters: { layout: 'fullscreen' },
 		args: {
+			design: 'signal-band',
 			verified: true,
 			monitoring: true,
 			recordingState: null,
@@ -31,6 +32,19 @@
 <Story name="Starting monitor" args={{ monitoring: false, transition: 'starting' }} />
 <Story name="Waiting" />
 <Story name="Recording" args={{ recordingState: 'started', match: match('start') }} />
+<Story name="Mission glass · waiting" args={{ design: 'mission-glass' }} />
+<Story
+	name="Mission glass · recording"
+	args={{ design: 'mission-glass', recordingState: 'started', match: match('start') }}
+/>
+<Story
+	name="Mission glass · complete"
+	args={{
+		design: 'mission-glass',
+		recordingState: 'complete',
+		match: match('stats', { time: 58, target_time: 65, best_time: 61 })
+	}}
+/>
 <Story name="Cancelled" args={{ recordingState: 'cancelled', match: match('level select') }} />
 <Story name="Failed" args={{ recordingState: 'failed', match: match('failed') }} />
 <Story name="Aborted" args={{ recordingState: 'aborted', match: match('abort') }} />

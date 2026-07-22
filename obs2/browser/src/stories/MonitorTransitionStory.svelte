@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { LevelMatch, RecordingStatus } from '$lib/api';
-	import MonitorView from '$lib/components/MonitorView.svelte';
+	import MonitorView, { type MonitorDesign } from '$lib/components/MonitorView.svelte';
 
 	type Outcome = 'complete' | 'aborted' | 'kia';
 	type TransitionStep = {
@@ -11,9 +11,10 @@
 
 	let {
 		outcome,
+		design = 'signal-band',
 		stepDurationMs = 1600,
 		loop = true
-	}: { outcome: Outcome; stepDurationMs?: number; loop?: boolean } = $props();
+	}: { outcome: Outcome; design?: MonitorDesign; stepDurationMs?: number; loop?: boolean } = $props();
 
 	const levelMatch = (screen: string, times: LevelMatch['times'] = null): LevelMatch => ({
 		screen,
@@ -29,10 +30,11 @@
 	const steps = $derived<TransitionStep[]>([
 		{ label: 'waiting', recordingState: null, match: levelMatch('unknown') },
 		{ label: 'recording', recordingState: 'started', match: levelMatch('start') },
+		{ label: 'recording', recordingState: 'started', match: levelMatch('unknown') },
 		{ label: outcome, recordingState: outcome, match: levelMatch(outcomeScreen) },
 		{
 			label: 'stats',
-			recordingState: null,
+			recordingState: 'savePending',
 			match: levelMatch('stats', { time: outcome === 'complete' ? 58 : 37, target_time: 65, best_time: 61 })
 		}
 	]);
@@ -67,6 +69,7 @@
 <div class="flex h-full min-h-0 flex-col">
 	<div class="min-h-0 flex-1">
 		<MonitorView
+			{design}
 			verified={true}
 			monitoring={true}
 			recordingState={step.recordingState}
