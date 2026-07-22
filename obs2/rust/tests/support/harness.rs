@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -19,8 +20,27 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 use super::test_obs::{Config, Frame, TestObs};
 
-pub const API: &str = "http://127.0.0.1:31337";
+pub const API: TestApi = TestApi;
 pub const SOURCE_NAME: &str = "GoldenEye Capture";
+
+pub struct TestApi;
+
+impl fmt::Display for TestApi {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "http://127.0.0.1:{}", server_port())
+    }
+}
+
+pub fn event_ws_url() -> String {
+    format!("ws://127.0.0.1:{}/api/v1/events/ws", server_port())
+}
+
+fn server_port() -> u16 {
+    std::env::var("GE_SERVER_PORT")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .expect("GE_SERVER_PORT must be set to a valid port by the integration-test recipe")
+}
 
 pub struct Harness {
     pub root: PathBuf,
@@ -123,7 +143,7 @@ impl Harness {
     }
 
     pub async fn render_until_state(&self, frame: &Frame, expected: &str) {
-        let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap();
+        let (mut ws, _) = connect_async(event_ws_url()).await.unwrap();
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut last_status = Value::Null;
         loop {
@@ -159,7 +179,7 @@ impl Harness {
     }
 
     pub async fn connect_event_stream(&self) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
-        connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap().0
+        connect_async(event_ws_url()).await.unwrap().0
     }
 }
 
@@ -481,7 +501,7 @@ async fn wait_for_server(client: &reqwest::Client) {
 }
 
 async fn wait_for_monitor_snapshot(predicate: impl Fn(&Value) -> bool) -> Value {
-    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap();
+    let (mut ws, _) = connect_async(event_ws_url()).await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut last_status = Value::Null;
     loop {

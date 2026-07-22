@@ -1,9 +1,9 @@
 import type { Settings } from '$lib/stores/settings.svelte';
 
-// In dev the SPA is Vite-served on its own port while the API lives on 31337, so
+// In dev the SPA is Vite-served on its own port, so
 // point API calls at that absolute origin. Production serves the SPA itself, so
 // relative URLs stay origin-agnostic.
-const API_ORIGIN = import.meta.env.DEV ? 'http://localhost:31337' : '';
+const API_ORIGIN = import.meta.env.DEV ? `http://localhost:${import.meta.env.VITE_GE_SERVER_PORT}` : '';
 
 type RequestErrorMessages = Partial<Record<number, string>>;
 
@@ -20,7 +20,7 @@ export class Backend {
 
 	/** Resolve an API path to a WebSocket URL. */
 	public wsUrl(path: string): string {
-		if (import.meta.env.DEV) return `ws://localhost:31337${path}`;
+		if (import.meta.env.DEV) return `ws://localhost:${import.meta.env.VITE_GE_SERVER_PORT}${path}`;
 		const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 		return `${proto}//${window.location.host}${path}`;
 	}

@@ -11,6 +11,7 @@ mod logging;
 pub mod matcher;
 mod monitor;
 mod paths;
+mod server;
 mod updates;
 mod youtube;
 
@@ -74,19 +75,16 @@ impl EnvVar {
 }
 
 pub(crate) use browser::browser_ws_log_enabled;
-#[cfg(test)]
-pub(crate) use browser_dock::DEFAULT_BROWSER_DOCK_URL;
 pub(crate) use browser_dock::{browser_dock_disabled, browser_dock_url};
 pub(crate) use cv::{cv_debug_enabled, cv_threads_overridden, cv_timing_enabled};
 pub(crate) use flatpak::{flatpak_id, xdg_runtime_dir};
 pub(crate) use logging::logging_filter;
 pub(crate) use monitor::{MonitorTimingMode, default_monitor_slow_ms};
 pub(crate) use paths::{current_dir, default_settings_path, home_dir, temp_dir};
+pub(crate) use server::{loopback_http_url, server_port};
 pub(crate) use updates::UpdateEnvConfig;
 #[cfg(test)]
 pub(crate) use updates::{LATEST_RELEASE_API_URL, RELEASES_API_URL};
-#[cfg(test)]
-pub(crate) use youtube::REDIRECT_URI;
 #[cfg(feature = "test-hooks")]
 pub(crate) use youtube::test_hooks::{
     force_keyring_failure,

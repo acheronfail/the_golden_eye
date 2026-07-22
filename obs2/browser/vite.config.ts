@@ -3,13 +3,19 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 import { sveltekit } from '@sveltejs/kit/vite';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+const defaultServerPort = fs.readFileSync(path.join(dirname, '..', 'server-port.txt'), 'utf8').trim();
+const serverPort = process.env.GE_SERVER_PORT ?? defaultServerPort;
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({
+	define: {
+		'import.meta.env.VITE_GE_SERVER_PORT': JSON.stringify(serverPort)
+	},
 	plugins: [tailwindcss(), sveltekit()],
 	// NOTE: must match CMakeLists.txt
 	server: {

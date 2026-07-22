@@ -10,7 +10,7 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use futures_util::StreamExt;
 use serde_json::{Value, json};
-use support::harness::{API, Harness};
+use support::harness::{API, Harness, event_ws_url};
 use tokio::sync::oneshot;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
@@ -124,7 +124,7 @@ async fn failed_startup_update_check_does_not_persist_check_time() {
 }
 
 async fn wait_for_update_available_event(harness: &Harness, calls: &Arc<AtomicUsize>) -> Value {
-    let (mut ws, _) = connect_async("ws://127.0.0.1:31337/api/v1/events/ws").await.unwrap();
+    let (mut ws, _) = connect_async(event_ws_url()).await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
 
     loop {
