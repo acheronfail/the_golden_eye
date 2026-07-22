@@ -112,6 +112,9 @@ ide-settings: configure-release
 dev:
     python3 obs2/scripts/dev.py
 
+story:
+    cd obs2/browser && npm run storybook
+
 # builds a fake "newer" release package and serves it locally, so `just obs`
 # can be smoke-tested against the real production auto-update flow. Prints
 # the GE_UPDATE_CHECK_URL to export before running `just obs` separately.
@@ -158,7 +161,11 @@ test-integration *args:
 
 # runs browser unit/component tests
 test-browser *args:
-    cd obs2/browser && npm run test:unit -- --run {{ args }}
+    cd obs2/browser && npm run test:unit -- --run --project server --project client {{ args }}
+
+# runs Storybook component tests in Chromium
+test-storybook *args:
+    cd obs2/browser && npm run test:unit -- --run --project storybook {{ args }}
 
 # runs the shim's dlopen/reload/rollback fixture tests (no OBS/Rust toolchain needed)
 test-shim:
@@ -183,6 +190,7 @@ bench-cv *filter: make-release
 # runs opencv frame tests
 test:
     just test-browser
+    just test-storybook
     just test-integration
     just test-shim
     just test-rust

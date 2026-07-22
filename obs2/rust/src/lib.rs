@@ -162,6 +162,14 @@ pub unsafe extern "C" fn ge_rust_set_core_path(path: *const c_char) {
 /// `reloaded_at` so a client can be told "the plugin just updated".
 static WAS_RELOADED: AtomicBool = AtomicBool::new(false);
 
+fn initial_update_status(was_reloaded: bool, staged_update_present: bool) -> updates::UpdateStatus {
+    if !was_reloaded && staged_update_present {
+        updates::UpdateStatus { phase: updates::UpdatePhase::Staged, available: None }
+    } else {
+        updates::UpdateStatus::default()
+    }
+}
+
 /// Called by the C core (`ge_core_load`) to report whether this load followed
 /// a reload (an applied update) rather than a cold OBS start or a rollback.
 #[unsafe(no_mangle)]
@@ -239,11 +247,9 @@ pub extern "C" fn ge_rust_start() -> bool {
         sources: Vec::new(),
         replay_buffer: http::ReplayBufferStatus::unknown(),
         settings_status: settings.status_without_runtime_defaults(),
-        update: if update_apply::has_staged_update() {
-            updates::UpdateStatus { phase: updates::UpdatePhase::Staged, available: None }
-        } else {
-            updates::UpdateStatus::default()
-        },
+        // During a reload the shim removes the consumed staged directory only
+        // after this new core starts, so it must not be advertised as pending.
+        update: initial_update_status(was_reloaded, update_apply::has_staged_update()),
     });
     // One-off monitor events (recording saved, ...). Capacity bounds how far a
     // slow client can lag before it drops events; the worker ignores send errors,

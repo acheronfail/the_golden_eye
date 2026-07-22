@@ -2,6 +2,7 @@ node_modules/
 obs2/browser/node_modules/
 obs2/browser/build/
 obs2/browser/.svelte-kit/
+obs2/browser/storybook-static/
 obs2/browser/playwright-report/
 obs2/browser/test-results/
 obs2/build/
