@@ -48,9 +48,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          is_prerelease=false
+          release_kind=stable
+          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+- ]]; then
+            is_prerelease=true
+            release_kind=prerelease
+          fi
+
           previous_tag="$({
             gh api --paginate "repos/${GH_REPO}/releases" \
-              --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name'
+              --jq ".[] | select(.draft == false and .prerelease == ${is_prerelease}) | .tag_name"
           } | grep -Fxv "$GITHUB_REF_NAME" | head -n1 || true)"
 
           args=(release create "$GITHUB_REF_NAME" dist/*.zip dist/checksums.txt --verify-tag --generate-notes)
@@ -58,10 +65,10 @@ jobs:
             echo "Generating release notes from ${previous_tag}..${GITHUB_REF_NAME}"
             args+=(--notes-start-tag "$previous_tag")
           else
-            echo "No previous stable release found; generating notes without an explicit start tag"
+            echo "No previous ${release_kind} release found; generating notes without an explicit start tag"
           fi
 
-          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+- ]]; then
+          if [[ "$is_prerelease" == true ]]; then
             args+=(--prerelease)
           fi
           gh "${args[@]}"
