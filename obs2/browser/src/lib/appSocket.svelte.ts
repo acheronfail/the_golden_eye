@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { backend, type AppEvent, type AppSnapshot, type PluginUpdate } from './api';
+import { backend, type AppEvent, type AppSnapshot } from './api';
 import {
 	applyFailedRunNotSaved,
 	applyLanguageDetected,
@@ -14,43 +14,22 @@ import {
 	addNotificationFlag,
 	dismissNotificationFlag,
 	dismissNotificationFlagsByKey,
-	removeNotificationFlag,
 	replaceNotificationFlag
 } from './notifications.svelte';
 import { refreshReplayBuffer, setReplayBufferStatus } from './replayBuffer.svelte';
 import { settings } from './settings.svelte';
 import { setObsSources } from './sources.svelte';
+import { updates } from './updates.svelte';
 import { youtube } from './youtube.svelte';
 
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let stopped = true;
 let settingsErrorNotificationId: number | null = null;
-let updateNotificationId: number | null = null;
-let dismissedUpdateVersion: string | null = null;
 const youtubeStartedNotificationIds = new Map<string, number>();
 const youtubeNotifiedCompletedIds = new Set<string>();
 const youtubeNotifiedFailedIds = new Set<string>();
 const UPDATE_APPLIED_STORAGE_KEY = 'ge-update-applied-version';
-
-const showUpdateAppliedNotification = (version: string, releaseUrl?: string): void => {
-	addNotificationFlag({
-		key: 'plugin-update-applied',
-		title: 'Plugin updated',
-		detail: `Now running v${version}`,
-		tone: 'success',
-		meta: releaseUrl ? 'Click to view the changelog.' : undefined,
-		action: releaseUrl
-			? async () => {
-					try {
-						await backend.openUpdateRelease(releaseUrl);
-					} catch (err) {
-						console.warn('Failed to open plugin update release', err);
-					}
-				}
-			: undefined
-	});
-};
 
 const discardPersistedUpdateAppliedNotification = (): void => {
 	try {
@@ -58,13 +37,6 @@ const discardPersistedUpdateAppliedNotification = (): void => {
 	} catch (err) {
 		console.warn('Failed to discard legacy update-applied notice', err);
 	}
-};
-
-/** The backend repeats this event for connections made shortly after a reload,
- * so the fresh page can show it directly without carrying stale state forward. */
-export const handleUpdateApplied = (version: string, releaseUrl?: string): void => {
-	discardPersistedUpdateAppliedNotification();
-	showUpdateAppliedNotification(version, releaseUrl);
 };
 
 const notifyYoutubeUploadChanged = (upload: import('./api').YouTubeUploadStatus): void => {
@@ -154,12 +126,7 @@ const applyAppSnapshot = (snapshot: AppSnapshot): void => {
 		if (settings.fileError) showSettingsError(settings.fileError);
 		else dismissSettingsError();
 	}
-	if (snapshot.update) {
-		applyUpdateAvailable(snapshot.update);
-	} else {
-		dismissUpdateAvailableNotification();
-		dismissedUpdateVersion = null;
-	}
+	updates.applyStatus(snapshot.update);
 };
 
 const handleAppEvent = (event: AppEvent): void => {
@@ -212,17 +179,11 @@ const handleAppEvent = (event: AppEvent): void => {
 			showSettingsError(event.error);
 			break;
 		case 'updateApplied':
-			if (typeof event.version === 'string') handleUpdateApplied(event.version, event.releaseUrl);
+			if (typeof event.version === 'string') updates.handleApplied(event.version, event.releaseUrl);
 			else console.warn('Ignoring malformed updateApplied event', event);
 			break;
 		case 'updateStagingFailed':
-			addNotificationFlag({
-				key: 'plugin-update-staging-failed',
-				title: 'Plugin update failed',
-				detail: event.error,
-				tone: 'error',
-				sticky: true
-			});
+			updates.handleStagingFailed(event.error);
 			break;
 		case 'youtubeUploadChanged':
 			youtube.applyUpload(event.upload);
@@ -231,28 +192,6 @@ const handleAppEvent = (event: AppEvent): void => {
 		default:
 			console.warn('Ignoring unknown app event', event);
 	}
-};
-
-const dismissUpdateAvailableNotification = (): void => {
-	if (updateNotificationId === null) return;
-	removeNotificationFlag(updateNotificationId);
-	updateNotificationId = null;
-};
-
-const applyUpdateAvailable = (update: PluginUpdate): void => {
-	// With auto-update on, the plugin stages and reports back via the
-	// "update found" / "plugin updated" notices, so a sticky "open the
-	// release page" notice would just be noise suggesting a needless step.
-	if (settings.autoUpdateEnabled) {
-		dismissUpdateAvailableNotification();
-		return;
-	}
-	if (dismissedUpdateVersion === update.latestVersion) return;
-	const notification = updateNotification(update);
-	if (updateNotificationId !== null && replaceNotificationFlag(updateNotificationId, notification)) {
-		return;
-	}
-	updateNotificationId = addNotificationFlag(notification).id;
 };
 
 const clearReconnectTimer = (): void => {
@@ -279,55 +218,6 @@ const connect = (): void => {
 	});
 	socket = nextSocket;
 };
-
-/** Downloads, verifies, and installs the notice's update, keeping one progress
- * flag updated throughout. Applying briefly drops the connection while the core
- * swaps in. */
-const downloadAndInstall = async (update: PluginUpdate): Promise<void> => {
-	const progressId = addNotificationFlag({
-		key: 'plugin-update-installing',
-		title: 'Installing update',
-		detail: `Downloading and verifying ${update.latestVersion}...`,
-		tone: 'info',
-		sticky: true
-	}).id;
-	try {
-		await backend.downloadUpdateNow();
-		await backend.applyUpdateNow();
-		replaceNotificationFlag(progressId, {
-			key: 'plugin-update-installing',
-			title: 'Applying update',
-			detail: 'The plugin will briefly reconnect while the update is installed.',
-			tone: 'success'
-		});
-	} catch (err) {
-		replaceNotificationFlag(progressId, {
-			key: 'plugin-update-installing',
-			title: 'Update failed',
-			detail: err instanceof Error ? err.message : String(err),
-			tone: 'error',
-			sticky: true
-		});
-	}
-};
-
-const updateNotification = (update: PluginUpdate) => ({
-	key: 'plugin-update-available',
-	title: 'Plugin update available',
-	detail: `${update.currentVersion} -> ${update.latestVersion}`,
-	meta: 'Click to download and install.',
-	tone: 'info' as const,
-	sticky: true,
-	onDismiss: () => {
-		if (updateNotificationId !== null) updateNotificationId = null;
-		dismissedUpdateVersion = update.latestVersion;
-	},
-	action: async () => {
-		dismissedUpdateVersion = update.latestVersion;
-		dismissUpdateAvailableNotification();
-		await downloadAndInstall(update);
-	}
-});
 
 export const startAppSocket = (): void => {
 	if (!browser) return;

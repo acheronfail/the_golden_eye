@@ -239,7 +239,11 @@ pub extern "C" fn ge_rust_start() -> bool {
         sources: Vec::new(),
         replay_buffer: http::ReplayBufferStatus::unknown(),
         settings_status: settings.status_without_runtime_defaults(),
-        update: None,
+        update: if update_apply::has_staged_update() {
+            updates::UpdateStatus { phase: updates::UpdatePhase::Staged, available: None }
+        } else {
+            updates::UpdateStatus::default()
+        },
     });
     // One-off monitor events (recording saved, ...). Capacity bounds how far a
     // slow client can lag before it drops events; the worker ignores send errors,

@@ -34,9 +34,15 @@
 	</p>
 	<div>
 		{#if view.update.phase === 'apply' || view.update.phase === 'applying'}
-			<button type="button" class={styles.pathButton} disabled={view.update.pending} onclick={view.update.apply}
-				>{view.update.phase === 'applying' ? 'Applying…' : 'Apply update now'}</button
+			<button
+				type="button"
+				class={styles.pathButton}
+				disabled={view.update.pending || view.update.applyBlockedReason !== null}
+				onclick={view.update.apply}>{view.update.phase === 'applying' ? 'Applying…' : 'Apply update now'}</button
 			>
+			{#if view.update.applyBlockedReason}
+				<p class={`${styles.hint} mt-2`}>{view.update.applyBlockedReason}</p>
+			{/if}
 		{:else if view.update.phase === 'download' || view.update.phase === 'downloading'}
 			<button type="button" class={styles.pathButton} disabled={view.update.pending} onclick={view.update.download}
 				>{view.update.phase === 'downloading' ? 'Downloading…' : 'Download now'}</button

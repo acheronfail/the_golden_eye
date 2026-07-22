@@ -43,6 +43,11 @@ pub async fn handle_apply_now(State(state): State<AppState>) -> Result<impl Into
             .into());
     }
 
+    let status = state.snapshot.current_update_status();
+    state.snapshot.set_update_status(crate::updates::UpdateStatus {
+        phase: crate::updates::UpdatePhase::Applying,
+        available: status.available,
+    });
     crate::update_apply::trigger_apply();
     Ok(StatusCode::ACCEPTED)
 }
@@ -53,9 +58,8 @@ pub struct CheckNowResponse {
     update: Option<PluginUpdate>,
 }
 
-/// Checks for an update now, bypassing the configured check interval (see
-/// `updates::check_for_updates_now`). Staging happens in the background; poll
-/// `GET /api/v1/updates/status` to see when it's ready to apply.
+/// Checks for an update now, bypassing the configured interval. Progress is
+/// published through the retained app snapshot for every connected frontend.
 #[axum::debug_handler]
 pub async fn handle_check_now(State(state): State<AppState>) -> Result<impl IntoResponse> {
     let update = crate::updates::check_for_updates_now(state).await.map_err(|err| {
@@ -69,8 +73,8 @@ pub async fn handle_check_now(State(state): State<AppState>) -> Result<impl Into
 /// (or failure). Used by explicit "Download now" actions when auto-update is off;
 /// apply afterward via `POST /api/v1/updates/apply`. Returns 404 if up to date.
 #[axum::debug_handler]
-pub async fn handle_download_now() -> Result<impl IntoResponse> {
-    let staged = crate::updates::download_and_stage_latest().await.map_err(|err| {
+pub async fn handle_download_now(State(state): State<AppState>) -> Result<impl IntoResponse> {
+    let staged = crate::updates::download_and_stage_latest(state).await.map_err(|err| {
         tracing::error!("manual update download failed: {err:#}");
         (StatusCode::INTERNAL_SERVER_ERROR, "update download failed").into_response()
     })?;
@@ -83,13 +87,12 @@ pub async fn handle_download_now() -> Result<impl IntoResponse> {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateStatusResponse {
-    staged: bool,
+    #[serde(flatten)]
+    status: crate::updates::UpdateStatus,
 }
 
-/// Whether a verified update is currently staged and ready to apply -- the
-/// same check `handle_apply_now` itself uses, exposed so the UI can show
-/// "check now" vs "apply now" without guessing.
+/// The authoritative update lifecycle state also published in app snapshots.
 #[axum::debug_handler]
-pub async fn handle_status() -> Json<UpdateStatusResponse> {
-    Json(UpdateStatusResponse { staged: crate::update_apply::has_staged_update() })
+pub async fn handle_status(State(state): State<AppState>) -> Json<UpdateStatusResponse> {
+    Json(UpdateStatusResponse { status: state.snapshot.current_update_status() })
 }

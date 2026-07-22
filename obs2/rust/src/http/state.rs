@@ -76,7 +76,7 @@ pub struct AppSnapshot {
     pub sources: Vec<routes::sources::Source>,
     pub replay_buffer: ReplayBufferStatus,
     pub settings_status: crate::settings::SettingsStatus,
-    pub update: Option<crate::updates::PluginUpdate>,
+    pub update: crate::updates::UpdateStatus,
 }
 
 #[derive(Clone)]
@@ -136,7 +136,11 @@ impl SharedStateStore {
         self.update(|state| state.settings_status = settings_status);
     }
 
-    pub fn set_update(&self, update: Option<crate::updates::PluginUpdate>) {
+    pub fn current_update_status(&self) -> crate::updates::UpdateStatus {
+        self.lock_state().update.clone()
+    }
+
+    pub fn set_update_status(&self, update: crate::updates::UpdateStatus) {
         self.update(|state| state.update = update);
     }
 

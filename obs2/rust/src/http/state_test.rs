@@ -32,11 +32,14 @@ fn test_snapshot() -> AppSnapshot {
             plugin_version: "test".to_owned(),
             file_error: None,
         },
-        update: Some(crate::updates::PluginUpdate {
-            current_version: "1.0.0".to_owned(),
-            latest_version: "1.1.0".to_owned(),
-            release_url: "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.1.0".to_owned(),
-        }),
+        update: crate::updates::UpdateStatus {
+            phase: crate::updates::UpdatePhase::Available,
+            available: Some(crate::updates::PluginUpdate {
+                current_version: "1.0.0".to_owned(),
+                latest_version: "1.1.0".to_owned(),
+                release_url: "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.1.0".to_owned(),
+            }),
+        },
     }
 }
 
@@ -53,7 +56,8 @@ fn snapshot_event_contains_retained_app_state() {
     assert_eq!(json["state"]["sources"][0]["name"], "N64 Capture");
     assert_eq!(json["state"]["replayBuffer"]["active"], true);
     assert_eq!(json["state"]["settingsStatus"]["configPath"], "/tmp/settings.json");
-    assert_eq!(json["state"]["update"]["latestVersion"], "1.1.0");
+    assert_eq!(json["state"]["update"]["phase"], "available");
+    assert_eq!(json["state"]["update"]["available"]["latestVersion"], "1.1.0");
 }
 
 #[test]
@@ -141,6 +145,13 @@ async fn snapshot_store_does_not_notify_for_noop_writes() {
 
     snapshot.set_monitor_stopped();
     assert!(tokio::time::timeout(Duration::from_millis(100), rx.changed()).await.unwrap().is_ok());
+
+    snapshot.set_update_status(crate::updates::UpdateStatus {
+        phase: crate::updates::UpdatePhase::Downloading,
+        available: snapshot.current_update_status().available,
+    });
+    assert!(tokio::time::timeout(Duration::from_millis(100), rx.changed()).await.unwrap().is_ok());
+    assert_eq!(snapshot.current_update_status().phase, crate::updates::UpdatePhase::Downloading);
 }
 
 #[test]

@@ -131,14 +131,14 @@ async fn wait_for_update_available_event(harness: &Harness, calls: &Arc<AtomicUs
         match tokio::time::timeout(Duration::from_millis(200), ws.next()).await {
             Ok(Some(Ok(Message::Text(text)))) => {
                 let value: Value = serde_json::from_str(&text).unwrap();
-                if value["type"] == "snapshot" && !value["state"]["update"].is_null() {
-                    return value["state"]["update"].clone();
+                if value["type"] == "snapshot" && value["state"]["update"]["phase"] == "available" {
+                    return value["state"]["update"]["available"].clone();
                 }
             }
             Ok(Some(Ok(Message::Binary(bytes)))) => {
                 let value: Value = serde_json::from_slice(&bytes).unwrap();
-                if value["type"] == "snapshot" && !value["state"]["update"].is_null() {
-                    return value["state"]["update"].clone();
+                if value["type"] == "snapshot" && value["state"]["update"]["phase"] == "available" {
+                    return value["state"]["update"]["available"].clone();
                 }
             }
             Ok(Some(Ok(Message::Close(frame)))) => {

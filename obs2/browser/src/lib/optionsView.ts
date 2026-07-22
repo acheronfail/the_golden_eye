@@ -22,6 +22,7 @@ export interface GeneralOptionsView {
 		intervals: { value: UpdateCheckInterval; label: string }[];
 		phase: UpdateButtonPhase;
 		pending: boolean;
+		applyBlockedReason: string | null;
 		setInterval: (value: string) => void;
 		check: () => void;
 		download: () => void;

@@ -11,7 +11,9 @@ use axum::routing::get;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use support::harness::{API, Harness};
+use tokio::net::TcpStream;
 use tokio::sync::oneshot;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 const LATEST_VERSION: &str = "v999.0.0";
 const LATEST_ASSET_VERSION: &str = "999.0.0";
@@ -32,6 +34,8 @@ struct MockState {
     base_url: String,
     zip_bytes: Vec<u8>,
     checksums_text: String,
+    release_delay: Duration,
+    asset_delay: Duration,
 }
 
 fn build_zip(core_leaf: &str, contents: &[u8]) -> Vec<u8> {
@@ -57,6 +61,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 async fn latest_release(State(state): State<Arc<MockState>>) -> axum::Json<Value> {
+    tokio::time::sleep(state.release_delay).await;
     let assets: Vec<Value> = PLATFORM_ARCH_SUFFIXES
         .iter()
         .map(|suffix| {
@@ -74,6 +79,7 @@ async fn latest_release(State(state): State<Arc<MockState>>) -> axum::Json<Value
 }
 
 async fn asset_zip(State(state): State<Arc<MockState>>) -> Bytes {
+    tokio::time::sleep(state.asset_delay).await;
     Bytes::from(state.zip_bytes.clone())
 }
 
@@ -88,6 +94,15 @@ async fn start_mock_github(
     core_leaf: &str,
     correct_checksum: bool,
 ) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
+    start_mock_github_with_delays(core_leaf, correct_checksum, Duration::ZERO, Duration::ZERO).await
+}
+
+async fn start_mock_github_with_delays(
+    core_leaf: &str,
+    correct_checksum: bool,
+    release_delay: Duration,
+    asset_delay: Duration,
+) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let base_url = format!("http://{addr}");
@@ -100,7 +115,8 @@ async fn start_mock_github(
         checksums_text.push_str(&format!("{hash}  {}\n", asset_name(suffix)));
     }
 
-    let state = Arc::new(MockState { base_url: base_url.clone(), zip_bytes, checksums_text });
+    let state =
+        Arc::new(MockState { base_url: base_url.clone(), zip_bytes, checksums_text, release_delay, asset_delay });
     let app = Router::new()
         .route("/latest", get(latest_release))
         .route("/asset.zip", get(asset_zip))
@@ -221,6 +237,21 @@ async fn wait_for_core_trigger_reload(harness: &Harness) {
     }
 }
 
+async fn wait_for_update_phase(
+    ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+    expected: &str,
+    tab: &str,
+) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let snapshot = support::harness::next_app_snapshot(ws, &format!("{expected} update state in {tab}")).await;
+        if snapshot["state"]["update"]["phase"] == expected {
+            return snapshot["state"]["update"].clone();
+        }
+        assert!(Instant::now() < deadline, "timed out waiting for {expected} update state in {tab}");
+    }
+}
+
 async fn wait_for_last_check_time(harness: &Harness) -> Value {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -279,6 +310,72 @@ async fn valid_update_is_downloaded_verified_staged_and_can_be_applied() {
     server.await.unwrap();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn manual_update_lifecycle_is_broadcast_to_every_tab() {
+    let core_leaf = "golden_core.test";
+    let (base_url, shutdown_tx, server) =
+        start_mock_github_with_delays(core_leaf, true, Duration::from_millis(150), Duration::from_millis(150)).await;
+
+    unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", format!("{base_url}/latest")) };
+
+    let harness = Harness::start(Duration::ZERO).await;
+    let mut first_tab = harness.connect_event_stream().await;
+    let mut second_tab = harness.connect_event_stream().await;
+    let first_initial = support::harness::next_app_snapshot(&mut first_tab, "first tab initial state").await;
+    let second_initial = support::harness::next_app_snapshot(&mut second_tab, "second tab initial state").await;
+    assert_eq!(first_initial["state"]["update"]["phase"], "idle");
+    assert_eq!(second_initial["state"]["update"]["phase"], "idle");
+
+    let check_client = harness.client.clone();
+    let check_request = tokio::spawn(async move {
+        check_client.post(format!("{API}/api/v1/updates/check")).send().await.unwrap().error_for_status().unwrap()
+    });
+    let first_checking = wait_for_update_phase(&mut first_tab, "checking", "first tab").await;
+    let second_checking = wait_for_update_phase(&mut second_tab, "checking", "second tab").await;
+    assert_eq!(second_checking, first_checking);
+    check_request.await.unwrap();
+    let first_available = wait_for_update_phase(&mut first_tab, "available", "first tab").await;
+    let second_available = wait_for_update_phase(&mut second_tab, "available", "second tab").await;
+    assert_eq!(first_available["available"]["latestVersion"], LATEST_VERSION);
+    assert_eq!(second_available, first_available);
+
+    let download_client = harness.client.clone();
+    let download_request =
+        tokio::spawn(
+            async move { download_client.post(format!("{API}/api/v1/updates/download")).send().await.unwrap() },
+        );
+    let first_downloading = wait_for_update_phase(&mut first_tab, "downloading", "first tab").await;
+    let second_downloading = wait_for_update_phase(&mut second_tab, "downloading", "second tab").await;
+    assert_eq!(second_downloading, first_downloading);
+    let download = download_request.await.unwrap();
+    assert_eq!(download.status().as_u16(), 204);
+    let first_staged = wait_for_update_phase(&mut first_tab, "staged", "first tab").await;
+    let second_staged = wait_for_update_phase(&mut second_tab, "staged", "second tab").await;
+    assert_eq!(second_staged, first_staged);
+
+    harness.start_monitor().await.error_for_status().unwrap();
+    let refused = harness.client.post(format!("{API}/api/v1/updates/apply")).send().await.unwrap();
+    assert_eq!(refused.status().as_u16(), 409);
+    let retained: Value =
+        harness.client.get(format!("{API}/api/v1/updates/status")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(retained["phase"], "staged", "a refused apply must remain actionable in every tab");
+    assert_eq!(harness.obs.calls().core_trigger_reload, 0);
+
+    harness.stop_monitor().await.error_for_status().unwrap();
+    let apply = harness.client.post(format!("{API}/api/v1/updates/apply")).send().await.unwrap();
+    assert_eq!(apply.status().as_u16(), 202);
+    let first_applying = wait_for_update_phase(&mut first_tab, "applying", "first tab").await;
+    let second_applying = wait_for_update_phase(&mut second_tab, "applying", "second tab").await;
+    assert_eq!(second_applying, first_applying);
+    wait_for_core_trigger_reload(&harness).await;
+
+    drop(harness);
+    unsafe { std::env::remove_var("GE_UPDATE_CHECK_URL") };
+    shutdown_tx.send(()).unwrap();
+    server.await.unwrap();
+}
+
 /// With auto-update opted in, a check downloads and stages on its own -- no
 /// explicit "download now" needed. The complement of the manual-download path
 /// the other tests exercise.
@@ -298,7 +395,42 @@ async fn check_now_auto_stages_when_auto_update_enabled() {
 
     let staged_bytes = wait_for_staged_core(&core_path).await;
     assert_eq!(staged_bytes, CORE_MARKER_CONTENT);
+    wait_for_core_trigger_reload(&harness).await;
+    assert_eq!(harness.obs.calls().core_trigger_reload, 1, "an idle auto-update should apply immediately");
 
+    let status: Value =
+        harness.client.get(format!("{API}/api/v1/updates/status")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(status["phase"], "applying", "auto-update should report that it is applying now");
+
+    drop(harness);
+    unsafe { std::env::remove_var("GE_UPDATE_CHECK_URL") };
+    shutdown_tx.send(()).unwrap();
+    server.await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn auto_update_stays_staged_while_monitoring() {
+    let core_leaf = "golden_core.test";
+    let (base_url, shutdown_tx, server) = start_mock_github(core_leaf, true).await;
+
+    unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", format!("{base_url}/latest")) };
+
+    let harness = Harness::start_with_settings(Duration::ZERO, json!({ "autoUpdateEnabled": true })).await;
+    let mut tab = harness.connect_event_stream().await;
+    support::harness::next_app_snapshot(&mut tab, "initial auto-update state").await;
+    harness.start_monitor().await.error_for_status().unwrap();
+
+    let check = harness.client.post(format!("{API}/api/v1/updates/check")).send().await.unwrap();
+    assert!(check.status().is_success());
+    wait_for_staged_core(&harness.temp.join(core_leaf)).await;
+
+    let status = wait_for_update_phase(&mut tab, "staged", "monitoring tab").await;
+    assert_eq!(status["phase"], "staged");
+    assert_eq!(status["available"]["latestVersion"], LATEST_VERSION);
+    assert_eq!(harness.obs.calls().core_trigger_reload, 0, "monitoring must block automatic application");
+
+    harness.stop_monitor().await.error_for_status().unwrap();
     drop(harness);
     unsafe { std::env::remove_var("GE_UPDATE_CHECK_URL") };
     shutdown_tx.send(()).unwrap();
@@ -335,7 +467,8 @@ async fn check_now_does_not_stage_when_auto_update_disabled() {
     assert_not_staged(&core_path);
     let status: Value =
         harness.client.get(format!("{API}/api/v1/updates/status")).send().await.unwrap().json().await.unwrap();
-    assert_eq!(status["staged"], false, "status endpoint should report nothing staged while auto-update is off");
+    assert_eq!(status["phase"], "available", "status endpoint should report the update as available");
+    assert_eq!(status["available"]["latestVersion"], LATEST_VERSION);
 
     // ...and applying is refused because there's nothing staged to apply.
     let apply_response = harness.client.post(format!("{API}/api/v1/updates/apply")).send().await.unwrap();
@@ -484,7 +617,8 @@ async fn manual_check_now_bypasses_the_interval_that_blocked_the_automatic_check
 
     let status_response: Value =
         harness.client.get(format!("{API}/api/v1/updates/status")).send().await.unwrap().json().await.unwrap();
-    assert_eq!(status_response["staged"], true, "status endpoint should report the update as staged");
+    assert_eq!(status_response["phase"], "staged", "status endpoint should report the update as staged");
+    assert_eq!(status_response["available"]["latestVersion"], "v999.0.0");
 
     drop(harness);
     unsafe { std::env::remove_var("GE_UPDATE_CHECK_URL") };

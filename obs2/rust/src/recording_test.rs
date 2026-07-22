@@ -76,7 +76,7 @@ fn test_snapshot_store() -> SharedStateStore {
             plugin_version: "test".to_owned(),
             file_error: None,
         },
-        update: None,
+        update: crate::updates::UpdateStatus::default(),
     })
 }
 
