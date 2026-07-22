@@ -241,6 +241,15 @@ body {
 	color: var(--obs-text);
 }
 
+.obs-icon-button-open,
+.obs-icon-button-open:hover,
+.obs-icon-button-open:active {
+	background: var(--obs-gold-surface);
+	border-color: var(--obs-gold);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--obs-gold), transparent 58%);
+	color: var(--obs-gold-hover);
+}
+
 .obs-button:focus-visible,
 .obs-text-button:focus-visible,
 .obs-icon-button:focus-visible,
@@ -476,6 +485,22 @@ body {
 .obs-menu-link:active {
 	background: var(--obs-control-active);
 	color: var(--obs-gold-hover);
+}
+
+.obs-menu-link-danger {
+	margin-top: 0.25rem;
+	border-top: 1px solid color-mix(in srgb, var(--obs-danger), var(--obs-border) 45%);
+	color: #ffb3b3;
+}
+
+.obs-menu-link-danger:hover {
+	background: var(--obs-danger-surface);
+	color: #fff;
+}
+
+.obs-menu-link-danger:active {
+	background: color-mix(in srgb, var(--obs-danger), #111318 30%);
+	color: #fff;
 }
 
 .obs-menu-link-active,
