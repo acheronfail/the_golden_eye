@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import SectionTitle from '$lib/components/SectionTitle.svelte';
 	import { linear } from 'svelte/easing';
 	import { Tween } from 'svelte/motion';
 	import { backend, type RunClip } from '$lib/api';
@@ -124,20 +125,21 @@
 	});
 </script>
 
+{#snippet sectionActions()}
+	{#if isUploaded}
+		<button
+			type="button"
+			class="obs-text-button obs-button-xs cursor-pointer rounded-full"
+			aria-expanded={helpOpen}
+			aria-label="Explain YouTube upload history"
+			onclick={() => (helpOpen = !helpOpen)}>?</button
+		>
+	{/if}
+{/snippet}
+
 {#if youtube.enabled}
 	<section class="mt-4">
-		<div class="mb-3 flex items-center justify-between gap-3 border-b border-(--obs-border) pb-2">
-			<h3 class="font-mono text-xs font-semibold tracking-[0.2em] text-(--obs-text-muted) uppercase">YouTube</h3>
-			{#if isUploaded}
-				<button
-					type="button"
-					class="obs-text-button obs-button-xs cursor-pointer rounded-full"
-					aria-expanded={helpOpen}
-					aria-label="Explain YouTube upload history"
-					onclick={() => (helpOpen = !helpOpen)}>?</button
-				>
-			{/if}
-		</div>
+		<SectionTitle title="YouTube" actions={sectionActions} class="mb-3" />
 		{#if isUploaded && helpOpen}
 			<div class="mb-3 grid gap-2 text-xs leading-relaxed text-(--obs-text-muted)">
 				<p>

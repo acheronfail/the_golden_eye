@@ -110,6 +110,7 @@ pub struct AppSettings {
     pub show_monitor_fps: bool,
     pub show_developer_settings: bool,
     pub show_source_previews: bool,
+    pub last_used_source_name: Option<String>,
     pub welcome_modal_shown: bool,
     pub completed_output_path: String,
     pub save_failed_runs: bool,
@@ -145,6 +146,7 @@ impl Default for AppSettings {
             show_monitor_fps: false,
             show_developer_settings: false,
             show_source_previews: true,
+            last_used_source_name: None,
             welcome_modal_shown: false,
             completed_output_path: String::new(),
             save_failed_runs: true,
@@ -186,6 +188,7 @@ impl AppSettings {
             show_monitor_fps: bool_field(object.get("showMonitorFps"), default.show_monitor_fps),
             show_developer_settings: bool_field(object.get("showDeveloperSettings"), default.show_developer_settings),
             show_source_previews: bool_field(object.get("showSourcePreviews"), default.show_source_previews),
+            last_used_source_name: non_empty_string_field_option(object.get("lastUsedSourceName")),
             welcome_modal_shown: bool_field(object.get("welcomeModalShown"), default.welcome_modal_shown),
             completed_output_path: string_field(object.get("completedOutputPath"), &default.completed_output_path),
             save_failed_runs: bool_field(object.get("saveFailedRuns"), default.save_failed_runs),
@@ -566,6 +569,10 @@ fn string_field(value: Option<&Value>, fallback: &str) -> String {
 
 fn string_field_option(value: Option<&Value>) -> Option<String> {
     value.and_then(Value::as_str).map(str::to_owned)
+}
+
+fn non_empty_string_field_option(value: Option<&Value>) -> Option<String> {
+    value.and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned)
 }
 
 fn bool_field(value: Option<&Value>, fallback: bool) -> bool {

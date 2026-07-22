@@ -29,6 +29,7 @@ beforeEach(() => {
 	obsSources.loaded = true;
 	obsSources.version = 1;
 	settings.showSourcePreviews = true;
+	settings.lastUsedSourceName = null;
 	replayBuffer.status = {
 		enabled: true,
 		available: true,
@@ -49,6 +50,38 @@ describe('home page', () => {
 		await user.click(screen.getByRole('button', { name: /N64 Capture/i }));
 
 		expect(mocks.goto).toHaveBeenCalledWith('/sources/N64%20Capture');
+		expect(settings.lastUsedSourceName).toBe('N64 Capture');
+	});
+
+	it('pins an available last used source above the remaining sources', () => {
+		obsSources.items = [
+			{ name: 'Capture Card', id: 'decklink_input' },
+			{ name: 'N64 Capture', id: 'video_capture_device' }
+		];
+		settings.lastUsedSourceName = 'N64 Capture';
+
+		render(HomePage);
+
+		const choices = screen
+			.getAllByRole('button')
+			.filter((button) => ['N64 Capture', 'Capture Card'].some((name) => button.textContent?.includes(name)));
+		expect(choices.map((button) => button.textContent)).toEqual([
+			expect.stringContaining('N64 Capture'),
+			expect.stringContaining('Capture Card')
+		]);
+		expect(choices[0]).toHaveTextContent('video_capture_device');
+		expect(screen.getByRole('heading', { name: 'last used source' })).toBeInTheDocument();
+		expect(screen.getByRole('heading', { name: 'sources' })).toBeInTheDocument();
+	});
+
+	it('falls back to the normal list when the last used source is unavailable', () => {
+		settings.lastUsedSourceName = 'Disconnected Capture';
+
+		render(HomePage);
+
+		expect(screen.queryByRole('heading', { name: 'last used source' })).not.toBeInTheDocument();
+		expect(screen.getByRole('heading', { name: 'sources' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /N64 Capture/i })).toBeInTheDocument();
 	});
 
 	it('hides source screenshots when previews are toggled off', async () => {

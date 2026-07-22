@@ -2,6 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import { backend, type EditableRunMetadata, type RunClip } from '$lib/api';
 	import RunYouTubeSection from '$lib/components/RunYouTubeSection.svelte';
+	import SectionTitle from '$lib/components/SectionTitle.svelte';
 	import Select from '$lib/components/Select.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
@@ -105,11 +106,7 @@
 
 				{#if metadataDraft}
 					<section class="mt-4">
-						<h3
-							class="mb-3 border-b border-(--obs-border) pb-2 font-mono text-xs font-semibold tracking-[0.2em] text-(--obs-text-muted) uppercase"
-						>
-							Metadata
-						</h3>
+						<SectionTitle title="Metadata" class="mb-3" />
 						<div class="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
 							<label class="flex min-w-0 flex-col gap-1">
 								<span class="obs-dim font-mono text-xs">Level</span>

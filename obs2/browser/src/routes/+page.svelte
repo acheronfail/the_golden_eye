@@ -51,10 +51,26 @@
 		};
 	});
 
-	let options = $derived<Option[]>((sources ?? []).map((s) => ({ title: s.name, detail: s.id, key: s.name })));
+	const lastUsedSource = $derived((sources ?? []).find((source) => source.name === settings.lastUsedSourceName));
+	let options = $derived<Option[]>([
+		...(lastUsedSource
+			? [
+					{
+						title: lastUsedSource.name,
+						detail: lastUsedSource.id,
+						section: 'last used source',
+						key: lastUsedSource.name
+					}
+				]
+			: []),
+		...(sources ?? [])
+			.filter((source) => source.name !== lastUsedSource?.name)
+			.map((source) => ({ title: source.name, detail: source.id, section: 'sources', key: source.name }))
+	]);
 
 	const select = (option: Option) => {
 		if (replayUnavailable) return;
+		settings.lastUsedSourceName = option.title;
 		goto(`/sources/${encodeURIComponent(option.title)}`);
 	};
 
