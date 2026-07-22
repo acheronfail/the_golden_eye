@@ -25,6 +25,7 @@ export default defineConfig({
 		// Storybook loads Testing Library dynamically, so Vite's Windows scanner
 		// misses its CommonJS dependencies before browser startup.
 		include: [
+			'storybook/viewport',
 			'@testing-library/dom',
 			'@testing-library/dom > aria-query',
 			'@testing-library/dom > lz-string',
