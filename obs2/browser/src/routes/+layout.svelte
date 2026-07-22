@@ -1,13 +1,13 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
-	import { settings } from '$lib';
-	import { monitor, monitorHref, monitorPhaseStyle } from '$lib/monitor.svelte';
-	import { startAppSocket, stopAppSocket } from '$lib/appSocket.svelte';
-	import KiaDeathOverlay from '$lib/KiaDeathOverlay.svelte';
-	import NotificationFlags from '$lib/NotificationFlags.svelte';
-	import { replayBuffer, refreshReplayBuffer } from '$lib/replayBuffer.svelte';
-	import { youtube } from '$lib/youtube.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { monitor, monitorHref, monitorPhaseStyle } from '$lib/stores/monitor.svelte';
+	import { startAppSocket, stopAppSocket } from '$lib/stores/appSocket.svelte';
+	import KiaDeathOverlay from '$lib/components/KiaDeathOverlay.svelte';
+	import NotificationFlags from '$lib/components/NotificationFlags.svelte';
+	import { replayBuffer, refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
+	import { youtube } from '$lib/stores/youtube.svelte';
 	import { page } from '$app/state';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';

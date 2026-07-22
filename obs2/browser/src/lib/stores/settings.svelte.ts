@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { z } from 'zod';
-import { backend, type SettingsStatus } from './api';
+import { backend, type SettingsStatus } from '$lib/api';
 
 const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
 const UpdateCheckIntervalSchema = z.enum(['monthly', 'weekly', 'daily', 'never']);

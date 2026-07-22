@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { settings } from '$lib';
-	import { optionsClasses as styles, type RecordingOptionsView } from '$lib/optionsView';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { optionsClasses as styles, type RecordingOptionsView } from '$lib/utils/optionsView';
 
 	const clipTemplateTokens = [
 		{ value: '{obs_replay_name}', description: 'Original OBS replay-buffer filename without the extension.' },

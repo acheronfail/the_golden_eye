@@ -3,7 +3,8 @@
 	import { linear } from 'svelte/easing';
 	import { tweened } from 'svelte/motion';
 	import { backend, type EditableRunMetadata, type RunClip } from '$lib/api';
-	import { Select, settings } from '$lib';
+	import Select from '$lib/components/Select.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
 		LANGUAGE_OPTIONS,
@@ -11,10 +12,10 @@
 		fileRows,
 		runDetail,
 		type RunDetailView
-	} from '$lib/runsView';
-	import { datetimeLocalForClip, renderYouTubeUploadPreview } from '$lib/youtubeMetadata';
-	import { youtube } from '$lib/youtube.svelte';
-	import YouTubeConnectButton from '$lib/YouTubeConnectButton.svelte';
+	} from '$lib/utils/runsView';
+	import { datetimeLocalForClip, renderYouTubeUploadPreview } from '$lib/utils/youtubeMetadata';
+	import { youtube } from '$lib/stores/youtube.svelte';
+	import YouTubeConnectButton from '$lib/components/YouTubeConnectButton.svelte';
 
 	let {
 		clip,

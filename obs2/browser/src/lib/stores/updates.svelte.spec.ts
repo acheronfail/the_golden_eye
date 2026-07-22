@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { notifications } from './notifications.svelte';
-import { settings } from './settings.svelte';
-import { updates } from './updates.svelte';
+import { notifications } from '$lib/stores/notifications.svelte';
+import { settings } from '$lib/stores/settings.svelte';
+import { updates } from '$lib/stores/updates.svelte';
 
 const mocks = vi.hoisted(() => ({
 	checkForUpdateNow: vi.fn(),
@@ -11,8 +11,8 @@ const mocks = vi.hoisted(() => ({
 	openUpdateRelease: vi.fn()
 }));
 
-vi.mock('./api', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('./api')>();
+vi.mock('$lib/api', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/api')>();
 	return {
 		...actual,
 		backend: {

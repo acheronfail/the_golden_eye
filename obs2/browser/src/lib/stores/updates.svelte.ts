@@ -1,12 +1,12 @@
-import { backend, type PluginUpdate, type UpdatePhase, type UpdateStatus } from './api';
+import { backend, type PluginUpdate, type UpdatePhase, type UpdateStatus } from '$lib/api';
 import {
 	addNotificationFlag,
 	removeNotificationFlag,
 	replaceNotificationFlag,
 	type NotificationFlag
-} from './notifications.svelte';
+} from '$lib/stores/notifications.svelte';
 export type UpdateButtonPhase = 'check' | 'checking' | 'download' | 'downloading' | 'apply' | 'applying';
-import { settings } from './settings.svelte';
+import { settings } from '$lib/stores/settings.svelte';
 
 const idleStatus = (): UpdateStatus => ({ phase: 'idle', available: null });
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));

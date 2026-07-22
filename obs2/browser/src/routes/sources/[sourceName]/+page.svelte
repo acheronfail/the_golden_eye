@@ -2,10 +2,10 @@
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { backend } from '$lib/api';
-	import { settings } from '$lib';
-	import { monitor, monitorPhaseStyle } from '$lib/monitor.svelte';
-	import { refreshReplayBuffer } from '$lib/replayBuffer.svelte';
-	import { obsSources } from '$lib/sources.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { monitor, monitorPhaseStyle } from '$lib/stores/monitor.svelte';
+	import { refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
+	import { obsSources } from '$lib/stores/sources.svelte';
 	import type { PageProps } from './$types';
 
 	let { params }: PageProps = $props();

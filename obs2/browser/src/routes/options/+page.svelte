@@ -2,15 +2,16 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { backend, type FolderValidation } from '$lib/api';
-	import { dismissNotificationFlagsByKey } from '$lib/notifications.svelte';
-	import { replayBuffer } from '$lib/replayBuffer.svelte';
-	import { Select, settings } from '$lib';
-	import OptionsGeneral from '$lib/OptionsGeneral.svelte';
-	import OptionsNotifications from '$lib/OptionsNotifications.svelte';
-	import OptionsRecording from '$lib/OptionsRecording.svelte';
-	import OptionsYouTube from '$lib/OptionsYouTube.svelte';
-	import { optionsClasses, type OptionsPathKind, type RecordingOptionsView } from '$lib/optionsView';
-	import { youtube } from '$lib/youtube.svelte';
+	import { dismissNotificationFlagsByKey } from '$lib/stores/notifications.svelte';
+	import { replayBuffer } from '$lib/stores/replayBuffer.svelte';
+	import Select from '$lib/components/Select.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
+	import OptionsGeneral from '$lib/components/OptionsGeneral.svelte';
+	import OptionsNotifications from '$lib/components/OptionsNotifications.svelte';
+	import OptionsRecording from '$lib/components/OptionsRecording.svelte';
+	import OptionsYouTube from '$lib/components/OptionsYouTube.svelte';
+	import { optionsClasses, type OptionsPathKind, type RecordingOptionsView } from '$lib/utils/optionsView';
+	import { youtube } from '$lib/stores/youtube.svelte';
 
 	type OptionsTab = 'general' | 'recording' | 'notifications' | 'youtube';
 

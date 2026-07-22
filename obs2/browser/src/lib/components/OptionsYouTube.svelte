@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { Select, settings, type YoutubeVisibility } from '$lib';
-	import { optionsClasses as styles } from '$lib/optionsView';
-	import { youtube } from '$lib/youtube.svelte';
-	import YouTubeConnectButton from '$lib/YouTubeConnectButton.svelte';
+	import Select from '$lib/components/Select.svelte';
+	import { settings, type YoutubeVisibility } from '$lib/stores/settings.svelte';
+	import { optionsClasses as styles } from '$lib/utils/optionsView';
+	import { youtube } from '$lib/stores/youtube.svelte';
+	import YouTubeConnectButton from '$lib/components/YouTubeConnectButton.svelte';
 
 	const visibilityOptions: { value: YoutubeVisibility; label: string }[] = [
 		{ value: 'public', label: 'Public' },

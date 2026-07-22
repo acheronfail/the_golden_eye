@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import MetaPills from './MetaPills.svelte';
-	import { dismissNotificationFlag, notifications, type NotificationTone } from './notifications.svelte';
+	import { dismissNotificationFlag, notifications, type NotificationTone } from '$lib/stores/notifications.svelte';
 
 	const toneClass = (tone: NotificationTone): string => {
 		switch (tone) {

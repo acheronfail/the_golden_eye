@@ -9,9 +9,13 @@ import {
 	type RecordingSavePending,
 	type RecordingSaved,
 	type RecordingStatus
-} from './api';
-import { addNotificationFlag, dismissNotificationFlag, replaceNotificationFlag } from './notifications.svelte';
-import { levelMatchMetaChips } from './runsView';
+} from '$lib/api';
+import {
+	addNotificationFlag,
+	dismissNotificationFlag,
+	replaceNotificationFlag
+} from '$lib/stores/notifications.svelte';
+import { levelMatchMetaChips } from '$lib/utils/runsView';
 
 export interface MonitorPhaseStyle {
 	title: string;

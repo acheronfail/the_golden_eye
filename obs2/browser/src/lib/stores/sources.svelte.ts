@@ -1,4 +1,4 @@
-import type { ObsSource } from './api';
+import type { ObsSource } from '$lib/api';
 
 export const obsSources = $state<{
 	items: ObsSource[] | null;

@@ -4,7 +4,7 @@ import {
 	dismissNotificationFlag,
 	notifications,
 	removeNotificationFlag
-} from './notifications.svelte';
+} from '$lib/stores/notifications.svelte';
 
 describe('notification dismissal callbacks', () => {
 	beforeEach(() => {

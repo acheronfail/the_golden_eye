@@ -1,12 +1,12 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Settings } from '$lib/settings.svelte';
+import type { Settings } from '$lib/stores/settings.svelte';
 import OptionsPageHarness from './page.test-harness.svelte';
-import { monitor } from '$lib/monitor.svelte';
-import { replayBuffer } from '$lib/replayBuffer.svelte';
-import { settings } from '$lib/settings.svelte';
-import { updates } from '$lib/updates.svelte';
+import { monitor } from '$lib/stores/monitor.svelte';
+import { replayBuffer } from '$lib/stores/replayBuffer.svelte';
+import { settings } from '$lib/stores/settings.svelte';
+import { updates } from '$lib/stores/updates.svelte';
 
 const mocks = vi.hoisted(() => {
 	const api = {
@@ -49,7 +49,7 @@ vi.mock('$app/state', () => ({
 	page: mocks.page
 }));
 
-vi.mock('$lib/appSocket.svelte', () => ({
+vi.mock('$lib/stores/appSocket.svelte', () => ({
 	startAppSocket: mocks.startAppSocket,
 	stopAppSocket: mocks.stopAppSocket
 }));

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { RunDirectoryScan } from '$lib/api';
-	import { directoryPath } from '$lib/runsView';
+	import { directoryPath } from '$lib/utils/runsView';
 
 	let {
 		open,

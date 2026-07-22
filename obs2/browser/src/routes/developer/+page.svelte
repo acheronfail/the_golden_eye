@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { backend, type AnnotationRect, type AnnotationSet, type LevelMatch } from '$lib/api';
-	import { Select } from '$lib';
-	import { triggerKiaDeathOverlay } from '$lib/monitor.svelte';
-	import { addNotificationFlag } from '$lib/notifications.svelte';
-	import { levelMatchMetaChips } from '$lib/runsView';
+	import Select from '$lib/components/Select.svelte';
+	import { triggerKiaDeathOverlay } from '$lib/stores/monitor.svelte';
+	import { addNotificationFlag } from '$lib/stores/notifications.svelte';
+	import { levelMatchMetaChips } from '$lib/utils/runsView';
 	import { onDestroy } from 'svelte';
 
 	const knownVideoSourceIds = [

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { youtubePathKeyForPlatform, youtubePathsMatchForPlatform } from './youtube.svelte';
+import { youtubePathKeyForPlatform, youtubePathsMatchForPlatform } from '$lib/stores/youtube.svelte';
 
 describe('YouTube upload path matching', () => {
 	it('matches case-insensitively on macOS', () => {

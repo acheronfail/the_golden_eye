@@ -1,4 +1,4 @@
-import type { MetaPill } from './metaPills';
+import type { MetaPill } from '$lib/utils/metaPills';
 
 export type NotificationTone = 'success' | 'info' | 'warning' | 'error';
 
