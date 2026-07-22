@@ -212,7 +212,10 @@ clippy:
     cmake --build "$build_dir" --target browser_build
     source "$build_dir/rust-cargo-env.sh"
 
-    cd "{{ justfile_directory() }}/obs2/rust" && cargo clippy --fix -- -D warnings
+    cd "{{ justfile_directory() }}/obs2/rust"
+    if ! cargo clippy -- -D warnings; then
+      cargo clippy --fix -- -D warnings
+    fi
 
 # generate a markdown preview of what GitHub will put in the next release notes
 preview-release sha="HEAD":
