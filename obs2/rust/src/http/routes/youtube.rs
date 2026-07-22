@@ -61,7 +61,9 @@ pub async fn handle_connect(State(state): State<AppState>) -> Result<impl IntoRe
         (StatusCode::BAD_REQUEST, "YouTube OAuth failed").into_response()
     })?;
 
-    Ok((StatusCode::OK, Json(state.youtube.status())))
+    let status = state.youtube.status();
+    let _ = state.event_tx.send(AppEvent::YoutubeStatusChanged { status: status.clone() });
+    Ok((StatusCode::OK, Json(status)))
 }
 
 #[axum::debug_handler]
@@ -101,7 +103,9 @@ pub async fn handle_disconnect(State(state): State<AppState>) -> Result<impl Int
         tracing::error!("failed to disconnect YouTube: {err:#}");
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to disconnect YouTube").into_response()
     })?;
-    Ok((StatusCode::OK, Json(state.youtube.status())))
+    let status = state.youtube.status();
+    let _ = state.event_tx.send(AppEvent::YoutubeStatusChanged { status: status.clone() });
+    Ok((StatusCode::OK, Json(status)))
 }
 
 #[axum::debug_handler]

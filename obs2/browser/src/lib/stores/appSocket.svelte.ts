@@ -189,6 +189,9 @@ const handleAppEvent = (event: AppEvent): void => {
 			youtube.applyUpload(event.upload);
 			notifyYoutubeUploadChanged(event.upload);
 			break;
+		case 'youtubeStatusChanged':
+			youtube.applyStatus(event.status);
+			break;
 		default:
 			console.warn('Ignoring unknown app event', event);
 	}

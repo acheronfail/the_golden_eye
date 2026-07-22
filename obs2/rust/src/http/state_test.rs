@@ -70,6 +70,26 @@ fn language_detected_event_uses_frontend_field_names() {
 }
 
 #[test]
+fn youtube_status_changed_event_uses_frontend_field_names() {
+    let event = AppEvent::YoutubeStatusChanged {
+        status: crate::youtube::YoutubeStatus {
+            enabled: true,
+            oauth_configured: true,
+            connected: true,
+            account: None,
+            uploads: vec![],
+            history: vec![],
+        },
+    };
+    let json = serde_json::to_value(event).unwrap();
+
+    assert_eq!(json["type"], "youtubeStatusChanged");
+    assert_eq!(json["status"]["oauthConfigured"], true);
+    assert_eq!(json["status"]["connected"], true);
+    assert!(json["status"].get("oauth_configured").is_none());
+}
+
+#[test]
 fn monitor_fps_event_uses_frontend_field_names() {
     let event = AppEvent::MonitorFps(MonitorFps { processed_fps: 59.5, source_fps: 60.0 });
     let json = serde_json::to_value(event).unwrap();
