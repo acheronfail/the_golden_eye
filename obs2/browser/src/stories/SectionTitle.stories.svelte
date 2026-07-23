@@ -10,6 +10,8 @@
 	});
 </script>
 
+<Story name="With detail" args={{ title: 'Today', detail: '4 runs' }} />
+
 <Story name="Default" />
 <Story name="With action" args={{ title: 'YouTube', withAction: true }} />
 <Story name="Source section" args={{ title: 'Last used source' }} />

@@ -13,7 +13,7 @@
 	import OptionsRecording from '$lib/components/OptionsRecording.svelte';
 	import OptionsYouTube from '$lib/components/OptionsYouTube.svelte';
 	import ResetSettingsDialog from '$lib/components/ResetSettingsDialog.svelte';
-	import { optionsClasses, type OptionsPathKind, type RecordingOptionsView } from '$lib/utils/optionsView';
+	import { optionsClasses, type RecordingOptionsView } from '$lib/utils/optionsView';
 	import { youtube } from '$lib/stores/youtube.svelte';
 
 	type OptionsTab = 'general' | 'recording' | 'notifications' | 'youtube';
@@ -30,17 +30,14 @@
 		value === 'recording' || value === 'notifications' || (value === 'youtube' && youtube.enabled) ? value : 'general';
 
 	let activeTab = $state<OptionsTab>(tabFromUrl(page.url.searchParams.get('tab')));
-	let pickingPath: OptionsPathKind | null = $state(null);
+	let pickingOutputPath = $state(false);
 	let revealingConfigFile = $state(false);
 	let resettingConfigFile = $state(false);
 	let showResetConfirmation = $state(false);
 	let configActionError = $state<string | null>(null);
 	let completedPathValidating = $state(false);
-	let failedPathValidating = $state(false);
 	let completedValidation: FolderValidation | null = $state(null);
-	let failedValidation: FolderValidation | null = $state(null);
 	let completedValidationSeq = 0;
-	let failedValidationSeq = 0;
 	let clipTemplateSeparator = $state('/');
 
 	const rememberTab = (tab: OptionsTab) => {
@@ -85,16 +82,9 @@
 	const { panel: panelClass, label: labelClass, hint: hintClass, pathButton: pathButtonClass } = optionsClasses;
 	const dangerPanelClass =
 		'grid gap-3 rounded border border-(--obs-danger) bg-[color-mix(in_srgb,var(--obs-danger)_14%,transparent)] px-4 py-4';
-	const normalizeFailedRunLimit = () => {
-		const value = Number(settings.failedRunLimit);
-		settings.failedRunLimit = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
-	};
-
-	const normalizeMinimumFailedRunLength = () => {
-		const value = Number(settings.minimumFailedRunLengthSecs);
-		settings.minimumFailedRunLengthSecs = Number.isFinite(value)
-			? Math.max(0, value)
-			: settings.defaults.minimumFailedRunLengthSecs;
+	const normalizeRecentRunLimit = () => {
+		const value = Number(settings.recentRunLimit);
+		settings.recentRunLimit = Number.isFinite(value) ? Math.min(20, Math.max(1, Math.trunc(value))) : 5;
 	};
 
 	const normalizePreRunPadding = () => {
@@ -144,9 +134,6 @@
 		return null;
 	}
 
-	const outputPath = (kind: OptionsPathKind): string =>
-		kind === 'completed' ? settings.completedOutputPath : settings.failedOutputPath;
-
 	const joinPath = (base: string, child: string): string => {
 		const trimmed = base.trim();
 		if (!trimmed) return '';
@@ -155,56 +142,16 @@
 		return `${trimmed.replace(/[\\/]+$/, '')}${separator}${child}`;
 	};
 
-	const siblingFailedPath = (base: string): string => {
-		const trimmed = base.trim().replace(/[\\/]+$/, '');
-		return trimmed ? `${trimmed} - failed` : '';
-	};
-
-	const completedDefaultOutputPath = (): string =>
+	const defaultOutputPath = (): string =>
 		replayBuffer.status?.defaultCompletedOutputPath ??
 		(replayBuffer.status?.outputDirectory ? joinPath(replayBuffer.status.outputDirectory, 'GoldenEye') : '');
 
-	let completedOutputPathPlaceholder = $derived(completedDefaultOutputPath() || 'OBS replay folder/GoldenEye');
-	let failedOutputPathPlaceholder = $derived(
-		siblingFailedPath(settings.completedOutputPath.trim() || completedOutputPathPlaceholder) ||
-			replayBuffer.status?.defaultFailedOutputPath ||
-			'GoldenEye - failed'
-	);
+	let outputPathPlaceholder = $derived(defaultOutputPath() || 'OBS replay folder/GoldenEye');
 
-	const setOutputPath = (kind: OptionsPathKind, value: string) => {
-		if (kind === 'completed') {
-			settings.completedOutputPath = value;
-		} else {
-			settings.failedOutputPath = value;
-		}
-	};
-
-	const setPathValidation = (kind: OptionsPathKind, validation: FolderValidation | null) => {
-		if (kind === 'completed') {
-			completedValidation = validation;
-		} else {
-			failedValidation = validation;
-		}
-	};
-
-	const setPathValidating = (kind: OptionsPathKind, value: boolean) => {
-		if (kind === 'completed') {
-			completedPathValidating = value;
-		} else {
-			failedPathValidating = value;
-		}
-	};
-
-	const nextValidationSeq = (kind: OptionsPathKind): number =>
-		kind === 'completed' ? ++completedValidationSeq : ++failedValidationSeq;
-
-	const currentValidationSeq = (kind: OptionsPathKind): number =>
-		kind === 'completed' ? completedValidationSeq : failedValidationSeq;
-
-	const clearPathValidation = (kind: OptionsPathKind) => {
-		nextValidationSeq(kind);
-		setPathValidation(kind, null);
-		setPathValidating(kind, false);
+	const clearPathValidation = () => {
+		completedValidationSeq += 1;
+		completedValidation = null;
+		completedPathValidating = false;
 	};
 
 	const pathValidationError = (message: string): FolderValidation => ({
@@ -217,62 +164,59 @@
 		error: message
 	});
 
-	const validateOutputPath = async (kind: OptionsPathKind) => {
-		const value = outputPath(kind).trim();
-		const seq = nextValidationSeq(kind);
+	const validateOutputPath = async () => {
+		const value = settings.completedOutputPath.trim();
+		const seq = ++completedValidationSeq;
 
 		if (!value) {
-			setPathValidation(kind, null);
-			setPathValidating(kind, false);
+			completedValidation = null;
+			completedPathValidating = false;
 			return;
 		}
 
-		setPathValidating(kind, true);
+		completedPathValidating = true;
 		try {
 			const validation = await backend.validateFolder(value);
-			if (seq === currentValidationSeq(kind) && value === outputPath(kind).trim()) {
-				setPathValidation(kind, validation);
+			if (seq === completedValidationSeq && value === settings.completedOutputPath.trim()) {
+				completedValidation = validation;
 			}
 		} catch (err) {
-			if (seq === currentValidationSeq(kind)) {
-				setPathValidation(kind, pathValidationError(errorMessage(err)));
+			if (seq === completedValidationSeq) {
+				completedValidation = pathValidationError(errorMessage(err));
 			}
 		} finally {
-			if (seq === currentValidationSeq(kind)) {
-				setPathValidating(kind, false);
+			if (seq === completedValidationSeq) {
+				completedPathValidating = false;
 			}
 		}
 	};
 
-	const chooseOutputPath = async (kind: OptionsPathKind) => {
-		const currentPath =
-			kind === 'failed'
-				? settings.failedOutputPath.trim() || failedOutputPathPlaceholder
-				: settings.completedOutputPath.trim() || completedOutputPathPlaceholder;
+	const chooseOutputPath = async () => {
+		const currentPath = settings.completedOutputPath.trim() || outputPathPlaceholder;
 
-		pickingPath = kind;
+		pickingOutputPath = true;
 		try {
 			const result = await backend.pickFolder({
-				title: kind === 'completed' ? 'Choose completed clips folder' : 'Choose failed clips folder',
+				title: 'Choose run clips folder',
 				currentPath
 			});
 			if (!result.cancelled && result.path) {
-				setOutputPath(kind, result.path);
-				await validateOutputPath(kind);
+				settings.completedOutputPath = result.path;
+				await validateOutputPath();
 			}
 		} catch (err) {
-			setPathValidation(kind, pathValidationError(errorMessage(err)));
+			completedValidation = pathValidationError(errorMessage(err));
 		} finally {
-			pickingPath = null;
+			pickingOutputPath = false;
 		}
 	};
 
 	const folderStatusMessage = (validation: FolderValidation): string =>
 		validation.willCreate ? 'Ready: folder will be created' : 'Ready: folder exists';
 
-	const clearOutputPath = (kind: OptionsPathKind) => {
-		setOutputPath(kind, '');
-		clearPathValidation(kind);
+	const clearOutputPath = () => {
+		settings.completedOutputPath = '';
+		clearPathValidation();
 	};
 
 	const showConfigFile = async () => {
@@ -317,17 +261,10 @@
 			set: setClipFilenameTemplate
 		},
 		paths: {
-			picking: pickingPath,
-			completed: {
-				validating: completedPathValidating,
-				validation: completedValidation,
-				placeholder: completedOutputPathPlaceholder
-			},
-			failed: {
-				validating: failedPathValidating,
-				validation: failedValidation,
-				placeholder: failedOutputPathPlaceholder
-			},
+			picking: pickingOutputPath,
+			validating: completedPathValidating,
+			validation: completedValidation,
+			placeholder: outputPathPlaceholder,
 			choose: chooseOutputPath,
 			clear: clearOutputPath,
 			clearValidation: clearPathValidation,
@@ -335,8 +272,7 @@
 			statusMessage: folderStatusMessage
 		},
 		normalize: {
-			failedRunLimit: normalizeFailedRunLimit,
-			minimumFailedRunLength: normalizeMinimumFailedRunLength,
+			recentRunLimit: normalizeRecentRunLimit,
 			preRunPadding: normalizePreRunPadding,
 			postRunPadding: normalizePostRunPadding
 		}

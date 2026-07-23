@@ -29,6 +29,8 @@ pub struct AppStateInner {
     /// Latest recorder phase from the running monitor, with generation-aware
     /// timeout clearing. Writes also update `snapshot.recording_state`.
     pub recording_state: RecordingStateStore,
+    /// Retained per-clip replay save pipeline state for debug visibility.
+    pub replay_saves: ReplaySaveStateStore,
     /// Developer-only, in-memory switch that makes the live monitor include
     /// matcher regions and annotation sets in its debug/info payloads. This is
     /// intentionally not part of persisted settings.
@@ -64,6 +66,8 @@ pub struct MonitorSnapshot {
     pub enabled: bool,
     #[serde(rename = "sourceName", skip_serializing_if = "Option::is_none")]
     pub source_name: Option<String>,
+    #[serde(rename = "cvLanguage", skip_serializing_if = "Option::is_none")]
+    pub cv_language: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -73,6 +77,7 @@ pub struct AppSnapshot {
     #[serde(rename = "match")]
     pub level_match: Option<LevelMatch>,
     pub recording_state: Option<RecordingStatus>,
+    pub replay_saves: Vec<ReplaySaveStatus>,
     pub sources: Vec<routes::sources::Source>,
     pub replay_buffer: ReplayBufferStatus,
     pub settings_status: crate::settings::SettingsStatus,
@@ -100,17 +105,23 @@ impl SharedStateStore {
         self.lock_state().clone()
     }
 
-    pub fn set_monitor_running(&self, source_name: String) {
+    pub fn set_monitor_running(&self, source_name: String, cv_language: String) {
         self.update(|state| {
             state.monitor.enabled = true;
             state.monitor.source_name = Some(source_name);
+            state.monitor.cv_language.get_or_insert(cv_language);
         });
+    }
+
+    pub fn set_monitor_language(&self, cv_language: String) {
+        self.update(|state| state.monitor.cv_language = Some(cv_language));
     }
 
     pub fn set_monitor_stopped(&self) {
         self.update(|state| {
             state.monitor.enabled = false;
             state.monitor.source_name = None;
+            state.monitor.cv_language = None;
             state.level_match = None;
             state.recording_state = None;
         });
@@ -122,6 +133,32 @@ impl SharedStateStore {
 
     pub fn set_recording_state(&self, recording_state: Option<RecordingStatus>) {
         self.update(|state| state.recording_state = recording_state);
+    }
+
+    pub fn set_replay_save(&self, replay_save: ReplaySaveStatus) {
+        self.update(|state| {
+            if let Some(existing) =
+                state.replay_saves.iter_mut().find(|existing| existing.tracking_id == replay_save.tracking_id)
+            {
+                *existing = replay_save;
+            } else {
+                state.replay_saves.push(replay_save);
+                state.replay_saves.sort_unstable_by(|a, b| b.tracking_id.cmp(&a.tracking_id));
+            }
+        });
+    }
+
+    pub fn update_replay_save(&self, tracking_id: u64, stage: ReplaySaveStage, error: Option<String>) {
+        self.update(|state| {
+            if let Some(existing) = state.replay_saves.iter_mut().find(|existing| existing.tracking_id == tracking_id) {
+                existing.stage = stage;
+                existing.error = error;
+            }
+        });
+    }
+
+    pub fn remove_replay_save(&self, tracking_id: u64) {
+        self.update(|state| state.replay_saves.retain(|save| save.tracking_id != tracking_id));
     }
 
     pub fn set_sources(&self, sources: Vec<routes::sources::Source>) {
@@ -185,9 +222,6 @@ pub enum AppEvent {
     /// The complete retained app/session state. Sent on connect and after every
     /// retained-state change so new tabs sync to the backend source of truth.
     Snapshot { state: Box<AppSnapshot> },
-    /// The source showed a ROM language-specific marker. The monitor uses this
-    /// to keep its active matcher and recording metadata aligned automatically.
-    LanguageDetected { lang: String },
     /// Periodic monitor throughput telemetry. `processed_fps` is the slowest
     /// completed-frame cadence observed since the last telemetry push;
     /// `source_fps` is the OBS video cadence driving capture callbacks.
@@ -196,20 +230,12 @@ pub enum AppEvent {
     RecordingSavePending(RecordingSavePending),
     /// A run's clip was saved out of the replay buffer and trimmed.
     RecordingSaved(RecordingSaved),
-    /// A scheduled save was dropped before any clip was written (e.g. a failed
-    /// run shorter than the configured minimum), so no `RecordingSaved` follows.
-    /// Clients use it to clear the pending "saving" notification for this save.
-    RecordingSaveDiscarded {
-        #[serde(rename = "saveId")]
-        save_id: u64,
+    RunCatalogChanged {
+        #[serde(rename = "runId", skip_serializing_if = "Option::is_none")]
+        run_id: Option<String>,
+        #[serde(rename = "saveId", skip_serializing_if = "Option::is_none")]
+        save_id: Option<u64>,
     },
-    /// A failed run reached an ending screen but no clip was written for it
-    /// (failed-run saving is disabled, or the run was shorter than the
-    /// configured minimum). Unlike a recording-phase transition this is a
-    /// one-off notification that never touches the retained recorder phase, so a
-    /// discard that fires late -- e.g. on the save timer, after a new run has
-    /// already started -- can't knock the new run out of its "recording" state.
-    FailedRunNotSaved { reason: FailedRunNotSavedReason },
     /// Monitoring stopped, either from a user request or an external OBS event.
     MonitorStopped { reason: MonitorStoppedReason },
     /// The settings JSON file changed on disk and was reloaded successfully.
@@ -256,17 +282,6 @@ pub enum MonitorStoppedReason {
     ReplayBufferStopped,
 }
 
-/// Why a failed run reached an ending screen without a clip being written.
-/// Serialized as a plain string inside [`AppEvent::FailedRunNotSaved`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum FailedRunNotSavedReason {
-    /// Failed-run saving is disabled in the active recording options.
-    SavingDisabled,
-    /// The run was shorter than the configured minimum failed-run length.
-    TooShort,
-}
-
 /// Monitor throughput sampled by the worker thread and pushed to the frontend
 /// while monitoring is active.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -310,6 +325,79 @@ pub enum RecordingStatus {
     /// screen): a save has been scheduled and will fire a few seconds later. A
     /// [`AppEvent::RecordingSaved`] follows once the clip is written.
     SavePending,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReplaySaveStage {
+    Scheduled,
+    WaitingForReplaySave,
+    SavingReplay,
+    Trimming,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaySaveStatus {
+    pub tracking_id: u64,
+    pub save_id: u64,
+    pub stage: ReplaySaveStage,
+    pub level: String,
+    pub difficulty: Option<String>,
+    pub run_status: String,
+    pub estimated_duration_secs: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct ReplaySaveStateStore {
+    snapshot: SharedStateStore,
+}
+
+impl ReplaySaveStateStore {
+    const COMPLETED_LINGER: Duration = Duration::from_secs(5);
+    const FAILED_LINGER: Duration = Duration::from_secs(30);
+
+    pub fn new(snapshot: SharedStateStore) -> Self {
+        Self { snapshot }
+    }
+
+    pub fn schedule(&self, status: ReplaySaveStatus) {
+        self.snapshot.set_replay_save(status);
+    }
+
+    #[cfg(test)]
+    pub fn current(&self) -> Vec<ReplaySaveStatus> {
+        self.snapshot.current().replay_saves
+    }
+
+    pub fn transition(&self, tracking_id: u64, stage: ReplaySaveStage) {
+        self.snapshot.update_replay_save(tracking_id, stage, None);
+    }
+
+    pub fn complete(&self, tracking_id: u64) {
+        self.snapshot.update_replay_save(tracking_id, ReplaySaveStage::Completed, None);
+        self.remove_after(tracking_id, Self::COMPLETED_LINGER);
+    }
+
+    pub fn fail(&self, tracking_id: u64, error: String) {
+        self.snapshot.update_replay_save(tracking_id, ReplaySaveStage::Failed, Some(error));
+        self.remove_after(tracking_id, Self::FAILED_LINGER);
+    }
+
+    fn remove_after(&self, tracking_id: u64, duration: Duration) {
+        let store = self.clone();
+        let spawned = std::thread::Builder::new().name("ge-replay-save-state-timeout".to_owned()).spawn(move || {
+            std::thread::sleep(duration);
+            store.snapshot.remove_replay_save(tracking_id);
+        });
+        if let Err(err) = spawned {
+            tracing::error!("failed to spawn replay save state timeout thread: {err}");
+        }
+    }
 }
 
 /// Retained recorder phase shared by the monitor worker and app snapshot.

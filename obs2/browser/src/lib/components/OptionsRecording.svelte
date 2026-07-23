@@ -66,19 +66,13 @@
 
 <section class={styles.panel}>
 	<div class="flex flex-wrap items-center justify-between gap-3">
-		<label class={styles.label} for="completed-output-path">Completed run clips</label>
+		<label class={styles.label} for="completed-output-path">Run clips</label>
 		<div class="flex flex-wrap justify-end gap-2">
-			<button
-				type="button"
-				class={styles.pathButton}
-				disabled={view.paths.picking !== null}
-				onclick={() => view.paths.choose('completed')}
-				>{view.paths.picking === 'completed' ? 'Choosing...' : 'Choose...'}</button
+			<button type="button" class={styles.pathButton} disabled={view.paths.picking} onclick={view.paths.choose}
+				>{view.paths.picking ? 'Choosing...' : 'Choose...'}</button
 			>
 			{#if settings.completedOutputPath.trim()}
-				<button type="button" class={styles.pathButton} onclick={() => view.paths.clear('completed')}
-					>Use default</button
-				>
+				<button type="button" class={styles.pathButton} onclick={view.paths.clear}>Use default</button>
 			{/if}
 		</div>
 	</div>
@@ -86,110 +80,38 @@
 		id="completed-output-path"
 		type="text"
 		bind:value={settings.completedOutputPath}
-		oninput={() => view.paths.clearValidation('completed')}
-		onblur={() => view.paths.validate('completed')}
-		placeholder={view.paths.completed.placeholder}
+		oninput={view.paths.clearValidation}
+		onblur={view.paths.validate}
+		placeholder={view.paths.placeholder}
 		class={styles.input}
 	/>
-	{#if view.paths.completed.validating}
+	{#if view.paths.validating}
 		<p class={styles.pathPending}>Checking folder...</p>
-	{:else if view.paths.completed.validation?.error}
-		<p class={styles.pathError}>{view.paths.completed.validation.error}</p>
-	{:else if view.paths.completed.validation && settings.completedOutputPath.trim()}
-		<p class={styles.pathStatus}>{view.paths.statusMessage(view.paths.completed.validation)}</p>
+	{:else if view.paths.validation?.error}
+		<p class={styles.pathError}>{view.paths.validation.error}</p>
+	{:else if view.paths.validation && settings.completedOutputPath.trim()}
+		<p class={styles.pathStatus}>{view.paths.statusMessage(view.paths.validation)}</p>
 	{:else}
 		<p class={styles.hint}>Defaults to a GoldenEye folder inside OBS's replay-buffer output folder.</p>
 	{/if}
 </section>
 
 <section class={styles.panel}>
-	<label class="flex items-center gap-3">
-		<input
-			type="checkbox"
-			bind:checked={settings.saveFailedRuns}
-			class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
-		/>
-		<span class={styles.label}>Save failed runs</span>
-	</label>
-
-	{#if settings.saveFailedRuns}
-		<div class="grid gap-5">
-			<div class="grid gap-3">
-				<div class="flex flex-wrap items-center justify-between gap-3">
-					<label class={styles.label} for="failed-output-path">Failed run clips</label>
-					<div class="flex flex-wrap justify-end gap-2">
-						<button
-							type="button"
-							class={styles.pathButton}
-							disabled={view.paths.picking !== null}
-							onclick={() => view.paths.choose('failed')}
-							>{view.paths.picking === 'failed' ? 'Choosing...' : 'Choose...'}</button
-						>
-						{#if settings.failedOutputPath.trim()}
-							<button type="button" class={styles.pathButton} onclick={() => view.paths.clear('failed')}
-								>Use default</button
-							>
-						{/if}
-					</div>
-				</div>
-				<input
-					id="failed-output-path"
-					type="text"
-					bind:value={settings.failedOutputPath}
-					oninput={() => view.paths.clearValidation('failed')}
-					onblur={() => view.paths.validate('failed')}
-					placeholder={view.paths.failed.placeholder}
-					class={styles.input}
-				/>
-				{#if view.paths.failed.validating}
-					<p class={styles.pathPending}>Checking folder...</p>
-				{:else if view.paths.failed.validation?.error}
-					<p class={styles.pathError}>{view.paths.failed.validation.error}</p>
-				{:else if view.paths.failed.validation && settings.failedOutputPath.trim()}
-					<p class={styles.pathStatus}>{view.paths.statusMessage(view.paths.failed.validation)}</p>
-				{:else}
-					<p class={styles.hint}>
-						Defaults to a folder named after the completed-run clip folder with " - failed" appended, alongside it.
-					</p>
-				{/if}
-			</div>
-
-			<div class="grid gap-5 sm:grid-cols-2">
-				<div class="grid gap-2">
-					<label class={styles.label} for="failed-run-limit">How many failed runs to keep</label>
-					<input
-						id="failed-run-limit"
-						type="number"
-						min="0"
-						step="1"
-						bind:value={settings.failedRunLimit}
-						onblur={view.normalize.failedRunLimit}
-						class={styles.input}
-					/>
-					<p class={styles.hint}>
-						Set to 0 to keep all failed clips. When the limit is reached the oldest clips are deleted first.
-					</p>
-				</div>
-
-				<div class="grid gap-2">
-					<label class={styles.label} for="minimum-failed-run-length">Minimum failed run length (seconds)</label>
-					<input
-						id="minimum-failed-run-length"
-						type="number"
-						min="0"
-						step="0.25"
-						bind:value={settings.minimumFailedRunLengthSecs}
-						onblur={view.normalize.minimumFailedRunLength}
-						class={styles.input}
-					/>
-					<p class={styles.hint}>
-						Set to 0 to save every failed run. Uses the time displayed on the stats screen when available (or falls back
-						to the time between seeing the start screen and then seeing the stats screen).
-					</p>
-				</div>
-			</div>
-		</div>
-	{/if}
+	<label class={styles.label} for="recent-run-limit">Recent run history</label>
+	<input
+		id="recent-run-limit"
+		type="number"
+		min="1"
+		max="20"
+		step="1"
+		bind:value={settings.recentRunLimit}
+		onblur={view.normalize.recentRunLimit}
+		class={styles.input}
+	/>
+	<p class={styles.hint}>
+		Keep videos for this many recent runs while you decide what to keep. After each new clip is saved, older unkept
+		videos are removed, but their run history remains.
+	</p>
 </section>
 
 <section class={styles.panel}>

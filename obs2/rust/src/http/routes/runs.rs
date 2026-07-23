@@ -9,12 +9,11 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response, Result};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::sync::mpsc;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
-use crate::db::clips;
-use crate::db::run_catalog::{IndexedRunClip, RunCatalog, RunCatalogRoot};
+use crate::db::run_catalog::{IndexedRunClip, RunCatalog, RunCatalogRoot, RunRecord, RunRetentionState, RunSort};
+use crate::db::runs;
 use crate::ffmpeg::{self, ClipMetadata};
 use crate::http::AppState;
 use crate::models::clip_metadata::RunStatus;
@@ -27,9 +26,30 @@ pub struct RunPathParams {
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct RunsStreamParams {
+pub struct RunsParams {
     #[serde(default)]
     refresh: bool,
+    #[serde(default)]
+    sort: RunSort,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentRunsParams {
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunIdRequest {
+    run_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunDeleteRequest {
+    run_id: String,
+    keep_history: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,7 +62,7 @@ pub struct RunRenameRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunMetadataUpdateRequest {
-    path: String,
+    run_id: String,
     metadata: EditableRunMetadata,
 }
 
@@ -64,14 +84,6 @@ pub struct RunsResponse {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum RunsStreamEvent {
-    Directory { directory: RunDirectoryScan },
-    Clip { clip: Box<RunClip> },
-    Done,
-}
-
-#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunDirectoryScan {
     kind: RunDirectoryKind,
@@ -84,12 +96,12 @@ pub struct RunDirectoryScan {
 #[serde(rename_all = "camelCase")]
 pub enum RunDirectoryKind {
     Completed,
-    Failed,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunClip {
+    run_id: String,
     path: String,
     file_name: String,
     directory: String,
@@ -97,6 +109,8 @@ pub struct RunClip {
     modified: Option<String>,
     duration_secs: Option<f64>,
     metadata: ClipMetadata,
+    retention_state: RunRetentionState,
+    retention_reason: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -163,7 +177,7 @@ const LEVEL_OPTIONS: [LevelOption; 20] = [
     LevelOption { name: "Egypt", number: 20 },
 ];
 
-fn seed_catalog_if_needed(state: &AppState, settings: &AppSettings) {
+pub(crate) fn seed_catalog_if_needed(state: &AppState, settings: &AppSettings) {
     let mut needs_seed = state.run_catalog_needs_seed.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if !*needs_seed {
         return;
@@ -175,57 +189,76 @@ fn seed_catalog_if_needed(state: &AppState, settings: &AppSettings) {
 }
 
 #[axum::debug_handler]
-pub async fn handle_list(State(state): State<AppState>) -> Result<impl IntoResponse> {
+pub async fn handle_list(State(state): State<AppState>, Query(params): Query<RunsParams>) -> Result<impl IntoResponse> {
     let settings = state.settings.get_effective();
+    let refresh = params.refresh;
+    let sort = params.sort;
     let response = tokio::task::spawn_blocking(move || {
         seed_catalog_if_needed(&state, &settings);
-        list_configured_runs(&settings, &state.run_catalog)
+        if refresh {
+            refresh_catalog_from_settings(&state.run_catalog, &settings)?;
+        }
+        Ok::<_, anyhow::Error>(list_configured_runs(&settings, &state.run_catalog, sort))
     })
     .await
     .map_err(|err| {
         tracing::error!("run listing task failed: {err:#}");
         (StatusCode::INTERNAL_SERVER_ERROR, "run listing failed").into_response()
-    })?;
+    })?
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?;
 
     Ok((StatusCode::OK, Json(response)))
 }
 
-pub async fn handle_stream(State(state): State<AppState>, Query(params): Query<RunsStreamParams>) -> Result<Response> {
+#[axum::debug_handler]
+pub async fn handle_recent(
+    State(state): State<AppState>,
+    Query(params): Query<RecentRunsParams>,
+) -> Result<impl IntoResponse> {
     let settings = state.settings.get_effective();
-    let refresh = params.refresh;
-    let (tx, mut rx) = mpsc::channel::<String>(32);
-    let (mut writer, reader) = tokio::io::duplex(64 * 1024);
-
-    std::mem::drop(tokio::task::spawn_blocking(move || {
+    let limit = params.limit.unwrap_or(settings.recent_run_limit).clamp(1, 20);
+    let runs = tokio::task::spawn_blocking(move || {
         seed_catalog_if_needed(&state, &settings);
-        stream_configured_runs(&settings, &state.run_catalog, refresh, |event| {
-            let Ok(mut line) = serde_json::to_string(&event) else {
-                return true;
-            };
-            line.push('\n');
-            tx.blocking_send(line).is_ok()
-        });
-    }));
+        state.run_catalog.recent_runs(limit)
+    })
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?;
+    Ok(Json(runs.into_iter().map(run_clip_from_record).collect::<Vec<_>>()))
+}
 
-    std::mem::drop(tokio::spawn(async move {
-        while let Some(line) = rx.recv().await {
-            if writer.write_all(line.as_bytes()).await.is_err() {
-                break;
-            }
+#[axum::debug_handler]
+pub async fn handle_keep(State(state): State<AppState>, Json(req): Json<RunIdRequest>) -> Result<impl IntoResponse> {
+    let catalog = state.run_catalog.clone();
+    let run = tokio::task::spawn_blocking(move || catalog.keep(&req.run_id))
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?
+        .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()).into_response())?;
+    let _ = state
+        .event_tx
+        .send(crate::http::AppEvent::RunCatalogChanged { run_id: Some(run.run_id.clone()), save_id: None });
+    Ok(Json(run_clip_from_record(run)))
+}
+
+#[axum::debug_handler]
+pub async fn handle_delete_run(
+    State(state): State<AppState>,
+    Json(req): Json<RunDeleteRequest>,
+) -> Result<impl IntoResponse> {
+    let catalog = state.run_catalog.clone();
+    let run_id = req.run_id.clone();
+    let retained = tokio::task::spawn_blocking(move || {
+        if req.keep_history {
+            catalog.delete_video_keep_history(&req.run_id).map(Some)
+        } else {
+            catalog.delete_run_and_video(&req.run_id).map(|_| None)
         }
-    }));
-
-    let stream = ReaderStream::new(reader);
-    let body = Body::from_stream(stream);
-    let response = Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/x-ndjson")
-        .body(body)
-        .map_err(|err| {
-            tracing::error!("failed to build run stream response: {err}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "run stream response failed").into_response()
-        })?;
-    Ok(response)
+    })
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?
+    .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()).into_response())?;
+    let _ = state.event_tx.send(crate::http::AppEvent::RunCatalogChanged { run_id: Some(run_id), save_id: None });
+    Ok(Json(retained.map(run_clip_from_record)))
 }
 
 pub async fn handle_video(
@@ -236,30 +269,6 @@ pub async fn handle_video(
     let settings = state.settings.get_effective();
     let path = authorize_tagged_run_path(&settings, &params.path).map_err(RunPathError::into_response)?;
     serve_video_file(path, &headers).await
-}
-
-#[axum::debug_handler]
-pub async fn handle_delete(
-    State(state): State<AppState>,
-    Query(params): Query<RunPathParams>,
-) -> Result<impl IntoResponse> {
-    let settings = state.settings.get_effective();
-    let catalog = state.run_catalog.clone();
-    let path = authorize_tagged_run_path(&settings, &params.path).map_err(RunPathError::into_response)?;
-    let catalog_path = path.clone();
-
-    tokio::task::spawn_blocking(move || {
-        fs::remove_file(&path)?;
-        catalog.remove_path(&catalog_path).map_err(std::io::Error::other)
-    })
-    .await
-    .map_err(|err| {
-        tracing::error!("run delete task failed: {err:#}");
-        (StatusCode::INTERNAL_SERVER_ERROR, "run delete failed").into_response()
-    })?
-    .map_err(|err| RunPathError::Internal(err.into()).into_response())?;
-
-    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn handle_rename(
@@ -284,20 +293,22 @@ pub async fn handle_update_metadata(
     State(state): State<AppState>,
     Json(req): Json<RunMetadataUpdateRequest>,
 ) -> Result<impl IntoResponse> {
-    let settings = state.settings.get_effective();
     let catalog = state.run_catalog.clone();
-    let clip = tokio::task::spawn_blocking(move || update_run_metadata(&settings, &catalog, req))
+    let clip = tokio::task::spawn_blocking(move || update_run_metadata(&catalog, req))
         .await
         .map_err(|err| {
             tracing::error!("run metadata update task failed: {err:#}");
             (StatusCode::INTERNAL_SERVER_ERROR, "run metadata update failed").into_response()
         })?
         .map_err(RunPathError::into_response)?;
+    let _ = state
+        .event_tx
+        .send(crate::http::AppEvent::RunCatalogChanged { run_id: Some(clip.run_id.clone()), save_id: None });
 
     Ok((StatusCode::OK, Json(clip)))
 }
 
-pub fn list_configured_runs(settings: &AppSettings, catalog: &RunCatalog) -> RunsResponse {
+pub fn list_configured_runs(settings: &AppSettings, catalog: &RunCatalog, sort: RunSort) -> RunsResponse {
     let dirs = configured_run_directories(settings);
     let mut directories = Vec::new();
 
@@ -316,9 +327,8 @@ pub fn list_configured_runs(settings: &AppSettings, catalog: &RunCatalog) -> Run
         }
     }
 
-    let roots = catalog_roots(&dirs);
-    let clips = match catalog.list(&roots) {
-        Ok(clips) => clips.into_iter().map(run_clip_from_indexed).collect(),
+    let clips = match catalog.list_runs_sorted(sort) {
+        Ok(runs) => runs.into_iter().map(run_clip_from_record).collect(),
         Err(err) => {
             tracing::warn!("failed to list run catalog: {err:#}");
             Vec::new()
@@ -328,68 +338,21 @@ pub fn list_configured_runs(settings: &AppSettings, catalog: &RunCatalog) -> Run
     RunsResponse { directories, clips }
 }
 
-pub fn stream_configured_runs(
-    settings: &AppSettings,
-    catalog: &RunCatalog,
-    refresh: bool,
-    mut emit: impl FnMut(RunsStreamEvent) -> bool,
-) {
-    let dirs = configured_run_directories(settings);
-    if refresh && let Err(err) = catalog.resync_and_prune(&catalog_roots(&dirs), settings.failed_run_limit) {
-        tracing::warn!("failed to refresh run catalog from filesystem: {err:#}");
-    }
-
-    for dir in &dirs {
-        let display_path = dir.path.to_string_lossy().into_owned();
-        match ensure_configured_run_directory(&dir.path) {
-            Ok(()) => {
-                if !emit(RunsStreamEvent::Directory {
-                    directory: RunDirectoryScan { kind: dir.kind, path: display_path, exists: true, error: None },
-                }) {
-                    return;
-                }
-            }
-            Err(err) => {
-                if !emit(RunsStreamEvent::Directory {
-                    directory: RunDirectoryScan {
-                        kind: dir.kind,
-                        path: display_path,
-                        exists: false,
-                        error: Some(err.to_string()),
-                    },
-                }) {
-                    return;
-                }
-            }
-        }
-    }
-
-    let roots = catalog_roots(&dirs);
-    match catalog.list(&roots) {
-        Ok(clips) => {
-            for clip in clips {
-                if !emit(RunsStreamEvent::Clip { clip: Box::new(run_clip_from_indexed(clip)) }) {
-                    return;
-                }
-            }
-        }
-        Err(err) => tracing::warn!("failed to stream run catalog: {err:#}"),
-    }
-
-    let _ = emit(RunsStreamEvent::Done);
+pub fn seed_catalog_from_settings(catalog: &RunCatalog, settings: &AppSettings) -> anyhow::Result<()> {
+    refresh_catalog_from_settings(catalog, settings)
 }
 
-pub fn seed_catalog_from_settings(catalog: &RunCatalog, settings: &AppSettings) -> anyhow::Result<()> {
+pub fn refresh_catalog_from_settings(catalog: &RunCatalog, settings: &AppSettings) -> anyhow::Result<()> {
     let dirs = configured_run_directories(settings);
-    catalog.resync_and_prune(&catalog_roots(&dirs), settings.failed_run_limit)
+    catalog.resync(&catalog_roots(&dirs))
 }
 
 pub(crate) fn ensure_configured_run_directory(dir: &Path) -> anyhow::Result<()> {
-    clips::ensure_directory(dir)
+    runs::ensure_directory(dir)
 }
 
 pub fn tagged_clip(path: &Path) -> anyhow::Result<Option<RunClip>> {
-    Ok(clips::read_from_disk(path)?.map(run_clip_from_indexed))
+    Ok(runs::read_from_disk(path)?.map(run_clip_from_indexed))
 }
 
 pub(crate) fn authorize_tagged_run_path(
@@ -427,14 +390,6 @@ pub(crate) fn configured_run_directory_for_kind(
     match kind {
         RunDirectoryKind::Completed => configured_dir(&settings.completed_output_path)
             .ok_or(RunPathError::NotFound("completed run clip folder is not configured")),
-        RunDirectoryKind::Failed => {
-            if !settings.save_failed_runs {
-                Err(RunPathError::NotFound("failed run clip folder is not configured"))
-            } else {
-                configured_dir(&settings.failed_output_path)
-                    .ok_or(RunPathError::NotFound("failed run clip folder is not configured"))
-            }
-        }
     }
 }
 
@@ -461,22 +416,16 @@ fn rename_run_clip(
 }
 
 fn update_run_metadata(
-    settings: &AppSettings,
     catalog: &RunCatalog,
     req: RunMetadataUpdateRequest,
 ) -> std::result::Result<RunClip, RunPathError> {
-    let path = authorize_tagged_run_path(settings, &req.path)?;
-    let mut metadata = ffmpeg::read_clip_metadata(&path)
-        .map_err(RunPathError::Probe)?
-        .ok_or(RunPathError::Forbidden("run clip was not created by The Golden Eye"))?;
-
+    let mut metadata = catalog
+        .get_run(&req.run_id)
+        .map_err(RunPathError::Internal)?
+        .ok_or(RunPathError::NotFound("run was not found"))?
+        .metadata;
     apply_metadata_update(&mut metadata, req.metadata)?;
-    ffmpeg::rewrite_metadata_in_place(&path, &metadata).map_err(RunPathError::Internal)?;
-    if let Err(err) = catalog.refresh_clip(&path) {
-        tracing::warn!(path = %path.display(), "failed to update run catalog metadata: {err:#}");
-    }
-
-    tagged_clip(&path)?.ok_or(RunPathError::Forbidden("run clip was not created by The Golden Eye"))
+    catalog.update_metadata(&req.run_id, metadata).map(run_clip_from_record).map_err(RunPathError::Internal)
 }
 
 impl From<anyhow::Error> for RunPathError {
@@ -692,14 +641,38 @@ fn catalog_roots(dirs: &[ConfiguredRunDirectory]) -> Vec<RunCatalogRoot> {
 }
 
 fn run_clip_from_indexed(clip: IndexedRunClip) -> RunClip {
+    let record = RunRecord {
+        run_id: clip.run_id.clone(),
+        metadata: clip.metadata.clone(),
+        retention_state: clip.retention_state,
+        retention_reason: clip.retention_reason.clone(),
+        clip: Some(clip),
+    };
+    run_clip_from_record(record)
+}
+
+fn run_clip_from_record(run: RunRecord) -> RunClip {
+    let path = run.clip.as_ref().map(|clip| clip.path.clone());
     RunClip {
-        path: clip.path.to_string_lossy().into_owned(),
-        file_name: clip.path.file_name().and_then(|name| name.to_str()).unwrap_or("clip").to_owned(),
-        directory: clip.path.parent().unwrap_or_else(|| Path::new("")).to_string_lossy().into_owned(),
-        size_bytes: clip.size_bytes,
-        modified: clip.modified.map(format_unix_timestamp),
-        duration_secs: clip.duration_secs,
-        metadata: clip.metadata,
+        run_id: run.run_id,
+        path: path.as_ref().map(|path| path.to_string_lossy().into_owned()).unwrap_or_default(),
+        file_name: path
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            .map(str::to_owned)
+            .unwrap_or_default(),
+        directory: path
+            .as_ref()
+            .and_then(|path| path.parent())
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        size_bytes: run.clip.as_ref().map(|clip| clip.size_bytes).unwrap_or_default(),
+        modified: run.clip.as_ref().and_then(|clip| clip.modified).map(format_unix_timestamp),
+        duration_secs: run.clip.as_ref().and_then(|clip| clip.duration_secs),
+        metadata: run.metadata,
+        retention_state: run.retention_state,
+        retention_reason: run.retention_reason,
     }
 }
 
@@ -707,12 +680,6 @@ fn configured_run_directories(settings: &AppSettings) -> Vec<ConfiguredRunDirect
     let mut dirs = Vec::new();
     if let Some(path) = configured_dir(&settings.completed_output_path) {
         dirs.push(ConfiguredRunDirectory { kind: RunDirectoryKind::Completed, path });
-    }
-    if settings.save_failed_runs
-        && let Some(path) = configured_dir(&settings.failed_output_path)
-        && !dirs.iter().any(|dir| dir.path == path)
-    {
-        dirs.push(ConfiguredRunDirectory { kind: RunDirectoryKind::Failed, path });
     }
     dirs
 }
@@ -745,7 +712,7 @@ fn expand_home(path: &str) -> PathBuf {
 }
 
 fn is_video_file(path: &Path) -> bool {
-    clips::is_video_file(path)
+    runs::is_video_file(path)
 }
 
 fn mime_for_path(path: &Path) -> &'static str {

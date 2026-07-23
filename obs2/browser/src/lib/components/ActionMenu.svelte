@@ -103,7 +103,7 @@
 			<button
 				type="button"
 				role="menuitem"
-				class="obs-menu-link rounded px-3 py-2 text-left font-mono text-xs"
+				class="obs-menu-link cursor-pointer rounded px-3 py-2 text-left font-mono text-xs"
 				class:obs-menu-link-danger={item.tone === 'danger'}
 				onclick={() => runAction(item)}>{item.label}</button
 			>

@@ -5,6 +5,7 @@ import RunList from './RunList.svelte';
 import type { RunClip } from '$lib/api';
 
 const runClip = (fileName: string, level: string): RunClip => ({
+	runId: fileName,
 	path: `/runs/${fileName}`,
 	fileName,
 	directory: '/runs',
@@ -23,7 +24,9 @@ const runClip = (fileName: string, level: string): RunClip => ({
 		sourceName: 'Nintendo 64',
 		comment: '',
 		pluginVersion: '2.4.0'
-	}
+	},
+	retentionState: 'kept',
+	retentionReason: 'manual'
 });
 
 describe('RunList', () => {
@@ -37,6 +40,8 @@ describe('RunList', () => {
 			scannedDirectoryCount: 2,
 			directoryCount: 2,
 			hasActiveFilters: false,
+			sort: 'newest',
+			onSortChange: () => {},
 			fileBrowserLabel: 'Show in Finder',
 			clearFilters: () => {},
 			open: () => {},

@@ -7,6 +7,7 @@
 	import { monitor, monitorPresentationPhase } from '$lib/stores/monitor.svelte';
 	import { refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import { obsSources } from '$lib/stores/sources.svelte';
+	import { recentRuns } from '$lib/stores/recentRuns.svelte';
 	import { onDestroy } from 'svelte';
 	import type { PageProps } from './$types';
 
@@ -52,6 +53,7 @@
 	afterNavigate(async () => {
 		pendingNavigation = null;
 		if (!isCurrentPage) return;
+		void recentRuns.refresh();
 
 		verified = false;
 		statusChecked = false;
@@ -120,6 +122,7 @@
 		transition = 'starting';
 		try {
 			await settings.saveNow();
+			await recentRuns.refresh();
 			await backend.startMonitor(params.sourceName);
 			void refreshReplayBuffer();
 			monitoring = true;
@@ -168,8 +171,14 @@
 	{monitoring}
 	{transition}
 	recordingState={monitor.recordingState}
+	cvLanguage={monitor.cvLanguage}
+	replaySaves={monitor.replaySaves}
 	match={monitor.match}
 	fps={monitor.fps}
 	showMonitorFps={settings.showMonitorFps}
+	recentRuns={recentRuns.items}
+	recentRunsBusyId={recentRuns.busyRunId}
+	recentRunsError={recentRuns.error}
+	onKeepRun={(runId) => void recentRuns.keep(runId)}
 	onStop={stopMonitor}
 />

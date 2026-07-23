@@ -3,8 +3,12 @@ import type { RunClip } from '$lib/api';
 import {
 	EMPTY_RUN_FILTERS,
 	clipTimeSeconds,
+	formatBytes,
+	groupRunClips,
 	hasActiveRunFilters,
 	parseRunTimeSeconds,
+	retentionReasonLabel,
+	retentionStateLabel,
 	visibleRunClips,
 	type RunFilters
 } from './runsView';
@@ -24,6 +28,7 @@ const clip = (overrides: {
 	timeSeconds?: number;
 	modified?: string;
 }): RunClip => ({
+	runId: overrides.fileName,
 	path: overrides.path ?? `/runs/${overrides.fileName}`,
 	fileName: overrides.fileName,
 	directory: '/runs',
@@ -42,7 +47,9 @@ const clip = (overrides: {
 		sourceName: 'GoldenEye',
 		comment: 'The Golden Eye',
 		pluginVersion: '1.0.0'
-	}
+	},
+	retentionState: 'kept',
+	retentionReason: 'manual'
 });
 
 const clips = [
@@ -90,6 +97,29 @@ describe('runs view behaviour', () => {
 		]);
 	});
 
+	it('sorts times globally and leaves runs without times last', () => {
+		const unknown = clip({
+			fileName: 'unknown.mov',
+			timestamp: '2026-07-12T10:00:00Z',
+			level: 'Unknown',
+			status: 'failed'
+		});
+
+		expect(visibleRunClips([...clips, unknown], filters(), 'fastest').map((run) => run.fileName)).toEqual([
+			'archives-completed.mov',
+			'facility-0058.mov',
+			'dam-failed.mov',
+			'unknown.mov'
+		]);
+		expect(visibleRunClips([...clips, unknown], filters(), 'slowest').map((run) => run.fileName)).toEqual([
+			'dam-failed.mov',
+			'facility-0058.mov',
+			'archives-completed.mov',
+			'unknown.mov'
+		]);
+		expect(groupRunClips(clips, 'fastest')).toEqual([{ label: null, clips }]);
+	});
+
 	it('filters by search text across filename and metadata', () => {
 		expect(visibleRunClips(clips, filters({ search: 'facility 00 agent' })).map((run) => run.fileName)).toEqual([
 			'facility-0058.mov'
@@ -131,6 +161,24 @@ describe('runs view behaviour', () => {
 	it('parses plain seconds and rejects invalid mm:ss values', () => {
 		expect(parseRunTimeSeconds('75')).toBe(75);
 		expect(parseRunTimeSeconds('01:75')).toBeNull();
+	});
+
+	it('formats clip sizes using readable binary units', () => {
+		expect(formatBytes(0)).toBe('0 B');
+		expect(formatBytes(1024)).toBe('1 KB');
+		expect(formatBytes(148_700_000)).toBe('141.8 MB');
+	});
+
+	it('formats retention reasons for display', () => {
+		expect(retentionReasonLabel('personalBest')).toBe('Personal best');
+		expect(retentionReasonLabel('historyLimit')).toBe('Recent-history limit');
+		expect(retentionReasonLabel('customReason')).toBe('Custom Reason');
+		expect(retentionReasonLabel(null)).toBe('Not specified');
+	});
+
+	it('uses the history-only presentation state when a run has no clip', () => {
+		expect(retentionStateLabel({ ...clips[0], path: '', retentionState: 'expired' })).toBe('History only');
+		expect(retentionStateLabel({ ...clips[0], retentionState: 'pending' })).toBe('Pending');
 	});
 
 	it('detects active filters after trimming search text', () => {

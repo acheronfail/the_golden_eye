@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { MonitorViewProps } from './monitorView';
 	import { formatMonitorTime, monitorPresentation } from './monitorView';
+	import RecentRuns from './RecentRuns.svelte';
 
 	let {
 		verified,
@@ -10,6 +11,10 @@
 		match = null,
 		fps = null,
 		showMonitorFps = false,
+		recentRuns = [],
+		recentRunsBusyId = null,
+		recentRunsError = null,
+		onKeepRun = () => {},
 		onStop
 	}: MonitorViewProps = $props();
 
@@ -47,35 +52,50 @@
 
 	{#key presentation.animationKey}
 		<div class="signal-sweep" aria-hidden="true"></div>
-		<section class="signal-content">
-			<p class="signal-kicker">{verified ? presentation.statusLabel : 'Verifying source'} / ACTIVE</p>
-			<h1>{verified ? presentation.title : 'checking source'}</h1>
-			{#if presentation.showDetail && verified}
-				<p class="signal-detail">{presentation.detail}</p>
-			{/if}
-		</section>
 	{/key}
 
-	{#if match?.times && !presentation.waitingForObs}
-		<div class="signal-metrics" aria-label="Run times">
-			<span>
-				<small>time</small>
-				<strong>{formatMonitorTime(match.times.time)}</strong>
-			</span>
-			{#if match.times.target_time != null}
-				<span>
-					<small>target</small>
-					<strong>{formatMonitorTime(match.times.target_time)}</strong>
-				</span>
+	<div class="signal-layout">
+		<div class="signal-primary">
+			{#if match?.times && !presentation.waitingForObs}
+				<div class="signal-metrics" aria-label="Run times">
+					<span>
+						<small>time</small>
+						<strong>{formatMonitorTime(match.times.time)}</strong>
+					</span>
+					{#if match.times.target_time != null}
+						<span>
+							<small>target</small>
+							<strong>{formatMonitorTime(match.times.target_time)}</strong>
+						</span>
+					{/if}
+					{#if match.times.best_time != null}
+						<span>
+							<small>best</small>
+							<strong>{formatMonitorTime(match.times.best_time)}</strong>
+						</span>
+					{/if}
+				</div>
 			{/if}
-			{#if match.times.best_time != null}
-				<span>
-					<small>best</small>
-					<strong>{formatMonitorTime(match.times.best_time)}</strong>
-				</span>
-			{/if}
+
+			{#key presentation.animationKey}
+				<section class="signal-content">
+					<p class="signal-kicker">{verified ? presentation.statusLabel : 'Verifying source'} / ACTIVE</p>
+					<h1>{verified ? presentation.title : 'checking source'}</h1>
+					{#if presentation.showDetail && verified}
+						<p class="signal-detail">{presentation.detail}</p>
+					{/if}
+				</section>
+			{/key}
 		</div>
-	{/if}
+
+		<RecentRuns
+			variant="signal-band"
+			runs={recentRuns}
+			busyRunId={recentRunsBusyId}
+			error={recentRunsError}
+			onKeep={onKeepRun}
+		/>
+	</div>
 
 	<footer class="monitor-footer">
 		<span>{presentation.phase}</span>
@@ -97,7 +117,7 @@
 		display: flex;
 		height: 100%;
 		min-height: 0;
-		container-type: inline-size;
+		container-type: size;
 		overflow: hidden;
 		background: var(--obs-bg);
 		color: var(--obs-text);
@@ -224,12 +244,23 @@
 		background: currentColor;
 	}
 
-	.signal-content {
+	.signal-layout {
 		position: absolute;
-		top: 50%;
+		top: 5rem;
 		right: clamp(1.75rem, 7cqw, 5rem);
+		bottom: 3.75rem;
 		left: clamp(2.5rem, 9cqw, 7rem);
-		transform: translateY(-50%);
+		display: grid;
+		grid-template-columns: minmax(0, 1.35fr) minmax(15rem, 0.65fr);
+		align-items: center;
+		gap: clamp(1.5rem, 5cqw, 4rem);
+	}
+
+	.signal-primary {
+		min-width: 0;
+	}
+
+	.signal-content {
 		animation: signal-title-in 460ms cubic-bezier(0.2, 0.82, 0.2, 1) both;
 	}
 
@@ -250,7 +281,7 @@
 		max-width: 100%;
 		margin: 0.5rem 0 0.65rem;
 		color: color-mix(in srgb, var(--monitor-accent) 12%, var(--obs-text));
-		font-size: clamp(3rem, 17cqw, 7.5rem);
+		font-size: clamp(2.4rem, 11cqw, 5.25rem);
 		font-weight: 600;
 		line-height: 0.9;
 		letter-spacing: -0.065em;
@@ -272,13 +303,10 @@
 	}
 
 	.signal-metrics {
-		position: absolute;
-		right: 1.75rem;
-		bottom: 5rem;
-		left: clamp(2.5rem, 9cqw, 7rem);
 		display: grid;
 		grid-template-columns: repeat(3, minmax(0, 1fr));
 		gap: clamp(0.75rem, 4cqw, 2.5rem);
+		margin-bottom: clamp(1.25rem, 4cqh, 2.5rem);
 		animation: metrics-in 400ms 80ms ease-out both;
 		font-family: var(--font-mono, ui-monospace, monospace);
 	}
@@ -307,12 +335,10 @@
 	@keyframes signal-title-in {
 		from {
 			opacity: 0;
-			clip-path: inset(0 100% 0 0);
 			transform: translateX(-1.5rem);
 		}
 		to {
 			opacity: 1;
-			clip-path: inset(0);
 			transform: none;
 		}
 	}
@@ -342,6 +368,41 @@
 		}
 	}
 
+	@container (max-width: 760px) {
+		.signal-layout {
+			grid-template-columns: minmax(0, 1fr);
+			grid-template-rows: minmax(0, 1fr) auto;
+			align-items: end;
+			gap: 0.75rem;
+		}
+	}
+
+	@container (max-height: 42rem) {
+		.signal-layout {
+			top: 4.5rem;
+			bottom: 3.25rem;
+			gap: 0.6rem;
+		}
+		.signal-kicker,
+		.signal-detail {
+			font-size: clamp(0.58rem, 2cqw, 0.72rem);
+		}
+		h1 {
+			margin: 0.3rem 0 0.4rem;
+			font-size: clamp(2rem, 8cqw, 3.5rem);
+		}
+		.signal-metrics {
+			gap: clamp(0.6rem, 2.5cqw, 1.5rem);
+			margin-bottom: 0.7rem;
+		}
+		.signal-metrics small {
+			font-size: 0.58rem;
+		}
+		.signal-metrics strong {
+			font-size: clamp(1.1rem, 4.5cqw, 2rem);
+		}
+	}
+
 	@container (max-width: 520px) {
 		.monitor-topbar {
 			right: 2rem;
@@ -358,13 +419,10 @@
 			display: inline;
 		}
 		.signal-content {
-			top: 44%;
-			left: 2.5rem;
+			position: static;
 		}
 		.signal-metrics {
-			right: 1.25rem;
-			bottom: 6.2rem;
-			left: 2.5rem;
+			margin-bottom: 1rem;
 		}
 		.stop-hint {
 			display: none;

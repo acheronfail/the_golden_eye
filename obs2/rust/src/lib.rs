@@ -104,6 +104,7 @@ pub fn ge_test_write_tagged_clip(input: &Path, output: &Path, status: &str, time
     }
     let duration = ffmpeg::duration_secs(input).expect("probe tagged clip input");
     let metadata = ffmpeg::ClipMetadata {
+        run_id: String::new(),
         timestamp: timestamp.to_owned(),
         time: Some("02:03".to_owned()),
         time_seconds: Some(123),
@@ -115,6 +116,8 @@ pub fn ge_test_write_tagged_clip(input: &Path, output: &Path, status: &str, time
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin test".to_owned(),
         plugin_version: "test".to_owned(),
+        retention_state: "kept".to_owned(),
+        retention_reason: Some("imported".to_owned()),
     };
     ffmpeg::trim_with_metadata(input, output, 1.0, (duration - 1.0).max(2.0), Some(&metadata))
         .expect("write tagged clip");
@@ -205,6 +208,7 @@ pub extern "C" fn ge_rust_start() -> bool {
             return false;
         }
     };
+    let catalog_needs_seed = catalog_was_missing || run_catalog.needs_seed();
     let mut guard = match SERVER.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
@@ -241,9 +245,10 @@ pub extern "C" fn ge_rust_start() -> bool {
     let was_reloaded = WAS_RELOADED.load(Ordering::Acquire);
 
     let snapshot = SharedStateStore::new(AppSnapshot {
-        monitor: MonitorSnapshot { enabled: false, source_name: None },
+        monitor: MonitorSnapshot { enabled: false, source_name: None, cv_language: None },
         level_match: None,
         recording_state: None,
+        replay_saves: Vec::new(),
         sources: Vec::new(),
         replay_buffer: http::ReplayBufferStatus::unknown(),
         settings_status: settings.status_without_runtime_defaults(),
@@ -257,6 +262,7 @@ pub extern "C" fn ge_rust_start() -> bool {
     let (event_tx, _) = tokio::sync::broadcast::channel(64);
     let (frontend_ready_tx, _) = tokio::sync::watch::channel(was_reloaded);
     let recording_state = RecordingStateStore::new(snapshot.clone());
+    let replay_saves = http::ReplaySaveStateStore::new(snapshot.clone());
     let state = Arc::new(AppStateInner {
         oauth_pending: tokio::sync::Mutex::new(None),
         youtube: youtube::YoutubeUploadStore::new(settings.path(), run_catalog.clone()),
@@ -265,11 +271,12 @@ pub extern "C" fn ge_rust_start() -> bool {
         snapshot,
         event_tx,
         recording_state,
+        replay_saves,
         monitor_annotations_enabled: AtomicBool::new(false),
         frame_dump: std::sync::Mutex::new(None),
         frontend_ready_tx,
         run_catalog,
-        run_catalog_needs_seed: Mutex::new(catalog_was_missing),
+        run_catalog_needs_seed: Mutex::new(catalog_needs_seed),
         settings,
         reloaded_at: was_reloaded.then(std::time::Instant::now),
     });

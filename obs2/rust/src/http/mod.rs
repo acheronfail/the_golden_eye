@@ -104,13 +104,10 @@ pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state
         .route("/api/v1/youtube/open", post(routes::youtube::handle_open))
         .route("/api/v1/youtube/forget", post(routes::youtube::handle_forget))
         .route("/api/v1/youtube/upload", post(routes::youtube::handle_upload))
-        .route(
-            "/api/v1/runs",
-            get(routes::runs::handle_list)
-                .delete(routes::runs::handle_delete)
-                .patch(routes::runs::handle_update_metadata),
-        )
-        .route("/api/v1/runs/stream", get(routes::runs::handle_stream))
+        .route("/api/v1/runs", get(routes::runs::handle_list).patch(routes::runs::handle_update_metadata))
+        .route("/api/v1/runs/recent", get(routes::runs::handle_recent))
+        .route("/api/v1/runs/keep", post(routes::runs::handle_keep))
+        .route("/api/v1/runs/delete", post(routes::runs::handle_delete_run))
         .route("/api/v1/runs/rename", post(routes::runs::handle_rename))
         .route("/api/v1/runs/video", get(routes::runs::handle_video))
         .route("/api/v1/sources", get(routes::sources::handler))

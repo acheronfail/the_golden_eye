@@ -10,6 +10,7 @@ import type {
 import type { NotificationFlag } from '$lib/stores/notifications.svelte';
 
 export const completedRun: RunClip = {
+	runId: 'completed-run',
 	path: '/runs/completed/2026-07-21-facility-00-agent-00-58.mp4',
 	fileName: '2026-07-21 - Facility - 00 Agent - 00-58.mp4',
 	directory: '/runs/completed',
@@ -28,11 +29,14 @@ export const completedRun: RunClip = {
 		sourceName: 'Nintendo 64',
 		comment: '',
 		pluginVersion: '2.4.0'
-	}
+	},
+	retentionState: 'kept',
+	retentionReason: 'personalBest'
 };
 
 export const failedRun: RunClip = {
 	...completedRun,
+	runId: 'failed-run',
 	path: '/runs/failed/2026-07-20-control-agent-kia.mp4',
 	fileName: '2026-07-20 - Control - Agent - KIA.mp4',
 	directory: '/runs/failed',
@@ -51,8 +55,17 @@ export const failedRun: RunClip = {
 	}
 };
 
+export const pendingRun: RunClip = {
+	...completedRun,
+	runId: 'pending-facility-run',
+	retentionState: 'pending',
+	retentionReason: 'recent',
+	metadata: { ...completedRun.metadata }
+};
+
 export const abortedRun: RunClip = {
 	...completedRun,
+	runId: 'aborted-run',
 	path: '/runs/failed/2026-07-19-dam-secret-agent-aborted.mp4',
 	fileName: '2026-07-19 - Dam - Secret Agent - aborted.mp4',
 	directory: '/runs/failed',
@@ -72,6 +85,7 @@ export const abortedRun: RunClip = {
 
 export const untaggedRun: RunClip = {
 	...completedRun,
+	runId: 'untagged-run',
 	path: '/runs/completed/replay-buffer-save.mp4',
 	fileName: 'Replay Buffer - 2026-07-18 1032.mp4',
 	metadata: {
@@ -87,7 +101,7 @@ export const untaggedRun: RunClip = {
 	}
 };
 
-export const runClips = [completedRun, failedRun, abortedRun, untaggedRun];
+export const runClips = [pendingRun, failedRun, abortedRun, untaggedRun];
 
 export const draftForRun = (clip: RunClip): EditableRunMetadata => ({
 	romLanguage: clip.metadata.romLanguage,
@@ -100,12 +114,6 @@ export const draftForRun = (clip: RunClip): EditableRunMetadata => ({
 export const completedDirectory: RunDirectoryScan = {
 	kind: 'completed',
 	path: '/runs/completed',
-	exists: true
-};
-
-export const failedDirectory: RunDirectoryScan = {
-	kind: 'failed',
-	path: '/runs/failed',
 	exists: true
 };
 
@@ -133,6 +141,7 @@ export const uploadForRun = (
 	overrides: Partial<YouTubeUploadStatus> = {}
 ): YouTubeUploadStatus => ({
 	id: `upload-${state}`,
+	runId: completedRun.runId,
 	path: completedRun.path,
 	fileName: completedRun.fileName,
 	state,
@@ -182,8 +191,9 @@ export const notificationFixtures: NotificationFlag[] = [
 		id: 104,
 		title: 'YouTube upload failed',
 		detail: 'The upload session expired before all bytes were transferred.',
-		meta: 'The clip is still available locally.',
-		tone: 'error'
+		meta: 'Click here to view the run.',
+		tone: 'error',
+		href: `/runs?runId=${encodeURIComponent(completedRun.runId)}`
 	}
 ];
 
@@ -191,47 +201,6 @@ const notice = (id: number, options: Omit<NotificationFlag, 'id'>): Notification
 const actionable = () => {};
 
 export const notificationScenarios = {
-	languageDetected: [
-		notice(201, {
-			title: 'ROM language detected',
-			detail: 'Japanese templates are active for this source.',
-			meta: 'Monitoring will switch automatically if needed.',
-			tone: 'info'
-		})
-	],
-	savingRecording: [
-		notice(202, {
-			title: 'Saving recording',
-			detail: 'Facility | EN | 00:58 | 00 Agent',
-			meta: 'Waiting for OBS to finish writing the clip.',
-			tone: 'info'
-		})
-	],
-	savingFailedRun: [
-		notice(203, {
-			title: 'Saving recording',
-			detail: 'Control | JP | 00:37 | Agent | KIA',
-			meta: 'Waiting for OBS to finish writing the failed clip.',
-			tone: 'warning'
-		})
-	],
-	failedRunNotSaved: [
-		notice(204, {
-			title: 'Failed run not saved',
-			detail: 'The run was shorter than the minimum failed-run length.',
-			tone: 'info',
-			timeoutMs: 600_000
-		})
-	],
-	clipSaved: [notificationFixtures[1]],
-	failedClipSaved: [
-		notice(205, {
-			title: 'Clip saved',
-			pills: [{ label: 'Control' }, { label: '00:37' }, { label: 'Agent' }, { label: 'KIA' }],
-			meta: 'Duration: 44.8s',
-			tone: 'warning'
-		})
-	],
 	monitoringDisabled: [
 		notice(206, {
 			title: 'Monitoring disabled',
@@ -240,30 +209,14 @@ export const notificationScenarios = {
 			tone: 'error'
 		})
 	],
-	youtubeStarted: [
-		notice(207, {
-			title: 'YouTube upload started',
-			detail: 'Facility - 00 Agent - 00:58',
-			tone: 'info'
-		})
-	],
 	youtubeFailed: [
 		notice(208, {
 			title: 'YouTube upload failed',
 			detail: 'Facility - 00 Agent - 00:58',
-			meta: 'An error occurred when trying to upload the video.',
+			meta: 'Click here to view the run.',
 			tone: 'error',
-			timeoutMs: 600_000
-		})
-	],
-	youtubeCompleted: [
-		notice(209, {
-			title: 'YouTube upload completed',
-			detail: 'Facility - 00 Agent - 00:58',
-			meta: 'Click here to open YouTube.',
-			tone: 'success',
 			timeoutMs: 600_000,
-			action: actionable
+			href: `/runs?runId=${encodeURIComponent(completedRun.runId)}`
 		})
 	],
 	configInvalid: [

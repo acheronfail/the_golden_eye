@@ -1,4 +1,4 @@
-import type { LevelMatch, MonitorFps, RecordingStatus } from '$lib/api';
+import type { LevelMatch, MonitorFps, RecordingStatus, ReplaySaveStatus, RunClip } from '$lib/api';
 import { monitorPhaseStyle, monitorPresentationPhase, type MonitorPhase } from '$lib/stores/monitor.svelte';
 
 export type MonitorTransition = 'starting' | 'stopping' | null;
@@ -11,9 +11,15 @@ export interface MonitorViewProps {
 	monitoring: boolean;
 	transition?: MonitorTransition;
 	recordingState?: RecordingStatus | null;
+	cvLanguage?: 'en' | 'jp' | null;
+	replaySaves?: ReplaySaveStatus[];
 	match?: LevelMatch | null;
 	fps?: MonitorFps | null;
 	showMonitorFps?: boolean;
+	recentRuns?: RunClip[];
+	recentRunsBusyId?: string | null;
+	recentRunsError?: string | null;
+	onKeepRun?: (runId: string) => void;
 	onStop: () => void;
 }
 

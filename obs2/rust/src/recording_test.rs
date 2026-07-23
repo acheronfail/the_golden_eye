@@ -54,11 +54,20 @@ fn write_file(path: &Path) {
     fs::write(path, b"clip").unwrap();
 }
 
+fn sample_clip() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/clips/sample_clip.mov")
+}
+
 fn test_snapshot_store() -> SharedStateStore {
     SharedStateStore::new(AppSnapshot {
-        monitor: MonitorSnapshot { enabled: true, source_name: Some("N64 Capture".to_owned()) },
+        monitor: MonitorSnapshot {
+            enabled: true,
+            source_name: Some("N64 Capture".to_owned()),
+            cv_language: Some("en".to_owned()),
+        },
         level_match: None,
         recording_state: None,
+        replay_saves: vec![],
         sources: Vec::new(),
         replay_buffer: crate::http::ReplayBufferStatus {
             enabled: true,
@@ -67,7 +76,6 @@ fn test_snapshot_store() -> SharedStateStore {
             max_seconds: Some(1200),
             output_directory: Some("/captures".to_owned()),
             default_completed_output_path: Some("/captures/GoldenEye".to_owned()),
-            default_failed_output_path: Some("/captures/GoldenEye/failed".to_owned()),
         },
         settings_status: crate::settings::SettingsStatus {
             settings: crate::settings::AppSettings::default(),
@@ -82,10 +90,12 @@ fn test_snapshot_store() -> SharedStateStore {
 
 fn test_recording(options: RecordingOptions) -> (RecordingState, tokio::sync::broadcast::Receiver<AppEvent>) {
     let (event_tx, event_rx) = tokio::sync::broadcast::channel(8);
-    let recording_state = RecordingStateStore::new(test_snapshot_store());
+    let snapshot = test_snapshot_store();
+    let recording_state = RecordingStateStore::new(snapshot.clone());
     let recording = RecordingState::new(
         event_tx,
         recording_state,
+        ReplaySaveStateStore::new(snapshot),
         options,
         "N64 Capture".to_owned(),
         "en".to_owned(),
@@ -95,11 +105,7 @@ fn test_recording(options: RecordingOptions) -> (RecordingState, tokio::sync::br
 }
 
 fn test_recording_saving_short_failed_runs() -> (RecordingState, tokio::sync::broadcast::Receiver<AppEvent>) {
-    test_recording(RecordingOptions { minimum_failed_run_length_secs: 0.0, ..RecordingOptions::default() })
-}
-
-fn sample_clip() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/clips/sample_clip.mov")
+    test_recording(RecordingOptions::default())
 }
 
 fn match_with_time() -> LevelMatch {
@@ -154,10 +160,11 @@ fn match_without_time() -> LevelMatch {
     }
 }
 
-fn default_clip_path_for_surface_2(completed_at: SystemTime) -> PathBuf {
-    PathBuf::from("Surface 2")
-        .join("00 Agent")
-        .join(format!("02-03 - {}", sanitize_path_component(&format_iso_local(completed_at))))
+fn default_flat_clip_path_for_surface_2(completed_at: SystemTime) -> PathBuf {
+    PathBuf::from(format!(
+        "Surface 2 - 00 Agent - 02-03 - {}",
+        sanitize_path_component(&format_iso_local(completed_at))
+    ))
 }
 
 fn match_with_unreadable_header() -> LevelMatch {
@@ -184,11 +191,13 @@ fn match_for_screen(screen: Screen) -> LevelMatch {
 }
 
 fn pending_save_event(events: &mut tokio::sync::broadcast::Receiver<AppEvent>) -> RecordingSavePending {
-    let pending = events.try_recv().expect("pending save event");
-    let AppEvent::RecordingSavePending(pending) = pending else {
-        panic!("expected pending save event");
-    };
-    pending
+    loop {
+        match events.try_recv().expect("pending save event") {
+            AppEvent::RecordingSavePending(pending) => return pending,
+            AppEvent::RunCatalogChanged { .. } => continue,
+            _ => panic!("expected pending save event"),
+        }
+    }
 }
 
 fn assert_no_app_event(events: &mut tokio::sync::broadcast::Receiver<AppEvent>) {
@@ -200,8 +209,7 @@ fn padding_defaults_to_five_and_adds_the_internal_buffer_at_both_ends() {
     let default = RecordingOptions::default();
     assert_eq!(default.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
     assert_eq!(default.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS);
-    assert_eq!(default.failed_run_limit, DEFAULT_FAILED_RUN_LIMIT);
-    assert_eq!(default.minimum_failed_run_length_secs, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS);
+    assert_eq!(default.recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
     assert_eq!(default.pre_run_padding_secs(), DEFAULT_PRE_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
     assert_eq!(default.post_run_padding_secs(), DEFAULT_POST_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
 
@@ -261,8 +269,13 @@ fn failed_report_then_stats_schedules_failed_save() {
     assert_eq!(recording.status, None);
     assert!(recording.report.is_none());
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
+    let replay_saves = recording.replay_saves.current();
+    assert_eq!(replay_saves.len(), 1);
+    assert_eq!(replay_saves[0].save_id, pending.save_id);
+    assert_eq!(replay_saves[0].stage, ReplaySaveStage::Scheduled);
 
     let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
+    assert_eq!(recording.replay_saves.current()[0].stage, ReplaySaveStage::WaitingForReplaySave);
     assert_eq!(job.status, RunStatus::Failed);
     assert_eq!(job.stats.as_ref().map(|m| m.screen), Some(Screen::Stats));
     assert!((job.start_before_save_secs - 22.5).abs() < f64::EPSILON);
@@ -299,6 +312,87 @@ fn complete_report_then_stats_schedules_completed_save() {
     let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
     assert_eq!(job.status, RunStatus::Complete);
     assert_eq!(job.stats.as_ref().map(|m| m.screen), Some(Screen::Stats));
+    assert!(matches!(
+        events.try_recv().expect("catalog row event"),
+        AppEvent::RunCatalogChanged { run_id: Some(run_id), save_id: Some(save_id) }
+            if run_id == job.metadata.run_id && save_id == job.save_id
+    ));
+}
+
+#[test]
+fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
+    let dir = TestDir::new("catalog-failure-save");
+    let catalog = Arc::new(crate::db::run_catalog::RunCatalog::open(dir.join("runs.sqlite")).unwrap());
+    let replay = sample_clip();
+    let old = catalog
+        .create_finalized_run(
+            UNIX_EPOCH + Duration::from_secs(1),
+            clip_metadata(
+                RunStatus::Failed,
+                UNIX_EPOCH + Duration::from_secs(1),
+                Some(&match_with_time()),
+                "N64 Capture",
+                "en",
+            ),
+        )
+        .unwrap();
+    let old_path = dir.join("clips/old.mov");
+    fs::create_dir_all(old_path.parent().unwrap()).unwrap();
+    let duration = ffmpeg::duration_secs(&replay).unwrap();
+    ffmpeg::trim_with_metadata(&replay, &old_path, 1.0, duration - 1.0, Some(&old.metadata)).unwrap();
+    catalog
+        .record_saved_clip(RunCatalogSave {
+            path: old_path.clone(),
+            duration_secs: Some(duration - 2.0),
+            metadata: old.metadata,
+        })
+        .unwrap();
+    catalog.set_fail_create_finalized(true);
+    let (event_tx, mut events) = tokio::sync::broadcast::channel(8);
+    let options = RecordingOptions {
+        completed_output_path: dir.join("clips").to_string_lossy().into_owned(),
+        recent_run_limit: 1,
+        ..RecordingOptions::default()
+    };
+    let snapshot = test_snapshot_store();
+    let mut recording = RecordingState::new(
+        event_tx,
+        RecordingStateStore::new(snapshot.clone()),
+        ReplaySaveStateStore::new(snapshot),
+        options.clone(),
+        "N64 Capture".to_owned(),
+        "en".to_owned(),
+        catalog.clone(),
+    );
+    let now = Instant::now();
+    recording.status = Some(RunStatus::Complete);
+    assert!(recording.schedule_save(now, now - Duration::from_secs(10), Some(match_with_time())));
+    let pending = pending_save_event(&mut events);
+    let job = recording.take_pending_job(now + Duration::from_secs(5)).expect("catalog failure must not drop save");
+    assert_eq!(job.save_id, pending.save_id);
+    assert!(!job.metadata.run_id.is_empty());
+    assert_no_app_event(&mut events);
+    assert!(old_path.exists(), "lowering the retention limit alone must not delete clips");
+
+    catalog.set_fail_create_finalized(false);
+    let saved = trim_clip(TrimClipRequest {
+        save_id: job.save_id,
+        replay_path: replay.to_str().unwrap(),
+        start_before_save_secs: 2.0,
+        trim_tail_secs: 0.0,
+        status: job.status,
+        completed_at: job.completed_at,
+        stats: job.stats,
+        metadata: job.metadata.clone(),
+        options: &options,
+        run_catalog: &catalog,
+    })
+    .expect("save tagged clip");
+
+    assert!(Path::new(&saved.path).is_file());
+    assert!(!old_path.exists(), "retention cleanup should run after the new clip is attached");
+    let recovered = catalog.get_run(&job.metadata.run_id).unwrap().expect("saved clip should recreate catalog row");
+    assert!(recovered.clip.is_some());
 }
 
 #[test]
@@ -430,7 +524,7 @@ fn persistent_first_frame_misread_is_outvoted_by_the_stable_reading() {
 }
 
 #[test]
-fn pending_notification_is_reissued_when_the_voted_time_changes() {
+fn pending_event_is_reissued_when_the_voted_time_changes() {
     let (mut recording, mut events) = test_recording_saving_short_failed_runs();
     let start = Instant::now();
     let stats_at = start + Duration::from_secs(10);
@@ -442,13 +536,13 @@ fn pending_notification_is_reissued_when_the_voted_time_changes() {
     let first = pending_save_event(&mut events);
     assert_eq!(first.time_secs, Some(374));
 
-    // A newer, differing reading replaces the notification under the same id.
+    // A newer, differing reading replaces the provisional row under the same id.
     recording.on_frame(stats_at + Duration::from_millis(16), &stats_match(14));
     let updated = pending_save_event(&mut events);
     assert_eq!(updated.save_id, first.save_id);
     assert_eq!(updated.time_secs, Some(14));
 
-    // A repeat of the settled reading doesn't spam another notification.
+    // A repeat of the settled reading doesn't spam another event.
     recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(14));
     assert_no_app_event(&mut events);
     recording.pending = None;
@@ -541,64 +635,6 @@ fn failed_report_then_level_screen_schedules_save_without_stats_skipped() {
 }
 
 #[test]
-fn failed_run_discarded_when_failed_saves_are_disabled() {
-    let options = RecordingOptions { save_failed_runs: false, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
-    let start = Instant::now();
-
-    recording.on_frame(start, &match_for_screen(Screen::Start));
-    recording.on_frame(start + Duration::from_secs(10), &match_for_screen(Screen::Failed));
-    recording.on_frame(start + Duration::from_secs(12), &match_with_time());
-
-    assert_eq!(recording.clip_start, None);
-    assert_eq!(recording.status, None);
-    assert!(recording.report.is_none());
-    assert!(recording.pending.is_none());
-    // The run is over and nothing is saved: the phase returns to idle and the
-    // outcome is surfaced as a one-off notification rather than a phase.
-    assert_eq!(recording.recording_state.current(), None);
-    assert!(matches!(
-        events.try_recv(),
-        Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::SavingDisabled })
-    ));
-    assert_no_app_event(&mut events);
-}
-
-#[test]
-fn late_discard_does_not_knock_a_newly_started_run_out_of_recording() {
-    // Reproduces the quick-restart bug: a failed run is aborted, then the user
-    // restarts before the earlier run's (too-short) save timer fires. When it
-    // does fire, its discard must not clobber the new run's "recording" phase.
-    let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
-    let start = Instant::now();
-
-    // Run 1: a short KIA'd run whose save will be discarded when it fires.
-    recording.on_frame(start, &match_for_screen(Screen::Start));
-    recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Kia));
-    recording.on_frame(start + Duration::from_secs(6), &stats_match(5));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
-    assert!(recording.pending.is_some());
-
-    // Run 2 starts (quick restart) before run 1's save timer (~11.5s) fires.
-    recording.on_frame(start + Duration::from_secs(7), &match_for_screen(Screen::Start));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Started));
-
-    // Run 1's save timer fires while run 2 is recording: the too-short run is
-    // discarded, but the phase must stay "recording", not fall back to idle.
-    recording.on_frame(start + Duration::from_secs(12), &match_for_screen(Screen::Start));
-
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Started));
-    assert_eq!(recording.clip_start, Some(start + Duration::from_secs(7)));
-    assert!(recording.pending.is_none());
-    assert!(matches!(events.try_recv(), Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })));
-    assert_no_app_event(&mut events);
-
-    // Retire the still-active run 2 so the test-mode Drop check (no pending) passes.
-    recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Levels));
-}
-
-#[test]
 fn late_save_completion_does_not_clear_a_second_runs_matching_phase() {
     // Two completed runs that both skip stats land on the same phase value
     // (`StatsSkipped`). Run 1's save completing late must not clear run 2's
@@ -626,6 +662,10 @@ fn late_save_completion_does_not_clear_a_second_runs_matching_phase() {
     recording.on_frame(start + Duration::from_secs(22), &match_for_screen(Screen::Levels));
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::StatsSkipped));
     let _ = pending_save_event(&mut events);
+    let replay_saves = recording.replay_saves.current();
+    assert_eq!(replay_saves.len(), 2);
+    assert!(replay_saves.iter().any(|save| save.stage == ReplaySaveStage::WaitingForReplaySave));
+    assert!(replay_saves.iter().any(|save| save.stage == ReplaySaveStage::Scheduled));
 
     // Run 1's save completes late: clearing by its own (stale) generation
     // must leave run 2's `StatsSkipped` phase untouched.
@@ -736,26 +776,19 @@ fn failure_screen_variants_emit_distinct_statuses_and_save_statuses() {
 }
 
 #[test]
-fn output_dir_prefers_failed_then_completed_then_replay_parent() {
+fn output_dir_prefers_configured_path_then_replay_parent() {
     let dir = TestDir::new("output-dir");
     let input = dir.join("replay.mov");
     let completed = dir.join("completed");
-    let failed = dir.join("failed");
-
     let mut options = RecordingOptions {
         completed_output_path: completed.to_string_lossy().into_owned(),
-        failed_output_path: failed.to_string_lossy().into_owned(),
         ..RecordingOptions::default()
     };
 
-    assert_eq!(output_dir(&input, false, &options), completed);
-    assert_eq!(output_dir(&input, true, &options), failed);
-
-    options.failed_output_path.clear();
-    assert_eq!(output_dir(&input, true, &options), completed);
+    assert_eq!(output_dir(&input, &options), completed);
 
     options.completed_output_path.clear();
-    assert_eq!(output_dir(&input, true, &options), dir.path());
+    assert_eq!(output_dir(&input, &options), dir.path());
 }
 
 #[test]
@@ -819,8 +852,8 @@ fn shutdown_before_pending_save_fires_waits_and_preserves_save_job() {
     assert_eq!(job.stats.as_ref().and_then(|m| m.times).map(|times| times.time), Some(123));
     assert_eq!(job.options.pre_run_padding_secs, 1.0);
     assert_eq!(job.options.post_run_padding_secs, 5.0);
-    assert_eq!(job.source_name, "N64 Capture");
-    assert_eq!(job.rom_language, "en");
+    assert_eq!(job.metadata.source_name, "N64 Capture");
+    assert_eq!(job.metadata.rom_language, "en");
     assert_eq!(job.event_tx.receiver_count(), 1);
     assert_eq!(job.recording_state.current(), None);
     assert!((job.start_before_save_secs - 17.0).abs() < f64::EPSILON);
@@ -852,227 +885,6 @@ fn shutdown_after_pending_save_fire_time_flushes_without_waiting() {
     assert!((job.start_before_save_secs - 18.5).abs() < f64::EPSILON);
     assert_eq!(job.trim_tail_secs, 1.5);
     assert!(recording.pending.is_none());
-}
-
-#[test]
-fn failed_run_without_stats_shorter_than_minimum_length_is_discarded_at_save_time() {
-    let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
-    let start = Instant::now();
-    let failed_at = start + Duration::from_secs(19);
-
-    // The run is still scheduled up front, but it is already too short to save,
-    // so no "saving" notification is shown; the length gate is re-applied when
-    // the save fires, once the canonical time is known.
-    recording.status = Some(RunStatus::Failed);
-    assert!(recording.schedule_save(failed_at, start, Some(match_without_time())));
-    assert_no_app_event(&mut events);
-
-    assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_none());
-    assert!(recording.pending.is_none());
-    // A too-short run is dropped at save time and surfaced as a notification;
-    // the phase is left untouched (here it was never set off this direct call).
-    assert!(matches!(events.try_recv(), Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })));
-    assert_no_app_event(&mut events);
-    assert_eq!(recording.recording_state.current(), None);
-}
-
-#[test]
-fn failed_run_without_stats_at_or_above_minimum_length_is_saved() {
-    let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
-    let start = Instant::now();
-    let failed_at = start + Duration::from_secs(20);
-
-    recording.status = Some(RunStatus::Failed);
-    assert!(recording.schedule_save(failed_at, start, Some(match_without_time())));
-
-    let pending = pending_save_event(&mut events);
-    assert!(pending.failed);
-    assert_eq!(pending.status, "failed");
-    assert!((pending.estimated_duration_secs - 31.0).abs() < f64::EPSILON);
-
-    let job = recording.take_pending_job(failed_at + Duration::from_secs(5)).expect("save job");
-    assert_eq!(job.status, RunStatus::Failed);
-}
-
-#[test]
-fn failed_run_minimum_length_uses_stats_time_when_present() {
-    let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
-    let start = Instant::now();
-    let failed_at = start + Duration::from_secs(25);
-    let mut stats = match_with_time();
-    stats.times = Some(Times { time: 19, target_time: None, best_time: None });
-
-    // Wall-clock length is 25s, but the stats time (19s) is what counts and it
-    // is below the 20s minimum, so no notification is shown and the run is
-    // discarded when the save fires.
-    recording.status = Some(RunStatus::Failed);
-    assert!(recording.schedule_save(failed_at, start, Some(stats)));
-    assert_no_app_event(&mut events);
-
-    assert!(recording.take_pending_job(failed_at + Duration::from_secs(5)).is_none());
-    assert!(recording.pending.is_none());
-    // The voted stats time is below the minimum, so the run is dropped at save
-    // time and surfaced as a notification, leaving the phase untouched.
-    assert!(matches!(events.try_recv(), Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })));
-    assert_no_app_event(&mut events);
-    assert_eq!(recording.recording_state.current(), None);
-}
-
-#[test]
-fn failed_run_minimum_length_accepts_stats_time_at_threshold() {
-    let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
-    let start = Instant::now();
-    let failed_at = start + Duration::from_secs(10);
-    let mut stats = match_with_time();
-    stats.times = Some(Times { time: 20, target_time: None, best_time: None });
-
-    recording.status = Some(RunStatus::Failed);
-    assert!(recording.schedule_save(failed_at, start, Some(stats)));
-
-    let pending = pending_save_event(&mut events);
-    assert!(pending.failed);
-    assert_eq!(pending.status, "failed");
-    assert_eq!(pending.time_secs, Some(20));
-    assert!((pending.estimated_duration_secs - 21.0).abs() < f64::EPSILON);
-
-    let job = recording.take_pending_job(failed_at + Duration::from_secs(5)).expect("save job");
-    assert_eq!(job.status, RunStatus::Failed);
-}
-
-#[test]
-fn failed_run_minimum_length_gate_uses_voted_time_not_first_frame_misread() {
-    // A minimum longer than the real time but shorter than the misread: the
-    // run must be discarded because the *canonical* voted time (14s) is used,
-    // not the first stats frame's misread (374s).
-    let options = RecordingOptions { minimum_failed_run_length_secs: 100.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
-    let start = Instant::now();
-    let stats_at = start + Duration::from_secs(30);
-
-    recording.on_frame(start, &match_for_screen(Screen::Start));
-    recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Kia));
-    recording.on_frame(stats_at, &stats_match(374));
-    // The misread (374s) clears the minimum, so a "saving" notification shows.
-    let pending = pending_save_event(&mut events);
-    recording.on_frame(stats_at + Duration::from_millis(16), &stats_match(14));
-    recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(14));
-    assert_eq!(pending_stats_time(&recording), Some(14));
-
-    // Once the voted time (14s) drops below the minimum, that notification is
-    // withdrawn rather than left stuck, and no save is written.
-    match events.try_recv().expect("discard event") {
-        AppEvent::RecordingSaveDiscarded { save_id } => assert_eq!(save_id, pending.save_id),
-        other => panic!("expected discard event, got {other:?}"),
-    }
-    assert!(recording.take_pending_job(stats_at + Duration::from_secs(1)).is_none());
-    // The discard fires a notification; because this save's own `SavePending`
-    // phase is still showing (no new run took over), it is cleared to idle.
-    assert!(matches!(events.try_recv(), Ok(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort })));
-    assert_eq!(recording.recording_state.current(), None);
-}
-
-#[test]
-fn failed_run_minimum_length_gate_saves_when_voted_time_clears_it() {
-    // The mirror case: the first frame misreads a too-short time (5s) but the
-    // voted time (30s) clears the 20s minimum, so the run is saved.
-    let options = RecordingOptions { minimum_failed_run_length_secs: 20.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
-    let start = Instant::now();
-    let stats_at = start + Duration::from_secs(30);
-
-    recording.on_frame(start, &match_for_screen(Screen::Start));
-    recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Kia));
-    // The first frame (5s) is below the minimum, so no notification is shown yet.
-    recording.on_frame(stats_at, &stats_match(5));
-    assert_no_app_event(&mut events);
-    recording.on_frame(stats_at + Duration::from_millis(16), &stats_match(30));
-    recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(30));
-    assert_eq!(pending_stats_time(&recording), Some(30));
-
-    // Once the voted time (30s) clears the minimum, the notification appears.
-    let pending = pending_save_event(&mut events);
-    assert_eq!(pending.time_secs, Some(30));
-
-    let job = recording.take_pending_job(stats_at + Duration::from_secs(1)).expect("save job");
-    assert_eq!(job.status, RunStatus::Kia);
-    assert_eq!(job.stats.as_ref().and_then(|m| m.times).map(|t| t.time), Some(30));
-}
-
-#[test]
-fn zero_minimum_failed_run_length_saves_all_failed_runs() {
-    let options = RecordingOptions { minimum_failed_run_length_secs: 0.0, ..RecordingOptions::default() };
-    let (mut recording, mut events) = test_recording(options);
-    let start = Instant::now();
-
-    recording.status = Some(RunStatus::Failed);
-    assert!(recording.schedule_save(start, start, Some(match_without_time())));
-
-    let pending = pending_save_event(&mut events);
-    assert!(pending.failed);
-
-    let job = recording.take_pending_job(start + Duration::from_secs(5)).expect("save job");
-    assert_eq!(job.status, RunStatus::Failed);
-}
-
-#[test]
-fn trim_clip_creates_missing_completed_and_failed_output_directories() {
-    let dir = TestDir::new("trim-missing-output");
-    let replay_path = sample_clip();
-    let replay = replay_path.to_string_lossy();
-    let completed = dir.join("completed/deeply/nested");
-    let failed = dir.join("failed/deeply/nested");
-    let options = RecordingOptions {
-        completed_output_path: completed.to_string_lossy().into_owned(),
-        failed_output_path: failed.to_string_lossy().into_owned(),
-        clip_filename_template: "{status}-{obs_replay_name}".to_owned(),
-        ..RecordingOptions::default()
-    };
-    let catalog = test_run_catalog("trim-missing-output-catalog");
-
-    let complete_saved = trim_clip(TrimClipRequest {
-        save_id: 1,
-        replay_path: &replay,
-        start_before_save_secs: 1.0,
-        trim_tail_secs: 0.0,
-        status: RunStatus::Complete,
-        completed_at: UNIX_EPOCH,
-        stats: Some(match_with_time()),
-        options: &options,
-        source_name: "N64 Capture",
-        rom_language: "en",
-        run_catalog: &catalog,
-    })
-    .expect("trim completed clip");
-
-    let failed_saved = trim_clip(TrimClipRequest {
-        save_id: 2,
-        replay_path: &replay,
-        start_before_save_secs: 1.0,
-        trim_tail_secs: 0.0,
-        status: RunStatus::Failed,
-        completed_at: UNIX_EPOCH + Duration::from_secs(1),
-        stats: Some(match_with_time()),
-        options: &options,
-        source_name: "N64 Capture",
-        rom_language: "en",
-        run_catalog: &catalog,
-    })
-    .expect("trim failed clip");
-
-    let complete_path = PathBuf::from(&complete_saved.path);
-    let failed_path = PathBuf::from(&failed_saved.path);
-    assert!(completed.is_dir());
-    assert!(failed.is_dir());
-    assert!(complete_path.starts_with(&completed), "{}", complete_path.display());
-    assert!(failed_path.starts_with(&failed), "{}", failed_path.display());
-    assert!(complete_path.is_file());
-    assert!(failed_path.is_file());
-    assert!(!complete_saved.failed);
-    assert!(failed_saved.failed);
 }
 
 #[test]
@@ -1277,7 +1089,10 @@ fn clip_template_renders_and_sanitizes_relative_paths() {
     assert!(name.contains("02-03"));
     assert!(name.ends_with("-kia"));
 
-    assert_eq!(clip_relative_path("replay", RunStatus::Complete, UNIX_EPOCH, None, "..."), PathBuf::from("clip"),);
+    assert_eq!(
+        clip_relative_path("replay", RunStatus::Complete, UNIX_EPOCH, None, "..."),
+        PathBuf::from(format!("unknown -  -  - {}", sanitize_path_component(&format_iso_local(UNIX_EPOCH)))),
+    );
 }
 
 #[test]
@@ -1286,7 +1101,7 @@ fn clip_template_rejects_traversal_and_wrong_platform_separator() {
 
     assert_eq!(
         clip_relative_path("replay", RunStatus::Complete, UNIX_EPOCH, Some(&m), "../{level}"),
-        default_clip_path_for_surface_2(UNIX_EPOCH),
+        default_flat_clip_path_for_surface_2(UNIX_EPOCH),
     );
     assert_eq!(
         clip_relative_path(
@@ -1296,7 +1111,7 @@ fn clip_template_rejects_traversal_and_wrong_platform_separator() {
             Some(&m),
             &format!("{{level}}{}..{}{{time}}", std::path::MAIN_SEPARATOR, std::path::MAIN_SEPARATOR),
         ),
-        default_clip_path_for_surface_2(UNIX_EPOCH),
+        default_flat_clip_path_for_surface_2(UNIX_EPOCH),
     );
     assert_eq!(
         clip_relative_path(
@@ -1306,6 +1121,6 @@ fn clip_template_rejects_traversal_and_wrong_platform_separator() {
             Some(&m),
             if std::path::MAIN_SEPARATOR == '/' { "{level}\\{time}" } else { "{level}/{time}" },
         ),
-        default_clip_path_for_surface_2(UNIX_EPOCH),
+        default_flat_clip_path_for_surface_2(UNIX_EPOCH),
     );
 }

@@ -225,32 +225,21 @@ fn start_screen_language_mismatch_is_detected_and_rejected() {
 }
 
 #[test]
-fn detected_language_switches_active_monitor_language_and_notifies_once() {
+fn detected_language_switches_active_monitor_language() {
     let mut session = MonitorSession::new("en", TEMPLATES_DIR).expect("session");
     let mut active_lang = "en".to_owned();
-    let mut language_notified = false;
-    let (event_tx, mut event_rx) = broadcast::channel(8);
 
     let (start_b, start_w, start_h) = load_bgra("screenshots-emu/jp - start - 01 - Agent.png");
     let mismatch = session.match_frame(&start_b, start_w, start_h).expect("mismatch match");
     assert_eq!(mismatch.detected_lang.as_deref(), Some("jp"));
     assert_eq!(mismatch.screen, crate::cv::Screen::Unknown);
 
-    let switched = handle_detected_language(
-        &mismatch,
-        &mut session,
-        &mut active_lang,
-        &mut language_notified,
-        &event_tx,
-        |lang| MonitorSession::new(lang, TEMPLATES_DIR),
-    );
+    let switched = switch_detected_language(&mismatch, &mut session, &mut active_lang, |lang| {
+        MonitorSession::new(lang, TEMPLATES_DIR)
+    });
 
     assert!(switched, "mismatch should switch the active matcher");
     assert_eq!(active_lang, "jp");
-    assert!(language_notified);
-
-    let event = event_rx.try_recv().expect("language detected event");
-    assert!(matches!(event, AppEvent::LanguageDetected { lang } if lang == "jp"));
 
     let (stats_b, stats_w, stats_h) = load_bgra("screenshots-emu/jp - stats - 01 - Agent - 0137_0137.png");
     let stats = session.match_frame(&stats_b, stats_w, stats_h).expect("jp stats after switch");
@@ -260,102 +249,45 @@ fn detected_language_switches_active_monitor_language_and_notifies_once() {
     assert_eq!(stats.difficulty, 0);
     assert_eq!(stats.times, times(97, None, Some(97)));
 
-    let repeated = handle_detected_language(
-        &mismatch,
-        &mut session,
-        &mut active_lang,
-        &mut language_notified,
-        &event_tx,
-        |lang| MonitorSession::new(lang, TEMPLATES_DIR),
-    );
+    let repeated = switch_detected_language(&mismatch, &mut session, &mut active_lang, |lang| {
+        MonitorSession::new(lang, TEMPLATES_DIR)
+    });
     assert!(!repeated, "already-active detected language should not switch again");
-    assert!(matches!(event_rx.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
-}
-
-#[test]
-fn detected_language_notifies_when_already_active() {
-    let mut session = MonitorSession::new("en", TEMPLATES_DIR).expect("session");
-    let mut active_lang = "en".to_owned();
-    let mut language_notified = false;
-    let (event_tx, mut event_rx) = broadcast::channel(8);
-
-    let (start_b, start_w, start_h) = load_bgra("screenshots-emu/en - start - 01 - Agent.png");
-    let detected = session.match_frame(&start_b, start_w, start_h).expect("detected match");
-    assert_eq!(detected.detected_lang.as_deref(), Some("en"));
-
-    let switched = handle_detected_language(
-        &detected,
-        &mut session,
-        &mut active_lang,
-        &mut language_notified,
-        &event_tx,
-        |lang| MonitorSession::new(lang, TEMPLATES_DIR),
-    );
-
-    assert!(!switched, "already-active detected language should not switch");
-    assert_eq!(active_lang, "en");
-    assert!(language_notified);
-    let event = event_rx.try_recv().expect("language detected event");
-    assert!(matches!(event, AppEvent::LanguageDetected { lang } if lang == "en"));
 }
 
 #[test]
 fn detected_language_can_switch_more_than_once_per_monitor_session() {
     let mut session = MonitorSession::new("en", TEMPLATES_DIR).expect("session");
     let mut active_lang = "en".to_owned();
-    let mut language_notified = false;
-    let (event_tx, mut event_rx) = broadcast::channel(8);
 
     let (en_b, en_w, en_h) = load_bgra("screenshots-emu/en - start - 01 - Agent.png");
     let en_detected = session.match_frame(&en_b, en_w, en_h).expect("en match");
     assert_eq!(en_detected.detected_lang.as_deref(), Some("en"));
 
-    let first = handle_detected_language(
-        &en_detected,
-        &mut session,
-        &mut active_lang,
-        &mut language_notified,
-        &event_tx,
-        |lang| MonitorSession::new(lang, TEMPLATES_DIR),
-    );
+    let first = switch_detected_language(&en_detected, &mut session, &mut active_lang, |lang| {
+        MonitorSession::new(lang, TEMPLATES_DIR)
+    });
     assert!(!first, "initial same-language detection should not switch");
     assert_eq!(active_lang, "en");
-    assert!(language_notified);
-    let event = event_rx.try_recv().expect("language detected event");
-    assert!(matches!(event, AppEvent::LanguageDetected { lang } if lang == "en"));
 
     let (jp_b, jp_w, jp_h) = load_bgra("screenshots-emu/jp - start - 01 - Agent.png");
     let jp_mismatch = session.match_frame(&jp_b, jp_w, jp_h).expect("jp mismatch match");
     assert_eq!(jp_mismatch.detected_lang.as_deref(), Some("jp"));
 
-    let switched_to_jp = handle_detected_language(
-        &jp_mismatch,
-        &mut session,
-        &mut active_lang,
-        &mut language_notified,
-        &event_tx,
-        |lang| MonitorSession::new(lang, TEMPLATES_DIR),
-    );
-    assert!(switched_to_jp, "language change should switch after notification");
+    let switched_to_jp = switch_detected_language(&jp_mismatch, &mut session, &mut active_lang, |lang| {
+        MonitorSession::new(lang, TEMPLATES_DIR)
+    });
+    assert!(switched_to_jp, "language change should switch");
     assert_eq!(active_lang, "jp");
-    let event = event_rx.try_recv().expect("language detected event on switch");
-    assert!(matches!(event, AppEvent::LanguageDetected { lang } if lang == "jp"));
 
     let en_mismatch = session.match_frame(&en_b, en_w, en_h).expect("en mismatch match");
     assert_eq!(en_mismatch.detected_lang.as_deref(), Some("en"));
 
-    let switched_back_to_en = handle_detected_language(
-        &en_mismatch,
-        &mut session,
-        &mut active_lang,
-        &mut language_notified,
-        &event_tx,
-        |lang| MonitorSession::new(lang, TEMPLATES_DIR),
-    );
+    let switched_back_to_en = switch_detected_language(&en_mismatch, &mut session, &mut active_lang, |lang| {
+        MonitorSession::new(lang, TEMPLATES_DIR)
+    });
     assert!(switched_back_to_en, "a second language change should still switch");
     assert_eq!(active_lang, "en");
-    let event = event_rx.try_recv().expect("language detected event on switch back");
-    assert!(matches!(event, AppEvent::LanguageDetected { lang } if lang == "en"));
 }
 
 #[test]

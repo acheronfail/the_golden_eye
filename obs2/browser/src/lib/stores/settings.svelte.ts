@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { backend, type SettingsStatus } from '$lib/api';
 import type { MonitorDesign } from '$lib/components/monitorView';
 
-const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
 const UpdateCheckIntervalSchema = z.enum(['monthly', 'weekly', 'daily', 'never']);
 export type UpdateCheckInterval = z.infer<typeof UpdateCheckIntervalSchema>;
 const YoutubeVisibilitySchema = z.enum(['public', 'unlisted', 'private']);
@@ -19,10 +18,7 @@ export interface Settings {
 	lastUsedSourceName: string | null;
 	welcomeModalShown: boolean;
 	completedOutputPath: string;
-	saveFailedRuns: boolean;
-	failedOutputPath: string;
-	failedRunLimit: number;
-	minimumFailedRunLengthSecs: number;
+	recentRunLimit: number;
 	clipFilenameTemplate: string;
 	preRunPaddingSecs: number;
 	postRunPaddingSecs: number;
@@ -40,10 +36,7 @@ export interface Settings {
 
 export interface RecordingOptions {
 	completedOutputPath: string;
-	saveFailedRuns: boolean;
-	failedOutputPath: string;
-	failedRunLimit: number;
-	minimumFailedRunLengthSecs: number;
+	recentRunLimit: number;
 	clipFilenameTemplate: string;
 	preRunPaddingSecs: number;
 	postRunPaddingSecs: number;
@@ -68,10 +61,7 @@ const bootstrapSettings: Settings = {
 	lastUsedSourceName: null,
 	welcomeModalShown: false,
 	completedOutputPath: '',
-	saveFailedRuns: true,
-	failedOutputPath: '',
-	failedRunLimit: 0,
-	minimumFailedRunLengthSecs: 0,
+	recentRunLimit: 5,
 	clipFilenameTemplate: '',
 	preRunPaddingSecs: 0,
 	postRunPaddingSecs: 0,
@@ -97,10 +87,7 @@ const settingsSchema = (defaults: Settings) =>
 		lastUsedSourceName: z.string().nullable().catch(defaults.lastUsedSourceName),
 		welcomeModalShown: z.boolean().catch(defaults.welcomeModalShown),
 		completedOutputPath: z.string().catch(defaults.completedOutputPath),
-		saveFailedRuns: z.boolean().catch(defaults.saveFailedRuns),
-		failedOutputPath: z.string().catch(defaults.failedOutputPath),
-		failedRunLimit: z.coerce.number().int().min(0).catch(defaults.failedRunLimit),
-		minimumFailedRunLengthSecs: z.coerce.number().min(0).catch(defaults.minimumFailedRunLengthSecs),
+		recentRunLimit: z.coerce.number().int().min(1).max(20).catch(defaults.recentRunLimit),
 		clipFilenameTemplate: z.string().catch(defaults.clipFilenameTemplate),
 		preRunPaddingSecs: z.coerce.number().min(0).catch(defaults.preRunPaddingSecs),
 		postRunPaddingSecs: z.coerce.number().min(0).catch(defaults.postRunPaddingSecs),
@@ -117,7 +104,7 @@ const settingsSchema = (defaults: Settings) =>
 	});
 
 const normalizeClipFilenameTemplate = (value: string | undefined, fallback: string): string => {
-	if (!value || value === LEGACY_CLIP_FILENAME_TEMPLATE) return fallback;
+	if (!value) return fallback;
 	return value;
 };
 
@@ -130,11 +117,7 @@ const parseSettings = (value: unknown, defaults = bootstrapSettings): Settings =
 	const parsed = settingsSchema(defaults).parse(value);
 	return {
 		...parsed,
-		failedRunLimit: nonNegativeInt(parsed.failedRunLimit, defaults.failedRunLimit),
-		minimumFailedRunLengthSecs: nonNegativeNumber(
-			parsed.minimumFailedRunLengthSecs,
-			defaults.minimumFailedRunLengthSecs
-		),
+		recentRunLimit: Math.min(20, Math.max(1, nonNegativeInt(parsed.recentRunLimit, defaults.recentRunLimit))),
 		clipFilenameTemplate: normalizeClipFilenameTemplate(parsed.clipFilenameTemplate, defaults.clipFilenameTemplate),
 		preRunPaddingSecs: nonNegativeNumber(parsed.preRunPaddingSecs, defaults.preRunPaddingSecs),
 		postRunPaddingSecs: nonNegativeNumber(parsed.postRunPaddingSecs, defaults.postRunPaddingSecs),
@@ -200,10 +183,7 @@ export const settings = new (class {
 	//
 
 	completedOutputPath = $state(initialSettings.completedOutputPath);
-	saveFailedRuns = $state(initialSettings.saveFailedRuns);
-	failedOutputPath = $state(initialSettings.failedOutputPath);
-	failedRunLimit = $state(initialSettings.failedRunLimit);
-	minimumFailedRunLengthSecs = $state(initialSettings.minimumFailedRunLengthSecs);
+	recentRunLimit = $state(initialSettings.recentRunLimit);
 	clipFilenameTemplate = $state(initialSettings.clipFilenameTemplate);
 	preRunPaddingSecs = $state(initialSettings.preRunPaddingSecs);
 	postRunPaddingSecs = $state(initialSettings.postRunPaddingSecs);
@@ -219,13 +199,7 @@ export const settings = new (class {
 
 	recordingOptions: RecordingOptions = $derived({
 		completedOutputPath: this.completedOutputPath.trim(),
-		saveFailedRuns: this.saveFailedRuns,
-		failedOutputPath: this.failedOutputPath.trim(),
-		failedRunLimit: nonNegativeInt(this.failedRunLimit),
-		minimumFailedRunLengthSecs: nonNegativeNumber(
-			this.minimumFailedRunLengthSecs,
-			this.defaults.minimumFailedRunLengthSecs
-		),
+		recentRunLimit: Math.min(20, Math.max(1, nonNegativeInt(this.recentRunLimit, 5))),
 		clipFilenameTemplate: this.clipFilenameTemplate.trim() || this.defaults.clipFilenameTemplate,
 		preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs, this.defaults.preRunPaddingSecs),
 		postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, this.defaults.postRunPaddingSecs)
@@ -245,13 +219,7 @@ export const settings = new (class {
 			lastUsedSourceName: this.lastUsedSourceName,
 			welcomeModalShown: this.welcomeModalShown,
 			completedOutputPath: this.completedOutputPath,
-			saveFailedRuns: this.saveFailedRuns,
-			failedOutputPath: this.failedOutputPath,
-			failedRunLimit: nonNegativeInt(this.failedRunLimit),
-			minimumFailedRunLengthSecs: nonNegativeNumber(
-				this.minimumFailedRunLengthSecs,
-				this.defaults.minimumFailedRunLengthSecs
-			),
+			recentRunLimit: Math.min(20, Math.max(1, nonNegativeInt(this.recentRunLimit, 5))),
 			clipFilenameTemplate: this.clipFilenameTemplate,
 			preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs, this.defaults.preRunPaddingSecs),
 			postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, this.defaults.postRunPaddingSecs),
@@ -390,10 +358,7 @@ export const settings = new (class {
 		this.youtubeTitleTemplate = next.youtubeTitleTemplate;
 		this.youtubeDescriptionTemplate = next.youtubeDescriptionTemplate;
 		this.completedOutputPath = next.completedOutputPath;
-		this.saveFailedRuns = next.saveFailedRuns;
-		this.failedOutputPath = next.failedOutputPath;
-		this.failedRunLimit = next.failedRunLimit;
-		this.minimumFailedRunLengthSecs = next.minimumFailedRunLengthSecs;
+		this.recentRunLimit = next.recentRunLimit;
 		this.clipFilenameTemplate = normalizeClipFilenameTemplate(
 			next.clipFilenameTemplate,
 			this.defaults.clipFilenameTemplate

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { RunClip } from '$lib/api';
+	import type { RunClip, RunSort } from '$lib/api';
 	import RunList from '$lib/components/RunList.svelte';
 
 	let {
@@ -8,7 +8,8 @@
 		visibleClips = clips,
 		scannedDirectoryCount = 2,
 		directoryCount = 2,
-		hasActiveFilters = false
+		hasActiveFilters = false,
+		sort = 'newest'
 	}: {
 		loading?: boolean;
 		clips?: RunClip[];
@@ -16,6 +17,7 @@
 		scannedDirectoryCount?: number;
 		directoryCount?: number | null;
 		hasActiveFilters?: boolean;
+		sort?: RunSort;
 	} = $props();
 </script>
 
@@ -33,6 +35,8 @@
 		{scannedDirectoryCount}
 		{directoryCount}
 		{hasActiveFilters}
+		{sort}
+		onSortChange={() => {}}
 		fileBrowserLabel="Show in file browser"
 		clearFilters={() => {}}
 		open={() => {}}

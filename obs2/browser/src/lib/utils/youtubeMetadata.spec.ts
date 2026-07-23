@@ -3,6 +3,7 @@ import type { RunClip } from '$lib/api';
 import { datetimeLocalForClip, formatDatetimeLocal, renderYouTubeUploadPreview } from './youtubeMetadata';
 
 const clip = (timestamp = '2026-07-18T10:30:45Z'): RunClip => ({
+	runId: 'dam-run',
 	path: '/runs/dam.mov',
 	fileName: 'dam.mov',
 	directory: '/runs',
@@ -21,7 +22,9 @@ const clip = (timestamp = '2026-07-18T10:30:45Z'): RunClip => ({
 		sourceName: 'N64 Capture',
 		comment: 'Created by test',
 		pluginVersion: '1.2.3'
-	}
+	},
+	retentionState: 'kept',
+	retentionReason: 'manual'
 });
 
 describe('YouTube datetime local helper', () => {

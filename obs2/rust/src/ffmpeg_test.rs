@@ -39,6 +39,7 @@ fn trims_with_metadata_and_reads_it_back() {
     let _ = std::fs::remove_file(&out);
 
     let metadata = ClipMetadata {
+        run_id: "run-1".to_owned(),
         timestamp: "2026-01-02T03:04:05Z".to_owned(),
         time: Some("02:03".to_owned()),
         time_seconds: Some(123),
@@ -50,6 +51,8 @@ fn trims_with_metadata_and_reads_it_back() {
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin v0.0.0".to_owned(),
         plugin_version: "0.0.0".to_owned(),
+        retention_state: "pending".to_owned(),
+        retention_reason: None,
     };
 
     trim_with_metadata(&input, &out, 1.0, (full - 1.0).max(2.0), Some(&metadata)).expect("trim with metadata");
@@ -68,6 +71,7 @@ fn rewrites_metadata_in_place_and_drops_old_optional_tags() {
     let _ = std::fs::remove_file(&out);
 
     let original = ClipMetadata {
+        run_id: "run-1".to_owned(),
         timestamp: "2026-01-02T03:04:05Z".to_owned(),
         time: Some("02:03".to_owned()),
         time_seconds: Some(123),
@@ -79,10 +83,13 @@ fn rewrites_metadata_in_place_and_drops_old_optional_tags() {
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin v0.0.0".to_owned(),
         plugin_version: "0.0.0".to_owned(),
+        retention_state: "pending".to_owned(),
+        retention_reason: None,
     };
     trim_with_metadata(&input, &out, 1.0, (full - 1.0).max(2.0), Some(&original)).expect("trim with metadata");
 
     let updated = ClipMetadata {
+        run_id: "run-1".to_owned(),
         timestamp: "2026-01-03T03:04:05Z".to_owned(),
         time: None,
         time_seconds: None,
@@ -94,6 +101,8 @@ fn rewrites_metadata_in_place_and_drops_old_optional_tags() {
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin v0.0.0".to_owned(),
         plugin_version: "0.0.0".to_owned(),
+        retention_state: "kept".to_owned(),
+        retention_reason: Some("manual".to_owned()),
     };
     rewrite_metadata_in_place(&out, &updated).expect("rewrite metadata");
 

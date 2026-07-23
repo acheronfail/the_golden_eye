@@ -1,7 +1,8 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import MonitorView from '$lib/components/MonitorView.svelte';
-	import { monitorMatch as match } from './monitorStoryFixtures';
+	import { longMonitorRecentRuns, monitorMatch as match } from './monitorStoryFixtures';
+	import { completedRun, failedRun } from './fixtures';
 
 	const { Story } = defineMeta({
 		title: 'Monitor/Monitor states/Mission glass',
@@ -33,6 +34,26 @@
 />
 <Story name="Skipped stats" args={{ recordingState: 'statsSkipped', match: match('level select') }} />
 <Story name="Saving clip" args={{ recordingState: 'savePending', match: match('stats') }} />
+<Story
+	name="Recent run history"
+	args={{
+		recentRuns: [
+			{ ...failedRun, runId: 'recent-pending', retentionState: 'pending' },
+			{ ...completedRun, runId: 'recent-ready', retentionState: 'pending' },
+			{ ...completedRun, runId: 'recent-kept', retentionState: 'kept', retentionReason: 'manual' },
+			{ ...completedRun, runId: 'recent-expired', path: '', retentionState: 'expired' },
+			{ ...completedRun, runId: 'recent-pb', retentionState: 'kept', retentionReason: 'personalBest' }
+		]
+	}}
+/>
+<Story
+	name="Stats with long recent history"
+	args={{
+		recordingState: 'complete',
+		match: match('stats', { time: 58, target_time: 65, best_time: 61 }),
+		recentRuns: longMonitorRecentRuns
+	}}
+/>
 <Story name="Stopping monitor" args={{ transition: 'stopping' }} />
 <Story
 	name="Healthy monitor FPS"

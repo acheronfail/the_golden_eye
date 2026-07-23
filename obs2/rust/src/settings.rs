@@ -13,19 +13,16 @@ use serde_json::Value;
 
 use crate::recording::{
     DEFAULT_CLIP_FILENAME_TEMPLATE,
-    DEFAULT_FAILED_RUN_LIMIT,
-    DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
     DEFAULT_POST_RUN_PADDING_SECS,
     DEFAULT_PRE_RUN_PADDING_SECS,
+    DEFAULT_RECENT_RUN_LIMIT,
     RecordingOptions,
 };
 use crate::stream_notifier::{DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE, DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE};
 
 pub(crate) const SETTINGS_FILE_NAME: &str = "settings.json";
-const LEGACY_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suffix}{failed_suffix}";
 pub const DEFAULT_UPDATE_CHECK_INTERVAL: UpdateCheckInterval = UpdateCheckInterval::Weekly;
 pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "GoldenEye";
-pub const DEFAULT_FAILED_OUTPUT_DIR_SUFFIX: &str = " - failed";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -113,10 +110,7 @@ pub struct AppSettings {
     pub last_used_source_name: Option<String>,
     pub welcome_modal_shown: bool,
     pub completed_output_path: String,
-    pub save_failed_runs: bool,
-    pub failed_output_path: String,
-    pub failed_run_limit: usize,
-    pub minimum_failed_run_length_secs: f64,
+    pub recent_run_limit: usize,
     pub clip_filename_template: String,
     pub pre_run_padding_secs: f64,
     pub post_run_padding_secs: f64,
@@ -149,10 +143,7 @@ impl Default for AppSettings {
             last_used_source_name: None,
             welcome_modal_shown: false,
             completed_output_path: String::new(),
-            save_failed_runs: true,
-            failed_output_path: String::new(),
-            failed_run_limit: DEFAULT_FAILED_RUN_LIMIT,
-            minimum_failed_run_length_secs: DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
+            recent_run_limit: DEFAULT_RECENT_RUN_LIMIT,
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
             pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
             post_run_padding_secs: DEFAULT_POST_RUN_PADDING_SECS,
@@ -191,13 +182,7 @@ impl AppSettings {
             last_used_source_name: non_empty_string_field_option(object.get("lastUsedSourceName")),
             welcome_modal_shown: bool_field(object.get("welcomeModalShown"), default.welcome_modal_shown),
             completed_output_path: string_field(object.get("completedOutputPath"), &default.completed_output_path),
-            save_failed_runs: bool_field(object.get("saveFailedRuns"), default.save_failed_runs),
-            failed_output_path: string_field(object.get("failedOutputPath"), &default.failed_output_path),
-            failed_run_limit: non_negative_usize(object.get("failedRunLimit"), default.failed_run_limit),
-            minimum_failed_run_length_secs: non_negative_f64(
-                object.get("minimumFailedRunLengthSecs"),
-                default.minimum_failed_run_length_secs,
-            ),
+            recent_run_limit: non_negative_usize(object.get("recentRunLimit"), default.recent_run_limit).clamp(1, 20),
             clip_filename_template: clip_filename_template(object.get("clipFilenameTemplate")),
             pre_run_padding_secs: non_negative_f64(object.get("preRunPaddingSecs"), default.pre_run_padding_secs),
             post_run_padding_secs: non_negative_f64(object.get("postRunPaddingSecs"), default.post_run_padding_secs),
@@ -234,10 +219,7 @@ impl AppSettings {
     pub fn recording_options(&self) -> RecordingOptions {
         RecordingOptions {
             completed_output_path: self.completed_output_path.trim().to_owned(),
-            save_failed_runs: self.save_failed_runs,
-            failed_output_path: self.failed_output_path.trim().to_owned(),
-            failed_run_limit: self.failed_run_limit,
-            minimum_failed_run_length_secs: self.minimum_failed_run_length_secs,
+            recent_run_limit: self.recent_run_limit.clamp(1, 20),
             clip_filename_template: self.clip_filename_template.trim().to_owned(),
             pre_run_padding_secs: self.pre_run_padding_secs,
             post_run_padding_secs: self.post_run_padding_secs,
@@ -250,12 +232,6 @@ impl AppSettings {
         {
             self.completed_output_path =
                 default_completed_output_path(replay_output_dir).to_string_lossy().into_owned();
-        }
-
-        if self.failed_output_path.trim().is_empty()
-            && let Some(path) = default_failed_output_path(&self.completed_output_path)
-        {
-            self.failed_output_path = path;
         }
 
         self
@@ -546,13 +522,6 @@ pub fn default_completed_output_path(replay_output_dir: &Path) -> PathBuf {
     replay_output_dir.join(DEFAULT_RUN_OUTPUT_DIR_NAME)
 }
 
-pub fn default_failed_output_path(completed_output_path: &str) -> Option<String> {
-    let completed = Path::new(completed_output_path.trim());
-    let name = completed.file_name()?.to_string_lossy();
-    let sibling = format!("{name}{DEFAULT_FAILED_OUTPUT_DIR_SUFFIX}");
-    Some(completed.with_file_name(sibling).to_string_lossy().into_owned())
-}
-
 fn write_settings(path: &Path, settings: &AppSettings) -> anyhow::Result<Vec<u8>> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("creating settings directory {}", parent.display()))?;
@@ -581,11 +550,7 @@ fn bool_field(value: Option<&Value>, fallback: bool) -> bool {
 
 fn clip_filename_template(value: Option<&Value>) -> String {
     let value = value.and_then(Value::as_str).unwrap_or(DEFAULT_CLIP_FILENAME_TEMPLATE);
-    if value.is_empty() || value == LEGACY_CLIP_FILENAME_TEMPLATE {
-        DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned()
-    } else {
-        value.to_owned()
-    }
+    if value.is_empty() { DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned() } else { value.to_owned() }
 }
 
 fn message_template(value: Option<&Value>, fallback: &str) -> String {

@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
 
 use crate::http::AppState;
-use crate::settings::{default_completed_output_path, default_failed_output_path};
+use crate::settings::default_completed_output_path;
 
 #[axum::debug_handler]
 pub async fn handle_start(State(_): State<AppState>) -> Result<impl IntoResponse> {
@@ -38,7 +38,6 @@ pub struct ReplayBufferStatus {
     pub max_seconds: Option<u64>,
     pub output_directory: Option<String>,
     pub default_completed_output_path: Option<String>,
-    pub default_failed_output_path: Option<String>,
 }
 
 impl ReplayBufferStatus {
@@ -50,7 +49,6 @@ impl ReplayBufferStatus {
             max_seconds: None,
             output_directory: None,
             default_completed_output_path: None,
-            default_failed_output_path: None,
         }
     }
 }
@@ -61,8 +59,6 @@ pub fn current_replay_buffer_status() -> ReplayBufferStatus {
     let output_directory = crate::recording::replay_buffer_output_directory();
     let default_completed_output_path =
         output_directory.as_deref().map(default_completed_output_path).map(|path| path.to_string_lossy().into_owned());
-    let default_failed_output_path = default_completed_output_path.as_deref().and_then(default_failed_output_path);
-
     ReplayBufferStatus {
         enabled: crate::recording::replay_buffer_enabled(),
         available: crate::recording::replay_buffer_available(),
@@ -70,7 +66,6 @@ pub fn current_replay_buffer_status() -> ReplayBufferStatus {
         max_seconds: crate::recording::replay_buffer_max_seconds(),
         output_directory: output_directory.map(|path| path.to_string_lossy().into_owned()),
         default_completed_output_path,
-        default_failed_output_path,
     }
 }
 

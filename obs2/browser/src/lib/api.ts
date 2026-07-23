@@ -30,49 +30,28 @@ export class Backend {
 		return this.apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(source)}`);
 	}
 
-	public getRuns(): Promise<RunsResponse> {
-		return this.getJson('/api/v1/runs');
+	public getRuns(options: { refresh?: boolean; sort?: RunSort; signal?: AbortSignal } = {}): Promise<RunsResponse> {
+		const query = new URLSearchParams();
+		if (options.refresh) query.set('refresh', 'true');
+		query.set('sort', options.sort ?? 'newest');
+		return this.getJson(`/api/v1/runs?${query}`, { signal: options.signal });
 	}
 
-	public async streamRuns(
-		onEvent: (event: RunsStreamEvent) => void,
-		signal?: AbortSignal,
-		options: { refresh?: boolean } = {}
-	): Promise<void> {
-		const path = options.refresh ? '/api/v1/runs/stream?refresh=true' : '/api/v1/runs/stream';
-		const res = await this.request(path, { signal });
-		if (!res.body) {
-			const runs = await this.getRuns();
-			for (const directory of runs.directories) onEvent({ type: 'directory', directory });
-			for (const clip of runs.clips) onEvent({ type: 'clip', clip });
-			onEvent({ type: 'done' });
-			return;
-		}
+	public getRecentRuns(limit?: number): Promise<RunClip[]> {
+		const query = limit == null ? '' : `?limit=${encodeURIComponent(limit)}`;
+		return this.getJson(`/api/v1/runs/recent${query}`);
+	}
 
-		const reader = res.body.getReader();
-		const decoder = new TextDecoder();
-		let buffer = '';
+	public keepRun(runId: string): Promise<RunClip> {
+		return this.postJson('/api/v1/runs/keep', { runId });
+	}
 
-		while (true) {
-			const { value, done } = await reader.read();
-			buffer += decoder.decode(value, { stream: !done });
-			const lines = buffer.split('\n');
-			buffer = lines.pop() ?? '';
-			for (const line of lines) {
-				if (line.trim()) onEvent(JSON.parse(line) as RunsStreamEvent);
-			}
-			if (done) break;
-		}
-
-		if (buffer.trim()) onEvent(JSON.parse(buffer) as RunsStreamEvent);
+	public deleteCatalogRun(runId: string, keepHistory: boolean): Promise<RunClip | null> {
+		return this.postJson('/api/v1/runs/delete', { runId, keepHistory });
 	}
 
 	public runVideoUrl(path: string): string {
 		return this.apiUrl(`/api/v1/runs/video?path=${encodeURIComponent(path)}`);
-	}
-
-	public deleteRun(path: string): Promise<void> {
-		return this.delete(`/api/v1/runs?path=${encodeURIComponent(path)}`);
 	}
 
 	public revealFile(request: FileRevealRequest): Promise<void> {
@@ -119,8 +98,8 @@ export class Backend {
 		return this.postJson('/api/v1/youtube/forget', { path });
 	}
 
-	public updateRunMetadata(path: string, metadata: EditableRunMetadata): Promise<RunClip> {
-		return this.patchJson('/api/v1/runs', { path, metadata });
+	public updateRunMetadata(runId: string, metadata: EditableRunMetadata): Promise<RunClip> {
+		return this.patchJson('/api/v1/runs', { runId, metadata });
 	}
 
 	/** Fetch whether OBS's replay buffer is enabled/available (and running). */
@@ -360,6 +339,7 @@ export interface ObsSource {
 }
 
 export interface ClipMetadata {
+	runId?: string;
 	timestamp: string;
 	time?: string;
 	timeSeconds?: number;
@@ -371,16 +351,19 @@ export interface ClipMetadata {
 	sourceName: string;
 	comment: string;
 	pluginVersion: string;
+	retentionState?: RunRetentionState;
+	retentionReason?: string;
 }
 
 export interface RunDirectoryScan {
-	kind: 'completed' | 'failed';
+	kind: 'completed';
 	path: string;
 	exists: boolean;
 	error?: string | null;
 }
 
 export interface RunClip {
+	runId: string;
 	path: string;
 	fileName: string;
 	directory: string;
@@ -388,17 +371,18 @@ export interface RunClip {
 	modified?: string | null;
 	durationSecs?: number | null;
 	metadata: ClipMetadata;
+	retentionState: RunRetentionState;
+	retentionReason: string | null;
 }
+
+export type RunRetentionState = 'pending' | 'kept' | 'expired';
 
 export interface RunsResponse {
 	directories: RunDirectoryScan[];
 	clips: RunClip[];
 }
 
-export type RunsStreamEvent =
-	| { type: 'directory'; directory: RunDirectoryScan }
-	| { type: 'clip'; clip: RunClip }
-	| { type: 'done' };
+export type RunSort = 'newest' | 'oldest' | 'fastest' | 'slowest';
 
 export interface EditableRunMetadata {
 	romLanguage: string;
@@ -412,6 +396,7 @@ export type YouTubeUploadState = 'queued' | 'uploading' | 'processing' | 'upload
 
 export interface YouTubeUploadStatus {
 	id: string;
+	runId: string;
 	path: string;
 	fileName: string;
 	state: YouTubeUploadState;
@@ -461,7 +446,6 @@ export interface ReplayBufferStatus {
 	maxSeconds: number | null;
 	outputDirectory: string | null;
 	defaultCompletedOutputPath: string | null;
-	defaultFailedOutputPath: string | null;
 }
 
 export interface SettingsStatus {
@@ -550,11 +534,6 @@ export interface RecordingSaved {
 	stats?: LevelMatch;
 }
 
-/** A scheduled save that was dropped before any clip was written. */
-export interface RecordingSaveDiscarded {
-	saveId: number;
-}
-
 /** Details of a clip save that has been scheduled after a run ending was seen. */
 export interface RecordingSavePending {
 	saveId: number;
@@ -574,10 +553,7 @@ export interface RecordingSavePending {
 /** Recording configuration stored by the Rust backend. */
 export interface RecordingOptions {
 	completedOutputPath: string;
-	saveFailedRuns: boolean;
-	failedOutputPath: string;
-	failedRunLimit: number;
-	minimumFailedRunLengthSecs: number;
+	recentRunLimit: number;
 	clipFilenameTemplate: string;
 	preRunPaddingSecs: number;
 	postRunPaddingSecs: number;
@@ -595,7 +571,6 @@ export type RecordingStatus =
 	| 'savePending';
 
 /** Why a failed run reached an ending screen without a clip being saved. */
-export type FailedRunNotSavedReason = 'savingDisabled' | 'tooShort';
 
 /** Why the backend stopped monitoring. Mirrors the Rust `MonitorStoppedReason`. */
 export type MonitorStoppedReason = 'userStopped' | 'replayBufferStopped';
@@ -609,16 +584,37 @@ export interface MonitorFps {
 export interface MonitorSnapshot {
 	enabled: boolean;
 	sourceName?: string;
+	cvLanguage?: 'en' | 'jp';
 }
 
 export interface AppSnapshot {
 	monitor: MonitorSnapshot;
 	match: LevelMatch | null;
 	recordingState: RecordingStatus | null;
+	replaySaves: ReplaySaveStatus[];
 	sources: ObsSource[];
 	replayBuffer: ReplayBufferStatus;
 	settingsStatus: SettingsStatus;
 	update: UpdateStatus;
+}
+
+export type ReplaySaveStage =
+	| 'scheduled'
+	| 'waitingForReplaySave'
+	| 'savingReplay'
+	| 'trimming'
+	| 'completed'
+	| 'failed';
+
+export interface ReplaySaveStatus {
+	trackingId: number;
+	saveId: number;
+	stage: ReplaySaveStage;
+	level: string;
+	difficulty: string | null;
+	runStatus: string;
+	estimatedDurationSecs: number;
+	error?: string;
 }
 
 export type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'staged' | 'applying';
@@ -631,12 +627,10 @@ export interface UpdateStatus {
 export type AppEvent =
 	| { type: 'version'; buildId: string }
 	| { type: 'snapshot'; state: AppSnapshot }
-	| { type: 'languageDetected'; lang: 'en' | 'jp' }
 	| ({ type: 'monitorFps' } & MonitorFps)
 	| ({ type: 'recordingSavePending' } & RecordingSavePending)
 	| ({ type: 'recordingSaved' } & RecordingSaved)
-	| ({ type: 'recordingSaveDiscarded' } & RecordingSaveDiscarded)
-	| { type: 'failedRunNotSaved'; reason: FailedRunNotSavedReason }
+	| { type: 'runCatalogChanged'; runId?: string; saveId?: number }
 	| { type: 'monitorStopped'; reason: MonitorStoppedReason }
 	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
 	| { type: 'settingsInvalid'; configPath: string; error: string }

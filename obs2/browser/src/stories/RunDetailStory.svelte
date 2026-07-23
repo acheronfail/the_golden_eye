@@ -33,6 +33,7 @@
 		actions: {
 			close: noop,
 			delete: noop,
+			keep: noop,
 			reveal: noop,
 			rename: noop,
 			saveMetadata: noop,

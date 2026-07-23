@@ -32,6 +32,10 @@
 	args={{ links: [...links, { href: '/developer', label: 'Developer' }], currentPath: '/developer', menuOpen: true }}
 />
 <Story name="Monitoring waiting" args={{ activeMonitorHref: '/sources/Nintendo%2064' }} />
+<Story
+	name="Navigation while monitoring"
+	args={{ currentPath: '/options', activeMonitorHref: '/sources/Nintendo%2064', menuOpen: true }}
+/>
 <Story name="Monitor verifying" args={{ monitorPhase: 'neutral' }} />
 <Story name="Monitoring recording" args={{ activeMonitorHref: '/sources/Nintendo%2064', recordingState: 'started' }} />
 <Story name="Monitoring failed" args={{ activeMonitorHref: '/sources/Nintendo%2064', recordingState: 'failed' }} />

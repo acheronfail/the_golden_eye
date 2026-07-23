@@ -12,9 +12,14 @@ fn monitor_version_event_uses_frontend_field_name() {
 
 fn test_snapshot() -> AppSnapshot {
     AppSnapshot {
-        monitor: MonitorSnapshot { enabled: true, source_name: Some("N64 Capture".to_owned()) },
+        monitor: MonitorSnapshot {
+            enabled: true,
+            source_name: Some("N64 Capture".to_owned()),
+            cv_language: Some("en".to_owned()),
+        },
         level_match: None,
         recording_state: Some(RecordingStatus::Started),
+        replay_saves: vec![],
         sources: vec![routes::sources::Source { name: "N64 Capture".to_owned(), id: "av_capture_input".to_owned() }],
         replay_buffer: routes::record::ReplayBufferStatus {
             enabled: true,
@@ -23,7 +28,6 @@ fn test_snapshot() -> AppSnapshot {
             max_seconds: Some(1200),
             output_directory: Some("/captures".to_owned()),
             default_completed_output_path: Some("/captures/GoldenEye".to_owned()),
-            default_failed_output_path: Some("/captures/GoldenEye/failed".to_owned()),
         },
         settings_status: crate::settings::SettingsStatus {
             settings: crate::settings::AppSettings::default(),
@@ -51,22 +55,15 @@ fn snapshot_event_contains_retained_app_state() {
     assert_eq!(json["type"], "snapshot");
     assert_eq!(json["state"]["monitor"]["enabled"], true);
     assert_eq!(json["state"]["monitor"]["sourceName"], "N64 Capture");
+    assert_eq!(json["state"]["monitor"]["cvLanguage"], "en");
     assert!(json["state"]["match"].is_null());
     assert_eq!(json["state"]["recordingState"], "started");
+    assert_eq!(json["state"]["replaySaves"], serde_json::json!([]));
     assert_eq!(json["state"]["sources"][0]["name"], "N64 Capture");
     assert_eq!(json["state"]["replayBuffer"]["active"], true);
     assert_eq!(json["state"]["settingsStatus"]["configPath"], "/tmp/settings.json");
     assert_eq!(json["state"]["update"]["phase"], "available");
     assert_eq!(json["state"]["update"]["available"]["latestVersion"], "1.1.0");
-}
-
-#[test]
-fn language_detected_event_uses_frontend_field_names() {
-    let event = AppEvent::LanguageDetected { lang: "en".to_owned() };
-    let json = serde_json::to_value(event).unwrap();
-
-    assert_eq!(json["type"], "languageDetected");
-    assert_eq!(json["lang"], "en");
 }
 
 #[test]
@@ -127,15 +124,6 @@ fn recording_save_pending_event_uses_frontend_field_names() {
 }
 
 #[test]
-fn recording_save_discarded_event_uses_frontend_field_names() {
-    let event = AppEvent::RecordingSaveDiscarded { save_id: 7 };
-    let json = serde_json::to_value(event).unwrap();
-
-    assert_eq!(json["type"], "recordingSaveDiscarded");
-    assert_eq!(json["saveId"], 7);
-}
-
-#[test]
 fn recording_saved_event_uses_frontend_field_names() {
     let event = AppEvent::RecordingSaved(RecordingSaved {
         save_id: 7,
@@ -155,6 +143,16 @@ fn recording_saved_event_uses_frontend_field_names() {
     assert!(json.get("stats").is_none());
 }
 
+#[test]
+fn run_catalog_changed_links_a_finalized_run_to_its_pending_save() {
+    let event = AppEvent::RunCatalogChanged { run_id: Some("run-7".to_owned()), save_id: Some(7) };
+    let json = serde_json::to_value(event).unwrap();
+
+    assert_eq!(json["type"], "runCatalogChanged");
+    assert_eq!(json["runId"], "run-7");
+    assert_eq!(json["saveId"], 7);
+}
+
 #[tokio::test]
 async fn snapshot_store_does_not_notify_for_noop_writes() {
     let snapshot = SharedStateStore::new(test_snapshot());
@@ -172,6 +170,45 @@ async fn snapshot_store_does_not_notify_for_noop_writes() {
     });
     assert!(tokio::time::timeout(Duration::from_millis(100), rx.changed()).await.unwrap().is_ok());
     assert_eq!(snapshot.current_update_status().phase, crate::updates::UpdatePhase::Downloading);
+}
+
+#[test]
+fn monitor_snapshot_tracks_and_clears_the_active_cv_language() {
+    let snapshot = SharedStateStore::new(test_snapshot());
+
+    snapshot.set_monitor_language("jp".to_owned());
+    assert_eq!(snapshot.current().monitor.cv_language.as_deref(), Some("jp"));
+
+    snapshot.set_monitor_stopped();
+    assert_eq!(snapshot.current().monitor.cv_language, None);
+
+    snapshot.set_monitor_running("N64 Capture".to_owned(), "en".to_owned());
+    assert_eq!(snapshot.current().monitor.cv_language.as_deref(), Some("en"));
+}
+
+#[test]
+fn replay_save_store_retains_pipeline_transitions() {
+    let snapshot = SharedStateStore::new(test_snapshot());
+    let store = ReplaySaveStateStore::new(snapshot.clone());
+    store.schedule(ReplaySaveStatus {
+        tracking_id: 41,
+        save_id: 7,
+        stage: ReplaySaveStage::Scheduled,
+        level: "Facility".to_owned(),
+        difficulty: Some("00 Agent".to_owned()),
+        run_status: "complete".to_owned(),
+        estimated_duration_secs: 68.0,
+        error: None,
+    });
+
+    store.transition(41, ReplaySaveStage::SavingReplay);
+    assert_eq!(snapshot.current().replay_saves[0].stage, ReplaySaveStage::SavingReplay);
+
+    store.transition(41, ReplaySaveStage::Trimming);
+    assert_eq!(snapshot.current().replay_saves[0].stage, ReplaySaveStage::Trimming);
+
+    store.complete(41);
+    assert_eq!(snapshot.current().replay_saves[0].stage, ReplaySaveStage::Completed);
 }
 
 #[test]
