@@ -38,9 +38,9 @@ def bumped_version() -> str:
     return f"{major}.{minor}.{patch + 1}"
 
 
-def positive_updater_version(value: str, source: str) -> int:
-    if not value.isdigit() or int(value) < 1:
-        raise SystemExit(f"{source} must be a positive integer, got {value!r}")
+def non_negative_updater_version(value: str, source: str) -> int:
+    if not value.isdigit():
+        raise SystemExit(f"{source} must be a non-negative integer, got {value!r}")
     return int(value)
 
 
@@ -49,14 +49,14 @@ def checked_in_updater_version() -> int:
         value = UPDATER_VERSION_FILE.read_text().strip()
     except OSError as error:
         raise SystemExit(f"cannot read {UPDATER_VERSION_FILE}: {error}") from error
-    return positive_updater_version(value, str(UPDATER_VERSION_FILE))
+    return non_negative_updater_version(value, str(UPDATER_VERSION_FILE))
 
 
 def resolve_updater_version(command_line_value: str | None) -> int:
     if command_line_value is not None:
-        return positive_updater_version(command_line_value, "--updater-version")
+        return non_negative_updater_version(command_line_value, "--updater-version")
     if value := os.environ.get("GE_UPDATER_VERSION"):
-        return positive_updater_version(value, "GE_UPDATER_VERSION")
+        return non_negative_updater_version(value, "GE_UPDATER_VERSION")
     return checked_in_updater_version()
 
 
@@ -169,7 +169,7 @@ def main() -> int:
     parser.add_argument(
         "--legacy-asset-alias",
         action="store_true",
-        help="also expose the temporary pre-u1 package name",
+        help="also expose the temporary pre-updater-version package name",
     )
     args = parser.parse_args()
 

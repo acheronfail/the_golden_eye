@@ -74,9 +74,10 @@ The checked-in updater version is `obs2/updater-version.txt`. `GE_UPDATER_VERSIO
 for builds and local simulations. Release packages and the compiled Rust core always receive the
 same resolved value.
 
-The `v0.6.1` bridge release is the only release that publishes both canonical `u1-v0.6.1` packages
+The `v0.6.1` bridge release is the only release that publishes both canonical `u0-v0.6.1` packages
 and legacy `0.6.1` aliases. The aliases allow clients without updater-version support to reach the
-bridge. Later releases publish canonical packages only.
+bridge. `v0.7.0` introduces the path-safe `u1` updater contract. Later releases publish canonical
+packages only.
 
 ## Local simulation
 
@@ -84,12 +85,12 @@ Run the simulator in one terminal, then launch OBS with the printed `GE_UPDATE_C
 another:
 
 ```sh
-# Compatible with the checked-in u1 build: should download, stage, and apply.
-just simulate-update --updater-version 1
+# Compatible with the checked-in u0 build: should download, stage, and apply.
+just simulate-update --updater-version 0
 
-# Incompatible with u1: should show manual-install UI and make no package request.
-just simulate-update --updater-version 2
-GE_UPDATER_VERSION=1 just obs
+# Incompatible with u0: should show manual-install UI and make no package request.
+just simulate-update --updater-version 1
+GE_UPDATER_VERSION=0 just obs
 ```
 
 Use `--legacy-asset-alias` only to test the temporary `v0.6.1` dual-asset bridge. The simulator
@@ -112,5 +113,5 @@ checked-in file.
 - `GE_UPDATE_INCLUDE_PRERELEASES`: when set, allows pre-release versions from the fetched response.
   Without `GE_UPDATE_CHECK_URL`, it also switches the default GitHub endpoint from `releases/latest`
   to the full releases list. Leave unset for stable-only behavior.
-- `GE_UPDATER_VERSION`: build-time override for the positive integer in `obs2/updater-version.txt`.
-  It changes both the compiled compatibility value and package name.
+- `GE_UPDATER_VERSION`: build-time override for the non-negative integer in
+  `obs2/updater-version.txt`. It changes both the compiled compatibility value and package name.

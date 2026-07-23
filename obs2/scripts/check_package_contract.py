@@ -69,8 +69,8 @@ def main() -> int:
     if not version:
         raise SystemExit("GE_PLUGIN_VERSION is required")
     updater_version = os.environ.get("GE_UPDATER_VERSION")
-    if not updater_version or not updater_version.isdigit() or int(updater_version) < 1:
-        raise SystemExit("GE_UPDATER_VERSION must be a positive integer")
+    if not updater_version or not updater_version.isdigit():
+        raise SystemExit("GE_UPDATER_VERSION must be a non-negative integer")
 
     package = package_platform()
     arch = package_arch()

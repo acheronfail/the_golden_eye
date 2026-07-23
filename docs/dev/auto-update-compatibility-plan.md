@@ -9,7 +9,7 @@ require a manual installation.
 Encode this compatibility boundary directly in each release package name:
 
 ```text
-the_golden_eye-u1-v0.6.0-linux-x86_64.zip
+the_golden_eye-u0-v0.6.0-linux-x86_64.zip
                ^^ updater version
                   ^^^^^^ plugin version
 ```
@@ -29,13 +29,23 @@ Examples:
 
 | Installed support | Release package | Result    |
 | ----------------- | --------------- | --------- |
-| `u1`              | `u1-v0.6.1`     | Automatic |
-| `u1`              | `u2-v0.7.0`     | Manual    |
-| `u2`              | `u2-v0.7.1`     | Automatic |
-| `u2`              | `u3-v0.8.0`     | Manual    |
+| `u0`              | `u0-v0.6.1`     | Automatic |
+| `u0`              | `u1-v0.7.0`     | Manual    |
+| `u1`              | `u1-v0.7.1`     | Automatic |
+| `u1`              | `u2-v0.8.0`     | Manual    |
 
 When a future release needs a new shim or otherwise changes the installation contract, increment the
 updater version before building that release.
+
+## Current rollout status
+
+- PR 1 was merged to `main` as #139 with green CI.
+- The original `u1 -> u1` and `u1 -> u2` OBS simulations were manually verified before the numbering
+  pivot.
+- Repeat them as `u0 -> u0` and `u0 -> u1` before publishing the bridge.
+- The next milestone is still the dual-named `v0.6.1` bridge release.
+- The shim/path work described below defines updater `u1` and ships in `v0.7.0`; the bridge retains
+  the legacy core-only contract as explicit updater `u0`.
 
 ## Updater version configuration
 
@@ -45,17 +55,18 @@ Add a checked-in source of truth:
 obs2/updater-version.txt
 ```
 
-The file contains a positive integer without the `u` prefix:
+The file contains a non-negative integer without the `u` prefix. `0` names the legacy core-only
+contract that existed before updater versions were explicit:
 
 ```text
-1
+0
 ```
 
 Also support a `GE_UPDATER_VERSION` build-time override. Resolve the value in this order:
 
 1. `GE_UPDATER_VERSION`, when explicitly set.
 2. `obs2/updater-version.txt`.
-3. Fail the build if neither provides a valid positive integer.
+3. Fail the build if neither provides a valid non-negative integer.
 
 Pass the value through the existing build chain:
 
@@ -85,8 +96,8 @@ ${PLUGIN_NAME}-u${GE_UPDATER_VERSION}-v${GE_PLUGIN_VERSION}-${GE_PACKAGE_PLATFOR
 This produces names such as:
 
 ```text
-the_golden_eye-u1-v0.6.1-macos-arm64.zip
-the_golden_eye-u2-v0.7.0-linux-x86_64.zip
+the_golden_eye-u0-v0.6.1-macos-arm64.zip
+the_golden_eye-u1-v0.7.0-linux-x86_64.zip
 ```
 
 ## Release asset parsing
@@ -97,7 +108,7 @@ release assets.
 For the current platform, accept one canonical package matching:
 
 ```text
-the_golden_eye-u<positive integer>-v<release version>-<platform>-<architecture>.zip
+the_golden_eye-u<non-negative integer>-v<release version>-<platform>-<architecture>.zip
 ```
 
 Validate that:
@@ -105,7 +116,7 @@ Validate that:
 - The embedded plugin version matches the GitHub release tag after normalizing the tag's leading
   `v`.
 - The platform and architecture match the running plugin.
-- The updater version is a positive integer.
+- The updater version is a non-negative integer.
 - Exactly one canonical package matches the current platform.
 
 Add the parsed compatibility information to `PluginUpdate`:
@@ -141,6 +152,65 @@ When the release updater version does not match:
 
 The backend check is authoritative; frontend behavior must not be the only compatibility guard.
 
+## Arbitrary install paths in `u1`
+
+[Issue #119](https://github.com/acheronfail/the_golden_eye/issues/119) identifies the shim's
+hardcoded auto-update paths as the remaining installation limitation to remove before 1.0. The
+current implementation has three related assumptions:
+
+1. Rust stages next to the canonical core, while the shim independently looks for staging next to
+   the shim.
+2. `reload.c` infers bundled-data destinations from fixed macOS
+   `Contents/MacOS -> Contents/Resources` and Linux/Windows `bin/<arch> -> data` layouts.
+3. The downloaded package core is found using the installed core's leaf filename.
+
+`v0.7.0` must remove all three assumptions. Keep the shim responsible only for operations that
+cannot survive unloading the Rust core.
+
+The C shim:
+
+- Resolves the canonical core it must load.
+- Derives one staging directory beside that canonical core and passes both paths to `ge_core_load`.
+- Prechecks, unloads, loads, commits, and rolls back only the core library.
+- Removes the staging directory after a successful update.
+
+The Rust core:
+
+- Downloads, verifies, and interprets the release package.
+- Finds the platform-standard packaged core and stages it under the installed core's canonical leaf
+  name.
+- Stages every non-core runtime file needed by the new core.
+- Resolves the destination from OBS's existing module data-path bridge.
+- Installs staged runtime data transactionally when the new core starts.
+- Removes binary-relative fallback paths from `resolve_cv_template_dir`.
+
+Do not add a path manifest or a versioned path struct. Extend `ge_core_load` with the staging
+directory alongside the canonical core path. Rust already obtains the OBS data directory through
+`ge_obs_module_data_path`; C must not parse, reconstruct, or manipulate that path.
+
+The successful update sequence is:
+
+1. The old Rust core downloads and stages the core and runtime data.
+2. The shim prechecks the staged core, unloads the old core, and loads the staged core from its
+   temporary copy.
+3. During `ge_core_load`, the new Rust core copies runtime data into destination-local temporary
+   directories and swaps it into place.
+4. Rust returns startup success only after the data transaction succeeds.
+5. The shim commits the staged core to the canonical core path and removes staging.
+
+If runtime-data installation fails, Rust restores the previous data and returns startup failure. The
+shim then discards the staged core and reopens the unchanged canonical core. The canonical core is
+not replaced until the new core and its runtime data have both started successfully.
+
+Implement destination-local runtime-data transactions in Rust so the staging and OBS data
+directories may live on different filesystems. The shim must no longer know names such as
+`cv_templates` or `locale`, or contain `Contents/Resources`, `../../data`, cross-filesystem copy, or
+runtime-data rollback logic.
+
+After this change, auto-update may still require the resolved destinations to be writable, but it
+must not depend on where the shim, core, staging directory, or OBS data directory sit relative to
+one another.
+
 ## Manual-install UI
 
 Add a small manual-update dialog:
@@ -172,11 +242,12 @@ Clients released before this change look for the legacy name:
 the_golden_eye-0.6.1-linux-x86_64.zip
 ```
 
-The first `u1` bridge release must publish two names for every platform package:
+The first updater-aware bridge release formalizes the existing core-only updater as `u0`. It must
+publish two names for every platform package:
 
 ```text
 # Canonical package for updater-aware clients
-the_golden_eye-u1-v0.6.1-linux-x86_64.zip
+the_golden_eye-u0-v0.6.1-linux-x86_64.zip
 
 # Temporary alias for legacy clients
 the_golden_eye-0.6.1-linux-x86_64.zip
@@ -188,15 +259,15 @@ release.
 Starting with the first incompatible release, publish only the canonical package:
 
 ```text
-the_golden_eye-u2-v0.7.0-linux-x86_64.zip
+the_golden_eye-u1-v0.7.0-linux-x86_64.zip
 ```
 
 The outcomes are:
 
 - Legacy clients cannot find their expected package and fail before downloading or staging.
-- Bridge clients parse `u2`, compare it with their compiled `u1` support, and show the manual
+- Bridge clients parse `u1`, compare it with their compiled `u0` support, and show the manual
   installation flow.
-- A manually installed `u2` plugin can automatically install later `u2` releases.
+- A manually installed `u1` plugin can automatically install later `u1` releases.
 
 Legacy aliases must be limited to the bridge release and must not return in later releases.
 
@@ -221,14 +292,14 @@ simulate-update *args:
     python3 obs2/scripts/simulate_update.py {{ args }}
 ```
 
-Example manual tests when the running plugin supports `u1`:
+Example manual tests when the running bridge plugin supports `u0`:
 
 ```sh
 # Compatible update: should download, verify, stage, and apply.
-just simulate-update --updater-version 1
+just simulate-update --updater-version 0
 
 # Incompatible update: should show the manual-install UI and make no download request.
-just simulate-update --updater-version 2
+just simulate-update --updater-version 1
 ```
 
 The simulator must:
@@ -271,11 +342,11 @@ published and verified.
 
 ### Rust update selection and application
 
-- Parse `u1-v0.6.1` packages for every supported platform and architecture.
+- Parse `u0-v0.6.1` packages for every supported platform and architecture.
 - Require the embedded plugin version to match the release tag.
-- Installed `u1`, target `u1`: automatic installation.
-- Installed `u1`, target `u2`: manual installation.
-- Installed `u2`, target `u1`: manual installation.
+- Installed `u0`, target `u0`: automatic installation.
+- Installed `u0`, target `u1`: manual installation.
+- Installed `u1`, target `u0`: manual installation.
 - Missing or malformed `uN`: fail closed.
 - Missing `v` or malformed plugin version: fail closed.
 - Multiple canonical packages for the current platform: reject as ambiguous.
@@ -296,10 +367,25 @@ published and verified.
 - Package names contain the configured updater and plugin versions.
 - Changing `obs2/updater-version.txt` forces the affected build outputs to rebuild.
 - `GE_UPDATER_VERSION` overrides the checked-in value for local builds.
-- Invalid updater-version configuration fails early.
+- Negative or otherwise invalid updater-version configuration fails early.
 - The simulator generates and serves the updater version requested on its command line.
 - The bridge release contains both canonical and legacy assets.
 - Releases after the bridge contain no legacy aliases.
+
+### Arbitrary install paths
+
+- A shim beside the core and data directory retains the normal packaged behavior.
+- `GE_CORE_LIB` pointing to an unrelated directory stages and replaces that exact core.
+- A custom installed core filename accepts the standard packaged core and preserves the custom
+  destination filename.
+- The shim passes one explicit staging directory to Rust.
+- An OBS data directory unrelated to both shim and core receives `cv_templates` and `locale`.
+- Data sync works when the core staging and data destinations are on different filesystems.
+- Paths containing spaces are supported; overlong or missing paths fail cleanly.
+- macOS, Linux, and Windows path separators are covered without install-layout enums.
+- A failed core load restores the old core; a failed Rust data transaction restores the previous
+  data before startup reports failure.
+- `just dev` still stages and hot-reloads through the production path contract.
 
 ## Implementation order
 
@@ -311,19 +397,30 @@ published and verified.
 6. Update the release workflow with the explicitly enabled one-release legacy alias.
 7. Extend the simulator with updater-version selection and exact package lookup.
 8. Add unit, integration, frontend, packaging, and simulator coverage.
-9. Publish the dual-named `u1` bridge release before publishing an incompatible `u2` release.
+9. Publish the dual-named `u0` bridge release before publishing an incompatible `u1` release.
+10. Remove the one-release legacy alias machinery after `v0.6.1` is verified.
+11. Pass the shim's canonical core and staging paths into the Rust core.
+12. Move runtime-data installation and rollback into Rust and add arbitrary-path tests.
+13. Bump the updater version to `u1` in the same PR as the breaking shim/core ABI.
+14. Publish `v0.7.0`, verify custom-location updates, then update issue #119.
 
 ## Delivery plan
 
-The work is delivered through three PRs and two release milestones. The first PR creates and ships
-the `u1` bridge. The second removes all one-off bridge code after that release. The third pairs the
-next shim change with the `u2` compatibility boundary in `v0.7.0`.
+The work is delivered through the merged implementation PR, one numbering-pivot PR, two later PRs,
+and two release milestones. The first release uses `u0` to name the legacy core-only contract. The
+cleanup PR removes its one-off bridge code. The final implementation PR removes the shim's hardcoded
+install-layout assumptions and pairs that breaking shim/core ABI with the first path-safe updater,
+`u1`, in `v0.7.0`.
 
 This rollout does not release `v1.0.0` or declare the plugin's public behavior stable. The updater
-version is an installation-format version independent of SemVer. Shipping `u2` in `v0.7.0` resolves
-one of the known prerequisites for 1.0 while leaving the other 1.0 goals for later work.
+version is an installation-format version independent of SemVer. Shipping `u1` in `v0.7.0` resolves
+the known manual-install/shim-path prerequisite for 1.0 while leaving storage stability and
+matcher-quality goals for later work.
 
-### PR 1: implement updater-version compatibility and the `u1` bridge
+### PR 1: implement updater-version compatibility
+
+Merged as #139. Its implementation initially used `u1` for the bridge; the required follow-up pivot
+below changes the unreleased contract to `u0` before the first tagged package.
 
 Create a feature branch from the latest `main`:
 
@@ -334,9 +431,9 @@ git switch -c codex/updater-version-compatibility
 Suggested commits:
 
 1. `build: add a configurable updater package version`
-   - Add `obs2/updater-version.txt` with `1`.
+   - Add `obs2/updater-version.txt`.
    - Thread `GE_UPDATER_VERSION` through `just`, CMake, Cargo, build stamps, and packaging.
-   - Change the canonical package name to `the_golden_eye-u1-vX.Y.Z-<platform>-<arch>.zip`.
+   - Change the canonical package name to `the_golden_eye-uN-vX.Y.Z-<platform>-<arch>.zip`.
    - Add build and packaging validation.
 2. `feat: gate auto updates by package updater version`
    - Parse the canonical platform asset.
@@ -350,10 +447,10 @@ Suggested commits:
 4. `test: simulate compatible and incompatible updater versions`
    - Add `--updater-version` and temporary `--legacy-asset-alias` simulator options.
    - Make the simulator find the exact expected package.
-   - Add compatible `u1` and incompatible `u2` manual test instructions.
+   - Add compatible and incompatible manual test instructions.
 5. `ci: publish legacy update aliases for v0.6.1`
    - Add the exact `LEGACY_ALIAS_RELEASE_TAG: v0.6.1` release setting.
-   - Copy each canonical `u1-v0.6.1` package to its legacy no-`u`, no-`v` alias.
+   - Copy each canonical bridge package to its legacy no-`u`, no-`v` alias.
    - Generate `checksums.txt` only after both sets of assets exist.
    - Assert that aliases are produced only for the configured bridge tag.
 6. `docs: document updater-version compatibility`
@@ -385,14 +482,14 @@ just make-package
 Expected canonical basename:
 
 ```text
-the_golden_eye-u1-v<current-version>-<platform>-<arch>.zip
+the_golden_eye-u0-v<current-version>-<platform>-<arch>.zip
 ```
 
-Run both simulator paths against a plugin built with the checked-in `u1`:
+Run both simulator paths against a plugin built with the checked-in `u0`:
 
 ```sh
 # Terminal 1: compatible target
-just simulate-update --updater-version 1
+just simulate-update --updater-version 0
 
 # Terminal 2
 just obs
@@ -402,10 +499,10 @@ Repeat with an incompatible target:
 
 ```sh
 # Terminal 1: incompatible target
-just simulate-update --updater-version 2
+just simulate-update --updater-version 1
 
-# Terminal 2: explicitly restore the running build to u1
-GE_UPDATER_VERSION=1 just obs
+# Terminal 2: explicitly restore the running build to u0
+GE_UPDATER_VERSION=0 just obs
 ```
 
 For the incompatible case, verify that:
@@ -419,11 +516,26 @@ Open the PR with the release plan called out explicitly:
 
 - Merge target: `main`.
 - Next stable tag: `v0.6.1`.
-- Checked-in updater version: `u1`.
+- Checked-in updater version: `u0`.
 - Release must contain canonical and legacy package names.
 - No other stable `0.x` release should be published after the one-off alias code is removed.
 
 Do not tag `v0.6.1` until the PR is merged and the merge commit has passed the normal branch checks.
+
+### Follow-up PR: reserve `u1` for the path-safe updater
+
+Land this follow-up before tagging `v0.6.1`:
+
+1. Allow updater version zero in CMake, Rust release parsing, the package contract checker, and the
+   simulator.
+2. Change `obs2/updater-version.txt` from `1` to `0`.
+3. Update bridge assets and tests from `u1-v0.6.1` to `u0-v0.6.1`.
+4. Update incompatible simulations from `u1 -> u2` to `u0 -> u1`.
+5. Keep `u1` reserved for the `v0.7.0` shim that removes the path limitation.
+
+Run the full updater, integration, browser, simulator, and package-contract checks again. This is a
+numbering correction only: it must not weaken the exact-match compatibility check or change the
+already verified manual-install behavior.
 
 ### Release 1: publish the `v0.6.1` bridge
 
@@ -441,7 +553,7 @@ The release workflow creates a draft release. Before publishing it, verify:
 1. Every supported platform has one canonical package:
 
    ```text
-   the_golden_eye-u1-v0.6.1-<platform>-<arch>.zip
+   the_golden_eye-u0-v0.6.1-<platform>-<arch>.zip
    ```
 
 2. Every supported platform has one legacy alias:
@@ -451,7 +563,7 @@ The release workflow creates a draft release. Before publishing it, verify:
    ```
 
 3. `checksums.txt` contains every canonical package and every legacy alias.
-4. The canonical package contains a core compiled with updater version `u1`.
+4. The canonical package contains a core compiled with updater version `u0`.
 5. The canonical and legacy files for a platform are byte-for-byte identical.
 6. No unrelated or stale package is attached.
 
@@ -474,7 +586,7 @@ gh release edit v0.6.1 --repo acheronfail/the_golden_eye --draft=false
 After publication, perform two end-to-end checks:
 
 - An installed `v0.6.0` discovers the legacy `v0.6.1` asset and auto-updates successfully.
-- An installed `v0.6.1` discovers a simulated `u2` release and requires manual installation without
+- An installed `v0.6.1` discovers a simulated `u1` release and requires manual installation without
   downloading it.
 
 Leave `v0.6.1` as the latest stable release long enough to exercise the bridge in normal update
@@ -526,7 +638,7 @@ release as latest, a legacy `v0.6.0` client will no longer discover the dual-nam
 If a `0.6.x` hotfix becomes unavoidable, temporarily restore the exact legacy-alias release step for
 that hotfix and remove it again afterward.
 
-### PR 3: make the next shim change and bump `v0.7.0` to `u2`
+### PR 3: remove hardcoded shim paths and bump `v0.7.0` to `u1`
 
 The updater-version bump must be committed with the change that actually requires a new shim. Do not
 bump it in an unrelated release.
@@ -536,38 +648,54 @@ Create a feature branch from cleaned-up `main`:
 ```sh
 git switch main
 git pull --ff-only
-git switch -c codex/v0.7-shim-and-updater-v2
+git switch -c codex/v0.7-shim-and-updater-v1
 ```
 
 Suggested commits:
 
-1. `feat: support the new plugin install layout`
-   - Implement the planned shim/path change that requires manual installation.
-   - Add or update shim tests for the new behavior.
-2. `build: require updater version 2 for v0.7 packages`
-   - Change `obs2/updater-version.txt` from `1` to `2`.
-   - Update package and compatibility expectations to `u2`.
-   - Keep this commit adjacent to the shim change so they cannot be released independently.
-3. `docs: add the v0.7 manual installation instructions`
-   - Explain that `u1` installations must manually install the first `u2` package.
-   - Explain that later `u2` releases return to normal automatic updates.
+1. `refactor: keep the shim reload path core-only`
+   - Resolve the canonical core and adjacent staging directory once in `plugin.c`.
+   - Pass both paths through `ge_core_load`; do not add a manifest or path-contract struct.
+   - Keep C responsible only for core precheck, unload/load, commit, and rollback.
+   - Remove C knowledge of OBS data layouts, `cv_templates`, and `locale`.
+2. `feat: install runtime update data from Rust`
+   - Remove the platform install-layout enum and relative data-path reconstruction.
+   - Decouple the packaged core source filename from the installed destination filename.
+   - Have the newly loaded Rust core transactionally install staged runtime data before startup
+     reports success.
+   - Restore previous runtime data in Rust when installation fails so C can reopen the old core.
+   - Use destination-local temporary directories so staging and OBS data may be on separate
+     filesystems.
+   - Remove Rust's binary-relative `cv_templates` fallback paths.
+   - Update `dev.py` if needed to use the same staging contract.
+   - Add fixture-driven shim tests for unrelated core/data directories, custom filenames, spaces,
+     Rust data rollback, and all supported path separators.
+3. `build: require updater version 1 for v0.7 packages`
+   - Change `obs2/updater-version.txt` from `0` to `1`.
+   - Update package and compatibility expectations to `u1`.
+   - Keep this commit in the same PR as the shim ABI change so they cannot be released
+     independently.
+4. `docs: add the v0.7 manual installation instructions`
+   - Explain that `u0` installations must manually install the first `u1` package.
+   - Explain that later `u1` releases return to normal automatic updates.
    - Update `README.md` so it no longer says the next required manual installation first occurs at
      `v1.0.0`.
+   - Document that arbitrary core/data install locations are now supported.
    - Keep the remaining `v1.0.0` stability goals explicitly unreleased and out of scope.
 
 Before opening the PR, run the full relevant test suite and repeat the local simulator matrix:
 
-- Running `u1` against target `u2`: manual installation, no download.
-- Manually installed `u2` against a newer target `u2`: normal automatic update.
+- Running `u0` against target `u1`: manual installation, no download.
+- Manually installed `u1` against a newer target `u1`: normal automatic update.
 
 The PR description must identify the updater-version bump as a release invariant. Review should
-reject any build that contains the shim-breaking change while still producing `u1` assets.
+reject any build that contains the shim-breaking change while still producing `u0` assets.
 
 ### Release 2: publish `v0.7.0`
 
-If prereleases are used, the first `v0.7.0-beta.N` package must already be `u2`; do not defer the
-updater-version bump until the stable tag. A user who manually installs a `u2` beta can then
-auto-update to later `u2` betas and the stable release.
+If prereleases are used, the first `v0.7.0-beta.N` package must already be `u1`; do not defer the
+updater-version bump until the stable tag. A user who manually installs a `u1` beta can then
+auto-update to later `u1` betas and the stable release.
 
 For the stable release:
 
@@ -580,12 +708,14 @@ git push origin v0.7.0
 
 Before publishing the generated draft, verify:
 
-- Every package is named `the_golden_eye-u2-v0.7.0-<platform>-<arch>.zip`.
+- Every package is named `the_golden_eye-u1-v0.7.0-<platform>-<arch>.zip`.
 - No legacy package names are attached.
 - `checksums.txt` contains only the canonical packages.
-- The package contains both the `u2` core and the new shim.
-- A `u1` installation reports manual installation.
-- A manually installed `u2` package can auto-update to a simulated newer `u2` release.
+- The package contains both the `u1` core and the path-safe `u1` shim.
+- A `u0` installation reports manual installation.
+- A manually installed `u1` package loads and updates when its core and OBS data directory are in
+  unrelated custom locations.
+- A manually installed `u1` package can auto-update to a simulated newer `u1` release.
 
 Publish the draft only after these checks pass.
 
@@ -593,7 +723,7 @@ Publish the draft only after these checks pass.
 
 After `v0.7.0` is published:
 
-1. Update `README.md` and `docs/dev/auto-update.md` to describe `u2` as the current updater version.
+1. Update `README.md` and `docs/dev/auto-update.md` to describe `u1` as the current updater version.
 2. Convert this document from an active rollout plan into historical architecture documentation, or
    move completed delivery steps into a short release-history section.
 3. Search for and remove stale `0.6.1`, legacy-alias, and bridge-only references:
@@ -607,5 +737,6 @@ After `v0.7.0` is published:
    boundary.
 6. For ordinary releases, leave `obs2/updater-version.txt` unchanged. Increment it only when the
    installed updater cannot safely apply the new package.
-7. Update the 1.0 tracking issue to mark the shim/path prerequisite as delivered in `v0.7.0`,
-   without closing or releasing the remaining 1.0 goals.
+7. Update issue #119 after `v0.7.0` is published: mark the shim/path prerequisite as delivered and
+   remove the statement that all `0.x` users must wait until `1.0.0` for the manual installation.
+   Keep the issue open for storage stability and matcher-quality goals.

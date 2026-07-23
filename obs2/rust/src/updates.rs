@@ -328,11 +328,7 @@ fn parse_version(value: &str) -> anyhow::Result<Version> {
 }
 
 fn installed_updater_version() -> anyhow::Result<u32> {
-    let version: u32 = crate::UPDATER_VERSION.parse().context("parsing installed updater version")?;
-    if version == 0 {
-        anyhow::bail!("installed updater version must be positive");
-    }
-    Ok(version)
+    crate::UPDATER_VERSION.parse().context("parsing installed updater version")
 }
 
 pub(crate) fn platform_arch_suffix_for(os: &str, arch: &str) -> Option<&'static str> {
@@ -369,9 +365,6 @@ fn updater_version_from_assets(
         .context("canonical update package name is malformed")?;
     let (updater, version) = middle.split_once("-v").context("canonical update package name is missing '-v'")?;
     let updater: u32 = updater.parse().context("canonical update package has an invalid updater version")?;
-    if updater == 0 {
-        anyhow::bail!("canonical update package updater version must be positive");
-    }
     let package_version = Version::parse(version).context("canonical update package has an invalid plugin version")?;
     if package_version != *release_version {
         anyhow::bail!("canonical update package version {package_version} does not match release {release_version}");
