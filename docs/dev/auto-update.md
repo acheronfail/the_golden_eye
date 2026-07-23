@@ -34,9 +34,10 @@ the core library and bundled runtime data while OBS keeps the shim loaded.
    endpoint or the lower-level staging function.
 3. It downloads `checksums.txt`, verifies the package zip's SHA-256, and extracts the package into a
    temporary download directory.
-4. It interprets the package, renames the platform-standard packaged core to the installed core's
-   exact leaf name, and publishes the core plus required runtime data into the staging directory
-   supplied by the shim.
+4. It interprets the platform-standard package, renames its core to the installed core's exact leaf
+   name, and copies the complete packaged module-data root into `module-data/` in the staging
+   directory supplied by the shim. Arbitrary regular files, directories, and future nested layouts
+   under that data root are included.
 
 ## Applying a staged update
 
@@ -52,10 +53,10 @@ the core library and bundled runtime data while OBS keeps the shim loaded.
 5. The shim starts the staged core by calling
    `ge_core_load(canonical_core, staged_directory, is_reload=true, ...)`.
 6. Before reporting startup success, the new Rust core resolves OBS's module data directory and
-   provisionally installs `cv_templates` and `locale` using destination-local temporary
+   provisionally replaces the complete directory using destination-local incoming and backup
    directories. It retains the previous data until the core commit finishes.
-7. After the new core is running, the shim moves only the staged core binary over the canonical
-   core path, tells Rust to commit its pending data transaction, and removes staging.
+7. After the new core is running, the shim moves only the staged core binary over the canonical core
+   path, tells Rust to commit its pending data transaction, and removes staging.
 8. If runtime-data installation, core startup, or canonical replacement fails, Rust restores the
    previous data. The shim discards staging and reopens the unchanged canonical core.
 
@@ -104,6 +105,11 @@ published `v0.6.1` bridge.
 - The shim replaces only the hosted core library, not the shim library that OBS originally loaded.
 - Rust owns package interpretation and transactionally installs runtime data through the data path
   resolved by OBS. The shim has no knowledge of data filenames or packaged install layouts.
+- The full package data root is authoritative. New paths such as `data/new-runtime-dir/**` require
+  no updater change, and paths removed from a package are removed from the installed data snapshot
+  after a successful update.
+- Symbolic links and non-regular filesystem entries in module data are rejected. Files outside the
+  platform package's data root and native libraries beside the core are not auto-installed.
 - The canonical core and its adjacent staging directory may be unrelated to the shim and OBS data
   directories; paths containing spaces and custom core filenames are supported.
 - The shim stays resident for the whole OBS session. Changes to shim code require a normal reinstall

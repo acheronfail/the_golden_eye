@@ -18,7 +18,7 @@ use crate::updates::{GithubAsset, PluginUpdate, platform_arch_suffix_for};
 const CHECKSUMS_ASSET_NAME: &str = "checksums.txt";
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 const AUTO_APPLY_CHECK_INTERVAL: Duration = Duration::from_secs(30);
-const RUNTIME_DATA_DIRS: [&str; 2] = ["cv_templates", "locale"];
+const STAGED_MODULE_DATA_DIR: &str = "module-data";
 
 /// Serializes publication to the single shim-visible staging directory.
 static STAGE_LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
@@ -197,15 +197,42 @@ pub async fn download_verify_and_stage(update: &PluginUpdate, assets: Vec<Github
 fn prepare_staged_update(extracted_dir: &Path, prepared_dir: &Path, installed_core_leaf: &OsStr) -> anyhow::Result<()> {
     let core_src = find_named(extracted_dir, packaged_core_name())
         .with_context(|| format!("release package does not contain '{}'", packaged_core_name().to_string_lossy()))?;
+    let data_src = packaged_data_root(&core_src)?;
     std::fs::create_dir(prepared_dir).context("creating fresh prepared update directory")?;
     std::fs::copy(&core_src, prepared_dir.join(installed_core_leaf)).context("staging core library")?;
-
-    for name in RUNTIME_DATA_DIRS {
-        let src = find_named(extracted_dir, OsStr::new(name))
-            .with_context(|| format!("release package does not contain runtime data '{name}'"))?;
-        copy_dir_recursive(&src, &prepared_dir.join(name)).with_context(|| format!("staging {name}"))?;
-    }
+    copy_dir_recursive(&data_src, &prepared_dir.join(STAGED_MODULE_DATA_DIR))
+        .context("staging packaged module data")?;
     Ok(())
+}
+
+fn packaged_data_root(packaged_core: &Path) -> anyhow::Result<PathBuf> {
+    let core_dir = packaged_core.parent().context("packaged core has no parent directory")?;
+
+    #[cfg(target_os = "macos")]
+    let data_root = {
+        if core_dir.file_name() != Some(OsStr::new("MacOS")) {
+            anyhow::bail!("packaged core is not inside a macOS Contents/MacOS directory");
+        }
+        let contents = core_dir.parent().context("packaged macOS core has no Contents directory")?;
+        if contents.file_name() != Some(OsStr::new("Contents")) {
+            anyhow::bail!("packaged core is not inside a macOS Contents/MacOS directory");
+        }
+        contents.join("Resources")
+    };
+
+    #[cfg(not(target_os = "macos"))]
+    let data_root = {
+        let bin = core_dir.parent().context("packaged core has no bin directory")?;
+        if bin.file_name() != Some(OsStr::new("bin")) {
+            anyhow::bail!("packaged core is not inside a bin/<arch> directory");
+        }
+        bin.parent().context("packaged core has no package root")?.join("data")
+    };
+
+    if !data_root.is_dir() {
+        anyhow::bail!("release package does not contain module data at '{}'", data_root.display());
+    }
+    Ok(data_root)
 }
 
 struct UpdateWorkDir(PathBuf);
@@ -254,63 +281,65 @@ struct DirectorySwap {
 }
 
 pub struct RuntimeDataTransaction {
-    swaps: Vec<DirectorySwap>,
+    swap: Option<DirectorySwap>,
     committed: bool,
 }
 
 impl RuntimeDataTransaction {
     fn install(staged_dir: &Path, data_dir: &Path) -> anyhow::Result<Self> {
-        std::fs::create_dir_all(data_dir).context("creating OBS module data directory")?;
-        let mut transaction = Self { swaps: Vec::new(), committed: false };
-        for name in RUNTIME_DATA_DIRS {
-            let source = staged_dir.join(name);
-            if source.is_dir() {
-                transaction.install_dir(&source, data_dir, name)?;
-            }
+        let source = staged_dir.join(STAGED_MODULE_DATA_DIR);
+        if !source.exists() {
+            // `just dev` intentionally stages only a locally rebuilt core.
+            return Ok(Self { swap: None, committed: false });
         }
-        Ok(transaction)
-    }
+        if !source.is_dir() {
+            anyhow::bail!("staged module data is not a directory");
+        }
+        let parent = data_dir.parent().context("OBS module data path has no parent directory")?;
+        std::fs::create_dir_all(parent).context("creating OBS module data parent directory")?;
+        let (incoming, backup) = create_data_swap_paths(parent)?;
 
-    fn install_dir(&mut self, source: &Path, data_dir: &Path, name: &str) -> anyhow::Result<()> {
-        let destination = data_dir.join(name);
-        let unique = format!("{}.{}", std::process::id(), DATA_SWAP_COUNTER.fetch_add(1, Ordering::Relaxed));
-        let incoming = data_dir.join(format!(".ge-update-{name}-incoming-{unique}"));
-        let backup = data_dir.join(format!(".ge-update-{name}-backup-{unique}"));
-
-        if let Err(error) = copy_dir_recursive(source, &incoming) {
+        if let Err(error) = copy_dir_recursive(&source, &incoming) {
             let _ = std::fs::remove_dir_all(&incoming);
-            return Err(error).with_context(|| format!("copying staged {name}"));
+            return Err(error).context("copying staged module data");
         }
-        let had_old = destination.exists();
-        if had_old && let Err(error) = std::fs::rename(&destination, &backup) {
+        let had_old = data_dir.exists();
+        if had_old && !data_dir.is_dir() {
             let _ = std::fs::remove_dir_all(&incoming);
-            return Err(error).with_context(|| format!("backing up installed {name}"));
+            anyhow::bail!("OBS module data path is not a directory");
         }
-        if let Err(error) = std::fs::rename(&incoming, &destination) {
+        if had_old && let Err(error) = std::fs::rename(data_dir, &backup) {
+            let _ = std::fs::remove_dir_all(&incoming);
+            return Err(error).context("backing up installed module data");
+        }
+        if let Err(error) = std::fs::rename(&incoming, data_dir) {
             if had_old {
-                let _ = std::fs::rename(&backup, &destination);
+                let _ = std::fs::rename(&backup, data_dir);
             }
             let _ = std::fs::remove_dir_all(&incoming);
-            return Err(error).with_context(|| format!("installing staged {name}"));
+            return Err(error).context("installing staged module data");
         }
-        self.swaps.push(DirectorySwap { destination, backup: had_old.then_some(backup) });
-        Ok(())
+        Ok(Self {
+            swap: Some(DirectorySwap { destination: data_dir.to_owned(), backup: had_old.then_some(backup) }),
+            committed: false,
+        })
     }
 
     pub fn commit(mut self) {
         self.committed = true;
-        for swap in &self.swaps {
-            if let Some(backup) = &swap.backup
-                && let Err(error) = std::fs::remove_dir_all(backup)
-            {
-                tracing::warn!(path = %backup.display(), "failed to remove runtime data backup: {error}");
-            }
+        if let Some(swap) = &self.swap
+            && let Some(backup) = &swap.backup
+            && let Err(error) = std::fs::remove_dir_all(backup)
+        {
+            tracing::warn!(path = %backup.display(), "failed to remove runtime data backup: {error}");
         }
     }
 
     fn rollback(&mut self) {
-        for swap in self.swaps.iter().rev() {
-            if let Err(error) = std::fs::remove_dir_all(&swap.destination) {
+        if let Some(swap) = &self.swap {
+            if let Err(error) = std::fs::remove_dir_all(&swap.destination)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
                 tracing::error!(path = %swap.destination.display(), "failed to remove updated runtime data during rollback: {error}");
             }
             if let Some(backup) = &swap.backup
@@ -324,6 +353,24 @@ impl RuntimeDataTransaction {
             }
         }
     }
+}
+
+fn create_data_swap_paths(parent: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
+    for _ in 0..100 {
+        let sequence = DATA_SWAP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let unique = format!("{}.{sequence}", std::process::id());
+        let incoming = parent.join(format!(".ge-update-module-data-incoming-{unique}"));
+        let backup = parent.join(format!(".ge-update-module-data-backup-{unique}"));
+        if backup.exists() {
+            continue;
+        }
+        match std::fs::create_dir(&incoming) {
+            Ok(()) => return Ok((incoming, backup)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error).context("creating runtime data swap directory"),
+        }
+    }
+    anyhow::bail!("could not allocate unique runtime data swap paths")
 }
 
 impl Drop for RuntimeDataTransaction {
@@ -428,10 +475,15 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let dst_path = dst.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            anyhow::bail!("module data contains unsupported symbolic link '{}'", entry.path().display());
+        } else if file_type.is_dir() {
             copy_dir_recursive(&entry.path(), &dst_path)?;
-        } else {
+        } else if file_type.is_file() {
             std::fs::copy(entry.path(), &dst_path)?;
+        } else {
+            anyhow::bail!("module data contains unsupported file type '{}'", entry.path().display());
         }
     }
     Ok(())

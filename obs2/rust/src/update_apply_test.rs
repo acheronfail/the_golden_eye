@@ -60,36 +60,36 @@ fn copy_dir_recursive_preserves_structure() {
 }
 
 #[test]
-fn packaged_core_is_staged_under_the_installed_custom_name() {
+fn packaged_core_and_arbitrary_module_data_are_staged() {
     let dir = tempdir();
-    let extracted = dir.path().join("extracted/package/nested");
-    std::fs::create_dir_all(extracted.join("cv_templates")).unwrap();
-    std::fs::create_dir_all(extracted.join("locale")).unwrap();
-    std::fs::write(extracted.join(packaged_core_name()), b"core").unwrap();
-    std::fs::write(extracted.join("cv_templates/template.png"), b"template").unwrap();
-    std::fs::write(extracted.join("locale/en-US.ini"), b"locale").unwrap();
+    let extracted = dir.path().join("extracted");
+    let (core, data) = seed_packaged_layout(&extracted);
+    std::fs::write(&core, b"core").unwrap();
+    std::fs::create_dir_all(data.join("new-runtime-dir/nested")).unwrap();
+    std::fs::write(data.join("new-runtime-dir/nested/config.json"), b"future data").unwrap();
+    std::fs::write(data.join("runtime-index.json"), b"top-level data").unwrap();
 
     let prepared = dir.path().join("prepared");
-    prepare_staged_update(&dir.path().join("extracted"), &prepared, OsStr::new("custom core name.test")).unwrap();
+    prepare_staged_update(&extracted, &prepared, OsStr::new("custom core name.test")).unwrap();
 
     assert_eq!(std::fs::read(prepared.join("custom core name.test")).unwrap(), b"core");
-    assert_eq!(std::fs::read(prepared.join("cv_templates/template.png")).unwrap(), b"template");
-    assert_eq!(std::fs::read(prepared.join("locale/en-US.ini")).unwrap(), b"locale");
+    assert_eq!(std::fs::read(prepared.join("module-data/new-runtime-dir/nested/config.json")).unwrap(), b"future data");
+    assert_eq!(std::fs::read(prepared.join("module-data/runtime-index.json")).unwrap(), b"top-level data");
 }
 
 #[test]
-fn prepared_update_requires_a_fresh_destination_and_all_runtime_data() {
+fn prepared_update_requires_the_platform_data_root_and_a_fresh_destination() {
     let dir = tempdir();
     let extracted = dir.path().join("extracted");
-    std::fs::create_dir_all(extracted.join("cv_templates")).unwrap();
-    std::fs::write(extracted.join(packaged_core_name()), b"core").unwrap();
+    let (core, data) = seed_packaged_layout(&extracted);
+    std::fs::write(&core, b"core").unwrap();
+    std::fs::remove_dir_all(&data).unwrap();
 
     let prepared = dir.path().join("prepared");
     let error = prepare_staged_update(&extracted, &prepared, OsStr::new("custom-core")).unwrap_err();
-    assert!(error.to_string().contains("locale"));
+    assert!(error.to_string().contains("module data"));
 
-    std::fs::remove_dir_all(&prepared).unwrap();
-    std::fs::create_dir_all(extracted.join("locale")).unwrap();
+    std::fs::create_dir_all(&data).unwrap();
     std::fs::create_dir(&prepared).unwrap();
     std::fs::write(prepared.join("stale.txt"), b"stale").unwrap();
     let error = prepare_staged_update(&extracted, &prepared, OsStr::new("custom-core")).unwrap_err();
@@ -126,25 +126,38 @@ fn staged_publication_refuses_a_non_directory_destination() {
 }
 
 #[test]
+fn runtime_data_swap_does_not_reuse_a_stale_incoming_directory() {
+    let dir = tempdir();
+    let sequence = DATA_SWAP_COUNTER.load(Ordering::Relaxed);
+    let stale = dir.path().join(format!(".ge-update-module-data-incoming-{}.{sequence}", std::process::id()));
+    std::fs::create_dir(&stale).unwrap();
+    std::fs::write(stale.join("stale.txt"), b"stale").unwrap();
+
+    let (incoming, backup) = create_data_swap_paths(dir.path()).unwrap();
+    assert_ne!(incoming, stale);
+    assert_eq!(std::fs::read(stale.join("stale.txt")).unwrap(), b"stale");
+    assert!(std::fs::read_dir(&incoming).unwrap().next().is_none());
+
+    std::fs::remove_dir_all(incoming).unwrap();
+    assert!(!backup.exists());
+}
+
+#[test]
 fn runtime_data_commit_keeps_new_directories() {
     let dir = tempdir();
     let staged = dir.path().join("staging on another path");
     let data = dir.path().join("OBS data with spaces");
     seed_runtime_data(&staged, "new");
-    seed_runtime_data(&data, "old");
+    seed_installed_runtime_data(&data, "old");
 
     let transaction = RuntimeDataTransaction::install(&staged, &data).unwrap();
     assert_runtime_data(&data, "new");
+    assert!(!data.join("removed-by-update.txt").exists());
     transaction.commit();
 
     assert_runtime_data(&data, "new");
-    assert!(
-        std::fs::read_dir(&data).unwrap().all(|entry| !entry
-            .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .starts_with(".ge-update-"))
-    );
+    assert!(!data.join("removed-by-update.txt").exists());
+    assert_no_swap_siblings(&data);
 }
 
 #[test]
@@ -153,27 +166,86 @@ fn runtime_data_startup_failure_restores_old_directories() {
     let staged = dir.path().join("unrelated staging");
     let data = dir.path().join("unrelated data");
     seed_runtime_data(&staged, "new");
-    seed_runtime_data(&data, "old");
+    seed_installed_runtime_data(&data, "old");
 
     {
         let _transaction = RuntimeDataTransaction::install(&staged, &data).unwrap();
         assert_runtime_data(&data, "new");
+        assert!(!data.join("removed-by-update.txt").exists());
     }
 
     assert_runtime_data(&data, "old");
+    assert_eq!(std::fs::read(data.join("removed-by-update.txt")).unwrap(), b"old only");
+    assert_no_swap_siblings(&data);
+}
+
+#[test]
+fn core_only_dev_reload_leaves_module_data_untouched() {
+    let dir = tempdir();
+    let staged = dir.path().join("core-only staging");
+    let data = dir.path().join("OBS data");
+    std::fs::create_dir_all(&staged).unwrap();
+    seed_installed_runtime_data(&data, "old");
+
+    let transaction = RuntimeDataTransaction::install(&staged, &data).unwrap();
+    assert_runtime_data(&data, "old");
+    transaction.commit();
+    assert_runtime_data(&data, "old");
+}
+
+#[cfg(unix)]
+#[test]
+fn module_data_symlinks_are_rejected() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir();
+    let src = dir.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(dir.path().join("outside"), b"outside").unwrap();
+    symlink(dir.path().join("outside"), src.join("link")).unwrap();
+
+    let error = copy_dir_recursive(&src, &dir.path().join("dst")).unwrap_err();
+    assert!(error.to_string().contains("symbolic link"));
 }
 
 fn seed_runtime_data(root: &Path, content: &str) {
-    for name in RUNTIME_DATA_DIRS {
-        std::fs::create_dir_all(root.join(name)).unwrap();
-        std::fs::write(root.join(name).join("marker.txt"), content).unwrap();
-    }
+    std::fs::create_dir_all(root.join(STAGED_MODULE_DATA_DIR).join("new-runtime-dir/nested")).unwrap();
+    std::fs::write(root.join(STAGED_MODULE_DATA_DIR).join("new-runtime-dir/nested/marker.txt"), content).unwrap();
+}
+
+fn seed_installed_runtime_data(root: &Path, content: &str) {
+    std::fs::create_dir_all(root.join("new-runtime-dir/nested")).unwrap();
+    std::fs::write(root.join("new-runtime-dir/nested/marker.txt"), content).unwrap();
+    std::fs::write(root.join("removed-by-update.txt"), b"old only").unwrap();
 }
 
 fn assert_runtime_data(root: &Path, content: &str) {
-    for name in RUNTIME_DATA_DIRS {
-        assert_eq!(std::fs::read_to_string(root.join(name).join("marker.txt")).unwrap(), content);
-    }
+    assert_eq!(std::fs::read_to_string(root.join("new-runtime-dir/nested/marker.txt")).unwrap(), content);
+}
+
+fn assert_no_swap_siblings(data: &Path) {
+    let parent = data.parent().unwrap();
+    assert!(
+        std::fs::read_dir(parent)
+            .unwrap()
+            .all(|entry| { !entry.unwrap().file_name().to_string_lossy().starts_with(".ge-update-module-data-") })
+    );
+}
+
+fn seed_packaged_layout(extracted: &Path) -> (PathBuf, PathBuf) {
+    #[cfg(target_os = "macos")]
+    let (core, data) = {
+        let contents = extracted.join("the_golden_eye.plugin/Contents");
+        (contents.join("MacOS").join(packaged_core_name()), contents.join("Resources"))
+    };
+    #[cfg(not(target_os = "macos"))]
+    let (core, data) = {
+        let package = extracted.join("the_golden_eye");
+        (package.join("bin/64bit").join(packaged_core_name()), package.join("data"))
+    };
+    std::fs::create_dir_all(core.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(&data).unwrap();
+    (core, data)
 }
 
 fn tempdir() -> TestDir {

@@ -2,8 +2,8 @@
 
 ## Goal
 
-The plugin's auto-update flow replaces the hosted core library and selected runtime data, but it
-does not replace the OBS-loaded shim. A release that requires a different shim must therefore
+The plugin's auto-update flow replaces the hosted core library and its complete module-data tree,
+but it does not replace the OBS-loaded shim. A release that requires a different shim must therefore
 require a manual installation.
 
 Encode this compatibility boundary directly in each release package name:
@@ -181,9 +181,9 @@ The Rust core:
 - Downloads, verifies, and interprets the release package.
 - Finds the platform-standard packaged core and stages it under the installed core's canonical leaf
   name.
-- Stages every non-core runtime file needed by the new core.
+- Derives the platform-standard package data root from that core and stages its complete tree.
 - Resolves the destination from OBS's existing module data-path bridge.
-- Installs staged runtime data transactionally when the new core starts.
+- Replaces the complete OBS module-data directory transactionally when the new core starts.
 - Removes binary-relative fallback paths from `resolve_cv_template_dir`.
 
 Do not add a path manifest or a versioned path struct. Extend `ge_core_load` with the staging
@@ -195,8 +195,8 @@ The successful update sequence is:
 1. The old Rust core downloads and stages the core and runtime data.
 2. The shim prechecks the staged core, unloads the old core, and loads the staged core from its
    temporary copy.
-3. During `ge_core_load`, the new Rust core copies runtime data into destination-local temporary
-   directories and swaps it into place while retaining rollback copies.
+3. During `ge_core_load`, the new Rust core copies the complete module-data snapshot into a
+   destination-local temporary directory and swaps it into place while retaining a rollback copy.
 4. Rust returns startup success only after the provisional data transaction succeeds.
 5. The shim commits the staged core to the canonical core path, tells Rust to commit its data
    transaction, and removes staging.
@@ -208,9 +208,11 @@ replacement fails, unloading the new core rolls back its pending data transactio
 reopens the old core.
 
 Implement destination-local runtime-data transactions in Rust so the staging and OBS data
-directories may live on different filesystems. The shim must no longer know names such as
-`cv_templates` or `locale`, or contain `Contents/Resources`, `../../data`, cross-filesystem copy, or
-runtime-data rollback logic.
+directories may live on different filesystems. The full package data root is authoritative:
+arbitrary future regular files and directories are copied without an allowlist, and paths omitted by
+a newer package disappear on commit. Reject symbolic links and special files. The shim must no
+longer know names such as `cv_templates` or `locale`, or contain `Contents/Resources`, `../../data`,
+cross-filesystem copy, or runtime-data rollback logic.
 
 After this change, auto-update may still require the resolved destinations to be writable, but it
 must not depend on where the shim, core, staging directory, or OBS data directory sit relative to
@@ -375,7 +377,8 @@ release publishes only its canonical packages and checksums.
 - A custom installed core filename accepts the standard packaged core and preserves the custom
   destination filename.
 - The shim passes one explicit staging directory to Rust.
-- An OBS data directory unrelated to both shim and core receives `cv_templates` and `locale`.
+- An OBS data directory unrelated to both shim and core receives the complete package data root,
+  including arbitrary new nested paths, and drops files omitted by the new snapshot.
 - Data sync works when the core staging and data destinations are on different filesystems.
 - Paths containing spaces are supported; overlong or missing paths fail cleanly.
 - macOS, Linux, and Windows path separators are covered without install-layout enums.
