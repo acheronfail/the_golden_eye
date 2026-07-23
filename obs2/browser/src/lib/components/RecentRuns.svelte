@@ -104,7 +104,6 @@
 			0 0 2rem var(--monitor-surface);
 	}
 	.recent-runs--signal-band {
-		max-height: 100%;
 		border-top: 1px solid color-mix(in srgb, var(--monitor-accent) 45%, var(--obs-border));
 		border-bottom: 1px solid color-mix(in srgb, var(--monitor-accent) 25%, var(--obs-border));
 		background: color-mix(in srgb, var(--monitor-surface) 35%, var(--obs-bg-elevated));
@@ -117,7 +116,8 @@
 		background: var(--obs-bg-elevated);
 	}
 	@container (min-height: 48rem) {
-		.recent-runs--mission-glass {
+		.recent-runs--mission-glass,
+		.recent-runs--signal-band {
 			max-height: min(34cqh, 24rem);
 		}
 	}

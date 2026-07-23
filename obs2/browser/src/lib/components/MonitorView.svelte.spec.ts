@@ -125,7 +125,10 @@ describe.each<MonitorDesign>(['mission-glass', 'signal-band', 'debug'])('%s rece
 
 		expect(history).toHaveClass(`recent-runs--${design}`);
 		if (design === 'mission-glass') expect(history.closest('.glass-layout')).not.toBeNull();
-		if (design === 'signal-band') expect(history.closest('.signal-layout')).not.toBeNull();
+		if (design === 'signal-band') {
+			expect(history.closest('.signal-layout')).not.toBeNull();
+			expect(history.querySelector('.run-scroll')).not.toBeNull();
+		}
 		if (design === 'debug') {
 			const lifecycle = view.container.querySelector('[aria-labelledby="lifecycle-heading"]');
 			expect(history.compareDocumentPosition(lifecycle!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
