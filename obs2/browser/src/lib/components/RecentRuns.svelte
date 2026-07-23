@@ -110,14 +110,14 @@
 		box-shadow: 0 0 2rem var(--monitor-surface);
 	}
 	.recent-runs--debug {
-		max-height: none;
 		border-top: 1px solid var(--obs-border-muted);
 		border-left: 1px solid var(--obs-border-muted);
 		background: var(--obs-bg-elevated);
 	}
 	@container (min-height: 48rem) {
 		.recent-runs--mission-glass,
-		.recent-runs--signal-band {
+		.recent-runs--signal-band,
+		.recent-runs--debug {
 			max-height: min(34cqh, 24rem);
 		}
 	}
