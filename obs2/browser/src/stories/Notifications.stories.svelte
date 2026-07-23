@@ -17,11 +17,8 @@
 <Story name="Warning" args={{ flags: notificationFixtures.slice(2, 3) }} />
 <Story name="Error" args={{ flags: notificationFixtures.slice(3, 4) }} />
 <Story name="Timed" args={{ flags: [{ ...notificationFixtures[0], id: 105, timeoutMs: 600_000 }] }} />
-<Story name="ROM language detected" args={{ flags: notificationScenarios.languageDetected }} />
 <Story name="Monitoring disabled" args={{ flags: notificationScenarios.monitoringDisabled }} />
-<Story name="YouTube upload started" args={{ flags: notificationScenarios.youtubeStarted }} />
 <Story name="YouTube upload failed" args={{ flags: notificationScenarios.youtubeFailed }} />
-<Story name="YouTube upload completed" args={{ flags: notificationScenarios.youtubeCompleted }} />
 <Story name="Config invalid" args={{ flags: notificationScenarios.configInvalid }} />
 <Story name="Config reloaded" args={{ flags: notificationScenarios.configReloaded }} />
 <Story name="Update available" args={{ flags: notificationScenarios.updateAvailable }} />

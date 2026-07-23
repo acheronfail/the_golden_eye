@@ -7,7 +7,7 @@ import {
 	type RecordingSaved,
 	type RecordingStatus
 } from '$lib/api';
-import { addNotificationFlag, replaceNotificationFlag } from '$lib/stores/notifications.svelte';
+import { addNotificationFlag } from '$lib/stores/notifications.svelte';
 
 export interface MonitorPhaseStyle {
 	title: string;
@@ -150,6 +150,7 @@ export const monitor = $state<{
 	loaded: boolean;
 	match: LevelMatch | null;
 	fps: MonitorFps | null;
+	cvLanguage: 'en' | 'jp' | null;
 	recordingState: RecordingStatus | null;
 	chromePhase: MonitorPhase | null;
 	kiaEffectId: number;
@@ -158,6 +159,7 @@ export const monitor = $state<{
 	loaded: false,
 	match: null,
 	fps: null,
+	cvLanguage: null,
 	recordingState: null,
 	chromePhase: null,
 	kiaEffectId: 0
@@ -174,8 +176,6 @@ const clearRunState = () => {
 	monitor.recordingState = null;
 };
 
-let languageDetectedNotificationId: number | null = null;
-
 const visibleRecordingState = (status: RecordingStatus | null): RecordingStatus | null =>
 	status === 'savePending' ? null : status;
 
@@ -191,37 +191,11 @@ export const applyMonitorSnapshot = (snapshot: AppSnapshot): void => {
 	monitor.status = nextStatus;
 	monitor.loaded = true;
 	monitor.match = snapshot.match;
+	monitor.cvLanguage = snapshot.monitor.cvLanguage ?? null;
 	monitor.recordingState = nextStatus.enabled ? visibleRecordingState(snapshot.recordingState) : null;
 	if (!nextStatus.enabled || previousSource !== nextSource) {
 		monitor.fps = null;
 	}
-};
-
-const languageLabel = (lang: string): string => {
-	switch (lang) {
-		case 'en':
-			return 'English';
-		case 'jp':
-			return 'Japanese';
-		default:
-			return lang.toUpperCase();
-	}
-};
-
-export const applyLanguageDetected = (lang: 'en' | 'jp'): void => {
-	const notification = {
-		title: 'ROM language detected',
-		detail: `${languageLabel(lang)} templates are active for this source.`,
-		meta: 'Monitoring will switch automatically if needed.',
-		tone: 'info',
-		sticky: false
-	} as const;
-
-	if (languageDetectedNotificationId !== null) {
-		const replaced = replaceNotificationFlag(languageDetectedNotificationId, notification);
-		if (replaced) return;
-	}
-	languageDetectedNotificationId = addNotificationFlag(notification).id;
 };
 
 export const applyMonitorFps = (fps: MonitorFps): void => {
@@ -246,6 +220,7 @@ export const applyRecordingSaved = (_saved: RecordingSaved): void => {
 
 export const applyMonitorStopped = (reason: MonitorStoppedReason): void => {
 	clearRunState();
+	monitor.cvLanguage = null;
 	monitor.status = { enabled: false, recordingState: null };
 	monitor.loaded = true;
 	if (reason === 'replayBufferStopped') {

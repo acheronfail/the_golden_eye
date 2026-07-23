@@ -94,4 +94,13 @@ describe('update state', () => {
 			expect.arrayContaining([expect.objectContaining({ title: 'Plugin updated', detail: 'Now running v0.6.0-beta2' })])
 		);
 	});
+
+	it('shows the up-to-date result for 2.5 seconds', async () => {
+		mocks.checkForUpdateNow.mockResolvedValue({ update: null });
+		mocks.getUpdateStatus.mockResolvedValue({ phase: 'idle', available: null });
+
+		await updates.check();
+
+		expect(notifications.flags).toEqual([expect.objectContaining({ title: "You're up to date", timeoutMs: 2500 })]);
+	});
 });

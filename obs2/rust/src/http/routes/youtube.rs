@@ -150,6 +150,7 @@ pub async fn handle_upload(State(state): State<AppState>, Json(req): Json<Upload
             (StatusCode::INTERNAL_SERVER_ERROR, "could not index run clip").into_response()
         })?
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "could not read run clip metadata").into_response())?;
+    let run_id = clip.run_id;
     let metadata = clip.metadata;
     let total_bytes = std::fs::metadata(&path)
         .map_err(|err| {
@@ -159,8 +160,14 @@ pub async fn handle_upload(State(state): State<AppState>, Json(req): Json<Upload
         .len();
     let (title, description) =
         youtube::render_youtube_metadata(&settings, &path, &metadata, req.datetime_local.as_deref());
-    let status =
-        state.youtube.insert_queued_upload(&path, display_path, title.clone(), description.clone(), total_bytes);
+    let status = state.youtube.insert_queued_upload(
+        &path,
+        run_id,
+        display_path,
+        title.clone(),
+        description.clone(),
+        total_bytes,
+    );
     let _ = state.event_tx.send(AppEvent::YoutubeUploadChanged { upload: status.clone() });
 
     let store = state.youtube.clone();

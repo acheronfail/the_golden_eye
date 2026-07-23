@@ -27,7 +27,7 @@ use capture::{
     ge_frame_callback,
 };
 pub use session::MonitorSession;
-use session::{DisplayTimeSmoother, handle_detected_language, log_level_match};
+use session::{DisplayTimeSmoother, log_level_match, switch_detected_language};
 
 const DEFAULT_MONITOR_LANGUAGE: &str = "jp";
 const MONITOR_FPS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
@@ -259,7 +259,6 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         let mut source = ObsSource { mailbox: worker_mailbox, region };
         let mut session = session;
         let mut active_lang = recording_lang.clone();
-        let mut language_notified = false;
         let mut last: Option<LevelMatch> = None;
         let mut display_smoother = DisplayTimeSmoother::new();
         let mut last_diagnostics_enabled = false;
@@ -334,14 +333,10 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                 Ok(info) => {
                     monitor_timing.observe(stats, match_ms, Some(info.runtime_ms), source_fps);
                     tracing::debug!(?info);
-                    if handle_detected_language(
-                        &info,
-                        &mut session,
-                        &mut active_lang,
-                        &mut language_notified,
-                        &event_tx,
-                        |lang| Ok(MonitorSession::from_env(lang)?.with_diagnostics(diagnostics_enabled)),
-                    ) {
+                    if switch_detected_language(&info, &mut session, &mut active_lang, |lang| {
+                        Ok(MonitorSession::from_env(lang)?.with_diagnostics(diagnostics_enabled))
+                    }) {
+                        snapshot.set_monitor_language(active_lang.clone());
                         recording.set_rom_language(active_lang.clone());
                         last = None;
                     }
@@ -384,7 +379,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         source_name: status_source_name.clone(),
         region: handle_region,
     });
-    state.snapshot.set_monitor_running(status_source_name);
+    state.snapshot.set_monitor_running(status_source_name, DEFAULT_MONITOR_LANGUAGE.to_owned());
     state.snapshot.set_replay_buffer(crate::http::current_replay_buffer_status());
     tracing::info!("monitor started");
 

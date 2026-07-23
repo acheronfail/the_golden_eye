@@ -60,7 +60,11 @@ fn sample_clip() -> PathBuf {
 
 fn test_snapshot_store() -> SharedStateStore {
     SharedStateStore::new(AppSnapshot {
-        monitor: MonitorSnapshot { enabled: true, source_name: Some("N64 Capture".to_owned()) },
+        monitor: MonitorSnapshot {
+            enabled: true,
+            source_name: Some("N64 Capture".to_owned()),
+            cv_language: Some("en".to_owned()),
+        },
         level_match: None,
         recording_state: None,
         sources: Vec::new(),

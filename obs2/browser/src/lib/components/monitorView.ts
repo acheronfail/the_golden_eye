@@ -11,6 +11,7 @@ export interface MonitorViewProps {
 	monitoring: boolean;
 	transition?: MonitorTransition;
 	recordingState?: RecordingStatus | null;
+	cvLanguage?: 'en' | 'jp' | null;
 	match?: LevelMatch | null;
 	fps?: MonitorFps | null;
 	showMonitorFps?: boolean;

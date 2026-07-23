@@ -141,6 +141,7 @@ export const uploadForRun = (
 	overrides: Partial<YouTubeUploadStatus> = {}
 ): YouTubeUploadStatus => ({
 	id: `upload-${state}`,
+	runId: completedRun.runId,
 	path: completedRun.path,
 	fileName: completedRun.fileName,
 	state,
@@ -190,8 +191,9 @@ export const notificationFixtures: NotificationFlag[] = [
 		id: 104,
 		title: 'YouTube upload failed',
 		detail: 'The upload session expired before all bytes were transferred.',
-		meta: 'The clip is still available locally.',
-		tone: 'error'
+		meta: 'Click here to view the run.',
+		tone: 'error',
+		href: `/runs?runId=${encodeURIComponent(completedRun.runId)}`
 	}
 ];
 
@@ -199,14 +201,6 @@ const notice = (id: number, options: Omit<NotificationFlag, 'id'>): Notification
 const actionable = () => {};
 
 export const notificationScenarios = {
-	languageDetected: [
-		notice(201, {
-			title: 'ROM language detected',
-			detail: 'Japanese templates are active for this source.',
-			meta: 'Monitoring will switch automatically if needed.',
-			tone: 'info'
-		})
-	],
 	monitoringDisabled: [
 		notice(206, {
 			title: 'Monitoring disabled',
@@ -215,30 +209,14 @@ export const notificationScenarios = {
 			tone: 'error'
 		})
 	],
-	youtubeStarted: [
-		notice(207, {
-			title: 'YouTube upload started',
-			detail: 'Facility - 00 Agent - 00:58',
-			tone: 'info'
-		})
-	],
 	youtubeFailed: [
 		notice(208, {
 			title: 'YouTube upload failed',
 			detail: 'Facility - 00 Agent - 00:58',
-			meta: 'An error occurred when trying to upload the video.',
+			meta: 'Click here to view the run.',
 			tone: 'error',
-			timeoutMs: 600_000
-		})
-	],
-	youtubeCompleted: [
-		notice(209, {
-			title: 'YouTube upload completed',
-			detail: 'Facility - 00 Agent - 00:58',
-			meta: 'Click here to open YouTube.',
-			tone: 'success',
 			timeoutMs: 600_000,
-			action: actionable
+			href: `/runs?runId=${encodeURIComponent(completedRun.runId)}`
 		})
 	],
 	configInvalid: [

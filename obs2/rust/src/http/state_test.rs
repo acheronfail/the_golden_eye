@@ -12,7 +12,11 @@ fn monitor_version_event_uses_frontend_field_name() {
 
 fn test_snapshot() -> AppSnapshot {
     AppSnapshot {
-        monitor: MonitorSnapshot { enabled: true, source_name: Some("N64 Capture".to_owned()) },
+        monitor: MonitorSnapshot {
+            enabled: true,
+            source_name: Some("N64 Capture".to_owned()),
+            cv_language: Some("en".to_owned()),
+        },
         level_match: None,
         recording_state: Some(RecordingStatus::Started),
         sources: vec![routes::sources::Source { name: "N64 Capture".to_owned(), id: "av_capture_input".to_owned() }],
@@ -50,6 +54,7 @@ fn snapshot_event_contains_retained_app_state() {
     assert_eq!(json["type"], "snapshot");
     assert_eq!(json["state"]["monitor"]["enabled"], true);
     assert_eq!(json["state"]["monitor"]["sourceName"], "N64 Capture");
+    assert_eq!(json["state"]["monitor"]["cvLanguage"], "en");
     assert!(json["state"]["match"].is_null());
     assert_eq!(json["state"]["recordingState"], "started");
     assert_eq!(json["state"]["sources"][0]["name"], "N64 Capture");
@@ -57,15 +62,6 @@ fn snapshot_event_contains_retained_app_state() {
     assert_eq!(json["state"]["settingsStatus"]["configPath"], "/tmp/settings.json");
     assert_eq!(json["state"]["update"]["phase"], "available");
     assert_eq!(json["state"]["update"]["available"]["latestVersion"], "1.1.0");
-}
-
-#[test]
-fn language_detected_event_uses_frontend_field_names() {
-    let event = AppEvent::LanguageDetected { lang: "en".to_owned() };
-    let json = serde_json::to_value(event).unwrap();
-
-    assert_eq!(json["type"], "languageDetected");
-    assert_eq!(json["lang"], "en");
 }
 
 #[test]
@@ -172,6 +168,20 @@ async fn snapshot_store_does_not_notify_for_noop_writes() {
     });
     assert!(tokio::time::timeout(Duration::from_millis(100), rx.changed()).await.unwrap().is_ok());
     assert_eq!(snapshot.current_update_status().phase, crate::updates::UpdatePhase::Downloading);
+}
+
+#[test]
+fn monitor_snapshot_tracks_and_clears_the_active_cv_language() {
+    let snapshot = SharedStateStore::new(test_snapshot());
+
+    snapshot.set_monitor_language("jp".to_owned());
+    assert_eq!(snapshot.current().monitor.cv_language.as_deref(), Some("jp"));
+
+    snapshot.set_monitor_stopped();
+    assert_eq!(snapshot.current().monitor.cv_language, None);
+
+    snapshot.set_monitor_running("N64 Capture".to_owned(), "en".to_owned());
+    assert_eq!(snapshot.current().monitor.cv_language.as_deref(), Some("en"));
 }
 
 #[test]

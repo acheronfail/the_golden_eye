@@ -52,6 +52,7 @@
 	let deleteTarget = $state<RunClip | null>(null);
 	let deleteBusy = $state(false);
 	let deleteError = $state<string | null>(null);
+	let handledRequestedRunId: string | null = null;
 
 	const runKey = (run: RunClip): string => run.runId;
 	const requestedRunId = $derived(page.url.searchParams.get('runId'));
@@ -83,8 +84,6 @@
 		try {
 			const loaded = await backend.getRuns({ refresh, sort, signal: abort.signal });
 			runs = loaded;
-			const requested = requestedRunId ? loaded.clips.find((clip) => clip.runId === requestedRunId) : null;
-			if (requested && !selected) select(requested);
 			selectedFound = selectedPath ? loaded.clips.some((clip) => runKey(clip) === selectedPath) : false;
 			if (selectedPath && !selectedFound) {
 				selected = null;
@@ -116,6 +115,18 @@
 		modalError = null;
 		modalBusy = null;
 	};
+
+	$effect(() => {
+		if (!requestedRunId) {
+			handledRequestedRunId = null;
+			return;
+		}
+		if (requestedRunId === handledRequestedRunId) return;
+		const requested = clips.find((clip) => clip.runId === requestedRunId);
+		if (!requested) return;
+		handledRequestedRunId = requestedRunId;
+		select(requested);
+	});
 
 	const clearFilters = () => {
 		Object.assign(filters, EMPTY_RUN_FILTERS);

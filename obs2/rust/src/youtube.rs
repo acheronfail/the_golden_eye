@@ -452,6 +452,7 @@ impl YoutubeUploadStore {
     pub fn insert_queued_upload(
         &self,
         upload_path: &Path,
+        run_id: String,
         display_path: String,
         title: String,
         description: String,
@@ -462,6 +463,7 @@ impl YoutubeUploadStore {
         let file_name = upload_path.file_name().and_then(|s| s.to_str()).unwrap_or("clip").to_owned();
         let status = YoutubeUploadStatus {
             id: id.clone(),
+            run_id,
             path: path_string.clone(),
             file_name,
             state: YoutubeUploadState::Queued,
@@ -620,6 +622,7 @@ pub struct YoutubeStatus {
 #[serde(rename_all = "camelCase")]
 pub struct YoutubeUploadStatus {
     pub id: String,
+    pub run_id: String,
     pub path: String,
     pub file_name: String,
     pub state: YoutubeUploadState,

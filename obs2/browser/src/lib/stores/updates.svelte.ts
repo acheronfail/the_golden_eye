@@ -47,7 +47,7 @@ export const updates = new (class {
 		this.pendingAction = 'checking';
 		try {
 			const { update } = await backend.checkForUpdateNow();
-			if (!update) addNotificationFlag({ title: "You're up to date", tone: 'success' });
+			if (!update) addNotificationFlag({ title: "You're up to date", tone: 'success', timeoutMs: 2500 });
 			await this.refresh();
 		} catch (err) {
 			await this.reconcileAfterFailure();

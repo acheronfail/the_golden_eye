@@ -396,6 +396,7 @@ export type YouTubeUploadState = 'queued' | 'uploading' | 'processing' | 'upload
 
 export interface YouTubeUploadStatus {
 	id: string;
+	runId: string;
 	path: string;
 	fileName: string;
 	state: YouTubeUploadState;
@@ -583,6 +584,7 @@ export interface MonitorFps {
 export interface MonitorSnapshot {
 	enabled: boolean;
 	sourceName?: string;
+	cvLanguage?: 'en' | 'jp';
 }
 
 export interface AppSnapshot {
@@ -605,7 +607,6 @@ export interface UpdateStatus {
 export type AppEvent =
 	| { type: 'version'; buildId: string }
 	| { type: 'snapshot'; state: AppSnapshot }
-	| { type: 'languageDetected'; lang: 'en' | 'jp' }
 	| ({ type: 'monitorFps' } & MonitorFps)
 	| ({ type: 'recordingSavePending' } & RecordingSavePending)
 	| ({ type: 'recordingSaved' } & RecordingSaved)

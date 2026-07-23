@@ -64,6 +64,8 @@ pub struct MonitorSnapshot {
     pub enabled: bool,
     #[serde(rename = "sourceName", skip_serializing_if = "Option::is_none")]
     pub source_name: Option<String>,
+    #[serde(rename = "cvLanguage", skip_serializing_if = "Option::is_none")]
+    pub cv_language: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -100,17 +102,23 @@ impl SharedStateStore {
         self.lock_state().clone()
     }
 
-    pub fn set_monitor_running(&self, source_name: String) {
+    pub fn set_monitor_running(&self, source_name: String, cv_language: String) {
         self.update(|state| {
             state.monitor.enabled = true;
             state.monitor.source_name = Some(source_name);
+            state.monitor.cv_language.get_or_insert(cv_language);
         });
+    }
+
+    pub fn set_monitor_language(&self, cv_language: String) {
+        self.update(|state| state.monitor.cv_language = Some(cv_language));
     }
 
     pub fn set_monitor_stopped(&self) {
         self.update(|state| {
             state.monitor.enabled = false;
             state.monitor.source_name = None;
+            state.monitor.cv_language = None;
             state.level_match = None;
             state.recording_state = None;
         });
@@ -185,9 +193,6 @@ pub enum AppEvent {
     /// The complete retained app/session state. Sent on connect and after every
     /// retained-state change so new tabs sync to the backend source of truth.
     Snapshot { state: Box<AppSnapshot> },
-    /// The source showed a ROM language-specific marker. The monitor uses this
-    /// to keep its active matcher and recording metadata aligned automatically.
-    LanguageDetected { lang: String },
     /// Periodic monitor throughput telemetry. `processed_fps` is the slowest
     /// completed-frame cadence observed since the last telemetry push;
     /// `source_fps` is the OBS video cadence driving capture callbacks.

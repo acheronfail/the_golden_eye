@@ -46,7 +46,7 @@
 	aria-label="Recent runs"
 >
 	<header
-		class="flex justify-between border-b border-(--obs-border-muted) px-2.5 py-2 text-[0.65rem] tracking-[0.1em] text-(--obs-text-dim) uppercase"
+		class="flex justify-between border-b border-(--obs-border-muted) px-2.5 py-2 text-[0.65rem] tracking-widest text-(--obs-text-dim) uppercase"
 		class:text-(--monitor-accent)={variant === 'signal-band'}
 		class:border-r={variant === 'debug'}
 	>

@@ -1,7 +1,6 @@
 import { browser } from '$app/environment';
 import { backend, type AppEvent, type AppSnapshot } from '$lib/api';
 import {
-	applyLanguageDetected,
 	applyMonitorFps,
 	applyMonitorSnapshot,
 	applyMonitorStopped,
@@ -24,8 +23,6 @@ let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let stopped = true;
 let settingsErrorNotificationId: number | null = null;
-const youtubeStartedNotificationIds = new Map<string, number>();
-const youtubeNotifiedCompletedIds = new Set<string>();
 const youtubeNotifiedFailedIds = new Set<string>();
 const UPDATE_APPLIED_STORAGE_KEY = 'ge-update-applied-version';
 
@@ -37,57 +34,18 @@ const discardPersistedUpdateAppliedNotification = (): void => {
 	}
 };
 
-const notifyYoutubeUploadChanged = (upload: import('$lib/api').YouTubeUploadStatus): void => {
-	if ((upload.state === 'queued' || upload.state === 'uploading') && !youtubeStartedNotificationIds.has(upload.id)) {
-		const flag = addNotificationFlag({
-			key: `youtube-upload-${upload.id}`,
-			title: 'YouTube upload started',
-			detail: upload.title || upload.fileName,
-			tone: 'info',
-			sticky: true
-		});
-		youtubeStartedNotificationIds.set(upload.id, flag.id);
-	}
-
+const notifyYoutubeUploadFailure = (upload: import('$lib/api').YouTubeUploadStatus): void => {
 	if (upload.state === 'failed' && !youtubeNotifiedFailedIds.has(upload.id)) {
 		youtubeNotifiedFailedIds.add(upload.id);
-		const startedNotificationId = youtubeStartedNotificationIds.get(upload.id);
-		const notification = {
+		addNotificationFlag({
 			key: `youtube-upload-${upload.id}`,
 			title: 'YouTube upload failed',
 			detail: upload.title || upload.fileName,
-			meta: 'An error occurred when trying to upload the video.',
+			meta: 'Click here to view the run.',
 			tone: 'error' as const,
-			timeoutMs: 8000
-		};
-		if (startedNotificationId !== undefined) {
-			replaceNotificationFlag(startedNotificationId, notification);
-			youtubeStartedNotificationIds.delete(upload.id);
-		} else {
-			addNotificationFlag(notification);
-		}
-	}
-
-	if (upload.state === 'uploaded' && upload.videoUrl && !youtubeNotifiedCompletedIds.has(upload.id)) {
-		youtubeNotifiedCompletedIds.add(upload.id);
-		const startedNotificationId = youtubeStartedNotificationIds.get(upload.id);
-		const notification = {
-			key: `youtube-upload-${upload.id}`,
-			title: 'YouTube upload completed',
-			detail: upload.title || upload.fileName,
-			meta: 'Click here to open YouTube.',
-			tone: 'success' as const,
 			timeoutMs: 8000,
-			action: () => {
-				void backend.openYouTubeUrl(upload.videoUrl!).catch((err) => console.warn('Failed to open YouTube video', err));
-			}
-		};
-		if (startedNotificationId !== undefined) {
-			replaceNotificationFlag(startedNotificationId, notification);
-			youtubeStartedNotificationIds.delete(upload.id);
-		} else {
-			addNotificationFlag(notification);
-		}
+			href: `/runs?runId=${encodeURIComponent(upload.runId)}`
+		});
 	}
 };
 
@@ -145,9 +103,6 @@ const handleAppEvent = (event: AppEvent): void => {
 			if (event.state && typeof event.state === 'object') applyAppSnapshot(event.state);
 			else console.warn('Ignoring malformed snapshot event', event);
 			break;
-		case 'languageDetected':
-			applyLanguageDetected(event.lang);
-			break;
 		case 'monitorFps':
 			applyMonitorFps(event);
 			break;
@@ -183,7 +138,7 @@ const handleAppEvent = (event: AppEvent): void => {
 			break;
 		case 'youtubeUploadChanged':
 			youtube.applyUpload(event.upload);
-			notifyYoutubeUploadChanged(event.upload);
+			notifyYoutubeUploadFailure(event.upload);
 			break;
 		case 'youtubeStatusChanged':
 			youtube.applyStatus(event.status);

@@ -245,7 +245,7 @@ pub extern "C" fn ge_rust_start() -> bool {
     let was_reloaded = WAS_RELOADED.load(Ordering::Acquire);
 
     let snapshot = SharedStateStore::new(AppSnapshot {
-        monitor: MonitorSnapshot { enabled: false, source_name: None },
+        monitor: MonitorSnapshot { enabled: false, source_name: None, cv_language: None },
         level_match: None,
         recording_state: None,
         sources: Vec::new(),

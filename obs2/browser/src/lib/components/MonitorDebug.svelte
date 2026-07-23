@@ -9,6 +9,7 @@
 		monitoring,
 		transition = null,
 		recordingState = null,
+		cvLanguage = null,
 		match = null,
 		fps = null,
 		recentRuns = [],
@@ -103,6 +104,10 @@
 			<div class="state-cell">
 				<dt>recording state</dt>
 				<dd>{@render scalar(recordingState)}</dd>
+			</div>
+			<div>
+				<dt>CV language</dt>
+				<dd>{@render scalar(cvLanguage)}</dd>
 			</div>
 			<div class="state-cell">
 				<dt>visual phase</dt>

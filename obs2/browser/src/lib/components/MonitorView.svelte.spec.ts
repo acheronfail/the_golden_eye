@@ -97,12 +97,15 @@ describe('debug monitor', () => {
 		const view = render(MonitorView, {
 			...props('debug', 'complete', levelMatch),
 			sourceName: 'N64 Capture',
+			cvLanguage: 'jp',
 			showMonitorFps: true,
 			fps: { processedFps: 60, sourceFps: 60 }
 		});
 
 		expect(screen.getByRole('heading', { name: /^complete$/i })).toBeInTheDocument();
 		expect(screen.getByText('N64 Capture')).toBeInTheDocument();
+		expect(screen.getByText('CV language')).toBeInTheDocument();
+		expect(screen.getByText('jp')).toBeInTheDocument();
 		expect(screen.getAllByText('60')).toHaveLength(2);
 		expect(screen.getByText('[58,65,61]')).toBeInTheDocument();
 		expect(screen.getByText(/"score": 0.98/)).toBeInTheDocument();
