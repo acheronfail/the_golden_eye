@@ -110,3 +110,7 @@ add_test(NAME shim_plugin
             "$<TARGET_FILE:ge_fixture_v1>"
             "$<TARGET_FILE:ge_fixture_bad>"
 )
+
+set_tests_properties(shim_reload shim_dynlib shim_platform shim_plugin
+    PROPERTIES TIMEOUT 30
+)
