@@ -14,8 +14,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  check-youtube-credentials:
+    name: Check YouTube credentials
+    uses: ./.github/workflows/check-youtube-credentials.yml
+    secrets: inherit
+
   build:
     name: Build
+    needs: check-youtube-credentials
     uses: ./.github/workflows/build-packages.yml
     secrets: inherit
     with:
