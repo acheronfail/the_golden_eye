@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { backend } from '$lib/api';
 	import MonitorView, { type MonitorTransition } from '$lib/components/MonitorView.svelte';
+	import ReplayBufferStopDialog from '$lib/components/ReplayBufferStopDialog.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { monitor, monitorPresentationPhase } from '$lib/stores/monitor.svelte';
 	import { refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
@@ -18,6 +19,9 @@
 	let statusChecked = $state(false);
 	let transition = $state<MonitorTransition>(null);
 	let pendingNavigation = $state<string | null>(null);
+	let showReplayBufferStopPrompt = $state(false);
+	let replayBufferStopPromptBusy = $state(false);
+	let replayBufferStopPromptError = $state<string | null>(null);
 
 	const sourcePath = $derived(`/sources/${encodeURIComponent(params.sourceName)}`);
 	const isCurrentPage = $derived(page.url.pathname === sourcePath);
@@ -134,7 +138,7 @@
 		}
 	};
 
-	const stopMonitor = async () => {
+	const performStopMonitor = async () => {
 		if (transition) return;
 		transition = 'stopping';
 		try {
@@ -149,11 +153,38 @@
 		}
 	};
 
+	const stopMonitor = () => {
+		if (transition || showReplayBufferStopPrompt) return;
+		if (!settings.stopReplayBufferPromptShown) {
+			replayBufferStopPromptError = null;
+			showReplayBufferStopPrompt = true;
+			return;
+		}
+		void performStopMonitor();
+	};
+
+	const chooseReplayBufferStop = async (stopReplayBuffer: boolean) => {
+		if (replayBufferStopPromptBusy) return;
+		replayBufferStopPromptBusy = true;
+		replayBufferStopPromptError = null;
+		settings.stopReplayBufferWhenMonitorStopped = stopReplayBuffer;
+		settings.stopReplayBufferPromptShown = true;
+		try {
+			await settings.saveNow();
+			showReplayBufferStopPrompt = false;
+			await performStopMonitor();
+		} catch (err) {
+			replayBufferStopPromptError = err instanceof Error ? err.message : String(err);
+		} finally {
+			replayBufferStopPromptBusy = false;
+		}
+	};
+
 	const onkeydown = (event: KeyboardEvent) => {
-		if (transition || !monitoring) return;
+		if (transition || showReplayBufferStopPrompt || !monitoring) return;
 		if (event.key === ' ' || event.key === 'Escape') {
 			event.preventDefault();
-			backend.stopMonitor();
+			stopMonitor();
 		}
 	};
 </script>
@@ -182,3 +213,11 @@
 	onKeepRun={(runId) => void recentRuns.keep(runId)}
 	onStop={stopMonitor}
 />
+
+{#if showReplayBufferStopPrompt}
+	<ReplayBufferStopDialog
+		busy={replayBufferStopPromptBusy}
+		error={replayBufferStopPromptError}
+		choose={chooseReplayBufferStop}
+	/>
+{/if}

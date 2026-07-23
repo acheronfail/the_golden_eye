@@ -10,7 +10,8 @@ const mocks = vi.hoisted(() => {
 	const api = {
 		getReplayBufferStatus: vi.fn(),
 		startMonitor: vi.fn(),
-		stopMonitor: vi.fn()
+		stopMonitor: vi.fn(),
+		putSettings: vi.fn()
 	};
 	return {
 		afterNavigate: vi.fn((callback: () => unknown) => {
@@ -48,7 +49,8 @@ vi.mock('$lib/api', async (importOriginal) => {
 			...actual.backend,
 			getReplayBufferStatus: mocks.api.getReplayBufferStatus,
 			startMonitor: mocks.api.startMonitor,
-			stopMonitor: mocks.api.stopMonitor
+			stopMonitor: mocks.api.stopMonitor,
+			putSettings: mocks.api.putSettings
 		}
 	};
 });
@@ -67,7 +69,15 @@ beforeEach(() => {
 	monitor.match = null;
 	monitor.recordingState = null;
 	monitor.chromePhase = null;
-	settings.loaded = true;
+	settings.applyReloaded(
+		{
+			...settings.defaults,
+			stopReplayBufferWhenMonitorStopped: false,
+			stopReplayBufferPromptShown: true,
+			welcomeModalShown: true
+		},
+		'/tmp/the-golden-eye/settings.json'
+	);
 	mocks.api.getReplayBufferStatus.mockResolvedValue({
 		enabled: true,
 		available: true,
@@ -79,6 +89,7 @@ beforeEach(() => {
 	});
 	mocks.api.startMonitor.mockResolvedValue(undefined);
 	mocks.api.stopMonitor.mockResolvedValue(undefined);
+	mocks.api.putSettings.mockImplementation(async (next) => next);
 });
 
 describe('/sources/[sourceName]', () => {
@@ -129,5 +140,54 @@ describe('/sources/[sourceName]', () => {
 		// Monitor status is now owned by backend snapshots; this page only
 		// performs the stop request and navigates away while the socket update lands.
 		expect(mocks.goto).toHaveBeenCalledWith('/', { replaceState: true });
+	});
+
+	it('asks on the first stop and saves a preference to stop the replay buffer', async () => {
+		const user = userEvent.setup();
+		settings.applyReloaded(
+			{ ...settings.defaults, stopReplayBufferPromptShown: false, welcomeModalShown: true },
+			'/tmp/the-golden-eye/settings.json'
+		);
+		render(SourcePage, { props: { data: {}, params: { sourceName: 'N64 Capture' } } });
+
+		await user.click(await screen.findByRole('button', { name: /stop monitoring/i }));
+
+		expect(await screen.findByRole('dialog', { name: /stop the replay buffer too/i })).toBeInTheDocument();
+		expect(screen.getByText(/change this later in the plugin's Options/i)).toBeInTheDocument();
+		expect(mocks.api.stopMonitor).not.toHaveBeenCalled();
+
+		await user.click(screen.getByRole('button', { name: /^stop replay buffer$/i }));
+
+		await waitFor(() =>
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(
+				expect.objectContaining({
+					stopReplayBufferWhenMonitorStopped: true,
+					stopReplayBufferPromptShown: true
+				})
+			)
+		);
+		await waitFor(() => expect(mocks.api.stopMonitor).toHaveBeenCalledTimes(1));
+	});
+
+	it('keeps the replay buffer running when that first-stop preference is chosen', async () => {
+		const user = userEvent.setup();
+		settings.applyReloaded(
+			{ ...settings.defaults, stopReplayBufferPromptShown: false, welcomeModalShown: true },
+			'/tmp/the-golden-eye/settings.json'
+		);
+		render(SourcePage, { props: { data: {}, params: { sourceName: 'N64 Capture' } } });
+
+		await user.click(await screen.findByRole('button', { name: /stop monitoring/i }));
+		await user.click(await screen.findByRole('button', { name: /keep it running/i }));
+
+		await waitFor(() =>
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(
+				expect.objectContaining({
+					stopReplayBufferWhenMonitorStopped: false,
+					stopReplayBufferPromptShown: true
+				})
+			)
+		);
+		await waitFor(() => expect(mocks.api.stopMonitor).toHaveBeenCalledTimes(1));
 	});
 });
