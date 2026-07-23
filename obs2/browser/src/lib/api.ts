@@ -30,8 +30,11 @@ export class Backend {
 		return this.apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(source)}`);
 	}
 
-	public getRuns(sort: RunSort = 'newest'): Promise<RunsResponse> {
-		return this.getJson(`/api/v1/runs?sort=${encodeURIComponent(sort)}`);
+	public getRuns(options: { refresh?: boolean; sort?: RunSort; signal?: AbortSignal } = {}): Promise<RunsResponse> {
+		const query = new URLSearchParams();
+		if (options.refresh) query.set('refresh', 'true');
+		query.set('sort', options.sort ?? 'newest');
+		return this.getJson(`/api/v1/runs?${query}`, { signal: options.signal });
 	}
 
 	public getRecentRuns(limit?: number): Promise<RunClip[]> {
@@ -45,42 +48,6 @@ export class Backend {
 
 	public deleteCatalogRun(runId: string, keepHistory: boolean): Promise<RunClip | null> {
 		return this.postJson('/api/v1/runs/delete', { runId, keepHistory });
-	}
-
-	public async streamRuns(
-		onEvent: (event: RunsStreamEvent) => void,
-		signal?: AbortSignal,
-		options: { refresh?: boolean; sort?: RunSort } = {}
-	): Promise<void> {
-		const query = new URLSearchParams();
-		if (options.refresh) query.set('refresh', 'true');
-		query.set('sort', options.sort ?? 'newest');
-		const path = `/api/v1/runs/stream?${query}`;
-		const res = await this.request(path, { signal });
-		if (!res.body) {
-			const runs = await this.getRuns(options.sort);
-			for (const directory of runs.directories) onEvent({ type: 'directory', directory });
-			for (const clip of runs.clips) onEvent({ type: 'clip', clip });
-			onEvent({ type: 'done' });
-			return;
-		}
-
-		const reader = res.body.getReader();
-		const decoder = new TextDecoder();
-		let buffer = '';
-
-		while (true) {
-			const { value, done } = await reader.read();
-			buffer += decoder.decode(value, { stream: !done });
-			const lines = buffer.split('\n');
-			buffer = lines.pop() ?? '';
-			for (const line of lines) {
-				if (line.trim()) onEvent(JSON.parse(line) as RunsStreamEvent);
-			}
-			if (done) break;
-		}
-
-		if (buffer.trim()) onEvent(JSON.parse(buffer) as RunsStreamEvent);
 	}
 
 	public runVideoUrl(path: string): string {
@@ -396,7 +363,7 @@ export interface RunDirectoryScan {
 }
 
 export interface RunClip {
-	runId?: string;
+	runId: string;
 	path: string;
 	fileName: string;
 	directory: string;
@@ -404,8 +371,8 @@ export interface RunClip {
 	modified?: string | null;
 	durationSecs?: number | null;
 	metadata: ClipMetadata;
-	retentionState?: RunRetentionState;
-	retentionReason?: string | null;
+	retentionState: RunRetentionState;
+	retentionReason: string | null;
 }
 
 export type RunRetentionState = 'pending' | 'kept' | 'expired';
@@ -416,11 +383,6 @@ export interface RunsResponse {
 }
 
 export type RunSort = 'newest' | 'oldest' | 'fastest' | 'slowest';
-
-export type RunsStreamEvent =
-	| { type: 'directory'; directory: RunDirectoryScan }
-	| { type: 'clip'; clip: RunClip }
-	| { type: 'done' };
 
 export interface EditableRunMetadata {
 	romLanguage: string;

@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -8,8 +10,8 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
-use super::clips::ClipValidation;
-use super::{clips, meta};
+use super::runs::ClipValidation;
+use super::{meta, runs};
 use crate::models::clip_metadata::{ClipMetadata, RunStatus};
 use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
 
@@ -87,6 +89,8 @@ pub struct RunCatalogSave {
 pub struct RunCatalog {
     conn: Mutex<Connection>,
     needs_seed: bool,
+    #[cfg(test)]
+    fail_create_finalized: AtomicBool,
 }
 
 impl RunCatalog {
@@ -110,7 +114,12 @@ impl RunCatalog {
         }
         let conn = Connection::open(&db_path).with_context(|| format!("opening run catalog {}", db_path.display()))?;
         let reset = initialise_schema(&conn)?;
-        Ok(Self { conn: Mutex::new(conn), needs_seed: !existed || reset })
+        Ok(Self {
+            conn: Mutex::new(conn),
+            needs_seed: !existed || reset,
+            #[cfg(test)]
+            fail_create_finalized: AtomicBool::new(false),
+        })
     }
 
     pub fn needs_seed(&self) -> bool {
@@ -123,13 +132,13 @@ impl RunCatalog {
         let mut valid = Vec::new();
         for run in runs {
             let Some(clip) = run.clip else { continue };
-            if !clips::is_under_roots(&clip.path, roots) {
+            if !runs::is_under_roots(&clip.path, roots) {
                 continue;
             }
-            match clips::validate_clip(&clip) {
+            match runs::validate_clip(&clip) {
                 ClipValidation::Unchanged => valid.push(clip),
                 ClipValidation::Missing => self.detach_clip(&run.run_id, "missing")?,
-                ClipValidation::Changed => match clips::read_from_disk(&clip.path) {
+                ClipValidation::Changed => match runs::read_from_disk(&clip.path) {
                     Ok(Some(updated)) => {
                         self.upsert_imported_clip(updated.clone())?;
                         valid.push(updated);
@@ -143,19 +152,19 @@ impl RunCatalog {
     }
 
     pub fn list_runs(&self) -> anyhow::Result<Vec<RunRecord>> {
-        clips::list_runs(&self.lock())
+        runs::list_runs(&self.lock())
     }
 
     pub fn list_runs_sorted(&self, sort: RunSort) -> anyhow::Result<Vec<RunRecord>> {
-        clips::list_runs_sorted(&self.lock(), sort)
+        runs::list_runs_sorted(&self.lock(), sort)
     }
 
     pub fn recent_runs(&self, limit: usize) -> anyhow::Result<Vec<RunRecord>> {
-        clips::recent_runs(&self.lock(), limit.clamp(1, 20))
+        runs::recent_runs(&self.lock(), limit.clamp(1, 20))
     }
 
     pub fn get_run(&self, run_id: &str) -> anyhow::Result<Option<RunRecord>> {
-        clips::get_run(&self.lock(), run_id)
+        runs::get_run(&self.lock(), run_id)
     }
 
     pub fn create_finalized_run(
@@ -163,6 +172,10 @@ impl RunCatalog {
         completed_at: SystemTime,
         mut metadata: ClipMetadata,
     ) -> anyhow::Result<RunRecord> {
+        #[cfg(test)]
+        if self.fail_create_finalized.load(Ordering::SeqCst) {
+            anyhow::bail!("injected finalized-run failure");
+        }
         let completed_unix_micros = unix_micros(completed_at);
         let mut conn = self.lock();
         let is_pb = metadata.status == RunStatus::Complete
@@ -171,7 +184,7 @@ impl RunCatalog {
             && metadata.difficulty.as_deref().is_some_and(|value| !value.is_empty())
             && {
                 let best =
-                    clips::best_time(&conn, metadata.level_number.unwrap(), metadata.difficulty.as_deref().unwrap())?;
+                    runs::best_time(&conn, metadata.level_number.unwrap(), metadata.difficulty.as_deref().unwrap())?;
                 best.is_none_or(|best| metadata.time_seconds.unwrap() < best)
             };
         metadata.retention_state = if is_pb { "kept" } else { "pending" }.to_owned();
@@ -180,13 +193,13 @@ impl RunCatalog {
         let base = run_id_base(completed_unix_micros, metadata.level_number, metadata.difficulty.as_deref());
         let mut run_id = base.clone();
         let mut suffix = 2;
-        while clips::get_run(&conn, &run_id)?.is_some() {
+        while runs::get_run(&conn, &run_id)?.is_some() {
             run_id = format!("{base}-{suffix}");
             suffix += 1;
         }
         metadata.run_id = run_id.clone();
         let tx = conn.transaction()?;
-        clips::insert_finalized(&tx, &run_id, completed_unix_micros, &metadata)?;
+        runs::insert_finalized(&tx, &run_id, completed_unix_micros, &metadata)?;
         tx.commit()?;
         Ok(RunRecord {
             run_id,
@@ -197,31 +210,60 @@ impl RunCatalog {
         })
     }
 
+    pub fn untracked_finalized_run(completed_at: SystemTime, mut metadata: ClipMetadata) -> RunRecord {
+        let completed_unix_micros = unix_micros(completed_at);
+        metadata.retention_state = RunRetentionState::Pending.as_str().to_owned();
+        metadata.retention_reason = None;
+        metadata.run_id = format!(
+            "{}-untracked",
+            run_id_base(completed_unix_micros, metadata.level_number, metadata.difficulty.as_deref())
+        );
+        RunRecord {
+            run_id: metadata.run_id.clone(),
+            retention_state: RunRetentionState::Pending,
+            retention_reason: None,
+            metadata,
+            clip: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn set_fail_create_finalized(&self, fail: bool) {
+        self.fail_create_finalized.store(fail, Ordering::SeqCst);
+    }
+
     pub fn record_saved_clip(&self, save: RunCatalogSave) -> anyhow::Result<IndexedRunClip> {
         let mut save = save;
         if save.metadata.run_id.is_empty() {
             let imported = self.prepare_imported_metadata(&save.path, save.metadata)?;
             save.metadata = imported;
         }
-        if clips::get_run(&self.lock(), &save.metadata.run_id)?.is_none() {
+        if runs::get_run(&self.lock(), &save.metadata.run_id)?.is_none() {
             let completed =
                 parse_timestamp_micros(&save.metadata.timestamp).unwrap_or_else(|| unix_micros(SystemTime::now()));
-            clips::insert_finalized(&self.lock(), &save.metadata.run_id, completed, &save.metadata)?;
+            runs::insert_finalized(&self.lock(), &save.metadata.run_id, completed, &save.metadata)?;
         }
-        clips::attach_saved_clip(&self.lock(), &save)
+        runs::attach_saved_clip(&self.lock(), &save)
     }
 
     pub fn keep(&self, run_id: &str) -> anyhow::Result<RunRecord> {
         let conn = self.lock();
-        let mut run = clips::get_run(&conn, run_id)?.context("run not found")?;
+        let mut run = runs::get_run(&conn, run_id)?.context("run not found")?;
         if run.retention_state == RunRetentionState::Kept {
             return Ok(run);
         }
         let clip = run.clip.as_ref().context("run has no video to keep")?;
         run.metadata.retention_state = "kept".to_owned();
         run.metadata.retention_reason = Some("manual".to_owned());
+        runs::update_retention(
+            &conn,
+            run_id,
+            RunRetentionState::Kept,
+            run.metadata.retention_reason.as_deref(),
+            &run.metadata,
+        )?;
         crate::ffmpeg::rewrite_metadata_in_place(&clip.path, &run.metadata)?;
-        let refreshed = clips::attach_saved_clip(
+        let refreshed = runs::attach_saved_clip(
             &conn,
             &RunCatalogSave {
                 path: clip.path.clone(),
@@ -237,7 +279,7 @@ impl RunCatalog {
 
     pub fn update_metadata(&self, run_id: &str, mut metadata: ClipMetadata) -> anyhow::Result<RunRecord> {
         let conn = self.lock();
-        let mut run = clips::get_run(&conn, run_id)?.context("run not found")?;
+        let mut run = runs::get_run(&conn, run_id)?.context("run not found")?;
         metadata.run_id = run.run_id.clone();
         metadata.retention_state = run.retention_state.as_str().to_owned();
         metadata.retention_reason = run.retention_reason.clone();
@@ -245,13 +287,13 @@ impl RunCatalog {
             let path = clip.path.clone();
             let duration_secs = clip.duration_secs;
             crate::ffmpeg::rewrite_metadata_in_place(&path, &metadata)?;
-            clips::update_metadata(&conn, run_id, &metadata)?;
-            run.clip = Some(clips::attach_saved_clip(
+            runs::update_metadata(&conn, run_id, &metadata)?;
+            run.clip = Some(runs::attach_saved_clip(
                 &conn,
                 &RunCatalogSave { path, duration_secs, metadata: metadata.clone() },
             )?);
         } else {
-            clips::update_metadata(&conn, run_id, &metadata)?;
+            runs::update_metadata(&conn, run_id, &metadata)?;
         }
         run.metadata = metadata;
         Ok(run)
@@ -259,7 +301,7 @@ impl RunCatalog {
 
     pub fn delete_video_keep_history(&self, run_id: &str) -> anyhow::Result<RunRecord> {
         let conn = self.lock();
-        let mut run = clips::get_run(&conn, run_id)?.context("run not found")?;
+        let mut run = runs::get_run(&conn, run_id)?.context("run not found")?;
         if let Some(clip) = &run.clip {
             match fs::remove_file(&clip.path) {
                 Ok(()) => {}
@@ -269,13 +311,13 @@ impl RunCatalog {
         }
         run.metadata.retention_state = RunRetentionState::Expired.as_str().to_owned();
         run.metadata.retention_reason = Some("deleted".to_owned());
-        clips::detach_clip(&conn, run_id, RunRetentionState::Expired, "deleted", &run.metadata)?;
-        clips::get_run(&conn, run_id)?.context("run disappeared after deleting video")
+        runs::detach_clip(&conn, run_id, RunRetentionState::Expired, "deleted", &run.metadata)?;
+        runs::get_run(&conn, run_id)?.context("run disappeared after deleting video")
     }
 
     pub fn delete_run_and_video(&self, run_id: &str) -> anyhow::Result<()> {
         let conn = self.lock();
-        let run = clips::get_run(&conn, run_id)?.context("run not found")?;
+        let run = runs::get_run(&conn, run_id)?.context("run not found")?;
         if let Some(clip) = &run.clip {
             match fs::remove_file(&clip.path) {
                 Ok(()) => {}
@@ -283,12 +325,12 @@ impl RunCatalog {
                 Err(err) => return Err(err).with_context(|| format!("deleting {}", clip.path.display())),
             }
         }
-        clips::delete_run(&conn, run_id)
+        runs::delete_run(&conn, run_id)
     }
 
     pub fn cleanup_recent(&self, keep_recent: usize) -> anyhow::Result<Vec<String>> {
         let conn = self.lock();
-        let runs = clips::list_runs(&conn)?;
+        let runs = runs::list_runs(&conn)?;
         let mut expired = Vec::new();
         for mut run in runs.into_iter().skip(keep_recent.clamp(1, 20)) {
             if run.retention_state != RunRetentionState::Pending || run.clip.is_none() {
@@ -302,7 +344,7 @@ impl RunCatalog {
             }
             run.metadata.retention_state = RunRetentionState::Expired.as_str().to_owned();
             run.metadata.retention_reason = Some("historyLimit".to_owned());
-            clips::detach_clip(&conn, &run.run_id, RunRetentionState::Expired, "historyLimit", &run.metadata)?;
+            runs::detach_clip(&conn, &run.run_id, RunRetentionState::Expired, "historyLimit", &run.metadata)?;
             expired.push(run.run_id);
         }
         Ok(expired)
@@ -310,21 +352,21 @@ impl RunCatalog {
 
     pub fn resync(&self, roots: &[RunCatalogRoot]) -> anyhow::Result<()> {
         for root in roots {
-            clips::ensure_directory(&root.path)?;
-            for path in clips::video_files_in_directory_recursive(&root.path)? {
-                let mut clip = match clips::read_from_disk(&path) {
+            runs::ensure_directory(&root.path)?;
+            for path in runs::video_files_in_directory_recursive(&root.path)? {
+                let mut clip = match runs::read_from_disk(&path) {
                     Ok(Some(clip)) => clip,
                     Ok(None) => continue,
                     Err(err) => {
                         tracing::warn!(path = %path.display(), "could not read catalog clip during resync: {err:#}");
-                        if let Some(existing) = clips::get_run_by_path(&self.lock(), &path)? {
+                        if let Some(existing) = runs::get_run_by_path(&self.lock(), &path)? {
                             self.detach_clip(&existing.run_id, "unreadable")?;
                         }
                         continue;
                     }
                 };
                 if clip.run_id.is_empty() {
-                    if let Some(existing) = clips::get_run_by_path(&self.lock(), &clip.path)? {
+                    if let Some(existing) = runs::get_run_by_path(&self.lock(), &clip.path)? {
                         clip.metadata.run_id = existing.run_id;
                         clip.metadata.retention_state = existing.retention_state.as_str().to_owned();
                         clip.metadata.retention_reason = existing.retention_reason;
@@ -335,14 +377,14 @@ impl RunCatalog {
                     clip.retention_state = RunRetentionState::parse(&clip.metadata.retention_state);
                     clip.retention_reason = clip.metadata.retention_reason.clone();
                     crate::ffmpeg::rewrite_metadata_in_place(&clip.path, &clip.metadata)?;
-                    clip = clips::read_from_disk(&clip.path)?.context("rewritten clip metadata disappeared")?;
+                    clip = runs::read_from_disk(&clip.path)?.context("rewritten clip metadata disappeared")?;
                 }
                 self.upsert_imported_clip(clip)?;
             }
         }
         for run in self.list_runs()? {
             if let Some(clip) = run.clip
-                && clips::is_under_roots(&clip.path, roots)
+                && runs::is_under_roots(&clip.path, roots)
                 && !clip.path.exists()
             {
                 self.detach_clip(&run.run_id, "missing")?;
@@ -351,18 +393,12 @@ impl RunCatalog {
         Ok(())
     }
 
-    pub fn resync_and_prune(&self, roots: &[RunCatalogRoot], keep_recent: usize) -> anyhow::Result<()> {
-        self.resync(roots)?;
-        self.cleanup_recent(keep_recent)?;
-        Ok(())
-    }
-
     pub fn rename_path(&self, from: &Path, to: &Path) -> anyhow::Result<()> {
-        clips::rename_path(&self.lock(), &clips::catalog_path(from), &clips::catalog_path(to))
+        runs::rename_path(&self.lock(), &runs::catalog_path(from), &runs::catalog_path(to))
     }
 
     pub fn remove_path(&self, path: &Path) -> anyhow::Result<()> {
-        let path = clips::catalog_path(path);
+        let path = runs::catalog_path(path);
         if let Some(run) =
             self.list_runs()?.into_iter().find(|run| run.clip.as_ref().is_some_and(|clip| clip.path == path))
         {
@@ -372,7 +408,7 @@ impl RunCatalog {
     }
 
     pub fn refresh_clip(&self, path: &Path) -> anyhow::Result<Option<IndexedRunClip>> {
-        let Some(clip) = clips::read_from_disk(path)? else {
+        let Some(clip) = runs::read_from_disk(path)? else {
             self.remove_path(path)?;
             return Ok(None);
         };
@@ -381,15 +417,15 @@ impl RunCatalog {
     }
 
     pub fn youtube_history(&self) -> anyhow::Result<Vec<UploadHistoryEntry>> {
-        clips::youtube_history(&self.lock())
+        runs::youtube_history(&self.lock())
     }
 
     pub fn set_youtube_history(&self, path: &Path, youtube: &YoutubeMetadata) -> anyhow::Result<()> {
-        clips::set_youtube_history(&self.lock(), path, youtube)
+        runs::set_youtube_history(&self.lock(), path, youtube)
     }
 
     pub fn forget_youtube_history_for_display_path(&self, display_path: &str) -> anyhow::Result<usize> {
-        clips::clear_youtube_history(&self.lock(), Path::new(display_path))
+        runs::clear_youtube_history(&self.lock(), Path::new(display_path))
     }
 
     fn prepare_imported_metadata(&self, path: &Path, mut metadata: ClipMetadata) -> anyhow::Result<ClipMetadata> {
@@ -412,14 +448,14 @@ impl RunCatalog {
     fn upsert_imported_clip(&self, clip: IndexedRunClip) -> anyhow::Result<()> {
         let completed = parse_timestamp_micros(&clip.metadata.timestamp)
             .unwrap_or_else(|| clip.modified.map(unix_micros).unwrap_or_default());
-        clips::upsert_imported(&self.lock(), &clip, completed)
+        runs::upsert_imported(&self.lock(), &clip, completed)
     }
 
     fn detach_clip(&self, run_id: &str, reason: &str) -> anyhow::Result<()> {
         let mut run = self.get_run(run_id)?.context("run not found")?;
         run.metadata.retention_state = RunRetentionState::Expired.as_str().to_owned();
         run.metadata.retention_reason = Some(reason.to_owned());
-        clips::detach_clip(&self.lock(), run_id, RunRetentionState::Expired, reason, &run.metadata)
+        runs::detach_clip(&self.lock(), run_id, RunRetentionState::Expired, reason, &run.metadata)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Connection> {
@@ -430,11 +466,11 @@ impl RunCatalog {
 fn initialise_schema(conn: &Connection) -> anyhow::Result<bool> {
     let reset = meta::needs_reset(conn)?;
     if reset {
-        clips::drop_tables(conn)?;
+        runs::drop_tables(conn)?;
         meta::drop_tables(conn)?;
     }
     meta::initialise(conn)?;
-    clips::initialise(conn)?;
+    runs::initialise(conn)?;
     Ok(reset)
 }
 

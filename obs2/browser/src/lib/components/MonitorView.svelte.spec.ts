@@ -41,7 +41,8 @@ const recentRun: RunClip = {
 		comment: '',
 		pluginVersion: 'test'
 	},
-	retentionState: 'pending'
+	retentionState: 'pending',
+	retentionReason: null
 };
 
 describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (design) => {

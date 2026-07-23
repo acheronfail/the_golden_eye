@@ -174,9 +174,6 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let catalog_state = state.clone();
     tokio::task::spawn_blocking(move || {
         super::runs::seed_catalog_if_needed(&catalog_state, &effective_settings);
-        if let Err(err) = catalog_state.run_catalog.cleanup_recent(effective_settings.recent_run_limit) {
-            tracing::warn!("failed to clean recent-run history before monitor start: {err:#}");
-        }
     })
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "run catalog task failed"))?;

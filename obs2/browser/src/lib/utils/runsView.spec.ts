@@ -28,6 +28,7 @@ const clip = (overrides: {
 	timeSeconds?: number;
 	modified?: string;
 }): RunClip => ({
+	runId: overrides.fileName,
 	path: overrides.path ?? `/runs/${overrides.fileName}`,
 	fileName: overrides.fileName,
 	directory: '/runs',
@@ -46,7 +47,9 @@ const clip = (overrides: {
 		sourceName: 'GoldenEye',
 		comment: 'The Golden Eye',
 		pluginVersion: '1.0.0'
-	}
+	},
+	retentionState: 'kept',
+	retentionReason: 'manual'
 });
 
 const clips = [

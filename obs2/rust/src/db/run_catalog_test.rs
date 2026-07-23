@@ -214,6 +214,25 @@ fn recent_history_persists_and_both_delete_modes_preserve_the_requested_data() {
 }
 
 #[test]
+fn deleting_an_already_missing_video_is_idempotent() {
+    let dir = TestDir::new("delete-missing");
+    let catalog = catalog(&dir);
+    let run = catalog
+        .create_finalized_run(
+            UNIX_EPOCH + Duration::from_secs(1_800_000_000),
+            finalized_metadata(RunStatus::Failed, Some(80), "Agent"),
+        )
+        .unwrap();
+    let path = attach_clip(&dir, &catalog, &run, "missing.mov");
+    fs::remove_file(&path).unwrap();
+
+    let history = catalog.delete_video_keep_history(&run.run_id).unwrap();
+    assert!(history.clip.is_none());
+    assert_eq!(history.retention_state, RunRetentionState::Expired);
+    assert_eq!(history.retention_reason.as_deref(), Some("deleted"));
+}
+
+#[test]
 fn seed_from_roots_indexes_nested_tagged_clips() {
     let dir = TestDir::new("seed-nested");
     let completed = dir.join("completed");
@@ -272,6 +291,119 @@ fn cleanup_recent_expires_only_pending_clips_outside_the_history_window() {
     let expired = catalog.get_run(&old_id).unwrap().unwrap();
     assert_eq!(expired.retention_state, RunRetentionState::Expired);
     assert!(expired.clip.is_none());
+}
+
+#[test]
+fn reading_a_smaller_recent_window_never_deletes_clips() {
+    let dir = TestDir::new("recent-read-only");
+    let catalog = catalog(&dir);
+    let base = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+    let mut paths = Vec::new();
+    for index in 0..3 {
+        let run = catalog
+            .create_finalized_run(
+                base + Duration::from_secs(index),
+                finalized_metadata(RunStatus::Failed, Some(80 + index as i32), "Agent"),
+            )
+            .unwrap();
+        paths.push(attach_clip(&dir, &catalog, &run, &format!("clips/{index}.mov")));
+    }
+
+    let recent = catalog.recent_runs(1).unwrap();
+    assert_eq!(recent.len(), 1);
+    assert!(paths.iter().all(|path| path.exists()), "display limits must never trigger retention cleanup");
+    assert_eq!(catalog.list_runs().unwrap().iter().filter(|run| run.clip.is_some()).count(), 3);
+}
+
+#[test]
+fn failed_file_removal_keeps_catalog_state_attached_and_pending() {
+    let dir = TestDir::new("cleanup-delete-failure");
+    let catalog = catalog(&dir);
+    let base = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+    let old = catalog.create_finalized_run(base, finalized_metadata(RunStatus::Failed, Some(90), "Agent")).unwrap();
+    let newest = catalog
+        .create_finalized_run(base + Duration::from_secs(1), finalized_metadata(RunStatus::Failed, Some(91), "Agent"))
+        .unwrap();
+    let undeletable = dir.join("undeletable.mov");
+    fs::create_dir(&undeletable).unwrap();
+    catalog
+        .record_saved_clip(RunCatalogSave {
+            path: undeletable.clone(),
+            duration_secs: None,
+            metadata: old.metadata.clone(),
+        })
+        .unwrap();
+    attach_clip(&dir, &catalog, &newest, "newest.mov");
+
+    assert!(catalog.cleanup_recent(1).is_err());
+    assert!(undeletable.is_dir());
+    let persisted = catalog.get_run(&old.run_id).unwrap().unwrap();
+    assert_eq!(persisted.retention_state, RunRetentionState::Pending);
+    assert_eq!(persisted.clip.unwrap().path, fs::canonicalize(undeletable).unwrap());
+}
+
+#[test]
+fn failed_metadata_rewrite_still_protects_a_keep_request_from_cleanup() {
+    let dir = TestDir::new("keep-rewrite-failure");
+    let catalog = catalog(&dir);
+    let base = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+    let old = catalog.create_finalized_run(base, finalized_metadata(RunStatus::Failed, Some(90), "Agent")).unwrap();
+    let newest = catalog
+        .create_finalized_run(base + Duration::from_secs(1), finalized_metadata(RunStatus::Failed, Some(91), "Agent"))
+        .unwrap();
+    let protected = dir.join("protected.mov");
+    fs::create_dir(&protected).unwrap();
+    catalog
+        .record_saved_clip(RunCatalogSave {
+            path: protected.clone(),
+            duration_secs: None,
+            metadata: old.metadata.clone(),
+        })
+        .unwrap();
+    attach_clip(&dir, &catalog, &newest, "newest.mov");
+
+    assert!(catalog.keep(&old.run_id).is_err());
+    catalog.cleanup_recent(1).unwrap();
+    assert!(protected.is_dir());
+    assert_eq!(catalog.get_run(&old.run_id).unwrap().unwrap().retention_state, RunRetentionState::Kept);
+}
+
+#[test]
+fn a_successful_keep_cannot_be_undone_by_concurrent_cleanup() {
+    use std::sync::{Arc, Barrier};
+
+    let dir = TestDir::new("keep-cleanup-race");
+    let catalog = Arc::new(catalog(&dir));
+    let base = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+    let old = catalog.create_finalized_run(base, finalized_metadata(RunStatus::Failed, Some(90), "Agent")).unwrap();
+    let newest = catalog
+        .create_finalized_run(base + Duration::from_secs(1), finalized_metadata(RunStatus::Failed, Some(91), "Agent"))
+        .unwrap();
+    let old_path = attach_clip(&dir, &catalog, &old, "old.mov");
+    attach_clip(&dir, &catalog, &newest, "newest.mov");
+    let barrier = Arc::new(Barrier::new(2));
+    let keep_catalog = catalog.clone();
+    let keep_barrier = barrier.clone();
+    let run_id = old.run_id.clone();
+    let keep = std::thread::spawn(move || {
+        keep_barrier.wait();
+        keep_catalog.keep(&run_id)
+    });
+    let cleanup_catalog = catalog.clone();
+    let cleanup = std::thread::spawn(move || {
+        barrier.wait();
+        cleanup_catalog.cleanup_recent(1)
+    });
+
+    let kept = keep.join().unwrap();
+    cleanup.join().unwrap().unwrap();
+    if kept.is_ok() {
+        assert!(old_path.exists());
+        assert_eq!(catalog.get_run(&old.run_id).unwrap().unwrap().retention_state, RunRetentionState::Kept);
+    } else {
+        assert!(!old_path.exists());
+        assert_eq!(catalog.get_run(&old.run_id).unwrap().unwrap().retention_state, RunRetentionState::Expired);
+    }
 }
 
 #[test]

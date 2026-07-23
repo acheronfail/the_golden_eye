@@ -6,6 +6,7 @@ import type { RunClip } from '$lib/api';
 import { formatDate } from '$lib/utils/runsView';
 
 const clip: RunClip = {
+	runId: 'facility-run',
 	path: '/runs/facility.mov',
 	fileName: 'facility.mov',
 	directory: '/runs',
@@ -24,7 +25,9 @@ const clip: RunClip = {
 		sourceName: 'Nintendo 64',
 		comment: '',
 		pluginVersion: '2.4.0'
-	}
+	},
+	retentionState: 'kept',
+	retentionReason: 'manual'
 };
 
 describe('RunListItem', () => {

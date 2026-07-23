@@ -12,12 +12,12 @@ export interface RunDetailView {
 		levelOptions: SelectOption[];
 	};
 	actions: {
-		close: () => void;
+		close: () => void | Promise<void>;
 		delete: () => void;
 		keep: () => void;
 		reveal: () => void;
 		rename: () => void;
-		saveMetadata: () => void;
+		saveMetadata: () => void | Promise<boolean>;
 		normalizeDraftTime: () => void;
 	};
 }

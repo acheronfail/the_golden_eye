@@ -48,13 +48,12 @@
 	let filtersCollapsed = $state(true);
 	let sort = $state<RunSort>(parseRunSort(page.url.searchParams.get('sort')));
 	let reloadAbort: AbortController | null = null;
-	let metadataSaveInFlight = false;
-	let metadataSaveQueued = false;
+	let metadataSavePromise: Promise<boolean> | null = null;
 	let deleteTarget = $state<RunClip | null>(null);
 	let deleteBusy = $state(false);
 	let deleteError = $state<string | null>(null);
 
-	const runKey = (run: RunClip): string => run.runId ?? run.path ?? run.metadata.timestamp;
+	const runKey = (run: RunClip): string => run.runId;
 	const requestedRunId = $derived(page.url.searchParams.get('runId'));
 
 	const clips = $derived(runs?.clips ?? []);
@@ -82,19 +81,11 @@
 		let selectedFound = false;
 		runs = { directories: [], clips: [] };
 		try {
-			await backend.streamRuns(
-				(event) => {
-					if (event.type === 'directory') {
-						upsertDirectory(event.directory);
-					} else if (event.type === 'clip') {
-						upsertClip(event.clip);
-						if (requestedRunId === event.clip.runId && !selected) select(event.clip);
-						if (selectedPath && runKey(event.clip) === selectedPath) selectedFound = true;
-					}
-				},
-				abort.signal,
-				{ refresh, sort }
-			);
+			const loaded = await backend.getRuns({ refresh, sort, signal: abort.signal });
+			runs = loaded;
+			const requested = requestedRunId ? loaded.clips.find((clip) => clip.runId === requestedRunId) : null;
+			if (requested && !selected) select(requested);
+			selectedFound = selectedPath ? loaded.clips.some((clip) => runKey(clip) === selectedPath) : false;
 			if (selectedPath && !selectedFound) {
 				selected = null;
 				metadataDraft = null;
@@ -144,8 +135,8 @@
 		void reload();
 	};
 
-	const close = () => {
-		void saveMetadata();
+	const close = async () => {
+		if (!(await saveMetadata())) return;
 		selected = null;
 		metadataDraft = null;
 		modalError = null;
@@ -158,7 +149,7 @@
 	};
 
 	const onkeydown = (event: KeyboardEvent) => {
-		if (selected && event.key === 'Escape') close();
+		if (selected && event.key === 'Escape') void close();
 	};
 
 	function hasValue(options: { value: string }[], value: string | undefined | null): value is string {
@@ -204,34 +195,6 @@
 		metadataDraft = draftFromClip(clip);
 	}
 
-	function emptyRuns(): RunsResponse {
-		return { directories: [], clips: [] };
-	}
-
-	function upsertDirectory(directory: RunDirectoryScan) {
-		const current = runs ?? emptyRuns();
-		const index = current.directories.findIndex(
-			(candidate) => candidate.kind === directory.kind && candidate.path === directory.path
-		);
-		const directories =
-			index === -1
-				? [...current.directories, directory]
-				: current.directories.map((candidate, i) => (i === index ? directory : candidate));
-		runs = { ...current, directories };
-	}
-
-	function upsertClip(clip: RunClip) {
-		const current = runs ?? emptyRuns();
-		const index = current.clips.findIndex((candidate) => runKey(candidate) === runKey(clip));
-		const clips =
-			index === -1 ? [...current.clips, clip] : current.clips.map((candidate, i) => (i === index ? clip : candidate));
-		runs = { ...current, clips };
-		if (selected && runKey(selected) === runKey(clip)) {
-			selected = clip;
-			metadataDraft = draftFromClip(clip);
-		}
-	}
-
 	function removeClip(path: string) {
 		if (runs) {
 			runs = {
@@ -241,40 +204,43 @@
 		}
 	}
 
-	async function saveMetadata() {
-		if (!selected || !metadataDraft || !metadataDirty) return;
-		if (metadataSaveInFlight) {
-			metadataSaveQueued = true;
-			return;
+	async function saveMetadata(): Promise<boolean> {
+		if (!selected || !metadataDraft || !metadataDirty) return true;
+		if (metadataSavePromise) {
+			if (!(await metadataSavePromise)) return false;
+			return saveMetadata();
 		}
 
-		metadataSaveInFlight = true;
+		const runId = selected.runId;
+		const oldKey = runKey(selected);
+		const draft = { ...metadataDraft };
 		modalBusy = 'metadata';
 		modalError = null;
-		try {
-			const runId = selected.runId;
-			if (!runId) throw new Error('Run ID is missing');
-			const oldKey = runKey(selected);
-			const draft = { ...metadataDraft };
-			const updated = await backend.updateRunMetadata(runId, draft);
-			const stillSelected = selected?.runId === runId;
-			const pendingDraft = metadataDraft && !sameMetadataDraft(metadataDraft, draft) ? { ...metadataDraft } : null;
-			if (stillSelected) {
-				replaceClip(oldKey, updated);
-				if (pendingDraft) metadataDraft = pendingDraft;
-			} else {
-				updateClipInList(oldKey, updated);
+		const request = (async () => {
+			try {
+				const updated = await backend.updateRunMetadata(runId, draft);
+				const stillSelected = selected?.runId === runId;
+				const pendingDraft = metadataDraft && !sameMetadataDraft(metadataDraft, draft) ? { ...metadataDraft } : null;
+				if (stillSelected) {
+					replaceClip(oldKey, updated);
+					if (pendingDraft) metadataDraft = pendingDraft;
+				} else {
+					updateClipInList(oldKey, updated);
+				}
+				return true;
+			} catch (err) {
+				modalError = err instanceof Error ? err.message : String(err);
+				return false;
 			}
-		} catch (err) {
-			modalError = err instanceof Error ? err.message : String(err);
-		} finally {
-			metadataSaveInFlight = false;
+		})();
+		metadataSavePromise = request;
+		const saved = await request;
+		if (metadataSavePromise === request) {
+			metadataSavePromise = null;
 			modalBusy = null;
-			if (metadataSaveQueued) {
-				metadataSaveQueued = false;
-				void saveMetadata();
-			}
 		}
+		if (!saved) return false;
+		return saveMetadata();
 	}
 
 	async function renameSelectedRun() {
@@ -287,9 +253,9 @@
 		modalBusy = 'rename';
 		modalError = null;
 		try {
-			const oldPath = selected.path;
-			const updated = await backend.renameRun(oldPath, fileName);
-			replaceClip(oldPath, updated);
+			const oldKey = runKey(selected);
+			const updated = await backend.renameRun(selected.path, fileName);
+			replaceClip(oldKey, updated);
 		} catch (err) {
 			modalError = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -306,9 +272,10 @@
 		listActionBusyPath = clip.path;
 		listActionError = null;
 		try {
+			const key = runKey(clip);
 			const updated = await backend.renameRun(clip.path, fileName);
-			updateClipInList(clip.path, updated);
-			if (selected?.path === clip.path) replaceClip(clip.path, updated);
+			updateClipInList(key, updated);
+			if (selected?.runId === clip.runId) replaceClip(key, updated);
 		} catch (err) {
 			listActionError = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -370,9 +337,9 @@
 	}
 
 	async function confirmDelete(keepHistory: boolean) {
-		if (!deleteTarget?.runId) return;
+		if (!deleteTarget) return;
 		const target = deleteTarget;
-		const runId = target.runId!;
+		const runId = target.runId;
 		deleteBusy = true;
 		deleteError = null;
 		try {
@@ -393,7 +360,6 @@
 	}
 
 	async function keepRun(clip: RunClip) {
-		if (!clip.runId) return;
 		listActionBusyPath = runKey(clip);
 		listActionError = null;
 		try {
@@ -408,8 +374,8 @@
 	}
 
 	async function keepSelectedRun() {
-		const runId = selected?.runId;
-		if (!selected || !runId) return;
+		if (!selected) return;
+		const runId = selected.runId;
 		const target = selected;
 		const key = runKey(target);
 		modalBusy = 'keep';

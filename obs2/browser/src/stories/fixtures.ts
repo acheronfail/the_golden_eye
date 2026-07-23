@@ -10,6 +10,7 @@ import type {
 import type { NotificationFlag } from '$lib/stores/notifications.svelte';
 
 export const completedRun: RunClip = {
+	runId: 'completed-run',
 	path: '/runs/completed/2026-07-21-facility-00-agent-00-58.mp4',
 	fileName: '2026-07-21 - Facility - 00 Agent - 00-58.mp4',
 	directory: '/runs/completed',
@@ -28,11 +29,14 @@ export const completedRun: RunClip = {
 		sourceName: 'Nintendo 64',
 		comment: '',
 		pluginVersion: '2.4.0'
-	}
+	},
+	retentionState: 'kept',
+	retentionReason: 'personalBest'
 };
 
 export const failedRun: RunClip = {
 	...completedRun,
+	runId: 'failed-run',
 	path: '/runs/failed/2026-07-20-control-agent-kia.mp4',
 	fileName: '2026-07-20 - Control - Agent - KIA.mp4',
 	directory: '/runs/failed',
@@ -61,6 +65,7 @@ export const pendingRun: RunClip = {
 
 export const abortedRun: RunClip = {
 	...completedRun,
+	runId: 'aborted-run',
 	path: '/runs/failed/2026-07-19-dam-secret-agent-aborted.mp4',
 	fileName: '2026-07-19 - Dam - Secret Agent - aborted.mp4',
 	directory: '/runs/failed',
@@ -80,6 +85,7 @@ export const abortedRun: RunClip = {
 
 export const untaggedRun: RunClip = {
 	...completedRun,
+	runId: 'untagged-run',
 	path: '/runs/completed/replay-buffer-save.mp4',
 	fileName: 'Replay Buffer - 2026-07-18 1032.mp4',
 	metadata: {

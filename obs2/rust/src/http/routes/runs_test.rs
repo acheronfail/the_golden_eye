@@ -121,7 +121,7 @@ fn video_files_in_directory_searches_recursively() {
     fs::write(&nested_clip, b"nested").unwrap();
     fs::write(&ignored, b"ignored").unwrap();
 
-    let files = crate::db::clips::video_files_in_directory_recursive(&dir.path).unwrap();
+    let files = crate::db::runs::video_files_in_directory_recursive(&dir.path).unwrap();
 
     let mut expected = vec![root_clip, nested_clip];
     expected.sort();
@@ -169,7 +169,7 @@ fn list_configured_runs_reads_seeded_catalog_without_rescanning() {
 }
 
 #[test]
-fn stream_configured_runs_refreshes_catalog_before_emitting() {
+fn refresh_catalog_updates_listing_without_deleting_missing_history() {
     let dir = TestDir::new("stream-refresh");
     let completed = dir.join("completed");
     let old_clip = completed.join("old.mov");
@@ -182,13 +182,8 @@ fn stream_configured_runs_refreshes_catalog_before_emitting() {
     fs::remove_file(&old_clip).unwrap();
     write_tagged_clip(&new_clip, "complete", "2026-01-02T00:00:00Z");
 
-    let mut clips = Vec::new();
-    stream_configured_runs(&settings, &catalog, true, RunSort::Newest, |event| {
-        if let RunsStreamEvent::Clip { clip } = event {
-            clips.push(*clip);
-        }
-        true
-    });
+    refresh_catalog_from_settings(&catalog, &settings).unwrap();
+    let clips = list_configured_runs(&settings, &catalog, RunSort::Newest).clips;
 
     assert_eq!(clips.len(), 2);
     assert_eq!(clips[0].file_name, "new.mov");
@@ -197,11 +192,11 @@ fn stream_configured_runs_refreshes_catalog_before_emitting() {
 }
 
 #[test]
-fn runs_stream_params_defaults_refresh_to_false() {
-    let params: RunsStreamParams = serde_json::from_value(serde_json::json!({})).expect("missing refresh defaults");
+fn runs_params_default_and_parse_refresh_and_sort() {
+    let params: RunsParams = serde_json::from_value(serde_json::json!({})).expect("missing refresh defaults");
     assert!(!params.refresh);
     assert_eq!(params.sort, RunSort::Newest);
-    let params: RunsStreamParams =
+    let params: RunsParams =
         serde_json::from_value(serde_json::json!({ "refresh": true, "sort": "fastest" })).expect("params parse");
     assert!(params.refresh);
     assert_eq!(params.sort, RunSort::Fastest);

@@ -21,7 +21,6 @@ use crate::recording::{
 use crate::stream_notifier::{DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE, DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE};
 
 pub(crate) const SETTINGS_FILE_NAME: &str = "settings.json";
-const LEGACY_CLIP_FILENAME_TEMPLATE: &str = "{replay} - clip - {level}{time_suffix}{failed_suffix}";
 pub const DEFAULT_UPDATE_CHECK_INTERVAL: UpdateCheckInterval = UpdateCheckInterval::Weekly;
 pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "GoldenEye";
 
@@ -551,11 +550,7 @@ fn bool_field(value: Option<&Value>, fallback: bool) -> bool {
 
 fn clip_filename_template(value: Option<&Value>) -> String {
     let value = value.and_then(Value::as_str).unwrap_or(DEFAULT_CLIP_FILENAME_TEMPLATE);
-    if value.is_empty() || value == LEGACY_CLIP_FILENAME_TEMPLATE {
-        DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned()
-    } else {
-        value.to_owned()
-    }
+    if value.is_empty() { DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned() } else { value.to_owned() }
 }
 
 fn message_template(value: Option<&Value>, fallback: &str) -> String {

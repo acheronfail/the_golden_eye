@@ -63,7 +63,7 @@ describe('recent runs store', () => {
 		const timestamp = store.items[0].metadata.timestamp;
 
 		expect(store.items).toHaveLength(1);
-		expect(store.items[0].runId).toBeUndefined();
+		expect(store.items[0].runId).toBe('pending-7');
 		expect(store.items[0].metadata.status).toBe('pending');
 		expect(store.items[0].metadata.time).toBe('06:14');
 

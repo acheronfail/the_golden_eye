@@ -22,6 +22,7 @@ export class RecentRunsStore {
 		const previous = this.pendingItems.get(pending.saveId);
 		const timestamp = previous?.metadata.timestamp ?? new Date().toISOString();
 		this.pendingItems.set(pending.saveId, {
+			runId: `pending-${pending.saveId}`,
 			path: '',
 			fileName: '',
 			directory: '',

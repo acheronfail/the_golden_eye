@@ -10,10 +10,10 @@ use crate::ffmpeg;
 use crate::models::clip_metadata::ClipMetadata;
 use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
 
-const CREATE_TABLE: &str = include_str!("sql/clips/create_table.sql");
-const CREATE_STATUS_TIMESTAMP_INDEX: &str = include_str!("sql/clips/create_status_timestamp_index.sql");
+const CREATE_TABLE: &str = include_str!("sql/runs/create_table.sql");
+const CREATE_STATUS_TIMESTAMP_INDEX: &str = include_str!("sql/runs/create_status_timestamp_index.sql");
 const CREATE_LEVEL_DIFFICULTY_TIMESTAMP_INDEX: &str =
-    include_str!("sql/clips/create_level_difficulty_timestamp_index.sql");
+    include_str!("sql/runs/create_level_difficulty_timestamp_index.sql");
 
 pub fn initialise(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(CREATE_TABLE)?;
@@ -168,6 +168,21 @@ pub fn update_metadata(conn: &Connection, run_id: &str, metadata: &ClipMetadata)
         ],
     )?;
     anyhow::ensure!(changed == 1, "run not found while updating metadata");
+    Ok(())
+}
+
+pub fn update_retention(
+    conn: &Connection,
+    run_id: &str,
+    state: RunRetentionState,
+    reason: Option<&str>,
+    metadata: &ClipMetadata,
+) -> anyhow::Result<()> {
+    let changed = conn.execute(
+        "UPDATE runs SET retention_state = ?1, retention_reason = ?2, metadata_json = ?3 WHERE run_id = ?4",
+        params![state.as_str(), reason, serde_json::to_string(metadata)?, run_id],
+    )?;
+    anyhow::ensure!(changed == 1, "run not found while updating retention");
     Ok(())
 }
 

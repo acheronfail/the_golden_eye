@@ -735,17 +735,21 @@ impl RecordingState {
             &self.source_name,
             &pending.rom_language,
         );
-        let finalized = match self.run_catalog.create_finalized_run(pending.completed_at, metadata) {
-            Ok(run) => run,
+        let (finalized, tracked) = match self.run_catalog.create_finalized_run(pending.completed_at, metadata.clone()) {
+            Ok(run) => (run, true),
             Err(err) => {
-                tracing::error!("failed to record finalized run before saving clip: {err:#}");
-                return None;
+                tracing::warn!(
+                    "failed to record finalized run before saving clip; continuing with tagged clip: {err:#}"
+                );
+                (RunCatalog::untracked_finalized_run(pending.completed_at, metadata), false)
             }
         };
-        let _ = self.event_tx.send(AppEvent::RunCatalogChanged {
-            run_id: Some(finalized.run_id.clone()),
-            save_id: Some(pending.save_id),
-        });
+        if tracked {
+            let _ = self.event_tx.send(AppEvent::RunCatalogChanged {
+                run_id: Some(finalized.run_id.clone()),
+                save_id: Some(pending.save_id),
+            });
+        }
 
         let start_before_save_secs =
             now.saturating_duration_since(pending.clip_start).as_secs_f64() + self.options.pre_run_padding_secs();
@@ -887,9 +891,6 @@ impl RecordingState {
                         // the report. Capture `status` first: `schedule_save` clears it.
                         let status = self.status.unwrap_or(RunStatus::Complete);
                         tracing::info!("stats screen skipped (report -> level select)");
-                        // A discarded failed run (saving disabled) is handled inside
-                        // `schedule_save`, which clears the phase and notifies; only
-                        // emit a phase here when a save was actually scheduled.
                         if self.schedule_save(now, start, Some(report)) {
                             // Backing out to the grid is the *normal* ending for a failed
                             // run, so don't flag "skipped stats". Only a completed run whose
@@ -956,8 +957,6 @@ impl RecordingState {
                         }
                         self.emit(RecordingStatus::SavePending);
                     }
-                    // A discarded failed run (saving disabled) is handled inside
-                    // `schedule_save`, which clears the phase and notifies.
                 } else {
                     // Still on the stats screen with the save in flight: keep voting
                     // the whole window so a multi-frame first misread is outvoted by
@@ -1204,15 +1203,19 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
     let clip_metadata = req.metadata;
     ffmpeg::trim_with_metadata(input, &output, start, end, Some(&clip_metadata))?;
     tracing::info!(output = %output.display(), "saved trimmed clip");
-    if let Err(err) = req.run_catalog.record_saved_clip(RunCatalogSave {
+    match req.run_catalog.record_saved_clip(RunCatalogSave {
         path: output.clone(),
         duration_secs: Some(end - start),
         metadata: clip_metadata,
     }) {
-        tracing::warn!(path = %output.display(), "failed to update run catalog after saving clip: {err:#}");
-    }
-    if let Err(err) = req.run_catalog.cleanup_recent(req.options.recent_run_limit) {
-        tracing::warn!("failed to clean up expired recent-run clips: {err:#}");
+        Ok(_) => {
+            if let Err(err) = req.run_catalog.cleanup_recent(req.options.recent_run_limit) {
+                tracing::warn!("failed to clean up expired recent-run clips: {err:#}");
+            }
+        }
+        Err(err) => {
+            tracing::warn!(path = %output.display(), "failed to update run catalog after saving clip: {err:#}");
+        }
     }
 
     Ok(RecordingSaved {

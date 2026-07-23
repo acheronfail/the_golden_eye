@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { backend, type SettingsStatus } from '$lib/api';
 import type { MonitorDesign } from '$lib/components/monitorView';
 
-const LEGACY_CLIP_FILENAME_TEMPLATE = '{replay} - clip - {level}{time_suffix}{failed_suffix}';
 const UpdateCheckIntervalSchema = z.enum(['monthly', 'weekly', 'daily', 'never']);
 export type UpdateCheckInterval = z.infer<typeof UpdateCheckIntervalSchema>;
 const YoutubeVisibilitySchema = z.enum(['public', 'unlisted', 'private']);
@@ -105,7 +104,7 @@ const settingsSchema = (defaults: Settings) =>
 	});
 
 const normalizeClipFilenameTemplate = (value: string | undefined, fallback: string): string => {
-	if (!value || value === LEGACY_CLIP_FILENAME_TEMPLATE) return fallback;
+	if (!value) return fallback;
 	return value;
 };
 

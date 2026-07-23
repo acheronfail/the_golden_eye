@@ -85,7 +85,7 @@ fn json_value_is_normalized_field_by_field() {
         "welcomeModalShown": true,
         "completedOutputPath": "/tmp/completed",
         "recentRunLimit": 7,
-        "clipFilenameTemplate": LEGACY_CLIP_FILENAME_TEMPLATE,
+        "clipFilenameTemplate": "",
         "preRunPaddingSecs": -3,
         "postRunPaddingSecs": "2.5",
         "discordNotificationsEnabled": false,

@@ -115,8 +115,8 @@
 		class={styles.input}
 	/>
 	<p class={styles.hint}>
-		Keep videos for this many recent runs while you decide what to keep. Older unkept videos are removed, but their run
-		history remains.
+		Keep videos for this many recent runs while you decide what to keep. After each new clip is saved, older unkept
+		videos are removed, but their run history remains.
 	</p>
 </section>
 

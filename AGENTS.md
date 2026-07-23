@@ -50,7 +50,7 @@ A failed frontend build stops the chain before cargo runs. Do not bypass this de
 - `obs2/rust/src/http/routes/` - Axum route handlers. Keep route-specific behavior here instead of bloating `http/mod.rs`.
 - `obs2/rust/src/settings.rs` - persisted settings in `settings.json` under the OS app config directory (`~/Library/Application Support/The Golden Eye` on macOS, `$XDG_CONFIG_HOME/the-golden-eye` or `~/.config/the-golden-eye` on Linux).
 - `obs2/rust/src/recording.rs` - replay-buffer coordination, clip extraction, filename templates, and output-path defaults.
-- `obs2/rust/src/db/` - the SQLite-backed **run catalog** (`runs.sqlite`, stored next to `settings.json`). `run_catalog.rs` owns a single `Mutex<Connection>` and exposes all catalog ops; SQL stays in `clips.rs` and `meta.rs`. Every finalized run has a durable row, whether or not its optional clip still exists. See the Run Catalog conventions below.
+- `obs2/rust/src/db/` - the SQLite-backed **run catalog** (`runs.sqlite`, stored next to `settings.json`). `run_catalog.rs` owns a single `Mutex<Connection>` and exposes all catalog ops; SQL stays in `runs.rs` and `meta.rs`. Every finalized run has a durable row, whether or not its optional clip still exists. See the Run Catalog conventions below.
 - `obs2/rust/src/models/clip_metadata.rs` - the `ClipMetadata` model, `RunStatus` enum, and ffmpeg-tag read/write shared by `db/` and `recording.rs`.
 - `obs2/shim/` - the thin shim's C sources (`plugin.c`, `dynlib.c`, `reload.c`) and its standalone tests (`obs2/shim/tests/`, run via `just test-shim`; no OBS/Rust toolchain needed).
 - `obs2/core/` - the core's C sources (`core.c`, `obs_bridge.c`) and the cbindgen-generated `ge_rust.h`.
@@ -158,7 +158,7 @@ Discord notification settings are no longer read from `DISCORD_WEBHOOK_URL`; the
 
 - SQLite is authoritative for durable run history. Clip container tags mirror the run ID, metadata, and retention state so an existing clip can be re-imported after a catalog reset. YouTube associations remain attached to the run row while its clip exists.
 - Every finalized run is inserted after stats voting and before clip processing. Stable IDs use the high-precision completion timestamp, `levelNumber`, and difficulty; never persist matcher `mission`/`part` identity.
-- The configurable recent history keeps the newest 1–20 rows visible and deletes only clips for older `pending` rows. `kept` clips survive cleanup; deleted/expired clips leave their metadata-only rows in history.
+- The configurable recent history keeps the newest 1–20 rows visible. After a new clip is saved, cleanup deletes only clips for older `pending` rows; reads and settings changes never delete files. `kept` clips survive cleanup; deleted/expired clips leave their metadata-only rows in history.
 - Default listing reads all catalog rows, including rows without clips. A full disk rescan remains opt-in through the Runs reload action; externally added tagged clips are imported as `kept`.
-- Keep SQL in `clips.rs` and `meta.rs`; `run_catalog.rs` orchestrates catalog and filesystem operations while holding the single connection mutex where retention races matter. There is intentionally one storage implementation.
+- Keep SQL in `runs.rs` and `meta.rs`; `run_catalog.rs` orchestrates catalog and filesystem operations while holding the single connection mutex where retention races matter. There is intentionally one storage implementation.
 - Schema version 2 is the pre-release breaking run-ledger schema. Opening schema 1 drops its tables and lazily reseeds existing tagged clips as `kept`; later post-release schema changes require migrations.

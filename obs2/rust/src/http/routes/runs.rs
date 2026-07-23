@@ -9,12 +9,11 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response, Result};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::sync::mpsc;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
-use crate::db::clips;
 use crate::db::run_catalog::{IndexedRunClip, RunCatalog, RunCatalogRoot, RunRecord, RunRetentionState, RunSort};
+use crate::db::runs;
 use crate::ffmpeg::{self, ClipMetadata};
 use crate::http::AppState;
 use crate::models::clip_metadata::RunStatus;
@@ -27,7 +26,7 @@ pub struct RunPathParams {
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct RunsStreamParams {
+pub struct RunsParams {
     #[serde(default)]
     refresh: bool,
     #[serde(default)]
@@ -82,14 +81,6 @@ pub struct EditableRunMetadata {
 pub struct RunsResponse {
     directories: Vec<RunDirectoryScan>,
     clips: Vec<RunClip>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum RunsStreamEvent {
-    Directory { directory: RunDirectoryScan },
-    Clip { clip: Box<RunClip> },
-    Done,
 }
 
 #[derive(Debug, Serialize)]
@@ -198,62 +189,25 @@ pub(crate) fn seed_catalog_if_needed(state: &AppState, settings: &AppSettings) {
 }
 
 #[axum::debug_handler]
-pub async fn handle_list(
-    State(state): State<AppState>,
-    Query(params): Query<RunsStreamParams>,
-) -> Result<impl IntoResponse> {
+pub async fn handle_list(State(state): State<AppState>, Query(params): Query<RunsParams>) -> Result<impl IntoResponse> {
     let settings = state.settings.get_effective();
+    let refresh = params.refresh;
     let sort = params.sort;
     let response = tokio::task::spawn_blocking(move || {
         seed_catalog_if_needed(&state, &settings);
-        list_configured_runs(&settings, &state.run_catalog, sort)
+        if refresh {
+            refresh_catalog_from_settings(&state.run_catalog, &settings)?;
+        }
+        Ok::<_, anyhow::Error>(list_configured_runs(&settings, &state.run_catalog, sort))
     })
     .await
     .map_err(|err| {
         tracing::error!("run listing task failed: {err:#}");
         (StatusCode::INTERNAL_SERVER_ERROR, "run listing failed").into_response()
-    })?;
+    })?
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?;
 
     Ok((StatusCode::OK, Json(response)))
-}
-
-pub async fn handle_stream(State(state): State<AppState>, Query(params): Query<RunsStreamParams>) -> Result<Response> {
-    let settings = state.settings.get_effective();
-    let refresh = params.refresh;
-    let sort = params.sort;
-    let (tx, mut rx) = mpsc::channel::<String>(32);
-    let (mut writer, reader) = tokio::io::duplex(64 * 1024);
-
-    std::mem::drop(tokio::task::spawn_blocking(move || {
-        seed_catalog_if_needed(&state, &settings);
-        stream_configured_runs(&settings, &state.run_catalog, refresh, sort, |event| {
-            let Ok(mut line) = serde_json::to_string(&event) else {
-                return true;
-            };
-            line.push('\n');
-            tx.blocking_send(line).is_ok()
-        });
-    }));
-
-    std::mem::drop(tokio::spawn(async move {
-        while let Some(line) = rx.recv().await {
-            if writer.write_all(line.as_bytes()).await.is_err() {
-                break;
-            }
-        }
-    }));
-
-    let stream = ReaderStream::new(reader);
-    let body = Body::from_stream(stream);
-    let response = Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/x-ndjson")
-        .body(body)
-        .map_err(|err| {
-            tracing::error!("failed to build run stream response: {err}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "run stream response failed").into_response()
-        })?;
-    Ok(response)
 }
 
 #[axum::debug_handler]
@@ -265,7 +219,6 @@ pub async fn handle_recent(
     let limit = params.limit.unwrap_or(settings.recent_run_limit).clamp(1, 20);
     let runs = tokio::task::spawn_blocking(move || {
         seed_catalog_if_needed(&state, &settings);
-        state.run_catalog.cleanup_recent(limit)?;
         state.run_catalog.recent_runs(limit)
     })
     .await
@@ -385,68 +338,21 @@ pub fn list_configured_runs(settings: &AppSettings, catalog: &RunCatalog, sort: 
     RunsResponse { directories, clips }
 }
 
-pub fn stream_configured_runs(
-    settings: &AppSettings,
-    catalog: &RunCatalog,
-    refresh: bool,
-    sort: RunSort,
-    mut emit: impl FnMut(RunsStreamEvent) -> bool,
-) {
-    let dirs = configured_run_directories(settings);
-    if refresh && let Err(err) = catalog.resync_and_prune(&catalog_roots(&dirs), settings.recent_run_limit) {
-        tracing::warn!("failed to refresh run catalog from filesystem: {err:#}");
-    }
-
-    for dir in &dirs {
-        let display_path = dir.path.to_string_lossy().into_owned();
-        match ensure_configured_run_directory(&dir.path) {
-            Ok(()) => {
-                if !emit(RunsStreamEvent::Directory {
-                    directory: RunDirectoryScan { kind: dir.kind, path: display_path, exists: true, error: None },
-                }) {
-                    return;
-                }
-            }
-            Err(err) => {
-                if !emit(RunsStreamEvent::Directory {
-                    directory: RunDirectoryScan {
-                        kind: dir.kind,
-                        path: display_path,
-                        exists: false,
-                        error: Some(err.to_string()),
-                    },
-                }) {
-                    return;
-                }
-            }
-        }
-    }
-
-    match catalog.list_runs_sorted(sort) {
-        Ok(runs) => {
-            for run in runs {
-                if !emit(RunsStreamEvent::Clip { clip: Box::new(run_clip_from_record(run)) }) {
-                    return;
-                }
-            }
-        }
-        Err(err) => tracing::warn!("failed to stream run catalog: {err:#}"),
-    }
-
-    let _ = emit(RunsStreamEvent::Done);
+pub fn seed_catalog_from_settings(catalog: &RunCatalog, settings: &AppSettings) -> anyhow::Result<()> {
+    refresh_catalog_from_settings(catalog, settings)
 }
 
-pub fn seed_catalog_from_settings(catalog: &RunCatalog, settings: &AppSettings) -> anyhow::Result<()> {
+pub fn refresh_catalog_from_settings(catalog: &RunCatalog, settings: &AppSettings) -> anyhow::Result<()> {
     let dirs = configured_run_directories(settings);
-    catalog.resync_and_prune(&catalog_roots(&dirs), settings.recent_run_limit)
+    catalog.resync(&catalog_roots(&dirs))
 }
 
 pub(crate) fn ensure_configured_run_directory(dir: &Path) -> anyhow::Result<()> {
-    clips::ensure_directory(dir)
+    runs::ensure_directory(dir)
 }
 
 pub fn tagged_clip(path: &Path) -> anyhow::Result<Option<RunClip>> {
-    Ok(clips::read_from_disk(path)?.map(run_clip_from_indexed))
+    Ok(runs::read_from_disk(path)?.map(run_clip_from_indexed))
 }
 
 pub(crate) fn authorize_tagged_run_path(
@@ -806,7 +712,7 @@ fn expand_home(path: &str) -> PathBuf {
 }
 
 fn is_video_file(path: &Path) -> bool {
-    clips::is_video_file(path)
+    runs::is_video_file(path)
 }
 
 fn mime_for_path(path: &Path) -> &'static str {
