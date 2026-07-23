@@ -121,8 +121,8 @@ story:
 # builds a fake "newer" release package and serves it locally, so `just obs`
 # can be smoke-tested against the real production auto-update flow. Prints
 # the GE_UPDATE_CHECK_URL to export before running `just obs` separately.
-simulate-update:
-    python3 obs2/scripts/simulate_update.py
+simulate-update *args:
+    python3 obs2/scripts/simulate_update.py {{ args }}
 
 test-package-contract build_dir:
     python3 obs2/scripts/check_package_contract.py "{{ build_dir }}"
