@@ -15,27 +15,27 @@ the_golden_eye-u1-v0.6.0-linux-x86_64.zip
 ```
 
 The installed core supports one updater version compiled into it. A release can be installed
-automatically only when its package's updater version exactly matches the installed core's
-supported updater version:
+automatically only when its package's updater version exactly matches the installed core's supported
+updater version:
 
 ```text
 target updater version == installed supported updater version
 ```
 
-A higher, lower, missing, malformed, or ambiguous updater version requires manual installation.
-The updater version is independent of the plugin's SemVer version.
+A higher, lower, missing, malformed, or ambiguous updater version requires manual installation. The
+updater version is independent of the plugin's SemVer version.
 
 Examples:
 
-| Installed support | Release package | Result |
-| --- | --- | --- |
-| `u1` | `u1-v0.6.1` | Automatic |
-| `u1` | `u2-v0.7.0` | Manual |
-| `u2` | `u2-v0.7.1` | Automatic |
-| `u2` | `u3-v0.8.0` | Manual |
+| Installed support | Release package | Result    |
+| ----------------- | --------------- | --------- |
+| `u1`              | `u1-v0.6.1`     | Automatic |
+| `u1`              | `u2-v0.7.0`     | Manual    |
+| `u2`              | `u2-v0.7.1`     | Automatic |
+| `u2`              | `u3-v0.8.0`     | Manual    |
 
-When a future release needs a new shim or otherwise changes the installation contract, increment
-the updater version before building that release.
+When a future release needs a new shim or otherwise changes the installation contract, increment the
+updater version before building that release.
 
 ## Updater version configuration
 
@@ -239,8 +239,8 @@ The simulator must:
 - Generate a checksum entry using that exact filename.
 - Print the simulated plugin and updater versions.
 - Explain whether the requested updater version matches the checked-in updater version.
-- Continue serving the package for an incompatible test so an accidental backend download is
-  visible and testable.
+- Continue serving the package for an incompatible test so an accidental backend download is visible
+  and testable.
 
 Temporarily support:
 
@@ -305,8 +305,7 @@ published and verified.
 
 1. Add `obs2/updater-version.txt` and thread its value through `just`, CMake, Cargo, and packaging.
 2. Change canonical package naming to `uN-vX.Y.Z`.
-3. Parse updater versions from release assets and expose the compatibility result in
-   `PluginUpdate`.
+3. Parse updater versions from release assets and expose the compatibility result in `PluginUpdate`.
 4. Add authoritative download/staging guards for incompatible updates.
 5. Add the manual-install dialog, notification behavior, and Options treatment.
 6. Update the release workflow with the explicitly enabled one-release legacy alias.
@@ -524,13 +523,13 @@ remain mixed into the long-lived updater implementation. Merge it before publish
 
 Do not publish a stable `v0.6.2` from the cleaned-up workflow. Once GitHub marks a later stable
 release as latest, a legacy `v0.6.0` client will no longer discover the dual-named `v0.6.1` bridge.
-If a `0.6.x` hotfix becomes unavoidable, temporarily restore the exact legacy-alias release step
-for that hotfix and remove it again afterward.
+If a `0.6.x` hotfix becomes unavoidable, temporarily restore the exact legacy-alias release step for
+that hotfix and remove it again afterward.
 
 ### PR 3: make the next shim change and bump `v0.7.0` to `u2`
 
-The updater-version bump must be committed with the change that actually requires a new shim. Do
-not bump it in an unrelated release.
+The updater-version bump must be committed with the change that actually requires a new shim. Do not
+bump it in an unrelated release.
 
 Create a feature branch from cleaned-up `main`:
 
@@ -595,8 +594,8 @@ Publish the draft only after these checks pass.
 After `v0.7.0` is published:
 
 1. Update `README.md` and `docs/dev/auto-update.md` to describe `u2` as the current updater version.
-2. Convert this document from an active rollout plan into historical architecture documentation,
-   or move completed delivery steps into a short release-history section.
+2. Convert this document from an active rollout plan into historical architecture documentation, or
+   move completed delivery steps into a short release-history section.
 3. Search for and remove stale `0.6.1`, legacy-alias, and bridge-only references:
 
    ```sh

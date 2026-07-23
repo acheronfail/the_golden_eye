@@ -16,16 +16,22 @@ the core library and bundled runtime data while OBS keeps the shim loaded.
 5. The selector always skips drafts. It includes pre-release items only when
    `GE_UPDATE_INCLUDE_PRERELEASES` is truthy, then chooses the highest SemVer release newer than the
    running plugin.
-6. If a newer release is found, the app snapshot is updated and the release version/URL are
-   persisted for later user-facing notices.
-7. If no newer release is found, the update snapshot is cleared and the plugin is considered up to
+6. The updater selects exactly one canonical package for the current platform and architecture.
+   Canonical packages use `the_golden_eye-uN-vX.Y.Z-<platform>-<arch>.zip`, and the package version
+   must match the release tag.
+7. The package's `uN` value is compared with the updater version compiled into the running core.
+   Equal values are compatible; any mismatch requires a manual installation.
+8. If a newer release is found, the app snapshot is updated with the release and compatibility
+   details for later user-facing notices.
+9. If no newer release is found, the update snapshot is cleared and the plugin is considered up to
    date.
 
 ## Download and staging
 
-1. If auto-update is enabled in settings, a successful check starts a background staging task. If it
-   is disabled, staging only happens after the user clicks the button in options.
-2. `update_apply.rs` chooses the package asset for the current platform and architecture.
+1. If auto-update is enabled in settings, a compatible update starts a background staging task. If
+   it is disabled, staging only happens after the user clicks the button in options.
+2. An incompatible update is never downloaded or staged, including through the explicit download
+   endpoint or the lower-level staging function.
 3. It downloads `checksums.txt`, verifies the package zip's SHA-256, and extracts the package into a
    temporary download directory.
 4. It copies the extracted update payload into `.ge_update_staged` next to the installed core
@@ -51,6 +57,45 @@ the core library and bundled runtime data while OBS keeps the shim loaded.
 7. If the staged core cannot load, the shim leaves the canonical files untouched and reopens the
    previous canonical core as a rollback.
 
+## Manual installation boundary
+
+The updater version describes the package/install contract, independently of the plugin's SemVer.
+Increment it only when the installed updater cannot safely apply the new package, such as a change
+to the resident shim.
+
+When a release's updater version differs from the running core:
+
+- Auto-update remains saved as the user's preference but is temporarily disabled in Options.
+- The app shows a manual-install dialog when monitoring is inactive and keeps a sticky notice.
+- The download/apply action is replaced with a link to the GitHub release.
+- The user must close OBS and install the package normally. Settings and run history are retained.
+
+The checked-in updater version is `obs2/updater-version.txt`. `GE_UPDATER_VERSION` can override it
+for builds and local simulations. Release packages and the compiled Rust core always receive the
+same resolved value.
+
+The `v0.6.1` bridge release is the only release that publishes both canonical `u1-v0.6.1` packages
+and legacy `0.6.1` aliases. The aliases allow clients without updater-version support to reach the
+bridge. Later releases publish canonical packages only.
+
+## Local simulation
+
+Run the simulator in one terminal, then launch OBS with the printed `GE_UPDATE_CHECK_URL` in
+another:
+
+```sh
+# Compatible with the checked-in u1 build: should download, stage, and apply.
+just simulate-update --updater-version 1
+
+# Incompatible with u1: should show manual-install UI and make no package request.
+just simulate-update --updater-version 2
+GE_UPDATER_VERSION=1 just obs
+```
+
+Use `--legacy-asset-alias` only to test the temporary `v0.6.1` dual-asset bridge. The simulator
+resolves its updater version from `--updater-version`, then `GE_UPDATER_VERSION`, then the
+checked-in file.
+
 ## What the shim updates
 
 - The shim replaces the hosted core library, not the shim library that OBS originally loaded.
@@ -67,3 +112,5 @@ the core library and bundled runtime data while OBS keeps the shim loaded.
 - `GE_UPDATE_INCLUDE_PRERELEASES`: when set, allows pre-release versions from the fetched response.
   Without `GE_UPDATE_CHECK_URL`, it also switches the default GitHub endpoint from `releases/latest`
   to the full releases list. Leave unset for stable-only behavior.
+- `GE_UPDATER_VERSION`: build-time override for the positive integer in `obs2/updater-version.txt`.
+  It changes both the compiled compatibility value and package name.
