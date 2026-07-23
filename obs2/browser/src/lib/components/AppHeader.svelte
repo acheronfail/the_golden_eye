@@ -49,10 +49,6 @@
 		'obs-menu-link flex min-h-11 items-center justify-end rounded px-3 py-2 text-right transition-colors';
 	const menuLinkClass = menuLinkCommon;
 	const menuLinkActiveClass = `${menuLinkCommon} obs-menu-link-active`;
-	const menuLinkClassFor = (link: AppHeaderLink): string => {
-		if (activeMonitorHref && link.href === '/') return `${menuLinkCommon} ${activeMonitorStyle.button}`;
-		return currentPath === link.href ? menuLinkActiveClass : menuLinkClass;
-	};
 
 	const closeMenu = () => {
 		menuOpen = false;
@@ -88,7 +84,7 @@
 					{@const isCurrentPage = currentPath === link.href}
 					<li>
 						<a
-							class={menuLinkClassFor(link)}
+							class={isCurrentPage ? menuLinkActiveClass : menuLinkClass}
 							href={link.href}
 							aria-current={isCurrentPage ? 'page' : undefined}
 							onclick={closeMenu}

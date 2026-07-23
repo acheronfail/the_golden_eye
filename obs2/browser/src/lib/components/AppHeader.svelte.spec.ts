@@ -9,7 +9,7 @@ const links: AppHeaderLink[] = [
 ];
 
 describe('AppHeader', () => {
-	it('highlights the active monitor session while preserving the current page', () => {
+	it('only highlights the current page when monitoring is active', () => {
 		render(AppHeader, {
 			links,
 			currentPath: '/options',
@@ -21,9 +21,25 @@ describe('AppHeader', () => {
 		const monitor = screen.getByRole('link', { name: 'Monitor' });
 		const options = screen.getByRole('link', { name: 'Options' });
 
-		expect(monitor).toHaveClass('obs-phase-waiting-button');
+		expect(monitor).not.toHaveClass('obs-phase-waiting-button');
+		expect(monitor).not.toHaveClass('obs-menu-link-active');
 		expect(monitor).not.toHaveAttribute('aria-current');
 		expect(options).toHaveClass('obs-menu-link-active');
 		expect(options).toHaveAttribute('aria-current', 'page');
+	});
+
+	it('uses the normal active-menu style on the monitor page', () => {
+		render(AppHeader, {
+			links,
+			currentPath: '/',
+			pluginVersion: 'test',
+			activeMonitorHref: '/sources/Nintendo%2064',
+			menuOpen: true
+		});
+
+		const monitor = screen.getByRole('link', { name: 'Monitor' });
+		expect(monitor).toHaveClass('obs-menu-link-active');
+		expect(monitor).not.toHaveClass('obs-phase-waiting-button');
+		expect(monitor).toHaveAttribute('aria-current', 'page');
 	});
 });
