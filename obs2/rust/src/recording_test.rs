@@ -995,7 +995,7 @@ fn clip_template_renders_and_sanitizes_relative_paths() {
 
     assert_eq!(
         clip_relative_path("replay", RunStatus::Complete, UNIX_EPOCH, None, "..."),
-        PathBuf::from("unknown -  -  - 1970-01-01T10-00-00+1000"),
+        PathBuf::from(format!("unknown -  -  - {}", sanitize_path_component(&format_iso_local(UNIX_EPOCH)))),
     );
 }
 

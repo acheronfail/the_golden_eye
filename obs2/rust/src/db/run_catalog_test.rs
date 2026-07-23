@@ -280,23 +280,27 @@ fn record_rename_update_and_remove_keep_catalog_in_sync() {
     let root = dir.join("completed");
     let clip_path = root.join("clip.mov");
     write_tagged_clip(&clip_path, "complete", "2026-01-01T00:00:00Z");
+    let clip_path = fs::canonicalize(&clip_path).unwrap();
+    let root = clip_path.parent().unwrap().to_path_buf();
     let catalog = catalog(&dir);
     let clip_metadata = ffmpeg::read_clip_metadata(&clip_path).unwrap().unwrap();
-    catalog
+    let saved = catalog
         .record_saved_clip(RunCatalogSave {
             path: clip_path.clone(),
             duration_secs: Some(1.5),
-            metadata: clip_metadata.clone(),
+            metadata: clip_metadata,
         })
         .unwrap();
+    let run_id = saved.run_id.clone();
 
     let renamed = root.join("renamed.mov");
     fs::rename(&clip_path, &renamed).unwrap();
     catalog.rename_path(&clip_path, &renamed).unwrap();
-    let mut updated = clip_metadata;
+    let mut updated = saved.metadata;
     updated.status = RunStatus::Failed;
     ffmpeg::rewrite_metadata_in_place(&renamed, &updated).unwrap();
-    catalog.refresh_clip(&renamed).unwrap();
+    let refreshed = catalog.refresh_clip(&renamed).unwrap().unwrap();
+    assert_eq!(refreshed.run_id, run_id);
 
     let clips = catalog.list(&[RunCatalogRoot { path: root.clone() }]).unwrap();
     assert_eq!(clips.len(), 1);
