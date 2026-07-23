@@ -13,37 +13,16 @@
 // still inside the core, so it must ONLY wake the worker -- never dlopen/recurse.
 typedef void (*ge_request_reload_fn)(void);
 
-// Where bundled data dirs (cv_templates, locale) sit relative to the core lib:
-// macOS bundles keep data in Contents/Resources (core in Contents/MacOS);
-// Linux/Windows use a sibling data/ (core in bin/<arch>). See rust/src/lib.rs.
-typedef enum {
-  GE_INSTALL_LAYOUT_MACOS_BUNDLE,
-  GE_INSTALL_LAYOUT_OBS_PLUGIN_DIR,
-} ge_install_layout;
-
-// The install layout this shim was built for.
-#if defined(__APPLE__)
-#define GE_HOST_INSTALL_LAYOUT GE_INSTALL_LAYOUT_MACOS_BUNDLE
-#else
-#define GE_HOST_INSTALL_LAYOUT GE_INSTALL_LAYOUT_OBS_PLUGIN_DIR
-#endif
-
-// On-disk destination for a bundled data dir `leaf` (e.g. "cv_templates") under
-// `layout`, relative to the core's `canonical_path`. Exposed for cross-platform
-// tests; ge_core_reload passes GE_HOST_INSTALL_LAYOUT. False if it won't fit `out`.
-bool ge_core_data_dir_dest(ge_install_layout layout, const char *canonical_path, const char *leaf, char *out,
-                           size_t out_size);
-
 // Opaque handle to an open core library: its dynlib handle, the temp-copy
 // path it was actually dlopen'd from (removed on close), and its resolved
 // entry points.
 typedef struct ge_core_handle ge_core_handle;
 
-// Opens `canonical_path` via a fresh temp copy (never the canonical path, so no
-// loader hands back a stale image) and calls its ge_core_load(...). On failure
-// returns false with a message in err. is_reload=true only for a reload's new core.
-bool ge_core_open(const char *load_path, const char *canonical_path, void *module_arg, bool is_reload,
-                  ge_request_reload_fn request_reload, ge_core_handle **out_handle, char *err, size_t err_size);
+// Opens `load_path` via a fresh temp copy and calls ge_core_load() with the
+// durable core and staging paths. is_reload=true only for a reload's new core.
+bool ge_core_open(const char *load_path, const char *canonical_path, const char *staged_dir, void *module_arg,
+                  bool is_reload, ge_request_reload_fn request_reload, ge_core_handle **out_handle, char *err,
+                  size_t err_size);
 
 // Calls the handle's ge_core_post_load(). No-op if NULL. Named distinctly from
 // the core's own ge_core_post_load() (dlsym'd), since core.c includes this header.

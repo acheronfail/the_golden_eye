@@ -142,10 +142,6 @@ bool ge_obs_module_data_path(char *buffer, size_t buffer_size) {
   return ge_copy_string_to_buffer(obs_get_module_data_path(g_module), buffer, buffer_size);
 }
 
-bool ge_obs_module_binary_path(char *buffer, size_t buffer_size) {
-  return ge_copy_string_to_buffer(obs_get_module_binary_path(g_module), buffer, buffer_size);
-}
-
 bool ge_obs_replay_buffer_output_directory(char *buffer, size_t buffer_size) {
   if (!buffer || buffer_size == 0) {
     return false;

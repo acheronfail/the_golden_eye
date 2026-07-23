@@ -126,13 +126,13 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
 static ge_request_reload_fn g_request_reload = NULL;
 
 // Called by the shim after dlopen. Returns false on failure (incl. HTTP port
-// bind) so the shim can log and roll back. `canonical_path` is the shim's
-// resolved core path (for staging updates); `is_reload` flags a post-update load.
-GE_EXPORT bool ge_core_load(obs_module_t *module, const char *canonical_path, bool is_reload,
+// bind) so the shim can log and roll back. The paths are resolved by the shim;
+// `is_reload` flags a post-update load.
+GE_EXPORT bool ge_core_load(obs_module_t *module, const char *canonical_path, const char *staged_dir, bool is_reload,
                             ge_request_reload_fn request_reload) {
   ge_obs_set_module(module);
   g_request_reload = request_reload;
-  ge_rust_set_core_path(canonical_path);
+  ge_rust_set_update_paths(canonical_path, staged_dir);
   ge_rust_set_was_reloaded(is_reload);
   if (!ge_rust_start()) {
     return false;

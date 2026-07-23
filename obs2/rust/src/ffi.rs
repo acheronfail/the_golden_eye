@@ -88,8 +88,6 @@ unsafe extern "C" {
     pub fn ge_obs_replay_buffer_output_directory(buffer: *mut c_char, buffer_size: usize) -> bool;
     /// Current plugin OBS data path. Returns false when OBS cannot provide one or `buffer` is too small.
     pub fn ge_obs_module_data_path(buffer: *mut c_char, buffer_size: usize) -> bool;
-    /// Current plugin binary path. Returns false when OBS cannot provide one or `buffer` is too small.
-    pub fn ge_obs_module_binary_path(buffer: *mut c_char, buffer_size: usize) -> bool;
     /// Configured OBS video frame rate. Falls back to active render FPS when the
     /// configured rate cannot be read. Returns 0.0 if OBS cannot provide either.
     pub fn ge_obs_video_fps() -> f64;

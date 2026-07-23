@@ -58,7 +58,6 @@ impl Calls {
 
 pub struct Config {
     pub data_path: PathBuf,
-    pub binary_path: PathBuf,
     pub replay_output_directory: PathBuf,
     pub replay_fixture: PathBuf,
     pub fps: f64,
@@ -95,7 +94,6 @@ impl Default for State {
         Self {
             config: Config {
                 data_path: PathBuf::new(),
-                binary_path: PathBuf::new(),
                 replay_output_directory: PathBuf::new(),
                 replay_fixture: PathBuf::new(),
                 fps: 60.0,
@@ -342,11 +340,6 @@ pub extern "C" fn ge_obs_replay_buffer_output_directory(buffer: *mut c_char, siz
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_obs_module_data_path(buffer: *mut c_char, size: usize) -> bool {
     copy_to_c(&STATE.lock().unwrap().config.data_path, buffer, size)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn ge_obs_module_binary_path(buffer: *mut c_char, size: usize) -> bool {
-    copy_to_c(&STATE.lock().unwrap().config.binary_path, buffer, size)
 }
 
 #[unsafe(no_mangle)]

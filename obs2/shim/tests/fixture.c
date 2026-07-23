@@ -14,12 +14,13 @@
 
 typedef void (*ge_request_reload_fn)(void);
 
-GE_EXPORT bool ge_core_load(void *module_arg, const char *canonical_path, bool is_reload,
+GE_EXPORT bool ge_core_load(void *module_arg, const char *canonical_path, const char *staged_dir, bool is_reload,
                             ge_request_reload_fn request_reload) {
   (void)module_arg;
   (void)is_reload;
   (void)request_reload;
   ge_fixture_record_canonical(canonical_path);
+  ge_fixture_record_staged(staged_dir);
   ge_fixture_log("load");
 #ifdef GE_FIXTURE_LOAD_FAILS
   return false;

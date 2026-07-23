@@ -59,6 +59,75 @@ fn copy_dir_recursive_preserves_structure() {
     assert_eq!(std::fs::read(dst.join("nested/file.txt")).unwrap(), b"hi");
 }
 
+#[test]
+fn packaged_core_is_staged_under_the_installed_custom_name() {
+    let dir = tempdir();
+    let extracted = dir.path().join("extracted/package/nested");
+    std::fs::create_dir_all(extracted.join("cv_templates")).unwrap();
+    std::fs::create_dir_all(extracted.join("locale")).unwrap();
+    std::fs::write(extracted.join(packaged_core_name()), b"core").unwrap();
+    std::fs::write(extracted.join("cv_templates/template.png"), b"template").unwrap();
+    std::fs::write(extracted.join("locale/en-US.ini"), b"locale").unwrap();
+
+    let prepared = dir.path().join("prepared");
+    prepare_staged_update(&dir.path().join("extracted"), &prepared, OsStr::new("custom core name.test")).unwrap();
+
+    assert_eq!(std::fs::read(prepared.join("custom core name.test")).unwrap(), b"core");
+    assert_eq!(std::fs::read(prepared.join("cv_templates/template.png")).unwrap(), b"template");
+    assert_eq!(std::fs::read(prepared.join("locale/en-US.ini")).unwrap(), b"locale");
+}
+
+#[test]
+fn runtime_data_commit_keeps_new_directories() {
+    let dir = tempdir();
+    let staged = dir.path().join("staging on another path");
+    let data = dir.path().join("OBS data with spaces");
+    seed_runtime_data(&staged, "new");
+    seed_runtime_data(&data, "old");
+
+    let transaction = RuntimeDataTransaction::install(&staged, &data).unwrap();
+    assert_runtime_data(&data, "new");
+    transaction.commit();
+
+    assert_runtime_data(&data, "new");
+    assert!(
+        std::fs::read_dir(&data).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".ge-update-"))
+    );
+}
+
+#[test]
+fn runtime_data_startup_failure_restores_old_directories() {
+    let dir = tempdir();
+    let staged = dir.path().join("unrelated staging");
+    let data = dir.path().join("unrelated data");
+    seed_runtime_data(&staged, "new");
+    seed_runtime_data(&data, "old");
+
+    {
+        let _transaction = RuntimeDataTransaction::install(&staged, &data).unwrap();
+        assert_runtime_data(&data, "new");
+    }
+
+    assert_runtime_data(&data, "old");
+}
+
+fn seed_runtime_data(root: &Path, content: &str) {
+    for name in RUNTIME_DATA_DIRS {
+        std::fs::create_dir_all(root.join(name)).unwrap();
+        std::fs::write(root.join(name).join("marker.txt"), content).unwrap();
+    }
+}
+
+fn assert_runtime_data(root: &Path, content: &str) {
+    for name in RUNTIME_DATA_DIRS {
+        assert_eq!(std::fs::read_to_string(root.join(name).join("marker.txt")).unwrap(), content);
+    }
+}
+
 fn tempdir() -> TestDir {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);

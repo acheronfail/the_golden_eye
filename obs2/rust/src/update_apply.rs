@@ -1,11 +1,12 @@
 //! Downloads, verifies, stages, and applies plugin updates while OBS runs (`updates.rs`
 //! only detects/announces). Picks the release asset, verifies vs `checksums.txt`, stages
-//! into `.ge_update_staged` (a name shared with reload.c/plugin.c), then asks the shim.
+//! into the directory supplied by the shim, then asks the shim to reload the core.
 
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::Context;
@@ -14,16 +15,17 @@ use sha2::{Digest, Sha256};
 use crate::http::{AppState, AppStateInner};
 use crate::updates::{GithubAsset, PluginUpdate, platform_arch_suffix_for};
 
-const STAGED_DIR_NAME: &str = ".ge_update_staged";
 const DOWNLOAD_DIR_NAME: &str = ".ge_update_staged.download";
 const CHECKSUMS_ASSET_NAME: &str = "checksums.txt";
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 const AUTO_APPLY_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+const RUNTIME_DATA_DIRS: [&str; 2] = ["cv_templates", "locale"];
 
 /// Serializes staging: concurrent callers (e.g. startup auto-check plus a manual
 /// "check now") share the single `.ge_update_staged{,.download}` dirs, so without
 /// this one run could clobber the other mid-copy and leave nothing staged.
 static STAGE_LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
+static DATA_SWAP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// The exact `<platform>-<arch>` suffix `Package.cmake` bakes into release zip names,
 /// including its `aarch64` -> `arm64`
@@ -47,23 +49,36 @@ fn asset_zip_name(update: &PluginUpdate) -> anyhow::Result<String> {
         .context("unsupported OS/arch for auto-update")
 }
 
-/// The shim's canonical on-disk path for this core library, set by `ge_core_load` via
-/// `ge_rust_set_core_path` (see `lib.rs::core_path`). NOT `ge_obs_module_binary_path()`,
-/// which reports the *shim's* file (the OBS-registered module), not the core's.
+/// The shim's canonical on-disk path for this core library, set by ge_core_load.
 fn canonical_core_path() -> anyhow::Result<PathBuf> {
-    crate::core_path().context("core canonical path not set (ge_core_load hasn't run yet?)")
+    crate::core_path().context("core canonical path not set")
 }
 
-fn install_dir() -> anyhow::Result<PathBuf> {
-    canonical_core_path()?.parent().map(Path::to_path_buf).context("core binary path has no parent directory")
+fn staged_dir() -> anyhow::Result<PathBuf> {
+    crate::staged_update_dir().context("staged update path not set")
+}
+
+fn download_dir() -> anyhow::Result<PathBuf> {
+    let staged = staged_dir()?;
+    let parent = staged.parent().context("staged update path has no parent directory")?;
+    Ok(parent.join(DOWNLOAD_DIR_NAME))
+}
+
+fn packaged_core_name() -> &'static OsStr {
+    #[cfg(target_os = "windows")]
+    return OsStr::new("golden_core.dll");
+    #[cfg(target_os = "macos")]
+    return OsStr::new("libgolden_core.dylib");
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    return OsStr::new("libgolden_core.so");
 }
 
 /// Whether a verified update is currently staged and ready to apply.
 pub fn has_staged_update() -> bool {
-    let Ok(dir) = install_dir() else { return false };
+    let Ok(dir) = staged_dir() else { return false };
     let Ok(core_path) = canonical_core_path() else { return false };
     let Some(leaf) = core_path.file_name() else { return false };
-    dir.join(STAGED_DIR_NAME).join(leaf).is_file()
+    dir.join(leaf).is_file()
 }
 
 /// In production, no active monitor session and no in-flight recording activity.
@@ -128,8 +143,8 @@ pub async fn auto_apply_when_safe(state: AppState) {
 }
 
 /// Downloads, verifies, and stages the release matching `update`. On success
-/// `.ge_update_staged/` holds a checksum-verified core plus best-effort
-/// `cv_templates`/`locale`, ready for `trigger_apply`. `assets` is reused from `updates.rs`.
+/// `.ge_update_staged/` holds a checksum-verified core and runtime data, ready
+/// for `trigger_apply`. `assets` is reused from `updates.rs`.
 pub async fn download_verify_and_stage(update: &PluginUpdate, assets: Vec<GithubAsset>) -> anyhow::Result<()> {
     if update.requires_manual_install {
         anyhow::bail!(
@@ -143,7 +158,6 @@ pub async fn download_verify_and_stage(update: &PluginUpdate, assets: Vec<Github
     if has_staged_update() {
         return Ok(());
     }
-    let install_dir = install_dir()?;
     let core_leaf_name =
         canonical_core_path()?.file_name().context("core binary path has no file name")?.to_os_string();
 
@@ -159,10 +173,9 @@ pub async fn download_verify_and_stage(update: &PluginUpdate, assets: Vec<Github
 
     let expected_sha256 = fetch_expected_sha256(&client, &checksums_asset.browser_download_url, &zip_name).await?;
 
-    // A working directory distinct from STAGED_DIR_NAME, so the shim (which
-    // only ever looks for STAGED_DIR_NAME) never sees a
-    // half-downloaded/half-extracted update.
-    let download_dir = install_dir.join(DOWNLOAD_DIR_NAME);
+    // Work outside the shim-visible staging directory until verification and
+    // package interpretation are complete.
+    let download_dir = download_dir()?;
     let _ = std::fs::remove_dir_all(&download_dir);
     std::fs::create_dir_all(&download_dir).context("creating update download directory")?;
 
@@ -180,26 +193,124 @@ pub async fn download_verify_and_stage(update: &PluginUpdate, assets: Vec<Github
     let extracted_dir = download_dir.join("extracted");
     extract_zip(&zip_path, &extracted_dir)?;
 
-    let core_src = find_named(&extracted_dir, &core_leaf_name)
-        .with_context(|| format!("release package does not contain '{}'", core_leaf_name.to_string_lossy()))?;
+    let prepared_dir = download_dir.join("staged");
+    prepare_staged_update(&extracted_dir, &prepared_dir, &core_leaf_name)?;
 
-    // Only now -- after everything above has succeeded -- touch
-    // STAGED_DIR_NAME, and only ever by replacing it wholesale.
-    let staged_dir = install_dir.join(STAGED_DIR_NAME);
+    // Only now touch the directory visible to the shim, replacing it wholesale.
+    let staged_dir = staged_dir()?;
     let _ = std::fs::remove_dir_all(&staged_dir);
-    std::fs::create_dir_all(&staged_dir).context("creating staged update directory")?;
-    std::fs::copy(&core_src, staged_dir.join(&core_leaf_name)).context("staging core library")?;
-
-    for data_dir_name in ["cv_templates", "locale"] {
-        if let Some(src) = find_named(&extracted_dir, OsStr::new(data_dir_name)) {
-            copy_dir_recursive(&src, &staged_dir.join(data_dir_name))
-                .with_context(|| format!("staging {data_dir_name}"))?;
-        }
-    }
+    std::fs::rename(&prepared_dir, &staged_dir).context("publishing staged update directory")?;
 
     let _ = std::fs::remove_dir_all(&download_dir);
     tracing::info!(version = %update.latest_version, "staged plugin update, ready to apply");
     Ok(())
+}
+
+fn prepare_staged_update(extracted_dir: &Path, prepared_dir: &Path, installed_core_leaf: &OsStr) -> anyhow::Result<()> {
+    let core_src = find_named(extracted_dir, packaged_core_name())
+        .with_context(|| format!("release package does not contain '{}'", packaged_core_name().to_string_lossy()))?;
+    std::fs::create_dir_all(prepared_dir).context("creating prepared update directory")?;
+    std::fs::copy(&core_src, prepared_dir.join(installed_core_leaf)).context("staging core library")?;
+
+    for name in RUNTIME_DATA_DIRS {
+        let src = find_named(extracted_dir, OsStr::new(name))
+            .with_context(|| format!("release package does not contain runtime data '{name}'"))?;
+        copy_dir_recursive(&src, &prepared_dir.join(name)).with_context(|| format!("staging {name}"))?;
+    }
+    Ok(())
+}
+
+struct DirectorySwap {
+    destination: PathBuf,
+    backup: Option<PathBuf>,
+}
+
+pub struct RuntimeDataTransaction {
+    swaps: Vec<DirectorySwap>,
+    committed: bool,
+}
+
+impl RuntimeDataTransaction {
+    fn install(staged_dir: &Path, data_dir: &Path) -> anyhow::Result<Self> {
+        std::fs::create_dir_all(data_dir).context("creating OBS module data directory")?;
+        let mut transaction = Self { swaps: Vec::new(), committed: false };
+        for name in RUNTIME_DATA_DIRS {
+            let source = staged_dir.join(name);
+            if source.is_dir() {
+                transaction.install_dir(&source, data_dir, name)?;
+            }
+        }
+        Ok(transaction)
+    }
+
+    fn install_dir(&mut self, source: &Path, data_dir: &Path, name: &str) -> anyhow::Result<()> {
+        let destination = data_dir.join(name);
+        let unique = format!("{}.{}", std::process::id(), DATA_SWAP_COUNTER.fetch_add(1, Ordering::Relaxed));
+        let incoming = data_dir.join(format!(".ge-update-{name}-incoming-{unique}"));
+        let backup = data_dir.join(format!(".ge-update-{name}-backup-{unique}"));
+
+        if let Err(error) = copy_dir_recursive(source, &incoming) {
+            let _ = std::fs::remove_dir_all(&incoming);
+            return Err(error).with_context(|| format!("copying staged {name}"));
+        }
+        let had_old = destination.exists();
+        if had_old && let Err(error) = std::fs::rename(&destination, &backup) {
+            let _ = std::fs::remove_dir_all(&incoming);
+            return Err(error).with_context(|| format!("backing up installed {name}"));
+        }
+        if let Err(error) = std::fs::rename(&incoming, &destination) {
+            if had_old {
+                let _ = std::fs::rename(&backup, &destination);
+            }
+            let _ = std::fs::remove_dir_all(&incoming);
+            return Err(error).with_context(|| format!("installing staged {name}"));
+        }
+        self.swaps.push(DirectorySwap { destination, backup: had_old.then_some(backup) });
+        Ok(())
+    }
+
+    pub fn commit(mut self) {
+        self.committed = true;
+        for swap in &self.swaps {
+            if let Some(backup) = &swap.backup
+                && let Err(error) = std::fs::remove_dir_all(backup)
+            {
+                tracing::warn!(path = %backup.display(), "failed to remove runtime data backup: {error}");
+            }
+        }
+    }
+
+    fn rollback(&mut self) {
+        for swap in self.swaps.iter().rev() {
+            if let Err(error) = std::fs::remove_dir_all(&swap.destination) {
+                tracing::error!(path = %swap.destination.display(), "failed to remove updated runtime data during rollback: {error}");
+            }
+            if let Some(backup) = &swap.backup
+                && let Err(error) = std::fs::rename(backup, &swap.destination)
+            {
+                tracing::error!(
+                    backup = %backup.display(),
+                    destination = %swap.destination.display(),
+                    "failed to restore runtime data backup: {error}"
+                );
+            }
+        }
+    }
+}
+
+impl Drop for RuntimeDataTransaction {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.rollback();
+        }
+    }
+}
+
+pub fn install_staged_runtime_data() -> anyhow::Result<RuntimeDataTransaction> {
+    let staged_dir = staged_dir()?;
+    let data_dir = crate::read_obs_path(crate::ffi::ge_obs_module_data_path)
+        .context("OBS module data path is unavailable during update")?;
+    RuntimeDataTransaction::install(&staged_dir, &data_dir)
 }
 
 async fn fetch_expected_sha256(client: &reqwest::Client, url: &str, zip_name: &str) -> anyhow::Result<String> {
