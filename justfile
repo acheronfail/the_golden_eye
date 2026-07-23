@@ -19,9 +19,11 @@ release_tag_regex='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A
   fi
 `
 plugin_version := env_var_or_default("GE_PLUGIN_VERSION", git_plugin_version)
+updater_version := env_var_or_default("GE_UPDATER_VERSION", `tr -d '[:space:]' < obs2/updater-version.txt`)
 export DYLD_FALLBACK_LIBRARY_PATH := "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib"
 export BROWSER_BUNDLE := justfile_directory() / "obs2/browser/build/index.html"
 export GE_PLUGIN_VERSION := plugin_version
+export GE_UPDATER_VERSION := updater_version
 export VITE_GE_PLUGIN_VERSION := plugin_version
 export OPENCV_PREFIX := justfile_directory() / "obs2/vendor/opencv-static"
 export FFMPEG_PREFIX := justfile_directory() / "obs2/vendor/ffmpeg-static"
@@ -49,7 +51,8 @@ configure build_type browser_dev *cmake_args:
       -DCMAKE_BUILD_TYPE="{{ build_type }}" \
       -DBROWSER_DEV="{{ browser_dev }}" \
       -DGE_RUST_PACKAGE_PROFILE=OFF \
-      -DGE_PLUGIN_VERSION="{{ plugin_version }}" {{ cmake_args }}
+      -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
+      -DGE_UPDATER_VERSION="{{ updater_version }}" {{ cmake_args }}
 
 # debug builds
 configure-debug:
@@ -452,6 +455,7 @@ _flatpak-build target rust_package_profile="OFF" build_type="Release" browser_de
           -DCMAKE_BUILD_TYPE={{ build_type }} \
           -DBROWSER_DEV={{ browser_dev }} \
           -DGE_PLUGIN_VERSION="{{ plugin_version }}" \
+          -DGE_UPDATER_VERSION="{{ updater_version }}" \
           -DGE_LINUX_NATIVE_OBS_BUILD=ON \
           -DGE_PLUGIN_INSTALL_ROOT:PATH="${XDG_CONFIG_HOME}/obs-studio/plugins" \
           -DGE_REUSE_HOST_BUILD_INPUTS="${GE_REUSE_HOST_BUILD_INPUTS}" \

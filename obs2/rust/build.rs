@@ -5,6 +5,7 @@ fn main() {
     // The HTTP server embeds the frontend bundle via include_str!(env!("BROWSER_BUNDLE")), rebuild when it changes.
     println!("cargo:rerun-if-env-changed=BROWSER_BUNDLE");
     println!("cargo:rerun-if-env-changed=GE_PLUGIN_VERSION");
+    println!("cargo:rerun-if-env-changed=GE_UPDATER_VERSION");
     println!("cargo:rerun-if-env-changed=GE_BROWSER_DEV_URL");
     println!("cargo:rerun-if-env-changed=GE_YOUTUBE_CLIENT_ID");
     println!("cargo:rerun-if-env-changed=GE_YOUTUBE_CLIENT_SECRET");

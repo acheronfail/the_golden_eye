@@ -51,6 +51,37 @@ if(GE_WRITE_PLUGIN_VERSION_STAMP)
   file(WRITE "${GE_PLUGIN_VERSION_STAMP}" "${GE_PLUGIN_VERSION_STAMP_CONTENT}")
 endif()
 
+if(NOT DEFINED GE_UPDATER_VERSION)
+  if(DEFINED ENV{GE_UPDATER_VERSION})
+    set(GE_UPDATER_VERSION "$ENV{GE_UPDATER_VERSION}")
+  elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/updater-version.txt")
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/updater-version.txt" GE_UPDATER_VERSION LIMIT_COUNT 1)
+  else()
+    message(FATAL_ERROR
+        "GE_UPDATER_VERSION is required. Add updater-version.txt or pass "
+        "-DGE_UPDATER_VERSION=N."
+    )
+  endif()
+endif()
+set(GE_UPDATER_VERSION "${GE_UPDATER_VERSION}" CACHE STRING "The Golden Eye updater format version")
+if(NOT GE_UPDATER_VERSION MATCHES "^[1-9][0-9]*$")
+  message(FATAL_ERROR "GE_UPDATER_VERSION must be a positive integer, got '${GE_UPDATER_VERSION}'.")
+endif()
+message(STATUS "The Golden Eye updater version: ${GE_UPDATER_VERSION}")
+
+set(GE_UPDATER_VERSION_STAMP "${CMAKE_CURRENT_BINARY_DIR}/updater-version.stamp")
+set(GE_UPDATER_VERSION_STAMP_CONTENT "${GE_UPDATER_VERSION}\n")
+set(GE_WRITE_UPDATER_VERSION_STAMP TRUE)
+if(EXISTS "${GE_UPDATER_VERSION_STAMP}")
+  file(READ "${GE_UPDATER_VERSION_STAMP}" GE_EXISTING_UPDATER_VERSION_STAMP)
+  if(GE_EXISTING_UPDATER_VERSION_STAMP STREQUAL GE_UPDATER_VERSION_STAMP_CONTENT)
+    set(GE_WRITE_UPDATER_VERSION_STAMP FALSE)
+  endif()
+endif()
+if(GE_WRITE_UPDATER_VERSION_STAMP)
+  file(WRITE "${GE_UPDATER_VERSION_STAMP}" "${GE_UPDATER_VERSION_STAMP_CONTENT}")
+endif()
+
 option(GE_REUSE_HOST_BUILD_INPUTS "Reuse browser and Rust artifacts from an earlier host build" OFF)
 option(GE_RUST_PACKAGE_PROFILE "Build Rust with the size-optimized packaging cargo profile" OFF)
 
