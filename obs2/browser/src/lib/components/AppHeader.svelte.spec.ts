@@ -28,10 +28,10 @@ describe('AppHeader', () => {
 		expect(options).toHaveAttribute('aria-current', 'page');
 	});
 
-	it('uses the normal active-menu style on the monitor page', () => {
+	it('uses the normal active-menu style on a live monitor route', () => {
 		render(AppHeader, {
 			links,
-			currentPath: '/',
+			currentPath: '/sources/Nintendo%2064',
 			pluginVersion: 'test',
 			activeMonitorHref: '/sources/Nintendo%2064',
 			menuOpen: true
