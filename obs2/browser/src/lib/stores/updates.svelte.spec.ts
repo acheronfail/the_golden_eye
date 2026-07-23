@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { notifications } from '$lib/stores/notifications.svelte';
+import { addNotificationFlag, notifications } from '$lib/stores/notifications.svelte';
 import { settings } from '$lib/stores/settings.svelte';
 import { updates } from '$lib/stores/updates.svelte';
 
@@ -69,6 +69,21 @@ describe('update state', () => {
 		expect(updates.buttonPhase).toBe('applying');
 		expect(notifications.flags).toEqual(
 			expect.arrayContaining([expect.objectContaining({ title: 'Applying update' })])
+		);
+	});
+
+	it('removes an orphaned progress notification when the backend remains idle', () => {
+		addNotificationFlag({
+			key: 'plugin-update-installing',
+			title: 'Applying update',
+			tone: 'success',
+			sticky: true
+		});
+
+		updates.applyStatus({ phase: 'idle', available: null });
+
+		expect(notifications.flags).not.toEqual(
+			expect.arrayContaining([expect.objectContaining({ key: 'plugin-update-installing' })])
 		);
 	});
 

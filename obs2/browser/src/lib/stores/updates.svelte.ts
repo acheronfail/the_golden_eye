@@ -1,6 +1,7 @@
 import { backend, type PluginUpdate, type UpdatePhase, type UpdateStatus } from '$lib/api';
 import {
 	addNotificationFlag,
+	dismissNotificationFlagsByKey,
 	removeNotificationFlag,
 	replaceNotificationFlag,
 	type NotificationFlag
@@ -35,7 +36,7 @@ export const updates = new (class {
 			status.phase !== this.status.phase || status.available?.latestVersion !== this.status.available?.latestVersion;
 		this.status = status;
 		this.syncAvailableNotification();
-		if (changed) this.syncProgressNotification();
+		if (changed || this.progressNotificationId === null) this.syncProgressNotification();
 	}
 
 	async refresh(): Promise<void> {
@@ -205,6 +206,7 @@ export const updates = new (class {
 		if (this.progressNotificationId !== null && replaceNotificationFlag(this.progressNotificationId, notification)) {
 			return;
 		}
+		dismissNotificationFlagsByKey('plugin-update-installing');
 		this.progressNotificationId = addNotificationFlag(notification).id;
 	}
 
@@ -215,8 +217,8 @@ export const updates = new (class {
 	}
 
 	private removeProgressNotification(): void {
-		if (this.progressNotificationId === null) return;
-		removeNotificationFlag(this.progressNotificationId);
+		if (this.progressNotificationId !== null) removeNotificationFlag(this.progressNotificationId);
+		dismissNotificationFlagsByKey('plugin-update-installing');
 		this.progressNotificationId = null;
 	}
 })();
