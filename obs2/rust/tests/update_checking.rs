@@ -17,12 +17,27 @@ use tokio_tungstenite::tungstenite::Message;
 
 const LATEST_VERSION: &str = "v999.0.0";
 const RELEASE_URL: &str = "https://github.com/acheronfail/the_golden_eye/releases/tag/v999.0.0";
+const PLATFORM_ARCH_SUFFIXES: &[&str] =
+    &["macos-arm64", "macos-x86_64", "linux-x86_64", "linux-arm64", "windows-x86_64"];
 
 async fn latest_release(State(calls): State<Arc<AtomicUsize>>) -> axum::Json<Value> {
     calls.fetch_add(1, Ordering::SeqCst);
+    let assets: Vec<Value> = PLATFORM_ARCH_SUFFIXES
+        .iter()
+        .map(|suffix| {
+            json!({
+                "name": format!(
+                    "the_golden_eye-u{}-v999.0.0-{suffix}.zip",
+                    env!("GE_UPDATER_VERSION")
+                ),
+                "browser_download_url": "https://example.test/package.zip"
+            })
+        })
+        .collect();
     axum::Json(json!({
         "tag_name": LATEST_VERSION,
-        "html_url": RELEASE_URL
+        "html_url": RELEASE_URL,
+        "assets": assets
     }))
 }
 

@@ -8,18 +8,18 @@ fn current_platform_is_supported_when_the_arch_can_be_packaged() {
 #[test]
 fn asset_zip_names_match_the_package_contract() {
     let cases = [
-        ("v1.2.3", "macos", "aarch64", "the_golden_eye-1.2.3-macos-arm64.zip"),
-        ("1.2.3", "macos", "x86_64", "the_golden_eye-1.2.3-macos-x86_64.zip"),
-        ("v1.2.3-beta.1", "linux", "x86_64", "the_golden_eye-1.2.3-beta.1-linux-x86_64.zip"),
-        ("v1.2.3+build.4", "linux", "aarch64", "the_golden_eye-1.2.3+build.4-linux-arm64.zip"),
-        ("v1.2.3", "windows", "x86_64", "the_golden_eye-1.2.3-windows-x86_64.zip"),
+        ("v1.2.3", "macos", "aarch64", "the_golden_eye-u4-v1.2.3-macos-arm64.zip"),
+        ("1.2.3", "macos", "x86_64", "the_golden_eye-u4-v1.2.3-macos-x86_64.zip"),
+        ("v1.2.3-beta.1", "linux", "x86_64", "the_golden_eye-u4-v1.2.3-beta.1-linux-x86_64.zip"),
+        ("v1.2.3+build.4", "linux", "aarch64", "the_golden_eye-u4-v1.2.3+build.4-linux-arm64.zip"),
+        ("v1.2.3", "windows", "x86_64", "the_golden_eye-u4-v1.2.3-windows-x86_64.zip"),
     ];
 
     for (version, os, arch, expected) in cases {
-        assert_eq!(asset_zip_name_for(version, os, arch).as_deref(), Some(expected));
+        assert_eq!(asset_zip_name_for(version, 4, os, arch).as_deref(), Some(expected));
     }
-    assert_eq!(asset_zip_name_for("v1.2.3", "windows", "aarch64"), None);
-    assert_eq!(asset_zip_name_for("v1.2.3", "freebsd", "x86_64"), None);
+    assert_eq!(asset_zip_name_for("v1.2.3", 4, "windows", "aarch64"), None);
+    assert_eq!(asset_zip_name_for("v1.2.3", 4, "freebsd", "x86_64"), None);
 }
 
 #[test]

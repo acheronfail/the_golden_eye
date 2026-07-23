@@ -20,6 +20,8 @@ pub struct PluginUpdate {
     pub current_version: String,
     pub latest_version: String,
     pub release_url: String,
+    pub updater_version: u32,
+    pub requires_manual_install: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
@@ -61,6 +63,13 @@ struct GithubRelease {
 pub(crate) struct GithubAsset {
     pub(crate) name: String,
     pub(crate) browser_download_url: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadUpdateResult {
+    Staged,
+    UpToDate,
+    ManualInstallRequired,
 }
 
 pub async fn check_for_updates_on_startup(state: AppState) {
@@ -140,12 +149,18 @@ pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<Plu
     tracing::info!(
         current_version = %update.current_version,
         latest_version = %update.latest_version,
+        updater_version = update.updater_version,
+        requires_manual_install = update.requires_manual_install,
         release_url = %update.release_url,
         "plugin update available"
     );
     let auto_update_enabled = state.settings.get().auto_update_enabled;
     state.snapshot.set_update_status(UpdateStatus {
-        phase: if auto_update_enabled { UpdatePhase::Downloading } else { UpdatePhase::Available },
+        phase: if auto_update_enabled && !update.requires_manual_install {
+            UpdatePhase::Downloading
+        } else {
+            UpdatePhase::Available
+        },
         available: Some(update.clone()),
     });
 
@@ -159,7 +174,7 @@ pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<Plu
     // Only download/stage automatically when opted into auto installs. Otherwise the
     // "Download now" button / notice (via `download_and_stage_latest`) drives it on an
     // explicit click, so we don't fetch a release the user hasn't asked for.
-    if auto_update_enabled {
+    if auto_update_enabled && !update.requires_manual_install {
         // Reuses this same fetch's asset list rather than fetching the release
         // again, which would double GitHub API traffic for every check.
         let update_for_stage = update.clone();
@@ -187,13 +202,13 @@ pub async fn check_for_updates_now(state: AppState) -> anyhow::Result<Option<Plu
     Ok(Some(update))
 }
 
-/// Fetches the latest release and, if newer, downloads/verifies/stages it, blocking
-/// until staging finishes. The explicit-download path (behind "Download now"/notice),
-/// runs regardless of auto-update. Returns whether staged; then apply can install it.
-pub async fn download_and_stage_latest(state: AppState) -> anyhow::Result<bool> {
+/// Fetches the latest release and, if compatible, downloads/verifies/stages it,
+/// blocking until staging finishes. Explicit downloads bypass the auto-update
+/// preference but never the updater-version compatibility gate.
+pub async fn download_and_stage_latest(state: AppState) -> anyhow::Result<DownloadUpdateResult> {
     let previous = state.snapshot.current_update_status();
     if matches!(previous.phase, UpdatePhase::Staged | UpdatePhase::Applying) {
-        return Ok(true);
+        return Ok(DownloadUpdateResult::Staged);
     }
     state
         .snapshot
@@ -210,15 +225,19 @@ pub async fn download_and_stage_latest(state: AppState) -> anyhow::Result<bool> 
     };
     let Some((update, assets)) = found else {
         state.snapshot.set_update_status(UpdateStatus::default());
-        return Ok(false);
+        return Ok(DownloadUpdateResult::UpToDate);
     };
+    if update.requires_manual_install {
+        state.snapshot.set_update_status(UpdateStatus { phase: UpdatePhase::Available, available: Some(update) });
+        return Ok(DownloadUpdateResult::ManualInstallRequired);
+    }
     state.snapshot.set_update_status(UpdateStatus { phase: UpdatePhase::Downloading, available: Some(update.clone()) });
     if let Err(err) = crate::update_apply::download_verify_and_stage(&update, assets).await {
         state.snapshot.set_update_status(UpdateStatus { phase: UpdatePhase::Available, available: Some(update) });
         return Err(err);
     }
     state.snapshot.set_update_status(UpdateStatus { phase: UpdatePhase::Staged, available: Some(update) });
-    Ok(true)
+    Ok(DownloadUpdateResult::Staged)
 }
 
 pub fn is_check_due(interval: UpdateCheckInterval, last_check_time: Option<u64>, now: u64) -> bool {
@@ -271,7 +290,7 @@ fn select_update_from_releases(
 ) -> anyhow::Result<Option<(PluginUpdate, Vec<GithubAsset>)>> {
     let current =
         parse_version(current_version).with_context(|| format!("parsing current version {current_version}"))?;
-    let mut best: Option<(Version, PluginUpdate, Vec<GithubAsset>)> = None;
+    let mut best: Option<(Version, GithubRelease)> = None;
 
     for release in releases {
         if release.draft || (!include_prereleases && release.prerelease) {
@@ -280,25 +299,84 @@ fn select_update_from_releases(
 
         let latest = parse_version(&release.tag_name)
             .with_context(|| format!("parsing latest release tag {}", release.tag_name))?;
-        if latest <= current || best.as_ref().is_some_and(|(best_version, _, _)| latest <= *best_version) {
+        if latest <= current || best.as_ref().is_some_and(|(best_version, _)| latest <= *best_version) {
             continue;
         }
 
-        let assets = release.assets.clone();
-        let update = PluginUpdate {
-            current_version: current_version.to_owned(),
-            latest_version: release.tag_name,
-            release_url: release.html_url,
-        };
-        best = Some((latest, update, assets));
+        best = Some((latest, release));
     }
 
-    Ok(best.map(|(_, update, assets)| (update, assets)))
+    let Some((latest, release)) = best else {
+        return Ok(None);
+    };
+    let updater_version =
+        updater_version_from_assets(&latest, &release.assets, std::env::consts::OS, std::env::consts::ARCH)?;
+    let installed_updater_version = installed_updater_version()?;
+    let update = PluginUpdate {
+        current_version: current_version.to_owned(),
+        latest_version: release.tag_name,
+        release_url: release.html_url,
+        updater_version,
+        requires_manual_install: updater_version != installed_updater_version,
+    };
+    Ok(Some((update, release.assets)))
 }
 
 fn parse_version(value: &str) -> anyhow::Result<Version> {
     let trimmed = value.trim().trim_start_matches('v');
     Ok(Version::parse(trimmed)?)
+}
+
+fn installed_updater_version() -> anyhow::Result<u32> {
+    let version: u32 = crate::UPDATER_VERSION.parse().context("parsing installed updater version")?;
+    if version == 0 {
+        anyhow::bail!("installed updater version must be positive");
+    }
+    Ok(version)
+}
+
+pub(crate) fn platform_arch_suffix_for(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("macos", "aarch64") => Some("macos-arm64"),
+        ("macos", "x86_64") => Some("macos-x86_64"),
+        ("windows", "x86_64") => Some("windows-x86_64"),
+        ("linux", "x86_64") => Some("linux-x86_64"),
+        ("linux", "aarch64") => Some("linux-arm64"),
+        _ => None,
+    }
+}
+
+fn updater_version_from_assets(
+    release_version: &Version,
+    assets: &[GithubAsset],
+    os: &str,
+    arch: &str,
+) -> anyhow::Result<u32> {
+    let suffix = platform_arch_suffix_for(os, arch).context("unsupported OS/arch for auto-update")?;
+    let name_suffix = format!("-{suffix}.zip");
+    let candidates: Vec<&GithubAsset> = assets
+        .iter()
+        .filter(|asset| asset.name.starts_with("the_golden_eye-u") && asset.name.ends_with(&name_suffix))
+        .collect();
+    let [asset] = candidates.as_slice() else {
+        anyhow::bail!("release must contain exactly one canonical package for {suffix}, found {}", candidates.len());
+    };
+
+    let middle = asset
+        .name
+        .strip_prefix("the_golden_eye-u")
+        .and_then(|name| name.strip_suffix(&name_suffix))
+        .context("canonical update package name is malformed")?;
+    let (updater, version) = middle.split_once("-v").context("canonical update package name is missing '-v'")?;
+    let updater: u32 = updater.parse().context("canonical update package has an invalid updater version")?;
+    if updater == 0 {
+        anyhow::bail!("canonical update package updater version must be positive");
+    }
+    let package_version = Version::parse(version).context("canonical update package has an invalid plugin version")?;
+    if package_version != *release_version {
+        anyhow::bail!("canonical update package version {package_version} does not match release {release_version}");
+    }
+    Ok(updater)
 }
 
 fn now_unix_seconds() -> u64 {

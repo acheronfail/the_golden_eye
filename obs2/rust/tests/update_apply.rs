@@ -2,6 +2,7 @@ mod support;
 
 use std::io::Write as _;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use axum::Router;
@@ -16,7 +17,6 @@ use tokio::sync::oneshot;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 const LATEST_VERSION: &str = "v999.0.0";
-const LATEST_ASSET_VERSION: &str = "999.0.0";
 const RELEASE_URL: &str = "https://github.com/acheronfail/the_golden_eye/releases/tag/v999.0.0";
 const CORE_MARKER_CONTENT: &[u8] = b"fake newer core library contents";
 
@@ -27,7 +27,7 @@ const PLATFORM_ARCH_SUFFIXES: &[&str] =
     &["macos-arm64", "macos-x86_64", "linux-x86_64", "linux-arm64", "windows-x86_64"];
 
 fn asset_name(suffix: &str) -> String {
-    format!("the_golden_eye-{LATEST_ASSET_VERSION}-{suffix}.zip")
+    format!("the_golden_eye-u{}-v999.0.0-{suffix}.zip", env!("GE_UPDATER_VERSION"))
 }
 
 struct MockState {
@@ -210,6 +210,61 @@ async fn start_sequenced_mock_github(core_leaf: &str) -> (String, oneshot::Sende
     });
 
     (base_url, shutdown_tx, server)
+}
+
+struct IncompatibleMockState {
+    base_url: String,
+    updater_version: u32,
+    asset_requests: AtomicUsize,
+}
+
+async fn incompatible_latest_release(State(state): State<Arc<IncompatibleMockState>>) -> axum::Json<Value> {
+    let assets: Vec<Value> = PLATFORM_ARCH_SUFFIXES
+        .iter()
+        .map(|suffix| {
+            json!({
+                "name": format!("the_golden_eye-u{}-v999.0.0-{suffix}.zip", state.updater_version),
+                "browser_download_url": format!("{}/asset.zip", state.base_url)
+            })
+        })
+        .chain(std::iter::once(json!({
+            "name": "checksums.txt",
+            "browser_download_url": format!("{}/checksums.txt", state.base_url)
+        })))
+        .collect();
+    axum::Json(json!({ "tag_name": LATEST_VERSION, "html_url": RELEASE_URL, "assets": assets }))
+}
+
+async fn incompatible_asset_request(State(state): State<Arc<IncompatibleMockState>>) -> axum::http::StatusCode {
+    state.asset_requests.fetch_add(1, Ordering::SeqCst);
+    axum::http::StatusCode::INTERNAL_SERVER_ERROR
+}
+
+async fn start_incompatible_mock_github()
+-> (String, Arc<IncompatibleMockState>, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let updater_version = env!("GE_UPDATER_VERSION").parse::<u32>().unwrap() + 1;
+    let state = Arc::new(IncompatibleMockState {
+        base_url: base_url.clone(),
+        updater_version,
+        asset_requests: AtomicUsize::new(0),
+    });
+    let app = Router::new()
+        .route("/latest", get(incompatible_latest_release))
+        .route("/asset.zip", get(incompatible_asset_request))
+        .route("/checksums.txt", get(incompatible_asset_request))
+        .with_state(state.clone());
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+    (base_url, state, shutdown_tx, server)
 }
 
 async fn wait_for_staged_core(core_path: &std::path::Path) -> Vec<u8> {
@@ -401,6 +456,37 @@ async fn check_now_auto_stages_when_auto_update_enabled() {
     let status: Value =
         harness.client.get(format!("{API}/api/v1/updates/status")).send().await.unwrap().json().await.unwrap();
     assert_eq!(status["phase"], "applying", "auto-update should report that it is applying now");
+
+    drop(harness);
+    unsafe { std::env::remove_var("GE_UPDATE_CHECK_URL") };
+    shutdown_tx.send(()).unwrap();
+    server.await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn incompatible_update_is_never_downloaded_even_when_auto_update_is_enabled() {
+    let core_leaf = "golden_core.test";
+    let (base_url, mock, shutdown_tx, server) = start_incompatible_mock_github().await;
+    unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", format!("{base_url}/latest")) };
+
+    let harness = Harness::start_with_settings(Duration::ZERO, json!({ "autoUpdateEnabled": true })).await;
+    let response = harness.client.post(format!("{API}/api/v1/updates/check")).send().await.unwrap();
+    assert!(response.status().is_success());
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["update"]["requiresManualInstall"], true);
+    assert_eq!(body["update"]["updaterVersion"], mock.updater_version);
+
+    let status: Value =
+        harness.client.get(format!("{API}/api/v1/updates/status")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(status["phase"], "available");
+    assert_eq!(status["available"]["requiresManualInstall"], true);
+    assert_not_staged(&harness.temp.join(core_leaf));
+
+    let download = harness.client.post(format!("{API}/api/v1/updates/download")).send().await.unwrap();
+    assert_eq!(download.status().as_u16(), 409);
+    assert_eq!(mock.asset_requests.load(Ordering::SeqCst), 0);
+    assert_not_staged(&harness.temp.join(core_leaf));
 
     drop(harness);
     unsafe { std::env::remove_var("GE_UPDATE_CHECK_URL") };
