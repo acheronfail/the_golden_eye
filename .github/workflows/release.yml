@@ -43,7 +43,7 @@ jobs:
           cd dist
           sha256sum *.zip > checksums.txt
 
-      - name: Create release
+      - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -60,7 +60,7 @@ jobs:
               --jq ".[] | select(.draft == false and .prerelease == ${is_prerelease}) | .tag_name"
           } | grep -Fxv "$GITHUB_REF_NAME" | head -n1 || true)"
 
-          args=(release create "$GITHUB_REF_NAME" dist/*.zip dist/checksums.txt --verify-tag --generate-notes)
+          args=(release create "$GITHUB_REF_NAME" dist/*.zip dist/checksums.txt --verify-tag --generate-notes --draft)
           if [[ -n "$previous_tag" ]]; then
             echo "Generating release notes from ${previous_tag}..${GITHUB_REF_NAME}"
             args+=(--notes-start-tag "$previous_tag")
