@@ -34,9 +34,9 @@
 	const seconds = (input: number | null | undefined): string =>
 		input == null ? 'null' : `${input} s (${formatMonitorTime(input)})`;
 	const matchJson = $derived(match ? JSON.stringify(match, null, 2) : 'null');
-	const labelClass = 'text-[0.65rem] tracking-[0.1em] text-[var(--obs-text-dim)] uppercase';
+	const labelClass = 'text-[0.65rem] tracking-[0.1em] text-(--obs-text-dim) uppercase';
 	const gridClass =
-		'grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] border-t border-l border-[var(--obs-border-muted)] [&>div]:min-w-0 [&>div]:border-r [&>div]:border-b [&>div]:border-[var(--obs-border-muted)] [&>div]:bg-[var(--obs-bg-elevated)] [&>div]:px-2 [&>div]:py-1.5 [&>.state-cell]:bg-[color-mix(in_srgb,var(--debug-accent)_10%,var(--obs-bg-elevated))] [&_dt]:text-[0.65rem] [&_dt]:tracking-[0.1em] [&_dt]:text-[var(--obs-text-dim)] [&_dt]:uppercase [&_dd]:mt-0.5 [&_dd]:text-[var(--obs-text)] [&_dd]:[font-variant-numeric:tabular-nums] [&_dd]:[overflow-wrap:anywhere] [&_.state-cell_dd]:font-semibold [&_.state-cell_dd]:text-[color-mix(in_srgb,var(--debug-accent)_72%,var(--obs-text))]';
+		'grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] border-t border-l border-(--obs-border-muted) [&>div]:min-w-0 [&>div]:border-r [&>div]:border-b [&>div]:border-(--obs-border-muted) [&>div]:bg-(--obs-bg-elevated) [&>div]:px-2 [&>div]:py-1.5 [&>.state-cell]:bg-[color-mix(in_srgb,var(--debug-accent)_10%,var(--obs-bg-elevated))] [&_dt]:text-[0.65rem] [&_dt]:tracking-[0.1em] [&_dt]:text-(--obs-text-dim) [&_dt]:uppercase [&_dd]:mt-0.5 [&_dd]:text-(--obs-text) [&_dd]:[font-variant-numeric:tabular-nums] [&_dd]:[overflow-wrap:anywhere] [&_.state-cell_dd]:font-semibold [&_.state-cell_dd]:text-[color-mix(in_srgb,var(--debug-accent)_72%,var(--obs-text))]';
 
 	const valueKind = (input: unknown): 'true' | 'false' | 'null' | 'value' => {
 		if (input === true) return 'true';
@@ -51,14 +51,14 @@
 {/snippet}
 
 <main
-	class="monitor-debug @container relative h-full min-h-0 overflow-auto bg-[var(--obs-bg)] p-3 font-mono text-xs text-[var(--obs-text)] [--debug-accent:var(--obs-monitor-waiting)] data-[phase=complete]:[--debug-accent:var(--obs-gold-hover)] data-[phase=danger]:[--debug-accent:var(--obs-danger)] data-[phase=neutral]:[--debug-accent:var(--obs-text-muted)] data-[phase=recording]:[--debug-accent:var(--obs-success)] [&_[data-value-kind=false]]:text-[var(--obs-danger)] [&_[data-value-kind=null]]:text-[var(--obs-text-dim)] [&_[data-value-kind=null]]:italic [&_[data-value-kind=true]]:text-[var(--obs-success)]"
+	class="monitor-debug @container relative h-full min-h-0 overflow-auto bg-(--obs-bg) p-3 font-mono text-xs text-(--obs-text) [--debug-accent:var(--obs-monitor-waiting)] data-[phase=complete]:[--debug-accent:var(--obs-gold-hover)] data-[phase=danger]:[--debug-accent:var(--obs-danger)] data-[phase=neutral]:[--debug-accent:var(--obs-text-muted)] data-[phase=recording]:[--debug-accent:var(--obs-success)] [&_[data-value-kind=false]]:text-(--obs-danger) [&_[data-value-kind=null]]:text-(--obs-text-dim) [&_[data-value-kind=null]]:italic [&_[data-value-kind=true]]:text-(--obs-success)"
 	data-phase={presentation.phase}
 	aria-live="polite"
 >
-	<header class="flex items-start justify-between gap-4 border-b-2 border-[var(--debug-accent)] pb-3">
+	<header class="flex items-start justify-between gap-4 border-b-2 border-(--debug-accent) pb-3">
 		<div>
 			<p class={labelClass}>FOR YOUR EYES ONLY</p>
-			<h1 class="mt-0.5 text-2xl font-semibold text-[var(--debug-accent)]">
+			<h1 class="mt-0.5 text-2xl font-semibold text-(--debug-accent)">
 				{verified ? presentation.title : 'checking source'}
 			</h1>
 		</div>
@@ -190,6 +190,6 @@
 	<section class="mt-3" aria-labelledby="payload-heading">
 		<h2 class="mb-1 {labelClass}" id="payload-heading">Raw match payload</h2>
 		<pre
-			class="m-0 border border-[var(--obs-border-muted)] bg-[var(--obs-bg-elevated)] p-2.5 font-[inherit] [overflow-wrap:anywhere] whitespace-pre-wrap text-[var(--obs-text-muted)]">{matchJson}</pre>
+			class="m-0 border border-(--obs-border-muted) bg-(--obs-bg-elevated) p-2.5 font-[inherit] [overflow-wrap:anywhere] whitespace-pre-wrap text-(--obs-text-muted)">{matchJson}</pre>
 	</section>
 </main>
