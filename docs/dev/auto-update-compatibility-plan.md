@@ -196,13 +196,16 @@ The successful update sequence is:
 2. The shim prechecks the staged core, unloads the old core, and loads the staged core from its
    temporary copy.
 3. During `ge_core_load`, the new Rust core copies runtime data into destination-local temporary
-   directories and swaps it into place.
-4. Rust returns startup success only after the data transaction succeeds.
-5. The shim commits the staged core to the canonical core path and removes staging.
+   directories and swaps it into place while retaining rollback copies.
+4. Rust returns startup success only after the provisional data transaction succeeds.
+5. The shim commits the staged core to the canonical core path, tells Rust to commit its data
+   transaction, and removes staging.
 
 If runtime-data installation fails, Rust restores the previous data and returns startup failure. The
 shim then discards the staged core and reopens the unchanged canonical core. The canonical core is
-not replaced until the new core and its runtime data have both started successfully.
+not replaced until the new core and its runtime data have both started successfully. If canonical
+replacement fails, unloading the new core rolls back its pending data transaction before the shim
+reopens the old core.
 
 Implement destination-local runtime-data transactions in Rust so the staging and OBS data
 directories may live on different filesystems. The shim must no longer know names such as

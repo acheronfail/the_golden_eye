@@ -31,4 +31,6 @@ GE_EXPORT bool ge_core_load(void *module_arg, const char *canonical_path, const 
 
 GE_EXPORT void ge_core_post_load(void) { ge_fixture_log("post_load"); }
 
+GE_EXPORT void ge_core_commit_update(void) { ge_fixture_log("commit"); }
+
 GE_EXPORT void ge_core_unload(void) { ge_fixture_log("unload"); }

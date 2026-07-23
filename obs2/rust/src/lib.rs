@@ -125,6 +125,7 @@ struct ServerHandle {
 
 /// Global handle to the running server. `None` when the server is stopped.
 static SERVER: Mutex<Option<ServerHandle>> = Mutex::new(None);
+static PENDING_RUNTIME_DATA: Mutex<Option<update_apply::RuntimeDataTransaction>> = Mutex::new(None);
 
 #[derive(Clone)]
 struct UpdatePaths {
@@ -293,7 +294,12 @@ pub extern "C" fn ge_rust_start() -> bool {
     });
 
     if let Some(transaction) = data_transaction {
-        transaction.commit();
+        let mut pending = PENDING_RUNTIME_DATA.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if pending.is_some() {
+            tracing::error!("a runtime data transaction is already pending");
+            return false;
+        }
+        *pending = Some(transaction);
     }
 
     // Spawn the server onto the runtime. `spawn` returns immediately so the
@@ -315,6 +321,17 @@ pub extern "C" fn ge_rust_start() -> bool {
     let runtime_handle = runtime.handle().clone();
     *guard = Some(ServerHandle { runtime, runtime_handle, shutdown: shutdown_tx, state });
     true
+}
+
+/// Commits runtime data after the shim has durably replaced the canonical core.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_rust_commit_update() {
+    let transaction = PENDING_RUNTIME_DATA.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+    if let Some(transaction) = transaction {
+        transaction.commit();
+    } else {
+        tracing::warn!("ge_rust_commit_update called without a pending runtime data transaction");
+    }
 }
 
 async fn watch_settings_file(state: AppState) {
@@ -372,6 +389,10 @@ pub extern "C" fn ge_rust_stop() {
 
     // Block until all tasks finish and the runtime is fully torn down.
     handle.runtime.shutdown_timeout(Duration::from_secs(30));
+
+    // A normal unload after a committed update has nothing pending. Closing a
+    // newly loaded core before commit drops this transaction and restores data.
+    drop(PENDING_RUNTIME_DATA.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take());
 
     tracing::info!("server stopped");
 }

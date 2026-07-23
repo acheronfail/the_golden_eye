@@ -13,6 +13,7 @@
 typedef bool (*ge_core_load_fn)(void *module_arg, const char *canonical_path, const char *staged_dir, bool is_reload,
                                 ge_request_reload_fn request_reload);
 typedef void (*ge_core_post_load_fn)(void);
+typedef void (*ge_core_commit_update_fn)(void);
 typedef void (*ge_core_unload_fn)(void);
 
 struct ge_core_handle {
@@ -20,6 +21,7 @@ struct ge_core_handle {
   char temp_copy_path[PATH_MAX];
   ge_core_load_fn load;
   ge_core_post_load_fn post_load;
+  ge_core_commit_update_fn commit_update;
   ge_core_unload_fn unload;
 };
 
@@ -118,8 +120,9 @@ static ge_core_handle *open_handle(const char *canonical_path, char *err, size_t
 
   ge_core_load_fn load = (ge_core_load_fn)ge_dynlib_symbol(dl, "ge_core_load");
   ge_core_post_load_fn post_load = (ge_core_post_load_fn)ge_dynlib_symbol(dl, "ge_core_post_load");
+  ge_core_commit_update_fn commit_update = (ge_core_commit_update_fn)ge_dynlib_symbol(dl, "ge_core_commit_update");
   ge_core_unload_fn unload = (ge_core_unload_fn)ge_dynlib_symbol(dl, "ge_core_unload");
-  if (!load || !post_load || !unload) {
+  if (!load || !post_load || !commit_update || !unload) {
     set_err(err, err_size, "core entry points missing from '%s'", canonical_path);
     ge_dynlib_close(dl);
     remove(temp_path);
@@ -137,6 +140,7 @@ static ge_core_handle *open_handle(const char *canonical_path, char *err, size_t
   handle->dl = dl;
   handle->load = load;
   handle->post_load = post_load;
+  handle->commit_update = commit_update;
   handle->unload = unload;
   snprintf(handle->temp_copy_path, sizeof(handle->temp_copy_path), "%s", temp_path);
   return handle;
@@ -202,6 +206,28 @@ bool ge_core_staged_present(const char *canonical_path, const char *staged_dir) 
   return true;
 }
 
+static void discard_staged_update(const char *staged_lib, const char *staged_dir) {
+  remove(staged_lib);
+  ge_platform_remove_dir_recursive(staged_dir);
+}
+
+#ifdef GE_SHIM_TESTING
+static bool g_fail_next_replace = false;
+
+void ge_core_test_fail_next_replace(void) { g_fail_next_replace = true; }
+#endif
+
+static bool replace_core(const char *staged_lib, const char *canonical_path, char *err, size_t err_size) {
+#ifdef GE_SHIM_TESTING
+  if (g_fail_next_replace) {
+    g_fail_next_replace = false;
+    set_err(err, err_size, "forced canonical replacement failure");
+    return false;
+  }
+#endif
+  return ge_platform_replace_file(staged_lib, canonical_path, err, err_size);
+}
+
 bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const char *staged_dir, void *module_arg,
                     ge_request_reload_fn request_reload, char *err, size_t err_size) {
   char staged_lib[PATH_MAX];
@@ -223,6 +249,7 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
   char precheck_err[256];
   ge_core_handle *precheck = open_handle(staged_lib, precheck_err, sizeof(precheck_err));
   if (!precheck) {
+    discard_staged_update(staged_lib, staged_dir);
     set_err(err, err_size, "staged core failed precheck: %s", precheck_err);
     return false;
   }
@@ -238,22 +265,23 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
   char open_err[256];
   if (ge_core_open(staged_lib, canonical_path, staged_dir, module_arg, /*is_reload=*/true, request_reload, &fresh,
                    open_err, sizeof(open_err))) {
-    *handle = fresh;
-
     char sync_err[256] = {0};
-    if (!ge_platform_replace_file(staged_lib, canonical_path, sync_err, sizeof(sync_err))) {
-      set_err(err, err_size, "reload succeeded but canonical sync failed: %s", sync_err);
-      /* The running core is already the new one; only the on-disk sync for
-       * a future cold start failed. Don't tear anything down for this. */
+    if (replace_core(staged_lib, canonical_path, sync_err, sizeof(sync_err))) {
+      fresh->commit_update();
+      *handle = fresh;
+      ge_platform_remove_dir_recursive(staged_dir);
+      return true;
     }
 
-    ge_platform_remove_dir_recursive(staged_dir);
-    return true;
+    ge_core_close(fresh);
+    discard_staged_update(staged_lib, staged_dir);
+    snprintf(open_err, sizeof(open_err), "canonical core replacement failed: %s", sync_err);
+  } else {
+    discard_staged_update(staged_lib, staged_dir);
   }
 
-  /* New failed to come up. Canonical is untouched (sync only happens on
-   * success, above) -- roll back by relaunching the original. Not itself an
-   * applied update (it's a revert), so is_reload is false here. */
+  /* The canonical core is unchanged. Reopen it after Rust has rolled back any
+   * provisional runtime data held by the failed new core. */
   char rollback_err[256];
   if (!ge_core_open(canonical_path, canonical_path, staged_dir, module_arg, /*is_reload=*/false, request_reload, handle,
                     rollback_err, sizeof(rollback_err))) {

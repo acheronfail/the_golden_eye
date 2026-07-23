@@ -52,12 +52,12 @@ the core library and bundled runtime data while OBS keeps the shim loaded.
 5. The shim starts the staged core by calling
    `ge_core_load(canonical_core, staged_directory, is_reload=true, ...)`.
 6. Before reporting startup success, the new Rust core resolves OBS's module data directory and
-   transactionally installs `cv_templates` and `locale` using destination-local temporary
-   directories. This also works when staging and OBS data are on different filesystems.
-7. After the new core is running, the shim copies only the staged core binary over the canonical
-   core path and removes staging.
-8. If runtime-data installation or core startup fails, Rust restores the previous data and reports
-   failure. The shim leaves the canonical core untouched and reopens it as a rollback.
+   provisionally installs `cv_templates` and `locale` using destination-local temporary
+   directories. It retains the previous data until the core commit finishes.
+7. After the new core is running, the shim moves only the staged core binary over the canonical
+   core path, tells Rust to commit its pending data transaction, and removes staging.
+8. If runtime-data installation, core startup, or canonical replacement fails, Rust restores the
+   previous data. The shim discards staging and reopens the unchanged canonical core.
 
 ## Manual installation boundary
 

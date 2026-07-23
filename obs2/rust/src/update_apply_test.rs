@@ -78,6 +78,54 @@ fn packaged_core_is_staged_under_the_installed_custom_name() {
 }
 
 #[test]
+fn prepared_update_requires_a_fresh_destination_and_all_runtime_data() {
+    let dir = tempdir();
+    let extracted = dir.path().join("extracted");
+    std::fs::create_dir_all(extracted.join("cv_templates")).unwrap();
+    std::fs::write(extracted.join(packaged_core_name()), b"core").unwrap();
+
+    let prepared = dir.path().join("prepared");
+    let error = prepare_staged_update(&extracted, &prepared, OsStr::new("custom-core")).unwrap_err();
+    assert!(error.to_string().contains("locale"));
+
+    std::fs::remove_dir_all(&prepared).unwrap();
+    std::fs::create_dir_all(extracted.join("locale")).unwrap();
+    std::fs::create_dir(&prepared).unwrap();
+    std::fs::write(prepared.join("stale.txt"), b"stale").unwrap();
+    let error = prepare_staged_update(&extracted, &prepared, OsStr::new("custom-core")).unwrap_err();
+    assert!(error.to_string().contains("fresh prepared update directory"));
+}
+
+#[test]
+fn update_workspaces_are_unique_and_start_empty() {
+    let dir = tempdir();
+    let staged = dir.path().join(".ge_update_staged");
+    let first = UpdateWorkDir::create(&staged).unwrap();
+    std::fs::write(first.path().join("stale.txt"), b"stale").unwrap();
+    let first_path = first.path().to_owned();
+
+    let second = UpdateWorkDir::create(&staged).unwrap();
+    assert_ne!(first.path(), second.path());
+    assert_eq!(std::fs::read_dir(second.path()).unwrap().count(), 0);
+    let second_path = second.path().to_owned();
+
+    drop(first);
+    drop(second);
+    assert!(!first_path.exists());
+    assert!(!second_path.exists());
+}
+
+#[test]
+fn staged_publication_refuses_a_non_directory_destination() {
+    let dir = tempdir();
+    let staged = dir.path().join(".ge_update_staged");
+    std::fs::write(&staged, b"not a directory").unwrap();
+
+    assert!(remove_staged_dir(&staged).is_err());
+    assert_eq!(std::fs::read(&staged).unwrap(), b"not a directory");
+}
+
+#[test]
 fn runtime_data_commit_keeps_new_directories() {
     let dir = tempdir();
     let staged = dir.path().join("staging on another path");

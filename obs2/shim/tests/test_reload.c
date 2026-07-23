@@ -84,6 +84,14 @@ int main(int argc, char **argv) {
   CHECK(handle != NULL, "handle should remain valid after a no-op reload");
 
   char staged_lib[PATH_MAX];
+  test_join(staged_lib, sizeof(staged_lib), staged_dir, GE_CORE_LEAF);
+  CHECK(test_write_file(staged_lib, "not a shared library"), "failed to stage invalid precheck fixture");
+  ok = ge_core_reload(&handle, canonical, staged_dir, NULL, dummy_request_reload, err, sizeof(err));
+  CHECK(!ok, "reload should reject a staged core that fails precheck");
+  CHECK(handle != NULL, "precheck failure should leave the running core untouched");
+  CHECK(!ge_platform_dir_exists(staged_dir), "precheck failure should discard its staged update");
+
+  CHECK(make_staging_dir(core_dir, staged_dir, sizeof(staged_dir)), "failed to recreate staging after precheck");
   CHECK(stage_core(fixture_v2, staged_dir, staged_lib, sizeof(staged_lib)), "failed to stage fixture_v2");
   CHECK(ge_core_staged_present(canonical, staged_dir), "the custom-named staged core should be detected");
 
@@ -112,7 +120,7 @@ int main(int argc, char **argv) {
 
   ge_core_handle_post_load(handle);
   char *log = test_read_file(log_path);
-  CHECK(log && strcmp(log, "unload gen=1\nload gen=2\npost_load gen=2\n") == 0,
+  CHECK(log && strcmp(log, "unload gen=1\nload gen=2\ncommit gen=2\npost_load gen=2\n") == 0,
         "unexpected successful reload sequence: %s", log ? log : "(missing)");
   free(log);
 
@@ -129,14 +137,35 @@ int main(int argc, char **argv) {
   CHECK(!ok, "reload to fixture_bad should report failure");
   CHECK(handle != NULL, "failed reload should roll back to a running core");
   CHECK(test_files_equal(canonical, fixture_v1), "failed reload must not replace the canonical core");
+  CHECK(!ge_platform_dir_exists(staged_dir), "failed reload should discard its staged update");
   log = test_read_file(log_path);
   CHECK(log && strcmp(log, "unload gen=1\nload gen=99\nload gen=1\n") == 0, "unexpected rollback sequence: %s",
         log ? log : "(missing)");
   free(log);
 
+  // A canonical replacement failure happens after the new core starts. Closing
+  // it must roll back provisional data before the old core is reopened.
   ge_core_close(handle);
   handle = NULL;
-  ge_platform_remove_dir_recursive(staged_dir);
+  CHECK(make_staging_dir(core_dir, staged_dir, sizeof(staged_dir)), "failed to recreate commit-failure staging");
+  CHECK(stage_core(fixture_v2, staged_dir, staged_lib, sizeof(staged_lib)), "failed to stage commit-failure fixture");
+  CHECK(ge_core_open(canonical, canonical, staged_dir, NULL, false, dummy_request_reload, &handle, err, sizeof(err)),
+        "re-open before commit-failure scenario failed: %s", err);
+
+  remove(log_path);
+  ge_core_test_fail_next_replace();
+  ok = ge_core_reload(&handle, canonical, staged_dir, NULL, dummy_request_reload, err, sizeof(err));
+  CHECK(!ok, "reload should fail when canonical replacement fails");
+  CHECK(handle != NULL, "canonical replacement failure should roll back to a running core");
+  CHECK(test_files_equal(canonical, fixture_v1), "canonical replacement failure must preserve the old core");
+  CHECK(!ge_platform_dir_exists(staged_dir), "canonical replacement failure should discard staging");
+  log = test_read_file(log_path);
+  CHECK(log && strcmp(log, "unload gen=1\nload gen=2\nunload gen=2\nload gen=1\n") == 0,
+        "unexpected canonical replacement rollback sequence: %s", log ? log : "(missing)");
+  free(log);
+
+  ge_core_close(handle);
+  handle = NULL;
   CHECK(make_staging_dir(core_dir, staged_dir, sizeof(staged_dir)), "failed to recreate worker staging directory");
   CHECK(stage_core(fixture_v2, staged_dir, staged_lib, sizeof(staged_lib)), "failed to stage worker fixture");
   CHECK(ge_core_open(canonical, canonical, staged_dir, NULL, false, dummy_request_reload, &handle, err, sizeof(err)),
@@ -155,7 +184,7 @@ int main(int argc, char **argv) {
 
   CHECK(g_worker_reload_ok, "worker-triggered reload should succeed: %s", g_worker_err);
   log = test_read_file(log_path);
-  CHECK(log && strcmp(log, "unload gen=1\nload gen=2\n") == 0, "unexpected worker reload sequence: %s",
+  CHECK(log && strcmp(log, "unload gen=1\nload gen=2\ncommit gen=2\n") == 0, "unexpected worker reload sequence: %s",
         log ? log : "(missing)");
   free(log);
 

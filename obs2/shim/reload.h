@@ -45,6 +45,10 @@ bool ge_core_staged_present(const char *canonical_path, const char *staged_dir);
 bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const char *staged_dir, void *module_arg,
                     ge_request_reload_fn request_reload, char *err, size_t err_size);
 
+#ifdef GE_SHIM_TESTING
+void ge_core_test_fail_next_replace(void);
+#endif
+
 // Starts the reload worker thread. `on_request` fires on the worker's own stack
 // each time ge_reload_worker_request() wakes it. Returns false on failure.
 bool ge_reload_worker_start(void (*on_request)(void));

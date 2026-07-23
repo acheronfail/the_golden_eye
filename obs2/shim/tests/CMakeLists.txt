@@ -49,6 +49,7 @@ add_executable(ge_shim_reload_tests
     test_reload.c
 )
 target_include_directories(ge_shim_reload_tests PRIVATE .. .)
+target_compile_definitions(ge_shim_reload_tests PRIVATE GE_SHIM_TESTING=1)
 target_link_libraries(ge_shim_reload_tests PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
 add_dependencies(ge_shim_reload_tests ge_fixture_v1 ge_fixture_v2 ge_fixture_bad)
 

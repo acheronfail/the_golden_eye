@@ -151,6 +151,10 @@ GE_EXPORT void ge_core_post_load(void) {
   ge_browser_dock_post_load();
 }
 
+// Called by the shim only after the staged core has replaced the canonical
+// file. Rust can now discard its runtime-data rollback copies.
+GE_EXPORT void ge_core_commit_update(void) { ge_rust_commit_update(); }
+
 // Called by the shim before it dlcloses this library (on OBS shutdown, or
 // before a reload). `ge_rust_stop` blocks until the tokio runtime is fully
 // torn down, so no Rust threads survive the dlclose that follows.

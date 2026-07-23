@@ -15,17 +15,15 @@ use sha2::{Digest, Sha256};
 use crate::http::{AppState, AppStateInner};
 use crate::updates::{GithubAsset, PluginUpdate, platform_arch_suffix_for};
 
-const DOWNLOAD_DIR_NAME: &str = ".ge_update_staged.download";
 const CHECKSUMS_ASSET_NAME: &str = "checksums.txt";
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 const AUTO_APPLY_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 const RUNTIME_DATA_DIRS: [&str; 2] = ["cv_templates", "locale"];
 
-/// Serializes staging: concurrent callers (e.g. startup auto-check plus a manual
-/// "check now") share the single `.ge_update_staged{,.download}` dirs, so without
-/// this one run could clobber the other mid-copy and leave nothing staged.
+/// Serializes publication to the single shim-visible staging directory.
 static STAGE_LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
 static DATA_SWAP_COUNTER: AtomicU64 = AtomicU64::new(0);
+static WORK_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// The exact `<platform>-<arch>` suffix `Package.cmake` bakes into release zip names,
 /// including its `aarch64` -> `arm64`
@@ -56,12 +54,6 @@ fn canonical_core_path() -> anyhow::Result<PathBuf> {
 
 fn staged_dir() -> anyhow::Result<PathBuf> {
     crate::staged_update_dir().context("staged update path not set")
-}
-
-fn download_dir() -> anyhow::Result<PathBuf> {
-    let staged = staged_dir()?;
-    let parent = staged.parent().context("staged update path has no parent directory")?;
-    Ok(parent.join(DOWNLOAD_DIR_NAME))
 }
 
 fn packaged_core_name() -> &'static OsStr {
@@ -173,35 +165,31 @@ pub async fn download_verify_and_stage(update: &PluginUpdate, assets: Vec<Github
 
     let expected_sha256 = fetch_expected_sha256(&client, &checksums_asset.browser_download_url, &zip_name).await?;
 
-    // Work outside the shim-visible staging directory until verification and
-    // package interpretation are complete.
-    let download_dir = download_dir()?;
-    let _ = std::fs::remove_dir_all(&download_dir);
-    std::fs::create_dir_all(&download_dir).context("creating update download directory")?;
+    // A fresh sibling workspace guarantees extraction cannot reuse files from
+    // an earlier attempt and keeps the final publication rename same-volume.
+    let staged_dir = staged_dir()?;
+    let work_dir = UpdateWorkDir::create(&staged_dir)?;
 
-    let zip_path = download_dir.join("release.zip");
+    let zip_path = work_dir.path().join("release.zip");
     download_to_file(&client, &zip_asset.browser_download_url, &zip_path).await?;
 
     let actual_sha256 = sha256_of_file(&zip_path)?;
     if !actual_sha256.eq_ignore_ascii_case(&expected_sha256) {
-        let _ = std::fs::remove_dir_all(&download_dir);
         anyhow::bail!(
             "downloaded release failed checksum verification (expected {expected_sha256}, got {actual_sha256})"
         );
     }
 
-    let extracted_dir = download_dir.join("extracted");
+    let extracted_dir = work_dir.path().join("extracted");
     extract_zip(&zip_path, &extracted_dir)?;
 
-    let prepared_dir = download_dir.join("staged");
+    let prepared_dir = work_dir.path().join("prepared");
     prepare_staged_update(&extracted_dir, &prepared_dir, &core_leaf_name)?;
 
     // Only now touch the directory visible to the shim, replacing it wholesale.
-    let staged_dir = staged_dir()?;
-    let _ = std::fs::remove_dir_all(&staged_dir);
+    remove_staged_dir(&staged_dir)?;
     std::fs::rename(&prepared_dir, &staged_dir).context("publishing staged update directory")?;
 
-    let _ = std::fs::remove_dir_all(&download_dir);
     tracing::info!(version = %update.latest_version, "staged plugin update, ready to apply");
     Ok(())
 }
@@ -209,7 +197,7 @@ pub async fn download_verify_and_stage(update: &PluginUpdate, assets: Vec<Github
 fn prepare_staged_update(extracted_dir: &Path, prepared_dir: &Path, installed_core_leaf: &OsStr) -> anyhow::Result<()> {
     let core_src = find_named(extracted_dir, packaged_core_name())
         .with_context(|| format!("release package does not contain '{}'", packaged_core_name().to_string_lossy()))?;
-    std::fs::create_dir_all(prepared_dir).context("creating prepared update directory")?;
+    std::fs::create_dir(prepared_dir).context("creating fresh prepared update directory")?;
     std::fs::copy(&core_src, prepared_dir.join(installed_core_leaf)).context("staging core library")?;
 
     for name in RUNTIME_DATA_DIRS {
@@ -218,6 +206,46 @@ fn prepare_staged_update(extracted_dir: &Path, prepared_dir: &Path, installed_co
         copy_dir_recursive(&src, &prepared_dir.join(name)).with_context(|| format!("staging {name}"))?;
     }
     Ok(())
+}
+
+struct UpdateWorkDir(PathBuf);
+
+impl UpdateWorkDir {
+    fn create(staged_dir: &Path) -> anyhow::Result<Self> {
+        let parent = staged_dir.parent().context("staged update path has no parent directory")?;
+        for _ in 0..100 {
+            let sequence = WORK_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let candidate = parent.join(format!(".ge-update-work-{}-{sequence}", std::process::id()));
+            match std::fs::create_dir(&candidate) {
+                Ok(()) => return Ok(Self(candidate)),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error).context("creating update workspace"),
+            }
+        }
+        anyhow::bail!("could not allocate a unique update workspace")
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for UpdateWorkDir {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_dir_all(&self.0)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(path = %self.0.display(), "failed to remove update workspace: {error}");
+        }
+    }
+}
+
+fn remove_staged_dir(path: &Path) -> anyhow::Result<()> {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).context("removing previous staged update"),
+    }
 }
 
 struct DirectorySwap {
