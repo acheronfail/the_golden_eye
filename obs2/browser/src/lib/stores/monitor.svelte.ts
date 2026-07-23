@@ -1,21 +1,13 @@
 import {
 	type AppSnapshot,
-	type FailedRunNotSavedReason,
 	type LevelMatch,
 	type MonitorFps,
 	type MonitorStatus,
 	type MonitorStoppedReason,
-	type RecordingSaveDiscarded,
-	type RecordingSavePending,
 	type RecordingSaved,
 	type RecordingStatus
 } from '$lib/api';
-import {
-	addNotificationFlag,
-	dismissNotificationFlag,
-	replaceNotificationFlag
-} from '$lib/stores/notifications.svelte';
-import { levelMatchMetaChips } from '$lib/utils/runsView';
+import { addNotificationFlag, replaceNotificationFlag } from '$lib/stores/notifications.svelte';
 
 export interface MonitorPhaseStyle {
 	title: string;
@@ -182,40 +174,10 @@ const clearRunState = () => {
 	monitor.recordingState = null;
 };
 
-const pendingSaveNotificationIds = new Map<number, number>();
 let languageDetectedNotificationId: number | null = null;
 
 const visibleRecordingState = (status: RecordingStatus | null): RecordingStatus | null =>
 	status === 'savePending' ? null : status;
-
-const formatWholeSeconds = (value: number): string => {
-	const seconds = Math.max(0, Math.ceil(value));
-	return `${seconds} second${seconds === 1 ? '' : 's'}`;
-};
-
-const formatRunTime = (seconds: number): string => {
-	const m = Math.floor(seconds / 60);
-	const s = seconds % 60;
-	return `${m}:${s.toString().padStart(2, '0')}`;
-};
-
-const savePendingDetail = (pending: RecordingSavePending): string => {
-	const parts = [
-		pending.levelNumber ? `${pending.levelNumber}. ${pending.level}` : pending.level,
-		pending.difficulty,
-		pending.timeSecs !== undefined ? formatRunTime(pending.timeSecs) : undefined,
-		pending.status
-	].filter((part): part is string => Boolean(part));
-	return parts.join(' | ');
-};
-
-const savePendingMeta = (pending: RecordingSavePending): string => {
-	const parts = [`Clip will save in ${formatWholeSeconds(pending.saveInSecs)}`];
-	parts.push(`about ${pending.estimatedDurationSecs.toFixed(1)}s`);
-	if (pending.targetTimeSecs !== undefined) parts.push(`target ${formatRunTime(pending.targetTimeSecs)}`);
-	if (pending.bestTimeSecs !== undefined) parts.push(`best ${formatRunTime(pending.bestTimeSecs)}`);
-	return parts.join(' | ');
-};
 
 export const monitorStatusFromSnapshot = (snapshot: AppSnapshot): MonitorStatus =>
 	snapshot.monitor.enabled && snapshot.monitor.sourceName
@@ -270,55 +232,7 @@ export const triggerKiaDeathOverlay = (): void => {
 	monitor.kiaEffectId += 1;
 };
 
-export const applyRecordingSavePending = (pending: RecordingSavePending): void => {
-	const notification = {
-		title: 'Saving recording',
-		detail: savePendingDetail(pending),
-		meta: savePendingMeta(pending),
-		tone: pending.failed ? 'warning' : 'info',
-		sticky: true
-	} as const;
-
-	// The backend re-sends this under the same saveId when the run time is
-	// refined; replace the existing toast in place so a corrected time doesn't
-	// leave the first (stale) one stuck alongside it.
-	const existingFlagId = pendingSaveNotificationIds.get(pending.saveId);
-	if (existingFlagId !== undefined && replaceNotificationFlag(existingFlagId, notification)) {
-		return;
-	}
-	const flag = addNotificationFlag(notification);
-	pendingSaveNotificationIds.set(pending.saveId, flag.id);
-};
-
-export const applyRecordingSaveDiscarded = (discarded: RecordingSaveDiscarded): void => {
-	const flagId = pendingSaveNotificationIds.get(discarded.saveId);
-	if (flagId === undefined) return;
-	pendingSaveNotificationIds.delete(discarded.saveId);
-	dismissNotificationFlag(flagId);
-};
-
-const failedRunNotSavedDetail = (reason: FailedRunNotSavedReason): string => {
-	switch (reason) {
-		case 'savingDisabled':
-			return 'Saving failed runs is turned off in options.';
-		case 'tooShort':
-			return 'The run was shorter than the minimum failed-run length.';
-	}
-};
-
-/** A failed run reached an ending but wasn't saved. Shown as a transient
- * notification -- never as a recorder phase, so a late-firing discard from an
- * earlier run can't knock a newly-started run out of its "recording" state. */
-export const applyFailedRunNotSaved = (reason: FailedRunNotSavedReason): void => {
-	addNotificationFlag({
-		title: 'Failed run not saved',
-		detail: failedRunNotSavedDetail(reason),
-		tone: 'info',
-		sticky: false
-	});
-};
-
-export const applyRecordingSaved = (saved: RecordingSaved): void => {
+export const applyRecordingSaved = (_saved: RecordingSaved): void => {
 	if (
 		monitor.recordingState === 'complete' ||
 		monitor.recordingState === 'failed' ||
@@ -328,18 +242,6 @@ export const applyRecordingSaved = (saved: RecordingSaved): void => {
 	) {
 		monitor.recordingState = null;
 	}
-	const notification = {
-		title: 'Clip saved',
-		pills: levelMatchMetaChips(saved.stats, { failed: saved.failed, durationSecs: saved.durationSecs }),
-		meta: `Duration: ${saved.durationSecs.toFixed(1)}s`,
-		tone: saved.failed ? 'warning' : 'success'
-	} as const;
-	const pendingFlagId = pendingSaveNotificationIds.get(saved.saveId);
-	if (pendingFlagId !== undefined) {
-		pendingSaveNotificationIds.delete(saved.saveId);
-		if (replaceNotificationFlag(pendingFlagId, notification)) return;
-	}
-	addNotificationFlag(notification);
 };
 
 export const applyMonitorStopped = (reason: MonitorStoppedReason): void => {

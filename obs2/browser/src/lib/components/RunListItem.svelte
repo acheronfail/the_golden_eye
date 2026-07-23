@@ -13,7 +13,8 @@
 		open,
 		rename,
 		reveal,
-		remove
+		remove,
+		keep = () => {}
 	}: {
 		clip: RunClip;
 		busy?: boolean;
@@ -24,12 +25,14 @@
 		rename: (clip: RunClip) => void | Promise<void>;
 		reveal: (clip: RunClip) => void | Promise<void>;
 		remove: (clip: RunClip) => void | Promise<void>;
+		keep?: (clip: RunClip) => void | Promise<void>;
 	} = $props();
 
 	const actionItems = $derived<ActionMenuItem[]>([
 		{ label: 'Open', action: () => open(clip) },
-		{ label: 'Rename', action: () => rename(clip) },
-		{ label: fileBrowserLabel, action: () => reveal(clip) },
+		...(clip.path ? [{ label: 'Rename', action: () => rename(clip) }] : []),
+		...(clip.path ? [{ label: fileBrowserLabel, action: () => reveal(clip) }] : []),
+		...(clip.path && clip.retentionState === 'pending' ? [{ label: 'Keep', action: () => keep(clip) }] : []),
 		{ label: 'Delete', action: () => remove(clip), tone: 'danger' }
 	]);
 </script>
@@ -49,7 +52,9 @@
 			>
 				Achieved: {formatDate(clip.metadata.timestamp)}
 			</span>
-			<span class="obs-list-detail min-w-0 truncate font-mono text-[10px]" title={clip.fileName}>{clip.fileName}</span>
+			<span class="obs-list-detail min-w-0 truncate font-mono text-[10px]" title={clip.fileName || 'Run history only'}
+				>{clip.fileName || 'Run history only'} · {clip.retentionReason ?? clip.retentionState ?? 'kept'}</span
+			>
 		</span>
 		<span class="obs-list-arrow shrink-0 font-mono transition-transform group-hover:translate-x-1" aria-hidden="true"
 			>→</span
@@ -59,7 +64,7 @@
 	<ActionMenu
 		items={actionItems}
 		label="More actions"
-		title={`Actions for ${clip.fileName}`}
+		title={`Actions for ${clip.fileName || `${clip.metadata.level} run`}`}
 		{busy}
 		bind:open={menuOpen}
 		onOpenChange={onMenuOpenChange}

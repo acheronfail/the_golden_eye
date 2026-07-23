@@ -9,7 +9,16 @@ import { youtube } from '$lib/stores/youtube.svelte';
 const mocks = vi.hoisted(() => ({
 	revealRunFolder: vi.fn(),
 	streamRuns: vi.fn(),
-	runVideoUrl: vi.fn((path: string) => `/api/v1/runs/video?path=${encodeURIComponent(path)}`)
+	runVideoUrl: vi.fn((path: string) => `/api/v1/runs/video?path=${encodeURIComponent(path)}`),
+	pageUrl: new URL('http://localhost/runs')
+}));
+
+vi.mock('$app/state', () => ({
+	page: {
+		get url() {
+			return mocks.pageUrl;
+		}
+	}
 }));
 
 vi.mock('$lib/api', async (importOriginal) => {
@@ -34,6 +43,7 @@ const clip = (overrides: {
 	status: string;
 	time: string;
 }): RunClip => ({
+	runId: overrides.fileName,
 	path: `/runs/${overrides.fileName}`,
 	fileName: overrides.fileName,
 	directory: '/runs',
@@ -52,17 +62,15 @@ const clip = (overrides: {
 		sourceName: 'GoldenEye',
 		comment: 'The Golden Eye',
 		pluginVersion: '1.0.0'
-	}
+	},
+	retentionState: 'kept',
+	retentionReason: 'manual'
 });
 
 const streamEvents: RunsStreamEvent[] = [
 	{
 		type: 'directory',
 		directory: { kind: 'completed', path: '/runs', exists: true, error: null }
-	},
-	{
-		type: 'directory',
-		directory: { kind: 'failed', path: '/runs/failed', exists: true, error: null }
 	},
 	{
 		type: 'clip',
@@ -88,12 +96,34 @@ const streamEvents: RunsStreamEvent[] = [
 			time: '01:12'
 		})
 	},
+	{
+		type: 'clip',
+		clip: {
+			...clip({
+				fileName: 'deleted-run',
+				timestamp: '2026-07-12T10:00:00Z',
+				level: 'Archives',
+				levelNumber: 10,
+				difficulty: 'Secret Agent',
+				status: 'failed',
+				time: '01:05'
+			}),
+			path: '',
+			fileName: '',
+			directory: '',
+			sizeBytes: 0,
+			durationSecs: null,
+			retentionState: 'expired',
+			retentionReason: 'deleted'
+		}
+	},
 	{ type: 'done' }
 ];
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	settings.saveFailedRuns = true;
+	mocks.pageUrl = new URL('http://localhost/runs');
+	window.history.replaceState({}, '', '/runs');
 	youtube.loaded = true;
 	youtube.enabled = false;
 	youtube.oauthConfigured = false;
@@ -138,20 +168,8 @@ describe('/runs', () => {
 		expect(screen.queryByRole('button', { name: /dam-failed\.mov/i })).not.toBeInTheDocument();
 	});
 
-	it('lets the user choose which configured clips folder to open', async () => {
+	it('opens the standard clips folder directly', async () => {
 		const user = userEvent.setup();
-		render(RunsPage);
-
-		const showFolder = await screen.findByRole('button', { name: /show clips/i });
-		await user.click(showFolder);
-		await user.click(screen.getByRole('button', { name: /Failed clips/i }));
-
-		expect(mocks.revealRunFolder).toHaveBeenCalledWith('failed');
-	});
-
-	it('opens completed clips directly when failed run saving is disabled', async () => {
-		const user = userEvent.setup();
-		settings.saveFailedRuns = false;
 		render(RunsPage);
 
 		const showFolder = await screen.findByRole('button', { name: /show clips/i });
@@ -188,5 +206,26 @@ describe('/runs', () => {
 		expect(screen.getByText('Preview')).toBeInTheDocument();
 		expect(screen.getByRole('link', { name: 'Edit templates' })).toBeInTheDocument();
 		expect(screen.queryByText('Connect YouTube to upload videos.')).not.toBeInTheDocument();
+	});
+
+	it('keeps metadata editable for run history whose video was deleted', async () => {
+		const user = userEvent.setup();
+		render(RunsPage);
+
+		await user.click(await screen.findByRole('button', { name: /Run history only/i }));
+
+		expect(screen.getByText('The video has been removed. Run history is still available.')).toBeInTheDocument();
+		expect(screen.getByRole('heading', { name: 'Metadata' })).toBeInTheDocument();
+		expect(screen.getByRole('textbox', { name: 'Time' })).toHaveValue('01:05');
+		expect(screen.queryByText('Size')).not.toBeInTheDocument();
+	});
+
+	it('opens the requested run from a recent-run link', async () => {
+		mocks.pageUrl = new URL('http://localhost/runs?runId=deleted-run');
+		window.history.replaceState({}, '', '/runs?runId=deleted-run');
+		render(RunsPage);
+
+		expect(await screen.findByRole('dialog', { name: 'Run video' })).toBeInTheDocument();
+		expect(screen.getByRole('heading', { name: 'Archives run history' })).toBeInTheDocument();
 	});
 });

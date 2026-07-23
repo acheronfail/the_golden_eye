@@ -263,18 +263,19 @@ impl Drop for Harness {
     }
 }
 
-pub fn recording_settings(completed: &Path, failed: &Path) -> Value {
+pub fn recording_settings(completed: &Path, _failed: &Path) -> Value {
     json!({
         "completedOutputPath": completed,
-        "failedOutputPath": failed,
-        "saveFailedRuns": true,
-        "minimumFailedRunLengthSecs": 0,
-        "failedRunLimit": 0,
+        "recentRunLimit": 5,
         "clipFilenameTemplate": "integration-{status}-{level}",
         "preRunPaddingSecs": 0,
         "postRunPaddingSecs": 0,
         "discordNotificationsEnabled": false
     })
+}
+
+pub fn run_catalog_path(temp: &Path) -> PathBuf {
+    settings_path(temp).parent().unwrap().join("runs.sqlite")
 }
 
 pub async fn wait_for_clip(dir: &Path) -> PathBuf {

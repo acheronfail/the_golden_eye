@@ -322,23 +322,10 @@ export function formatDuration(seconds?: number | null): string | null {
 	return `${minutes}:${secs.toString().padStart(2, '0')}`;
 }
 
-export function formatBytes(bytes: number): string {
-	if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-	const units = ['B', 'KB', 'MB', 'GB'];
-	let value = bytes;
-	let unit = 0;
-	while (value >= 1024 && unit < units.length - 1) {
-		value /= 1024;
-		unit++;
-	}
-	return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
-
 export function fileRows(clip: RunClip): { label: string; value: string | null | undefined }[] {
 	return [
 		{ label: 'Run timestamp', value: formatDate(clip.metadata.timestamp) },
 		{ label: 'Duration', value: formatDuration(clip.durationSecs) },
-		{ label: 'Size', value: formatBytes(clip.sizeBytes) },
 		{ label: 'Created by', value: clip.metadata.comment }
 	];
 }

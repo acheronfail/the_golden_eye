@@ -1,4 +1,1 @@
-CREATE INDEX IF NOT EXISTS clips_status_timestamp_idx ON clips (
-    json_extract(metadata_json, '$.status'),
-    json_extract(metadata_json, '$.timestamp') DESC
-);
+CREATE INDEX IF NOT EXISTS runs_status_timestamp_idx ON runs(status, completed_unix_micros DESC);

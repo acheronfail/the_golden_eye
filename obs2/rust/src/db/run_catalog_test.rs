@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::*;
 use crate::db::run_catalog::RunCatalog;
@@ -45,6 +45,7 @@ fn sample_clip() -> PathBuf {
 
 fn metadata(status: &str, timestamp: &str) -> ClipMetadata {
     ClipMetadata {
+        run_id: String::new(),
         timestamp: timestamp.to_owned(),
         time: Some("02:03".to_owned()),
         time_seconds: Some(123),
@@ -56,6 +57,8 @@ fn metadata(status: &str, timestamp: &str) -> ClipMetadata {
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin test".to_owned(),
         plugin_version: "test".to_owned(),
+        retention_state: "kept".to_owned(),
+        retention_reason: Some("imported".to_owned()),
     }
 }
 
@@ -72,6 +75,116 @@ fn write_tagged_clip(path: &Path, status: &str, timestamp: &str) {
 
 fn catalog(dir: &TestDir) -> RunCatalog {
     RunCatalog::open(dir.join("runs.sqlite")).expect("open catalog")
+}
+
+fn finalized_metadata(status: RunStatus, time_seconds: Option<i32>, difficulty: &str) -> ClipMetadata {
+    let mut value = metadata(status.as_str(), "2026-01-01T00:00:00Z");
+    value.status = status;
+    value.time_seconds = time_seconds;
+    value.time = time_seconds.map(|time| format!("{:02}:{:02}", time / 60, time % 60));
+    value.difficulty = Some(difficulty.to_owned());
+    value.retention_state.clear();
+    value.retention_reason = None;
+    value
+}
+
+fn attach_clip(dir: &TestDir, catalog: &RunCatalog, run: &RunRecord, name: &str) -> PathBuf {
+    let path = dir.join(name);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    let input = sample_clip();
+    let full = ffmpeg::duration_secs(&input).unwrap();
+    ffmpeg::trim_with_metadata(&input, &path, 1.0, (full - 1.0).max(2.0), Some(&run.metadata)).unwrap();
+    catalog
+        .record_saved_clip(RunCatalogSave {
+            path: path.clone(),
+            duration_secs: Some(full - 2.0),
+            metadata: run.metadata.clone(),
+        })
+        .unwrap();
+    path
+}
+
+#[test]
+fn catalog_personal_bests_are_computed_from_prior_catalog_runs() {
+    let dir = TestDir::new("personal-bests");
+    let catalog = catalog(&dir);
+    let base = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+
+    let first =
+        catalog.create_finalized_run(base, finalized_metadata(RunStatus::Complete, Some(100), "00 Agent")).unwrap();
+    assert_eq!(first.retention_state, RunRetentionState::Kept);
+    assert_eq!(first.retention_reason.as_deref(), Some("personalBest"));
+    assert!(first.run_id.contains("-l08-"));
+
+    let slower = catalog
+        .create_finalized_run(
+            base + Duration::from_secs(1),
+            finalized_metadata(RunStatus::Complete, Some(101), "00 Agent"),
+        )
+        .unwrap();
+    assert_eq!(slower.retention_state, RunRetentionState::Pending);
+
+    let equal = catalog
+        .create_finalized_run(
+            base + Duration::from_secs(2),
+            finalized_metadata(RunStatus::Complete, Some(100), "00 Agent"),
+        )
+        .unwrap();
+    assert_eq!(equal.retention_state, RunRetentionState::Pending);
+    let faster = catalog
+        .create_finalized_run(
+            base + Duration::from_secs(3),
+            finalized_metadata(RunStatus::Complete, Some(99), "00 Agent"),
+        )
+        .unwrap();
+    assert_eq!(faster.retention_state, RunRetentionState::Kept);
+    assert_eq!(faster.retention_reason.as_deref(), Some("personalBest"));
+    let failed = catalog
+        .create_finalized_run(
+            base + Duration::from_secs(4),
+            finalized_metadata(RunStatus::Failed, Some(50), "00 Agent"),
+        )
+        .unwrap();
+    assert_eq!(failed.retention_state, RunRetentionState::Pending);
+
+    let collision =
+        catalog.create_finalized_run(base, finalized_metadata(RunStatus::Failed, Some(10), "00 Agent")).unwrap();
+    assert_ne!(first.run_id, collision.run_id);
+    assert!(collision.run_id.ends_with("-2"));
+}
+
+#[test]
+fn recent_history_persists_and_both_delete_modes_preserve_the_requested_data() {
+    let dir = TestDir::new("durable-history");
+    let db_path = dir.join("runs.sqlite");
+    let catalog = RunCatalog::open(db_path.clone()).unwrap();
+    let base = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+    let keep_history =
+        catalog.create_finalized_run(base, finalized_metadata(RunStatus::Failed, Some(80), "Agent")).unwrap();
+    let delete_all = catalog
+        .create_finalized_run(base + Duration::from_secs(1), finalized_metadata(RunStatus::Failed, Some(90), "Agent"))
+        .unwrap();
+    let first_path = attach_clip(&dir, &catalog, &keep_history, "clips/first.mov");
+    let second_path = attach_clip(&dir, &catalog, &delete_all, "clips/second.mov");
+    catalog.keep(&keep_history.run_id).unwrap();
+    drop(catalog);
+
+    let catalog = RunCatalog::open(db_path).unwrap();
+    let recent = catalog.recent_runs(5).unwrap();
+    assert_eq!(recent.len(), 2);
+    assert_eq!(recent[0].run_id, delete_all.run_id);
+    assert_eq!(recent[1].retention_state, RunRetentionState::Kept);
+
+    let history = catalog.delete_video_keep_history(&keep_history.run_id).unwrap();
+    assert!(!first_path.exists());
+    assert!(history.clip.is_none());
+    assert_eq!(history.retention_state, RunRetentionState::Expired);
+    catalog.delete_run_and_video(&delete_all.run_id).unwrap();
+    assert!(!second_path.exists());
+    assert!(catalog.get_run(&delete_all.run_id).unwrap().is_none());
+    assert!(catalog.get_run(&keep_history.run_id).unwrap().is_some());
 }
 
 #[test]
@@ -96,7 +209,7 @@ fn seed_from_roots_indexes_nested_tagged_clips() {
 }
 
 #[test]
-fn resync_and_prune_counts_failed_clips_across_subdirectories() {
+fn cleanup_recent_expires_only_pending_clips_outside_the_history_window() {
     let dir = TestDir::new("prune-nested");
     let failed = dir.join("failed");
     let old = failed.join("Dam/Agent/old.mov");
@@ -109,15 +222,30 @@ fn resync_and_prune_counts_failed_clips_across_subdirectories() {
     write_tagged_clip(&complete, "complete", "2026-01-04T00:00:00Z");
 
     let catalog = catalog(&dir);
-    catalog.resync_and_prune(&[RunCatalogRoot { path: failed.clone() }], 2).unwrap();
+    catalog.resync(&[RunCatalogRoot { path: failed.clone() }]).unwrap();
+    let old_id = catalog
+        .list_runs()
+        .unwrap()
+        .into_iter()
+        .find(|run| run.clip.as_ref().is_some_and(|clip| clip.path.ends_with("old.mov")))
+        .unwrap()
+        .run_id;
+    let conn = rusqlite::Connection::open(dir.join("runs.sqlite")).unwrap();
+    conn.execute("UPDATE runs SET retention_state = 'pending' WHERE run_id = ?1", [&old_id]).unwrap();
+    conn.execute("UPDATE runs SET retention_state = 'pending' WHERE clip_path LIKE '%middle.mov' OR clip_path LIKE '%newest.mov'", []).unwrap();
+    drop(conn);
+    catalog.cleanup_recent(3).unwrap();
 
     assert!(!old.exists(), "oldest failed clip should be pruned across nested dirs");
     assert!(middle.exists());
     assert!(newest.exists());
-    assert!(complete.exists(), "complete clip in failed root should not count toward failed limit");
+    assert!(complete.exists(), "kept clips outside the window must survive");
     let clips = catalog.list(&[RunCatalogRoot { path: failed }]).unwrap();
     assert_eq!(clips.len(), 3);
     assert!(!clips.iter().any(|clip| clip.path.ends_with("old.mov")));
+    let expired = catalog.get_run(&old_id).unwrap().unwrap();
+    assert_eq!(expired.retention_state, RunRetentionState::Expired);
+    assert!(expired.clip.is_none());
 }
 
 #[test]
@@ -216,23 +344,6 @@ fn resync_refreshes_externally_rewritten_metadata() {
     assert_eq!(clips[0].metadata.timestamp, "2026-01-02T00:00:00Z");
 }
 
-#[test]
-fn resync_removes_externally_corrupted_clips() {
-    let dir = TestDir::new("resync-corrupt");
-    let root = dir.join("completed");
-    let clip = root.join("clip.mov");
-    write_tagged_clip(&clip, "complete", "2026-01-01T00:00:00Z");
-    let catalog = catalog(&dir);
-    let roots = [RunCatalogRoot { path: root.clone() }];
-    catalog.resync(&roots).unwrap();
-    assert_eq!(catalog.list(&roots).unwrap().len(), 1);
-
-    fs::write(&clip, b"not a video anymore").unwrap();
-    catalog.resync(&roots).unwrap();
-
-    assert!(catalog.list(&roots).unwrap().is_empty());
-}
-
 fn youtube_metadata(video_id: &str) -> crate::youtube::YoutubeMetadata {
     crate::youtube::YoutubeMetadata {
         video_id: video_id.to_owned(),
@@ -262,7 +373,7 @@ fn youtube_history_round_trips_and_forgets_by_path() {
     assert_eq!(history, vec![UploadHistoryEntry { path: catalog_path, youtube: updated }]);
 
     let conn = rusqlite::Connection::open(dir.join("runs.sqlite")).unwrap();
-    let stored: Option<String> = conn.query_row("SELECT youtube_json FROM clips", [], |row| row.get(0)).unwrap();
+    let stored: Option<String> = conn.query_row("SELECT youtube_json FROM runs", [], |row| row.get(0)).unwrap();
     assert!(stored.is_some());
 
     assert_eq!(catalog.forget_youtube_history_for_display_path(&clip.to_string_lossy()).unwrap(), 1);
@@ -284,6 +395,7 @@ fn sqlite_metadata_document_round_trips_complete_metadata() {
     assert_eq!(
         clips[0].metadata,
         ClipMetadata {
+            run_id: clips[0].metadata.run_id.clone(),
             timestamp: "2026-01-01T00:00:00Z".to_owned(),
             time: Some("02:03".to_owned()),
             time_seconds: Some(123),
@@ -295,36 +407,52 @@ fn sqlite_metadata_document_round_trips_complete_metadata() {
             source_name: "N64 Capture".to_owned(),
             comment: "Created by The Golden Eye OBS plugin test".to_owned(),
             plugin_version: "test".to_owned(),
+            retention_state: "kept".to_owned(),
+            retention_reason: Some("imported".to_owned()),
         }
     );
 
     drop(catalog);
     let conn = rusqlite::Connection::open(dir.join("runs.sqlite")).unwrap();
-    let stored_json: String = conn.query_row("SELECT metadata_json FROM clips", [], |row| row.get(0)).unwrap();
+    let stored_json: String = conn.query_row("SELECT metadata_json FROM runs", [], |row| row.get(0)).unwrap();
     assert_eq!(serde_json::from_str::<ClipMetadata>(&stored_json).unwrap(), clips[0].metadata);
 
-    let mut statement = conn.prepare("PRAGMA table_info(clips)").unwrap();
+    let mut statement = conn.prepare("PRAGMA table_info(runs)").unwrap();
     let columns =
         statement.query_map([], |row| row.get::<_, String>(1)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
-    assert_eq!(columns, ["path", "size_bytes", "modified_unix", "duration_secs", "metadata_json", "youtube_json"]);
+    for column in [
+        "run_id",
+        "completed_unix_micros",
+        "level_number",
+        "difficulty",
+        "status",
+        "time_seconds",
+        "retention_state",
+        "retention_reason",
+        "clip_path",
+        "metadata_json",
+        "youtube_json",
+    ] {
+        assert!(columns.iter().any(|candidate| candidate == column), "missing run column {column}");
+    }
 
-    let mut statement = conn.prepare("PRAGMA index_list(clips)").unwrap();
+    let mut statement = conn.prepare("PRAGMA index_list(runs)").unwrap();
     let indexes =
         statement.query_map([], |row| row.get::<_, String>(1)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
-    for index in ["clips_status_timestamp_idx", "clips_level_difficulty_timestamp_idx", "clips_time_idx"] {
+    for index in ["runs_status_timestamp_idx", "runs_level_difficulty_timestamp_idx", "runs_time_idx"] {
         assert!(indexes.iter().any(|candidate| candidate == index), "missing expression index {index}");
     }
 }
 
 #[test]
-fn unsupported_schema_version_drops_and_reseeds_without_failing_open() {
+fn schema_one_drops_and_reseeds_without_failing_open() {
     let dir = TestDir::new("schema-reseed");
     let db_path = dir.join("runs.sqlite");
     let root = dir.join("completed");
     let clip = root.join("full.mov");
     write_tagged_clip(&clip, "complete", "2026-01-01T00:00:00Z");
 
-    // Seed a catalog, then stamp it with a future schema version the binary can't use.
+    // Seed a catalog, then stamp it as the pre-ledger schema.
     {
         let catalog = RunCatalog::open(db_path.clone()).unwrap();
         catalog.resync(&[RunCatalogRoot { path: root.clone() }]).unwrap();
@@ -332,11 +460,12 @@ fn unsupported_schema_version_drops_and_reseeds_without_failing_open() {
     }
     {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
-        conn.execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", ["9999"]).unwrap();
+        conn.execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", ["1"]).unwrap();
     }
 
     // Reopening must succeed (never fail plugin startup) and start from a fresh, empty catalog.
     let catalog = RunCatalog::open(db_path).expect("reopen must not fail on schema mismatch");
+    assert!(catalog.needs_seed());
     assert!(catalog.list(&[RunCatalogRoot { path: root.clone() }]).unwrap().is_empty());
     // The dropped catalog reseeds from disk on the next resync.
     catalog.resync(&[RunCatalogRoot { path: root.clone() }]).unwrap();

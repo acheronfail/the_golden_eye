@@ -1,9 +1,11 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { backend, type EditableRunMetadata, type RunClip, type RunDirectoryScan, type RunsResponse } from '$lib/api';
 	import RunDetailDialog from '$lib/components/RunDetailDialog.svelte';
+	import RunDeleteDialog from '$lib/components/RunDeleteDialog.svelte';
 	import RunFiltersForm from '$lib/components/RunFilters.svelte';
 	import RunList from '$lib/components/RunList.svelte';
-	import RunsFolderChooser from '$lib/components/RunsFolderChooser.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
@@ -33,23 +35,25 @@
 	let fileBrowserLabel = $state('Show in file browser');
 	let folderBrowserLabel = $state('show clips folder');
 	let folderRevealBusy = $state(false);
-	let folderChooserOpen = $state(false);
 	let filters = $state<RunFilters>({ ...EMPTY_RUN_FILTERS });
 	let filtersCollapsed = $state(false);
 	let reloadAbort: AbortController | null = null;
 	let metadataSaveInFlight = false;
 	let metadataSaveQueued = false;
+	let deleteTarget = $state<RunClip | null>(null);
+	let deleteBusy = $state(false);
+	let deleteError = $state<string | null>(null);
+
+	const runKey = (run: RunClip): string => run.runId ?? run.path ?? run.metadata.timestamp;
+	const requestedRunId = $derived(page.url.searchParams.get('runId'));
 
 	const clips = $derived(runs?.clips ?? []);
-	const clipByPath = $derived(new Map(clips.map((clip) => [clip.path, clip])));
+	const clipByPath = $derived(new Map(clips.map((clip) => [runKey(clip), clip])));
 	const visibleClips = $derived(visibleRunClips(clips, filters));
 	const directoryErrors = $derived((runs?.directories ?? []).filter((dir) => dir.error));
 	const scannedDirectoryCount = $derived(runs?.directories.length ?? 0);
 	const completedDirectory = $derived((runs?.directories ?? []).find((dir) => dir.kind === 'completed' && dir.exists));
-	const failedDirectory = $derived((runs?.directories ?? []).find((dir) => dir.kind === 'failed' && dir.exists));
-	const revealableDirectories = $derived(
-		[completedDirectory, failedDirectory].filter((dir): dir is RunDirectoryScan => Boolean(dir))
-	);
+	const revealableDirectories = $derived([completedDirectory].filter((dir): dir is RunDirectoryScan => Boolean(dir)));
 	const hasActiveFilters = $derived(hasActiveRunFilters(filters));
 	const activeFilterLabels = $derived(activeRunFilterLabels(filters));
 	let metadataDirty = $derived.by(() => {
@@ -64,7 +68,7 @@
 		reloadAbort = abort;
 		loading = true;
 		error = null;
-		const selectedPath = selected?.path;
+		const selectedPath = selected ? runKey(selected) : null;
 		let selectedFound = false;
 		runs = { directories: [], clips: [] };
 		try {
@@ -74,7 +78,8 @@
 						upsertDirectory(event.directory);
 					} else if (event.type === 'clip') {
 						upsertClip(event.clip);
-						if (selectedPath && event.clip.path === selectedPath) selectedFound = true;
+						if (requestedRunId === event.clip.runId && !selected) select(event.clip);
+						if (selectedPath && runKey(event.clip) === selectedPath) selectedFound = true;
 					}
 				},
 				abort.signal,
@@ -105,7 +110,7 @@
 	});
 
 	const select = (clip: RunClip) => {
-		selected = clipByPath.get(clip.path) ?? clip;
+		selected = clipByPath.get(runKey(clip)) ?? clip;
 		metadataDraft = draftFromClip(selected);
 		modalError = null;
 		modalBusy = null;
@@ -121,6 +126,9 @@
 		metadataDraft = null;
 		modalError = null;
 		modalBusy = null;
+		if (page.url.searchParams.has('runId')) {
+			void goto('/runs', { replaceState: true, noScroll: true, keepFocus: true });
+		}
 	};
 
 	const onkeydown = (event: KeyboardEvent) => {
@@ -159,7 +167,7 @@
 		if (runs) {
 			runs = {
 				...runs,
-				clips: runs.clips.map((candidate) => (candidate.path === oldPath ? clip : candidate))
+				clips: runs.clips.map((candidate) => (runKey(candidate) === oldPath ? clip : candidate))
 			};
 		}
 	}
@@ -188,11 +196,11 @@
 
 	function upsertClip(clip: RunClip) {
 		const current = runs ?? emptyRuns();
-		const index = current.clips.findIndex((candidate) => candidate.path === clip.path);
+		const index = current.clips.findIndex((candidate) => runKey(candidate) === runKey(clip));
 		const clips =
 			index === -1 ? [...current.clips, clip] : current.clips.map((candidate, i) => (i === index ? clip : candidate));
 		runs = { ...current, clips };
-		if (selected?.path === clip.path) {
+		if (selected && runKey(selected) === runKey(clip)) {
 			selected = clip;
 			metadataDraft = draftFromClip(clip);
 		}
@@ -202,7 +210,7 @@
 		if (runs) {
 			runs = {
 				...runs,
-				clips: runs.clips.filter((clip) => clip.path !== path)
+				clips: runs.clips.filter((clip) => runKey(clip) !== path)
 			};
 		}
 	}
@@ -218,16 +226,18 @@
 		modalBusy = 'metadata';
 		modalError = null;
 		try {
-			const oldPath = selected.path;
+			const runId = selected.runId;
+			if (!runId) throw new Error('Run ID is missing');
+			const oldKey = runKey(selected);
 			const draft = { ...metadataDraft };
-			const updated = await backend.updateRunMetadata(oldPath, draft);
-			const stillSelected = selected?.path === oldPath;
+			const updated = await backend.updateRunMetadata(runId, draft);
+			const stillSelected = selected?.runId === runId;
 			const pendingDraft = metadataDraft && !sameMetadataDraft(metadataDraft, draft) ? { ...metadataDraft } : null;
 			if (stillSelected) {
-				replaceClip(oldPath, updated);
+				replaceClip(oldKey, updated);
 				if (pendingDraft) metadataDraft = pendingDraft;
 			} else {
-				updateClipInList(oldPath, updated);
+				updateClipInList(oldKey, updated);
 			}
 		} catch (err) {
 			modalError = err instanceof Error ? err.message : String(err);
@@ -307,16 +317,7 @@
 
 	function openFolderChooser() {
 		if (revealableDirectories.length === 0) return;
-		if (!settings.saveFailedRuns) {
-			void revealRunsFolder('completed');
-			return;
-		}
-		folderChooserOpen = true;
-	}
-
-	function closeFolderChooser() {
-		if (folderRevealBusy) return;
-		folderChooserOpen = false;
+		void revealRunsFolder('completed');
 	}
 
 	async function revealRunsFolder(kind: RunDirectoryScan['kind']) {
@@ -324,7 +325,6 @@
 		error = null;
 		try {
 			await backend.revealRunFolder(kind);
-			folderChooserOpen = false;
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -334,36 +334,46 @@
 
 	async function deleteSelectedRun() {
 		if (!selected) return;
-		const confirmed = confirm(`Delete "${selected.fileName}" from disk?\n\nThis cannot be undone.`);
-		if (!confirmed) return;
-
-		modalBusy = 'delete';
-		modalError = null;
-		try {
-			const oldPath = selected.path;
-			await backend.deleteRun(oldPath);
-			removeClip(oldPath);
-			close();
-		} catch (err) {
-			modalError = err instanceof Error ? err.message : String(err);
-		} finally {
-			modalBusy = null;
-		}
+		deleteTarget = selected;
+		deleteError = null;
 	}
 
 	async function deleteRunFromList(clip: RunClip) {
-		const confirmed = confirm(`Delete "${clip.fileName}" from disk?\n\nThis cannot be undone.`);
-		if (!confirmed) return;
+		deleteTarget = clip;
+		deleteError = null;
+	}
 
-		listActionBusyPath = clip.path;
+	async function confirmDelete(keepHistory: boolean) {
+		if (!deleteTarget?.runId) return;
+		const target = deleteTarget;
+		const runId = target.runId!;
+		deleteBusy = true;
+		deleteError = null;
+		try {
+			const updated = await backend.deleteCatalogRun(runId, keepHistory);
+			const key = runKey(target);
+			if (updated) updateClipInList(key, updated);
+			else removeClip(key);
+			if (selected && runKey(selected) === key) {
+				selected = updated;
+				metadataDraft = updated ? draftFromClip(updated) : null;
+			}
+			deleteTarget = null;
+		} catch (err) {
+			deleteError = err instanceof Error ? err.message : String(err);
+		} finally {
+			deleteBusy = false;
+		}
+	}
+
+	async function keepRun(clip: RunClip) {
+		if (!clip.runId) return;
+		listActionBusyPath = runKey(clip);
 		listActionError = null;
 		try {
-			await backend.deleteRun(clip.path);
-			removeClip(clip.path);
-			if (selected?.path === clip.path) {
-				selected = null;
-				metadataDraft = null;
-			}
+			const updated = await backend.keepRun(clip.runId);
+			updateClipInList(runKey(clip), updated);
+			if (selected && runKey(selected) === runKey(clip)) selected = updated;
 		} catch (err) {
 			listActionError = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -503,16 +513,16 @@
 		rename={renameRunFromList}
 		reveal={revealRunFromList}
 		remove={deleteRunFromList}
+		keep={keepRun}
 	/>
 </main>
 
-<RunsFolderChooser
-	open={folderChooserOpen}
-	busy={folderRevealBusy}
-	{completedDirectory}
-	{failedDirectory}
-	close={closeFolderChooser}
-	reveal={revealRunsFolder}
-/>
-
 <RunDetailDialog clip={selected} bind:metadataDraft view={detailView} />
+<RunDeleteDialog
+	run={deleteTarget}
+	busy={deleteBusy}
+	error={deleteError}
+	onCancel={() => !deleteBusy && (deleteTarget = null)}
+	onDeleteVideo={() => void confirmDelete(true)}
+	onDeleteAll={() => void confirmDelete(false)}
+/>

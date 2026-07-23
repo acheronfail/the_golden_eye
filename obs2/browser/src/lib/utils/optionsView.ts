@@ -1,6 +1,6 @@
 import type { FolderValidation } from '$lib/api';
 
-export type OptionsPathKind = 'completed' | 'failed';
+export type OptionsPathKind = 'completed';
 
 export const optionsClasses = {
 	panel: 'obs-panel grid gap-3 rounded px-4 py-4',
@@ -28,11 +28,6 @@ export interface RecordingOptionsView {
 			validation: FolderValidation | null;
 			placeholder: string;
 		};
-		failed: {
-			validating: boolean;
-			validation: FolderValidation | null;
-			placeholder: string;
-		};
 		choose: (kind: OptionsPathKind) => void;
 		clear: (kind: OptionsPathKind) => void;
 		clearValidation: (kind: OptionsPathKind) => void;
@@ -40,8 +35,7 @@ export interface RecordingOptionsView {
 		statusMessage: (validation: FolderValidation) => string;
 	};
 	normalize: {
-		failedRunLimit: () => void;
-		minimumFailedRunLength: () => void;
+		recentRunLimit: () => void;
 		preRunPadding: () => void;
 		postRunPadding: () => void;
 	};

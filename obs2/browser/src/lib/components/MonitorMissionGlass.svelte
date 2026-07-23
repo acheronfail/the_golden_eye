@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { MonitorViewProps } from './monitorView';
 	import { formatMonitorTime, monitorPresentation } from './monitorView';
+	import RecentRuns from './RecentRuns.svelte';
 
 	let {
 		verified,
@@ -10,6 +11,10 @@
 		match = null,
 		fps = null,
 		showMonitorFps = false,
+		recentRuns = [],
+		recentRunsBusyId = null,
+		recentRunsError = null,
+		onKeepRun = () => {},
 		onStop
 	}: MonitorViewProps = $props();
 
@@ -45,39 +50,52 @@
 		<div class="reticle-motion" aria-hidden="true">
 			<div class="glass-reticle"><span></span></div>
 		</div>
-		<section class="glass-panel">
-			<p class="glass-kicker">{verified ? presentation.statusLabel : 'Verifying source'}</p>
-			<h1>{verified ? presentation.title : 'checking source'}</h1>
-			<p
-				class="glass-detail"
-				class:detail-hidden={!presentation.showDetail || !verified}
-				aria-hidden={!presentation.showDetail || !verified}
-			>
-				{verified ? presentation.detail : '...'}
-			</p>
-
-			{#if match?.times && !presentation.waitingForObs}
-				<div class="glass-metrics" aria-label="Run times">
-					<span>
-						<small>time</small>
-						<strong>{formatMonitorTime(match.times.time)}</strong>
-					</span>
-					{#if match.times.target_time != null}
-						<span>
-							<small>target</small>
-							<strong>{formatMonitorTime(match.times.target_time)}</strong>
-						</span>
-					{/if}
-					{#if match.times.best_time != null}
-						<span>
-							<small>best</small>
-							<strong>{formatMonitorTime(match.times.best_time)}</strong>
-						</span>
-					{/if}
-				</div>
-			{/if}
-		</section>
 	{/key}
+
+	<div class="glass-layout">
+		{#key presentation.animationKey}
+			<section class="glass-panel">
+				<p class="glass-kicker">{verified ? presentation.statusLabel : 'Verifying source'}</p>
+				<h1>{verified ? presentation.title : 'checking source'}</h1>
+				<p
+					class="glass-detail"
+					class:detail-hidden={!presentation.showDetail || !verified}
+					aria-hidden={!presentation.showDetail || !verified}
+				>
+					{verified ? presentation.detail : '...'}
+				</p>
+
+				{#if match?.times && !presentation.waitingForObs}
+					<div class="glass-metrics" aria-label="Run times">
+						<span>
+							<small>time</small>
+							<strong>{formatMonitorTime(match.times.time)}</strong>
+						</span>
+						{#if match.times.target_time != null}
+							<span>
+								<small>target</small>
+								<strong>{formatMonitorTime(match.times.target_time)}</strong>
+							</span>
+						{/if}
+						{#if match.times.best_time != null}
+							<span>
+								<small>best</small>
+								<strong>{formatMonitorTime(match.times.best_time)}</strong>
+							</span>
+						{/if}
+					</div>
+				{/if}
+			</section>
+		{/key}
+
+		<RecentRuns
+			variant="mission-glass"
+			runs={recentRuns}
+			busyRunId={recentRunsBusyId}
+			error={recentRunsError}
+			onKeep={onKeepRun}
+		/>
+	</div>
 
 	<footer class="monitor-footer">
 		<span>{presentation.phase}</span>
@@ -99,7 +117,7 @@
 		display: flex;
 		height: 100%;
 		min-height: 0;
-		container-type: inline-size;
+		container-type: size;
 		align-items: center;
 		justify-content: center;
 		overflow: hidden;
@@ -215,6 +233,15 @@
 		animation: reticle-in 560ms cubic-bezier(0.2, 0.82, 0.2, 1) both;
 	}
 
+	.glass-layout {
+		position: relative;
+		z-index: 2;
+		display: grid;
+		width: min(82cqw, 42rem);
+		max-height: calc(100cqh - 9rem);
+		gap: clamp(0.65rem, 2cqh, 1rem);
+	}
+
 	.glass-reticle {
 		position: absolute;
 		inset: 0;
@@ -257,18 +284,16 @@
 
 	.glass-panel {
 		position: relative;
-		z-index: 2;
-		width: min(82cqw, 42rem);
-		padding: clamp(2rem, 7cqw, 4rem);
+		width: 100%;
+		padding: clamp(1.25rem, 4.5cqw, 2.5rem);
 		border: 1px solid color-mix(in srgb, var(--monitor-accent) 38%, var(--obs-border-soft));
 		border-radius: clamp(1rem, 4cqw, 1.6rem);
-		background: rgb(37 41 52 / 72%);
+		background: rgb(37 41 52 / 90%);
 		box-shadow:
 			0 1.5rem 5rem rgb(0 0 0 / 35%),
 			0 0 4rem var(--monitor-surface),
 			inset 0 1px 0 rgb(255 255 255 / 11%);
 		text-align: center;
-		backdrop-filter: blur(1rem);
 		animation: glass-panel-in 520ms cubic-bezier(0.2, 0.82, 0.2, 1) both;
 		transition:
 			border-color 240ms ease,
@@ -291,7 +316,7 @@
 	h1 {
 		margin: 0.55rem 0 0.7rem;
 		color: color-mix(in srgb, var(--monitor-accent) 12%, var(--obs-text));
-		font-size: clamp(3rem, 16cqw, 7rem);
+		font-size: clamp(2.25rem, 11cqw, 5rem);
 		font-weight: 600;
 		line-height: 0.92;
 		letter-spacing: -0.065em;
@@ -375,8 +400,10 @@
 			left: 2rem;
 		}
 		.glass-panel {
+			padding: 1.35rem;
+		}
+		.glass-layout {
 			width: calc(100cqw - 3rem);
-			padding: 2rem 1.35rem;
 		}
 		.reticle-motion {
 			width: 92cqw;

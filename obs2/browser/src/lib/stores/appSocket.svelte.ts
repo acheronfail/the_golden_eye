@@ -1,14 +1,11 @@
 import { browser } from '$app/environment';
 import { backend, type AppEvent, type AppSnapshot } from '$lib/api';
 import {
-	applyFailedRunNotSaved,
 	applyLanguageDetected,
 	applyMonitorFps,
 	applyMonitorSnapshot,
 	applyMonitorStopped,
-	applyRecordingSaved,
-	applyRecordingSaveDiscarded,
-	applyRecordingSavePending
+	applyRecordingSaved
 } from '$lib/stores/monitor.svelte';
 import {
 	addNotificationFlag,
@@ -18,6 +15,7 @@ import {
 } from '$lib/stores/notifications.svelte';
 import { refreshReplayBuffer, setReplayBufferStatus } from '$lib/stores/replayBuffer.svelte';
 import { settings } from '$lib/stores/settings.svelte';
+import { recentRuns } from '$lib/stores/recentRuns.svelte';
 import { setObsSources } from '$lib/stores/sources.svelte';
 import { updates } from '$lib/stores/updates.svelte';
 import { youtube } from '$lib/stores/youtube.svelte';
@@ -154,16 +152,14 @@ const handleAppEvent = (event: AppEvent): void => {
 			applyMonitorFps(event);
 			break;
 		case 'recordingSavePending':
-			applyRecordingSavePending(event);
+			recentRuns.applySavePending(event);
 			break;
 		case 'recordingSaved':
 			applyRecordingSaved(event);
+			void recentRuns.refresh();
 			break;
-		case 'recordingSaveDiscarded':
-			applyRecordingSaveDiscarded(event);
-			break;
-		case 'failedRunNotSaved':
-			applyFailedRunNotSaved(event.reason);
+		case 'runCatalogChanged':
+			void recentRuns.refresh(event.saveId);
 			break;
 		case 'monitorStopped':
 			applyMonitorStopped(event.reason);

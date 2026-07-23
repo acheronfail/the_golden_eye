@@ -36,8 +36,7 @@ beforeEach(() => {
 		active: true,
 		maxSeconds: 1200,
 		outputDirectory: '/captures',
-		defaultCompletedOutputPath: '/captures/GoldenEye',
-		defaultFailedOutputPath: '/captures/GoldenEye/failed'
+		defaultCompletedOutputPath: '/captures/GoldenEye'
 	};
 	replayBuffer.loaded = true;
 });

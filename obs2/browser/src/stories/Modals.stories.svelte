@@ -14,5 +14,3 @@
 <Story name="Reset settings" args={{ kind: 'reset' }} />
 <Story name="Resetting settings" args={{ kind: 'reset', busy: true }} />
 <Story name="Reset settings error" args={{ kind: 'reset', error: 'The settings file could not be removed.' }} />
-<Story name="Choose runs folder" args={{ kind: 'folders' }} />
-<Story name="Opening runs folder" args={{ kind: 'folders', busy: true }} />

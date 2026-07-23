@@ -18,11 +18,6 @@
 <Story name="Error" args={{ flags: notificationFixtures.slice(3, 4) }} />
 <Story name="Timed" args={{ flags: [{ ...notificationFixtures[0], id: 105, timeoutMs: 600_000 }] }} />
 <Story name="ROM language detected" args={{ flags: notificationScenarios.languageDetected }} />
-<Story name="Saving recording" args={{ flags: notificationScenarios.savingRecording }} />
-<Story name="Saving failed run" args={{ flags: notificationScenarios.savingFailedRun }} />
-<Story name="Failed run not saved" args={{ flags: notificationScenarios.failedRunNotSaved }} />
-<Story name="Clip saved" args={{ flags: notificationScenarios.clipSaved }} />
-<Story name="Failed clip saved" args={{ flags: notificationScenarios.failedClipSaved }} />
 <Story name="Monitoring disabled" args={{ flags: notificationScenarios.monitoringDisabled }} />
 <Story name="YouTube upload started" args={{ flags: notificationScenarios.youtubeStarted }} />
 <Story name="YouTube upload failed" args={{ flags: notificationScenarios.youtubeFailed }} />

@@ -17,6 +17,9 @@ const TAG_DIFFICULTY: &str = "fail.acheron.thegoldeneye.difficulty";
 const TAG_STATUS: &str = "fail.acheron.thegoldeneye.status";
 const TAG_ROM_LANGUAGE: &str = "fail.acheron.thegoldeneye.rom_language";
 const TAG_SOURCE_NAME: &str = "fail.acheron.thegoldeneye.source_name";
+const TAG_RUN_ID: &str = "fail.acheron.thegoldeneye.run_id";
+const TAG_RETENTION_STATE: &str = "fail.acheron.thegoldeneye.retention_state";
+const TAG_RETENTION_REASON: &str = "fail.acheron.thegoldeneye.retention_reason";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RunStatus {
@@ -77,6 +80,8 @@ impl<'de> Deserialize<'de> for RunStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipMetadata {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub run_id: String,
     pub timestamp: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time: Option<String>,
@@ -92,6 +97,14 @@ pub struct ClipMetadata {
     pub source_name: String,
     pub comment: String,
     pub plugin_version: String,
+    #[serde(default = "default_retention_state")]
+    pub retention_state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention_reason: Option<String>,
+}
+
+fn default_retention_state() -> String {
+    "kept".to_owned()
 }
 
 pub fn is_ffmpeg_plugin_tag(key: &str) -> bool {
@@ -108,6 +121,9 @@ pub fn is_ffmpeg_plugin_tag(key: &str) -> bool {
         TAG_STATUS,
         TAG_ROM_LANGUAGE,
         TAG_SOURCE_NAME,
+        TAG_RUN_ID,
+        TAG_RETENTION_STATE,
+        TAG_RETENTION_REASON,
         "comment",
     ]
     .iter()
@@ -128,6 +144,11 @@ impl ClipMetadata {
         metadata.set(TAG_STATUS, self.status.as_str());
         metadata.set(TAG_ROM_LANGUAGE, &clean_metadata_value(&self.rom_language));
         metadata.set(TAG_SOURCE_NAME, &clean_metadata_value(&self.source_name));
+        if !self.run_id.is_empty() {
+            metadata.set(TAG_RUN_ID, &clean_metadata_value(&self.run_id));
+        }
+        metadata.set(TAG_RETENTION_STATE, &clean_metadata_value(&self.retention_state));
+        set_optional_metadata(metadata, TAG_RETENTION_REASON, self.retention_reason.as_deref());
         metadata.set("comment", &clean_metadata_value(&self.comment));
     }
 
@@ -148,8 +169,12 @@ impl ClipMetadata {
         let difficulty = get_metadata(metadata, TAG_DIFFICULTY);
         let rom_language = get_metadata(metadata, TAG_ROM_LANGUAGE).unwrap_or_default();
         let source_name = get_metadata(metadata, TAG_SOURCE_NAME).unwrap_or_default();
+        let run_id = get_metadata(metadata, TAG_RUN_ID).unwrap_or_default();
+        let retention_state = get_metadata(metadata, TAG_RETENTION_STATE).unwrap_or_else(default_retention_state);
+        let retention_reason = get_metadata(metadata, TAG_RETENTION_REASON);
 
         Some(Self {
+            run_id,
             timestamp,
             time,
             time_seconds,
@@ -161,6 +186,8 @@ impl ClipMetadata {
             source_name,
             comment,
             plugin_version,
+            retention_state,
+            retention_reason,
         })
     }
 }

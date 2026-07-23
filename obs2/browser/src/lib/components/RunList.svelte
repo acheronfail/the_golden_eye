@@ -15,7 +15,8 @@
 		open,
 		rename,
 		reveal,
-		remove
+		remove,
+		keep = () => {}
 	}: {
 		loading: boolean;
 		clips: RunClip[];
@@ -30,6 +31,7 @@
 		rename: (clip: RunClip) => void | Promise<void>;
 		reveal: (clip: RunClip) => void | Promise<void>;
 		remove: (clip: RunClip) => void | Promise<void>;
+		keep?: (clip: RunClip) => void | Promise<void>;
 	} = $props();
 
 	let openMenuPath = $state<string | null>(null);
@@ -74,18 +76,19 @@
 		<p class="obs-dim mb-3 font-mono text-xs">Search still running...</p>
 	{/if}
 	<ul class="flex flex-col gap-1.5">
-		{#each visibleClips as clip (clip.path)}
+		{#each visibleClips as clip (clip.runId ?? clip.path)}
 			<li>
 				<RunListItem
 					{clip}
-					busy={busyPath === clip.path}
-					menuOpen={openMenuPath === clip.path}
-					onMenuOpenChange={(isOpen) => setMenuOpen(clip.path, isOpen)}
+					busy={busyPath === (clip.runId ?? clip.path)}
+					menuOpen={openMenuPath === (clip.runId ?? clip.path)}
+					onMenuOpenChange={(isOpen) => setMenuOpen(clip.runId ?? clip.path, isOpen)}
 					{fileBrowserLabel}
 					{open}
 					{rename}
 					{reveal}
 					{remove}
+					{keep}
 				/>
 			</li>
 		{/each}

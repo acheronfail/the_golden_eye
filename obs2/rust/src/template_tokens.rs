@@ -143,6 +143,7 @@ mod tests {
     fn metadata_tokens_convert_utc_timestamp_to_local() {
         let timestamp = "2026-07-18T10:30:45Z";
         let metadata = ffmpeg::ClipMetadata {
+            run_id: "run-1".to_owned(),
             timestamp: timestamp.to_owned(),
             time: Some("01:23".to_owned()),
             time_seconds: Some(83),
@@ -154,6 +155,8 @@ mod tests {
             source_name: "N64 Capture".to_owned(),
             comment: "test".to_owned(),
             plugin_version: "test".to_owned(),
+            retention_state: "kept".to_owned(),
+            retention_reason: None,
         };
 
         let tokens = RunTemplateTokens::from_clip_metadata("replay", &metadata);
@@ -172,6 +175,7 @@ mod tests {
     fn metadata_tokens_keep_invalid_local_timestamp_fallback() {
         let timestamp = "not a timestamp";
         let metadata = ffmpeg::ClipMetadata {
+            run_id: "run-2".to_owned(),
             timestamp: timestamp.to_owned(),
             time: None,
             time_seconds: None,
@@ -183,6 +187,8 @@ mod tests {
             source_name: "N64 Capture".to_owned(),
             comment: "test".to_owned(),
             plugin_version: "test".to_owned(),
+            retention_state: "kept".to_owned(),
+            retention_reason: None,
         };
 
         let tokens = RunTemplateTokens::from_clip_metadata("replay", &metadata);

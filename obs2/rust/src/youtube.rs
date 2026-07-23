@@ -999,6 +999,7 @@ mod tests {
 
     fn clip_metadata_fixture() -> ClipMetadata {
         ClipMetadata {
+            run_id: "run-1".to_owned(),
             timestamp: "2026-07-18T10:30:45Z".to_owned(),
             time: Some("01:23".to_owned()),
             time_seconds: Some(83),
@@ -1010,6 +1011,8 @@ mod tests {
             source_name: "N64 Capture".to_owned(),
             comment: "test".to_owned(),
             plugin_version: "test".to_owned(),
+            retention_state: "kept".to_owned(),
+            retention_reason: None,
         }
     }
 

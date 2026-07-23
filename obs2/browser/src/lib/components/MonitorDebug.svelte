@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { MonitorViewProps } from './monitorView';
 	import { formatMonitorTime, monitorPresentation } from './monitorView';
+	import RecentRuns from './RecentRuns.svelte';
 
 	let {
 		sourceName,
@@ -10,6 +11,10 @@
 		recordingState = null,
 		match = null,
 		fps = null,
+		recentRuns = [],
+		recentRunsBusyId = null,
+		recentRunsError = null,
+		onKeepRun = () => {},
 		onStop
 	}: MonitorViewProps = $props();
 
@@ -58,6 +63,14 @@
 			{transition === 'stopping' ? 'stopping' : 'stop'}
 		</button>
 	</header>
+
+	<RecentRuns
+		variant="debug"
+		runs={recentRuns}
+		busyRunId={recentRunsBusyId}
+		error={recentRunsError}
+		onKeep={onKeepRun}
+	/>
 
 	<section aria-labelledby="lifecycle-heading">
 		<h2 id="lifecycle-heading">Lifecycle</h2>
@@ -174,6 +187,8 @@
 <style>
 	.monitor-debug {
 		--debug-accent: var(--obs-monitor-waiting);
+		position: relative;
+		container-type: size;
 		height: 100%;
 		min-height: 0;
 		overflow: auto;

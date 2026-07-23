@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
-import type { LevelMatch, RecordingStatus } from '$lib/api';
+import type { LevelMatch, RecordingStatus, RunClip } from '$lib/api';
 import MonitorView from './MonitorView.svelte';
 import type { MonitorDesign } from './monitorView';
 
@@ -22,6 +22,27 @@ const props = (design: MonitorDesign, recordingState: RecordingStatus | null, le
 	match: levelMatch,
 	onStop: () => {}
 });
+
+const recentRun: RunClip = {
+	runId: 'recent-run',
+	path: '/runs/facility.mov',
+	fileName: 'facility.mov',
+	directory: '/runs',
+	sizeBytes: 1024,
+	metadata: {
+		timestamp: '2026-07-23T10:00:00Z',
+		time: '00:58',
+		level: 'Facility',
+		levelNumber: 2,
+		difficulty: '00 Agent',
+		status: 'complete',
+		romLanguage: 'en',
+		sourceName: 'N64 Capture',
+		comment: '',
+		pluginVersion: 'test'
+	},
+	retentionState: 'pending'
+};
 
 describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (design) => {
 	it('uses the neutral OBS-transition palette while verifying the source', () => {
@@ -90,5 +111,23 @@ describe('debug monitor', () => {
 		expect(view.container.querySelectorAll('[data-value-kind="false"]')).not.toHaveLength(0);
 		expect(view.container.querySelectorAll('[data-value-kind="null"]')).not.toHaveLength(0);
 		expect(view.container.querySelector('[class*="motion"], [class*="sweep"]')).not.toBeInTheDocument();
+	});
+});
+
+describe.each<MonitorDesign>(['mission-glass', 'signal-band', 'debug'])('%s recent runs', (design) => {
+	it('places run history inside the design layout', () => {
+		const view = render(MonitorView, {
+			...props(design, 'complete', match('stats')),
+			recentRuns: [recentRun]
+		});
+		const history = screen.getByRole('region', { name: 'Recent runs' });
+
+		expect(history).toHaveClass(`recent-runs--${design}`);
+		if (design === 'mission-glass') expect(history.closest('.glass-layout')).not.toBeNull();
+		if (design === 'signal-band') expect(history.closest('.signal-layout')).not.toBeNull();
+		if (design === 'debug') {
+			const lifecycle = view.container.querySelector('[aria-labelledby="lifecycle-heading"]');
+			expect(history.compareDocumentPosition(lifecycle!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+		}
 	});
 });

@@ -34,6 +34,19 @@ export class Backend {
 		return this.getJson('/api/v1/runs');
 	}
 
+	public getRecentRuns(limit?: number): Promise<RunClip[]> {
+		const query = limit == null ? '' : `?limit=${encodeURIComponent(limit)}`;
+		return this.getJson(`/api/v1/runs/recent${query}`);
+	}
+
+	public keepRun(runId: string): Promise<RunClip> {
+		return this.postJson('/api/v1/runs/keep', { runId });
+	}
+
+	public deleteCatalogRun(runId: string, keepHistory: boolean): Promise<RunClip | null> {
+		return this.postJson('/api/v1/runs/delete', { runId, keepHistory });
+	}
+
 	public async streamRuns(
 		onEvent: (event: RunsStreamEvent) => void,
 		signal?: AbortSignal,
@@ -69,10 +82,6 @@ export class Backend {
 
 	public runVideoUrl(path: string): string {
 		return this.apiUrl(`/api/v1/runs/video?path=${encodeURIComponent(path)}`);
-	}
-
-	public deleteRun(path: string): Promise<void> {
-		return this.delete(`/api/v1/runs?path=${encodeURIComponent(path)}`);
 	}
 
 	public revealFile(request: FileRevealRequest): Promise<void> {
@@ -119,8 +128,8 @@ export class Backend {
 		return this.postJson('/api/v1/youtube/forget', { path });
 	}
 
-	public updateRunMetadata(path: string, metadata: EditableRunMetadata): Promise<RunClip> {
-		return this.patchJson('/api/v1/runs', { path, metadata });
+	public updateRunMetadata(runId: string, metadata: EditableRunMetadata): Promise<RunClip> {
+		return this.patchJson('/api/v1/runs', { runId, metadata });
 	}
 
 	/** Fetch whether OBS's replay buffer is enabled/available (and running). */
@@ -360,6 +369,7 @@ export interface ObsSource {
 }
 
 export interface ClipMetadata {
+	runId?: string;
 	timestamp: string;
 	time?: string;
 	timeSeconds?: number;
@@ -371,16 +381,19 @@ export interface ClipMetadata {
 	sourceName: string;
 	comment: string;
 	pluginVersion: string;
+	retentionState?: RunRetentionState;
+	retentionReason?: string;
 }
 
 export interface RunDirectoryScan {
-	kind: 'completed' | 'failed';
+	kind: 'completed';
 	path: string;
 	exists: boolean;
 	error?: string | null;
 }
 
 export interface RunClip {
+	runId?: string;
 	path: string;
 	fileName: string;
 	directory: string;
@@ -388,7 +401,11 @@ export interface RunClip {
 	modified?: string | null;
 	durationSecs?: number | null;
 	metadata: ClipMetadata;
+	retentionState?: RunRetentionState;
+	retentionReason?: string | null;
 }
+
+export type RunRetentionState = 'pending' | 'kept' | 'expired';
 
 export interface RunsResponse {
 	directories: RunDirectoryScan[];
@@ -461,7 +478,6 @@ export interface ReplayBufferStatus {
 	maxSeconds: number | null;
 	outputDirectory: string | null;
 	defaultCompletedOutputPath: string | null;
-	defaultFailedOutputPath: string | null;
 }
 
 export interface SettingsStatus {
@@ -550,11 +566,6 @@ export interface RecordingSaved {
 	stats?: LevelMatch;
 }
 
-/** A scheduled save that was dropped before any clip was written. */
-export interface RecordingSaveDiscarded {
-	saveId: number;
-}
-
 /** Details of a clip save that has been scheduled after a run ending was seen. */
 export interface RecordingSavePending {
 	saveId: number;
@@ -574,10 +585,7 @@ export interface RecordingSavePending {
 /** Recording configuration stored by the Rust backend. */
 export interface RecordingOptions {
 	completedOutputPath: string;
-	saveFailedRuns: boolean;
-	failedOutputPath: string;
-	failedRunLimit: number;
-	minimumFailedRunLengthSecs: number;
+	recentRunLimit: number;
 	clipFilenameTemplate: string;
 	preRunPaddingSecs: number;
 	postRunPaddingSecs: number;
@@ -595,7 +603,6 @@ export type RecordingStatus =
 	| 'savePending';
 
 /** Why a failed run reached an ending screen without a clip being saved. */
-export type FailedRunNotSavedReason = 'savingDisabled' | 'tooShort';
 
 /** Why the backend stopped monitoring. Mirrors the Rust `MonitorStoppedReason`. */
 export type MonitorStoppedReason = 'userStopped' | 'replayBufferStopped';
@@ -635,8 +642,7 @@ export type AppEvent =
 	| ({ type: 'monitorFps' } & MonitorFps)
 	| ({ type: 'recordingSavePending' } & RecordingSavePending)
 	| ({ type: 'recordingSaved' } & RecordingSaved)
-	| ({ type: 'recordingSaveDiscarded' } & RecordingSaveDiscarded)
-	| { type: 'failedRunNotSaved'; reason: FailedRunNotSavedReason }
+	| { type: 'runCatalogChanged'; runId?: string; saveId?: number }
 	| { type: 'monitorStopped'; reason: MonitorStoppedReason }
 	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
 	| { type: 'settingsInvalid'; configPath: string; error: string }

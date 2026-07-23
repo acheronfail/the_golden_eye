@@ -3,7 +3,6 @@
 	import Select from '$lib/components/Select.svelte';
 	import { triggerKiaDeathOverlay } from '$lib/stores/monitor.svelte';
 	import { addNotificationFlag } from '$lib/stores/notifications.svelte';
-	import { levelMatchMetaChips } from '$lib/utils/runsView';
 	import { onDestroy } from 'svelte';
 
 	const knownVideoSourceIds = [
@@ -268,26 +267,6 @@
 		});
 	};
 
-	const addClipSavedNotification = () => {
-		addNotificationFlag({
-			title: 'Clip saved',
-			pills: levelMatchMetaChips(
-				{
-					screen: 'stats',
-					mission: 2,
-					part: 1,
-					difficulty: 2,
-					detected_lang: screenshotLang,
-					times: { time: 107, target_time: 110, best_time: 104 },
-					runtime_ms: 7
-				},
-				{ durationSecs: 120 }
-			),
-			meta: 'Duration: 120.0s',
-			tone: 'success'
-		});
-	};
-
 	const formatSeconds = (value: number | null | undefined) => {
 		if (value == null || value < 0) return 'none';
 		const minutes = Math.floor(value / 60);
@@ -547,9 +526,6 @@
 			</button>
 			<button class="obs-button obs-button-gold px-3 py-1.5 text-sm" onclick={addTestNotification}>
 				add test notification
-			</button>
-			<button class="obs-button obs-button-gold px-3 py-1.5 text-sm" onclick={addClipSavedNotification}>
-				add clip saved notification
 			</button>
 		</div>
 	</div>

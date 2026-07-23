@@ -40,8 +40,7 @@ impl Drop for TestDir {
 #[test]
 fn default_settings_use_five_second_pre_run_padding() {
     assert_eq!(AppSettings::default().pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
-    assert_eq!(AppSettings::default().failed_run_limit, DEFAULT_FAILED_RUN_LIMIT);
-    assert_eq!(AppSettings::default().minimum_failed_run_length_secs, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS);
+    assert_eq!(AppSettings::default().recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
     assert!(!AppSettings::default().stop_replay_buffer_when_monitor_stopped);
     assert_eq!(AppSettings::default().monitor_design, DEFAULT_MONITOR_DESIGN);
     assert!(!AppSettings::default().show_monitor_fps);
@@ -55,11 +54,7 @@ fn default_settings_use_five_second_pre_run_padding() {
     assert_eq!(AppSettings::default().youtube_title_template, DEFAULT_YOUTUBE_TITLE_TEMPLATE);
     assert_eq!(AppSettings::default().youtube_description_template, DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE);
     assert_eq!(AppSettings::from_json_value(json!({})).pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
-    assert_eq!(AppSettings::from_json_value(json!({})).failed_run_limit, DEFAULT_FAILED_RUN_LIMIT);
-    assert_eq!(
-        AppSettings::from_json_value(json!({})).minimum_failed_run_length_secs,
-        DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS
-    );
+    assert_eq!(AppSettings::from_json_value(json!({})).recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
     assert!(!AppSettings::from_json_value(json!({})).stop_replay_buffer_when_monitor_stopped);
     assert_eq!(AppSettings::from_json_value(json!({})).monitor_design, DEFAULT_MONITOR_DESIGN);
     assert_eq!(AppSettings::from_json_value(json!({ "monitorDesign": "debug" })).monitor_design, MonitorDesign::Debug);
@@ -89,10 +84,7 @@ fn json_value_is_normalized_field_by_field() {
         "lastUsedSourceName": " N64 Capture ",
         "welcomeModalShown": true,
         "completedOutputPath": "/tmp/completed",
-        "saveFailedRuns": false,
-        "failedOutputPath": "/tmp/failed",
-        "failedRunLimit": "7.9",
-        "minimumFailedRunLengthSecs": "20.5",
+        "recentRunLimit": 7,
         "clipFilenameTemplate": LEGACY_CLIP_FILENAME_TEMPLATE,
         "preRunPaddingSecs": -3,
         "postRunPaddingSecs": "2.5",
@@ -115,10 +107,7 @@ fn json_value_is_normalized_field_by_field() {
     assert_eq!(settings.last_used_source_name.as_deref(), Some("N64 Capture"));
     assert!(settings.welcome_modal_shown);
     assert_eq!(settings.completed_output_path, "/tmp/completed");
-    assert!(!settings.save_failed_runs);
-    assert_eq!(settings.failed_output_path, "/tmp/failed");
-    assert_eq!(settings.failed_run_limit, 7);
-    assert_eq!(settings.minimum_failed_run_length_secs, 20.5);
+    assert_eq!(settings.recent_run_limit, 7);
     assert_eq!(settings.clip_filename_template, DEFAULT_CLIP_FILENAME_TEMPLATE);
     assert_eq!(settings.pre_run_padding_secs, 0.0);
     assert_eq!(settings.post_run_padding_secs, 2.5);
@@ -141,12 +130,10 @@ fn output_path_defaults_follow_obs_replay_directory_and_completed_path() {
 
     let default_completed = replay_dir.join("GoldenEye");
     assert_eq!(settings.completed_output_path, default_completed.to_string_lossy());
-    assert_eq!(settings.failed_output_path, replay_dir.join("GoldenEye - failed").to_string_lossy());
 
     let custom_completed =
         AppSettings::from_json_value(json!({ "completedOutputPath": "/runs" })).with_default_output_paths(None);
     assert_eq!(custom_completed.completed_output_path, "/runs");
-    assert_eq!(custom_completed.failed_output_path, Path::new("/runs - failed").to_string_lossy());
 }
 
 #[test]
@@ -155,8 +142,7 @@ fn status_includes_backend_defaults() {
     let store = SettingsStore::load_from_path(dir.join("settings.json"));
     let status = store.status();
 
-    assert_eq!(status.defaults.failed_run_limit, DEFAULT_FAILED_RUN_LIMIT);
-    assert_eq!(status.defaults.minimum_failed_run_length_secs, DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS);
+    assert_eq!(status.defaults.recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
 }
 
 #[test]
@@ -175,10 +161,7 @@ fn store_persists_and_loads_settings_json() {
             "lastUsedSourceName": "N64 Capture",
             "welcomeModalShown": true,
             "completedOutputPath": "/runs",
-            "saveFailedRuns": true,
-            "failedOutputPath": "/fails",
-            "failedRunLimit": 3,
-            "minimumFailedRunLengthSecs": 12.5,
+            "recentRunLimit": 3,
             "clipFilenameTemplate": "{level}",
             "preRunPaddingSecs": 1.25,
             "postRunPaddingSecs": 4,

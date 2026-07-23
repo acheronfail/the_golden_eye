@@ -16,17 +16,14 @@ async fn first_stats_frame_misread_does_not_poison_the_saved_run_time() {
     let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
         json!({
             "completedOutputPath": temp.join("completed"),
-            "failedOutputPath": temp.join("failed"),
-            "saveFailedRuns": true,
-            "minimumFailedRunLengthSecs": 0,
-            "failedRunLimit": 0,
+            "recentRunLimit": 5,
             "clipFilenameTemplate": "stats-{status}-{time}",
             "preRunPaddingSecs": 0,
             "postRunPaddingSecs": 1
         })
     })
     .await;
-    let failed_dir = harness.temp.join("failed");
+    let completed_dir = harness.temp.join("completed");
     harness.start_monitor().await.error_for_status().unwrap();
 
     // Render every frame twice so the misread first stats frame spans several
@@ -43,9 +40,9 @@ async fn first_stats_frame_misread_does_not_poison_the_saved_run_time() {
 
     // Frames have now stopped (as if the source were paused), and the monitor is
     // still running: the save must still fire on its own padding timer rather than
-    // waiting for the monitor to stop. The KIA run lands in the failed directory.
-    let saved = wait_for_clip(&failed_dir).await;
-    assert!(saved.starts_with(&failed_dir));
+    // waiting for the monitor to stop.
+    let saved = wait_for_clip(&completed_dir).await;
+    assert!(saved.starts_with(&completed_dir));
 
     let runs: Value = harness
         .client
@@ -80,10 +77,7 @@ async fn rt4k_completed_run_records_the_correct_stats_time() {
     let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
         json!({
             "completedOutputPath": temp.join("completed"),
-            "failedOutputPath": temp.join("failed"),
-            "saveFailedRuns": true,
-            "minimumFailedRunLengthSecs": 0,
-            "failedRunLimit": 0,
+            "recentRunLimit": 5,
             "clipFilenameTemplate": "stats-{status}-{time}",
             "preRunPaddingSecs": 0,
             "postRunPaddingSecs": 1
@@ -138,7 +132,6 @@ async fn next_level_header_transition_does_not_rename_the_completed_run() {
     let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
         json!({
             "completedOutputPath": temp.join("completed"),
-            "failedOutputPath": temp.join("failed"),
             "clipFilenameTemplate": "transition-{level}-{time}",
             "preRunPaddingSecs": 0,
             "postRunPaddingSecs": 1
@@ -185,20 +178,14 @@ async fn next_level_header_transition_does_not_rename_the_completed_run() {
     harness.stop_monitor().await.error_for_status().unwrap();
 }
 
-/// The minimum-failed-run-length gate must use the corrected time too: with a
-/// 100s minimum, the KIA run (real 14s) is discarded despite the 374s first-frame
-/// misread. Guards the deferred gate in `RecordingState::take_pending_job`.
+/// Every finalized run is catalogued and clipped so it can be protected from
+/// the recent-run history, including a short failed run.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
-async fn minimum_failed_run_length_gate_uses_the_corrected_time() {
+async fn short_failed_runs_are_saved_and_catalogued() {
     let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
         json!({
             "completedOutputPath": temp.join("completed"),
-            "failedOutputPath": temp.join("failed"),
-            "saveFailedRuns": true,
-            // Longer than the real 14s but shorter than the 374s misread.
-            "minimumFailedRunLengthSecs": 100,
-            "failedRunLimit": 0,
             "clipFilenameTemplate": "stats-{status}-{time}",
             "preRunPaddingSecs": 0,
             "postRunPaddingSecs": 1
@@ -213,9 +200,9 @@ async fn minimum_failed_run_length_gate_uses_the_corrected_time() {
         tokio::time::sleep(Duration::from_millis(40)).await;
     }
 
-    // Shutdown flushes any pending save synchronously, so the discard decision is
-    // final once stop returns.
-    harness.stop_monitor().await.error_for_status().unwrap();
+    let completed_dir = harness.temp.join("completed");
+    let saved = wait_for_clip(&completed_dir).await;
+    assert!(saved.starts_with(&completed_dir));
 
     let runs: Value = harness
         .client
@@ -228,11 +215,7 @@ async fn minimum_failed_run_length_gate_uses_the_corrected_time() {
         .json()
         .await
         .unwrap();
-    assert_eq!(
-        runs["clips"].as_array().expect("clips array").len(),
-        0,
-        "run shorter than the minimum (by its corrected time) must not be saved"
-    );
-    // The gate short-circuits before OBS is ever asked to save the buffer.
-    assert_eq!(harness.obs.calls().replay_save, 0, "no replay save should have been requested");
+    assert_eq!(runs["clips"].as_array().expect("clips array").len(), 1, "a short finalized run must be catalogued");
+    assert_eq!(harness.obs.calls().replay_save, 1);
+    harness.stop_monitor().await.error_for_status().unwrap();
 }

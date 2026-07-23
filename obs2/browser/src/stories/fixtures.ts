@@ -103,12 +103,6 @@ export const completedDirectory: RunDirectoryScan = {
 	exists: true
 };
 
-export const failedDirectory: RunDirectoryScan = {
-	kind: 'failed',
-	path: '/runs/failed',
-	exists: true
-};
-
 export const youtubeStatus = (overrides: Partial<YouTubeStatus> = {}): YouTubeStatus => ({
 	enabled: true,
 	oauthConfigured: true,
@@ -197,39 +191,6 @@ export const notificationScenarios = {
 			detail: 'Japanese templates are active for this source.',
 			meta: 'Monitoring will switch automatically if needed.',
 			tone: 'info'
-		})
-	],
-	savingRecording: [
-		notice(202, {
-			title: 'Saving recording',
-			detail: 'Facility | EN | 00:58 | 00 Agent',
-			meta: 'Waiting for OBS to finish writing the clip.',
-			tone: 'info'
-		})
-	],
-	savingFailedRun: [
-		notice(203, {
-			title: 'Saving recording',
-			detail: 'Control | JP | 00:37 | Agent | KIA',
-			meta: 'Waiting for OBS to finish writing the failed clip.',
-			tone: 'warning'
-		})
-	],
-	failedRunNotSaved: [
-		notice(204, {
-			title: 'Failed run not saved',
-			detail: 'The run was shorter than the minimum failed-run length.',
-			tone: 'info',
-			timeoutMs: 600_000
-		})
-	],
-	clipSaved: [notificationFixtures[1]],
-	failedClipSaved: [
-		notice(205, {
-			title: 'Clip saved',
-			pills: [{ label: 'Control' }, { label: '00:37' }, { label: 'Agent' }, { label: 'KIA' }],
-			meta: 'Duration: 44.8s',
-			tone: 'warning'
 		})
 	],
 	monitoringDisabled: [

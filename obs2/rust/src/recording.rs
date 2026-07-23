@@ -15,28 +15,15 @@ use tokio::sync::broadcast;
 
 use crate::cv::{LevelMatch, Screen};
 use crate::db::run_catalog::{RunCatalog, RunCatalogSave};
-use crate::http::{
-    AppEvent,
-    FailedRunNotSavedReason,
-    RecordingSavePending,
-    RecordingSaved,
-    RecordingStateStore,
-    RecordingStatus,
-};
+use crate::http::{AppEvent, RecordingSavePending, RecordingSaved, RecordingStateStore, RecordingStatus};
 use crate::models::clip_metadata::RunStatus;
 use crate::template_tokens::{RunTemplateTokens, format_iso_utc, format_time};
 use crate::{ffmpeg, ge};
 
-/// Default filename template for trimmed clips. Uses platform-native separators
-/// and falls back through the unique-name suffixer when multiple runs render alike.
-#[cfg(windows)]
-pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level}\\{difficulty}\\{time} - {timestamp_local}";
-#[cfg(not(windows))]
-pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level}/{difficulty}/{time} - {timestamp_local}";
+pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level} - {difficulty} - {time} - {timestamp_local}";
 pub const DEFAULT_PRE_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
-pub const DEFAULT_FAILED_RUN_LIMIT: usize = 10;
-pub const DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS: f64 = 20.0;
+pub const DEFAULT_RECENT_RUN_LIMIT: usize = 5;
 /// Internal safety margin added to both the pre- and post-run padding, on top of
 /// the user's configured values and hidden from them, so a single-frame timing
 /// window can't drop the level-start briefing or stats overlay (e.g. padding 0).
@@ -67,15 +54,7 @@ const OBS_OUTPUT_PATH_BUFFER_SIZE: usize = 4096;
 #[serde(rename_all = "camelCase", default)]
 pub struct RecordingOptions {
     pub completed_output_path: String,
-    pub save_failed_runs: bool,
-    pub failed_output_path: String,
-    /// Number of failed clips to keep in the failed output directory. 0 means
-    /// unlimited.
-    pub failed_run_limit: usize,
-    /// Minimum run length required before a failed run is saved. 0 saves every
-    /// failed run. Uses stats-screen time when present, otherwise detected
-    /// start-to-end time. This excludes pre/post padding.
-    pub minimum_failed_run_length_secs: f64,
+    pub recent_run_limit: usize,
     pub clip_filename_template: String,
     pub pre_run_padding_secs: f64,
     pub post_run_padding_secs: f64,
@@ -85,10 +64,7 @@ impl Default for RecordingOptions {
     fn default() -> Self {
         RecordingOptions {
             completed_output_path: String::new(),
-            save_failed_runs: true,
-            failed_output_path: String::new(),
-            failed_run_limit: DEFAULT_FAILED_RUN_LIMIT,
-            minimum_failed_run_length_secs: DEFAULT_MINIMUM_FAILED_RUN_LENGTH_SECS,
+            recent_run_limit: DEFAULT_RECENT_RUN_LIMIT,
             clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
             pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
             post_run_padding_secs: DEFAULT_POST_RUN_PADDING_SECS,
@@ -101,6 +77,7 @@ impl RecordingOptions {
         if value.is_finite() { value.max(0.0) } else { fallback }
     }
 
+    #[cfg_attr(test, allow(dead_code))]
     fn clip_filename_template(&self) -> &str {
         let trimmed = self.clip_filename_template.trim();
         if trimmed.is_empty() { DEFAULT_CLIP_FILENAME_TEMPLATE } else { trimmed }
@@ -112,10 +89,6 @@ impl RecordingOptions {
 
     fn post_run_padding_secs(&self) -> f64 {
         Self::non_negative_secs(self.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS) + MATCH_PADDING_BUFFER_SECS
-    }
-
-    fn minimum_failed_run_length_secs(&self) -> f64 {
-        Self::non_negative_secs(self.minimum_failed_run_length_secs, 0.0)
     }
 
     fn save_delay(&self) -> Duration {
@@ -498,25 +471,13 @@ struct PendingSave {
     /// Set once the screen leaves stats: the vote is locked so a later run's stats
     /// screen (within the padding window) can't fold into this save.
     stats_vote_closed: bool,
-    /// Whether a "saving recording" notification is currently shown for this save.
-    /// Tracked so it is only sent once the run is savable, and reliably cleared if
-    /// the save is later discarded.
-    notified: bool,
+    /// Whether the provisional recent-run event has been sent for this save.
+    /// It is refreshed only when the voted time changes.
+    pending_event_sent: bool,
     /// The phase-store generation of this save's own `SavePending`/`StatsSkipped`
     /// transition, if it emitted one. Its completion/discard clears exactly that
     /// transition, not a quick-restarted run's identical-looking phase.
     phase_generation: Option<u64>,
-}
-
-/// Whether the pending save currently passes the save criteria. Failed runs
-/// shorter than the configured minimum are dropped; everything else is savable.
-/// Uses the stats-screen time when present, otherwise the wall-clock run length.
-fn pending_is_savable(options: &RecordingOptions, pending: &PendingSave) -> bool {
-    if !pending.status.is_failed() {
-        return true;
-    }
-    let length_secs = failed_run_length_secs(pending.finish_at, pending.clip_start, pending.stats.as_ref());
-    length_secs >= options.minimum_failed_run_length_secs()
 }
 
 /// Frame-count vote for one stats-time field. The most-seen value wins, ties
@@ -549,7 +510,7 @@ impl FieldVote {
 
 /// Record one stats reading, voting each time field independently, and refresh
 /// the stored match with the per-field winners. Returns whether any voted field
-/// changed (so the pending notification can be reissued).
+/// changed (so the provisional recent-run row can be refreshed).
 fn record_stats_vote(pending: &mut PendingSave, m: &LevelMatch) -> bool {
     let times = m.times;
     let mut changed = pending.time_vote.record(times.map(|t| t.time));
@@ -604,18 +565,8 @@ fn recording_save_pending_event(
     }
 }
 
-fn failed_run_length_secs(now: Instant, clip_start: Instant, stats: Option<&LevelMatch>) -> f64 {
-    stats
-        .and_then(|m| m.times)
-        .map(|times| times.time)
-        .filter(|time| *time >= 0)
-        .map(|time| time as f64)
-        .unwrap_or_else(|| now.saturating_duration_since(clip_start).as_secs_f64())
-}
-
-/// Build the notification for a pending save, reading `save_in_secs` as the time
-/// remaining until it fires. Used for the initial event and for the update sent
-/// when the voted time is refined.
+/// Build the provisional run event, reading `save_in_secs` as the time remaining
+/// until it fires. Re-sent when the voted time is refined.
 fn save_pending_event(pending: &PendingSave, options: &RecordingOptions, now: Instant) -> RecordingSavePending {
     let run_length_secs = pending.finish_at.saturating_duration_since(pending.clip_start).as_secs_f64();
     let estimated_duration_secs = run_length_secs + options.pre_run_padding_secs() + options.post_run_padding_secs();
@@ -650,8 +601,7 @@ pub struct RecordingState {
     /// set it is always saved when its timer elapses, even if the user backs out
     /// or starts another run in the meantime.
     pending: Option<PendingSave>,
-    /// Monotonic id assigned to the next scheduled save so frontend notifications
-    /// can be replaced when that save completes.
+    /// Monotonic id linking the provisional recent-run row to its finalized run.
     next_save_id: u64,
     /// Broadcasts an [`AppEvent::RecordingSaved`] to event-stream clients once a
     /// clip is written. Cloned into each save thread.
@@ -733,19 +683,6 @@ impl RecordingState {
         self.flush_pending(now);
         let stats = stats.map(|m| self.canonicalize_match(m));
         let status = self.status.unwrap_or(RunStatus::Complete);
-        if status.is_failed() && !self.options.save_failed_runs {
-            tracing::info!("failed run reached an ending screen but failed-run saving is disabled");
-            self.status = None;
-            self.report = None;
-            self.identity_vote = RunIdentityVote::default();
-            // The run is over and nothing will be saved, so drop the phase back to
-            // idle ("waiting") and surface the outcome as a one-off notification
-            // rather than a lingering "failed run not saved" phase.
-            self.recording_state.clear();
-            let _ = self.event_tx.send(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::SavingDisabled });
-            return false;
-        }
-
         let save_delay = self.options.save_delay();
         let save_id = self.next_save_id;
         self.next_save_id = self.next_save_id.saturating_add(1).max(1);
@@ -762,33 +699,26 @@ impl RecordingState {
             target_vote: FieldVote::default(),
             best_vote: FieldVote::default(),
             stats_vote_closed: false,
-            notified: false,
+            pending_event_sent: false,
             phase_generation: None,
         };
         self.pending = Some(pending);
-        self.sync_pending_notification(now, true);
+        self.sync_pending_event(now, true);
         self.status = None;
         self.report = None;
         tracing::info!(?save_delay, "recording save scheduled");
         true
     }
 
-    /// Reconcile the pending-save notification with the run's current savability:
-    /// show or refresh it while savable (`time_changed` forces a refresh), and
-    /// dismiss it once it isn't so the sticky toast can't outlive a discarded run.
-    fn sync_pending_notification(&mut self, now: Instant, time_changed: bool) {
+    /// Show the provisional row once and refresh it when the voted time changes.
+    fn sync_pending_event(&mut self, now: Instant, time_changed: bool) {
         let Some(pending) = self.pending.as_ref() else {
             return;
         };
-        if pending_is_savable(&self.options, pending) {
-            if !pending.notified || time_changed {
-                let event = save_pending_event(pending, &self.options, now);
-                let _ = self.event_tx.send(AppEvent::RecordingSavePending(event));
-                self.pending.as_mut().unwrap().notified = true;
-            }
-        } else if pending.notified {
-            let _ = self.event_tx.send(AppEvent::RecordingSaveDiscarded { save_id: pending.save_id });
-            self.pending.as_mut().unwrap().notified = false;
+        if !pending.pending_event_sent || time_changed {
+            let event = save_pending_event(pending, &self.options, now);
+            let _ = self.event_tx.send(AppEvent::RecordingSavePending(event));
+            self.pending.as_mut().unwrap().pending_event_sent = true;
         }
     }
 
@@ -798,31 +728,24 @@ impl RecordingState {
     fn take_pending_job(&mut self, now: Instant) -> Option<SaveAndTrimJob> {
         let pending = self.pending.take()?;
 
-        // Enforce the minimum failed-run length against the canonical time now
-        // settled on `pending.stats`, so a first-frame misread can't rescue a
-        // too-short run or discard a long enough one. Measured from run finish.
-        if !pending_is_savable(&self.options, &pending) {
-            tracing::info!(
-                failed_run_length_secs =
-                    failed_run_length_secs(pending.finish_at, pending.clip_start, pending.stats.as_ref()),
-                minimum_failed_run_length_secs = self.options.minimum_failed_run_length_secs(),
-                "failed run reached an ending screen but was shorter than the configured minimum"
-            );
-            // This can fire on the save timer long after the run ended, by which
-            // point a new run may already be recording. Surface the outcome as a
-            // notification, and clear only this save's own phase transition -- not
-            // the current value, which the new run may already own.
-            if let Some(generation) = pending.phase_generation {
-                self.recording_state.clear_if_generation(generation);
+        let metadata = clip_metadata(
+            pending.status,
+            pending.completed_at,
+            pending.stats.as_ref(),
+            &self.source_name,
+            &pending.rom_language,
+        );
+        let finalized = match self.run_catalog.create_finalized_run(pending.completed_at, metadata) {
+            Ok(run) => run,
+            Err(err) => {
+                tracing::error!("failed to record finalized run before saving clip: {err:#}");
+                return None;
             }
-            // Guarantees the sticky "saving" toast is cleared even if this save
-            // was never reconciled to unsavable earlier (normally already done).
-            if pending.notified {
-                let _ = self.event_tx.send(AppEvent::RecordingSaveDiscarded { save_id: pending.save_id });
-            }
-            let _ = self.event_tx.send(AppEvent::FailedRunNotSaved { reason: FailedRunNotSavedReason::TooShort });
-            return None;
-        }
+        };
+        let _ = self.event_tx.send(AppEvent::RunCatalogChanged {
+            run_id: Some(finalized.run_id.clone()),
+            save_id: Some(pending.save_id),
+        });
 
         let start_before_save_secs =
             now.saturating_duration_since(pending.clip_start).as_secs_f64() + self.options.pre_run_padding_secs();
@@ -835,9 +758,8 @@ impl RecordingState {
             status: pending.status,
             completed_at: pending.completed_at,
             stats: pending.stats,
+            metadata: finalized.metadata,
             options: self.options.clone(),
-            source_name: self.source_name.clone(),
-            rom_language: pending.rom_language,
             event_tx: self.event_tx.clone(),
             recording_state: self.recording_state.clone(),
             run_catalog: self.run_catalog.clone(),
@@ -868,8 +790,7 @@ impl RecordingState {
     }
 
     /// Fold another stats reading into the in-flight save and reconcile the pending
-    /// notification: refresh it on a time change, or drop it once the refined time
-    /// falls below the failed-run minimum. No-op for closed votes / non-stats saves.
+    /// row when its displayed time changes. No-op for closed votes or non-stats saves.
     fn refine_stats_vote(&mut self, now: Instant, m: &LevelMatch) {
         let time_changed = {
             let Some(pending) = self.pending.as_mut() else {
@@ -902,7 +823,7 @@ impl RecordingState {
             }
             record_stats_vote(pending, m)
         };
-        self.sync_pending_notification(now, time_changed);
+        self.sync_pending_event(now, time_changed);
     }
 
     /// Save and trim the pending clip synchronously during shutdown, preserving
@@ -1040,7 +961,7 @@ impl RecordingState {
                 } else {
                     // Still on the stats screen with the save in flight: keep voting
                     // the whole window so a multi-frame first misread is outvoted by
-                    // the stable reading, updating the notification when it changes.
+                    // the stable reading, updating the provisional row when it changes.
                     self.refine_stats_vote(now, m);
                 }
             }
@@ -1085,9 +1006,8 @@ struct SaveAndTrimJob {
     status: RunStatus,
     completed_at: SystemTime,
     stats: Option<LevelMatch>,
+    metadata: ffmpeg::ClipMetadata,
     options: RecordingOptions,
-    source_name: String,
-    rom_language: String,
     event_tx: broadcast::Sender<AppEvent>,
     recording_state: RecordingStateStore,
     #[cfg_attr(test, allow(dead_code))]
@@ -1096,6 +1016,7 @@ struct SaveAndTrimJob {
     phase_generation: Option<u64>,
 }
 
+#[cfg_attr(test, allow(dead_code))]
 struct TrimClipRequest<'a> {
     save_id: u64,
     replay_path: &'a str,
@@ -1104,9 +1025,8 @@ struct TrimClipRequest<'a> {
     status: RunStatus,
     completed_at: SystemTime,
     stats: Option<LevelMatch>,
+    metadata: ffmpeg::ClipMetadata,
     options: &'a RecordingOptions,
-    source_name: &'a str,
-    rom_language: &'a str,
     run_catalog: &'a RunCatalog,
 }
 
@@ -1149,6 +1069,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
     };
 
     let ResolvedReplay { path, safe_to_delete } = resolved;
+    let run_id = job.metadata.run_id.clone();
     match trim_clip(TrimClipRequest {
         save_id: job.save_id,
         replay_path: &path,
@@ -1157,9 +1078,8 @@ fn save_and_trim(job: SaveAndTrimJob) {
         status: job.status,
         completed_at: job.completed_at,
         stats: job.stats,
+        metadata: job.metadata,
         options: &job.options,
-        source_name: &job.source_name,
-        rom_language: &job.rom_language,
         run_catalog: &job.run_catalog,
     }) {
         Ok(saved) => {
@@ -1175,6 +1095,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
             // Ignore send errors: with no WebSocket clients there are no
             // subscribers, but the save still succeeded.
             let _ = job.event_tx.send(AppEvent::RecordingSaved(saved));
+            let _ = job.event_tx.send(AppEvent::RunCatalogChanged { run_id: Some(run_id), save_id: Some(job.save_id) });
             // Clear only this save's own phase transition, not the current value,
             // which a quick-restarted run may legitimately share for its own save.
             if let Some(generation) = job.phase_generation {
@@ -1242,6 +1163,7 @@ fn spawn_save_and_trim(job: SaveAndTrimJob) {
 /// Trim the saved replay file down to the requested run window and write it
 /// alongside the replay file with a descriptive name, returning the details of
 /// the written clip.
+#[cfg_attr(test, allow(dead_code))]
 fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
     let input = Path::new(req.replay_path);
     let duration = ffmpeg::duration_secs(input)?;
@@ -1252,7 +1174,7 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
     let start = (duration - req.start_before_save_secs).max(0.0).min(end);
 
     let failed = req.status.is_failed();
-    let dir = output_dir(input, failed, req.options);
+    let dir = output_dir(input, req.options);
     ensure_output_directory(&dir)?;
     let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("replay");
     let ext = input.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
@@ -1279,8 +1201,7 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
         status = req.status.as_str(),
         "trimming replay clip",
     );
-    let clip_metadata =
-        clip_metadata(req.status, req.completed_at, req.stats.as_ref(), req.source_name, req.rom_language);
+    let clip_metadata = req.metadata;
     ffmpeg::trim_with_metadata(input, &output, start, end, Some(&clip_metadata))?;
     tracing::info!(output = %output.display(), "saved trimmed clip");
     if let Err(err) = req.run_catalog.record_saved_clip(RunCatalogSave {
@@ -1290,8 +1211,8 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
     }) {
         tracing::warn!(path = %output.display(), "failed to update run catalog after saving clip: {err:#}");
     }
-    if failed && let Err(err) = req.run_catalog.prune_failed_clips(req.options.failed_run_limit) {
-        tracing::warn!("failed to prune old failed clips: {err:#}");
+    if let Err(err) = req.run_catalog.cleanup_recent(req.options.recent_run_limit) {
+        tracing::warn!("failed to clean up expired recent-run clips: {err:#}");
     }
 
     Ok(RecordingSaved {
@@ -1334,6 +1255,7 @@ fn clip_metadata(
     let time_seconds = stats.and_then(|m| m.times.map(|times| times.time.max(0)));
 
     ffmpeg::ClipMetadata {
+        run_id: String::new(),
         timestamp: format_iso_utc(completed_at),
         time: time_seconds.map(format_time),
         time_seconds,
@@ -1345,6 +1267,8 @@ fn clip_metadata(
         source_name: source_name.to_owned(),
         comment: format!("Created by The Golden Eye OBS plugin v{}", crate::PLUGIN_VERSION),
         plugin_version: crate::PLUGIN_VERSION.to_owned(),
+        retention_state: "pending".to_owned(),
+        retention_reason: None,
     }
 }
 
@@ -1359,10 +1283,7 @@ fn ensure_output_directory(dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn output_dir(input: &Path, failed: bool, options: &RecordingOptions) -> PathBuf {
-    if failed && let Some(path) = configured_dir(&options.failed_output_path) {
-        return path;
-    }
+fn output_dir(input: &Path, options: &RecordingOptions) -> PathBuf {
     if let Some(path) = configured_dir(&options.completed_output_path) {
         return path;
     }
@@ -1446,6 +1367,7 @@ fn render_clip_template(
     RunTemplateTokens::from_match(stem, status.as_str(), completed_at, stats).render(template)
 }
 
+#[cfg_attr(test, allow(dead_code))]
 fn append_extension(mut path: PathBuf, ext: &str) -> PathBuf {
     if ext.is_empty() {
         return path;

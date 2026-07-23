@@ -1,6 +1,6 @@
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 use super::*;
 
@@ -45,6 +45,7 @@ fn sample_clip() -> PathBuf {
 
 fn test_clip_metadata(status: &str, timestamp: &str) -> ClipMetadata {
     ClipMetadata {
+        run_id: String::new(),
         timestamp: timestamp.to_owned(),
         time: Some("02:03".to_owned()),
         time_seconds: Some(123),
@@ -56,6 +57,8 @@ fn test_clip_metadata(status: &str, timestamp: &str) -> ClipMetadata {
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin test".to_owned(),
         plugin_version: "test".to_owned(),
+        retention_state: "kept".to_owned(),
+        retention_reason: Some("imported".to_owned()),
     }
 }
 
@@ -129,46 +132,31 @@ fn video_files_in_directory_searches_recursively() {
 fn list_configured_runs_creates_missing_output_directories_before_scanning() {
     let dir = TestDir::new("configured-missing");
     let completed = dir.join("completed/deeply/nested");
-    let failed = dir.join("failed/deeply/nested");
-    let settings = AppSettings {
-        completed_output_path: completed.to_string_lossy().into_owned(),
-        save_failed_runs: true,
-        failed_output_path: failed.to_string_lossy().into_owned(),
-        ..AppSettings::default()
-    };
+    let settings =
+        AppSettings { completed_output_path: completed.to_string_lossy().into_owned(), ..AppSettings::default() };
 
     let catalog = test_catalog(&dir);
     let runs = list_configured_runs(&settings, &catalog);
 
     assert!(completed.is_dir());
-    assert!(failed.is_dir());
     assert!(runs.clips.is_empty());
-    assert_eq!(runs.directories.len(), 2);
+    assert_eq!(runs.directories.len(), 1);
     assert_eq!(runs.directories[0].kind, RunDirectoryKind::Completed);
     assert_eq!(runs.directories[0].path, completed.to_string_lossy());
     assert!(runs.directories[0].exists);
     assert_eq!(runs.directories[0].error, None);
-    assert_eq!(runs.directories[1].kind, RunDirectoryKind::Failed);
-    assert_eq!(runs.directories[1].path, failed.to_string_lossy());
-    assert!(runs.directories[1].exists);
-    assert_eq!(runs.directories[1].error, None);
 }
 
 #[test]
 fn list_configured_runs_reads_seeded_catalog_without_rescanning() {
     let dir = TestDir::new("catalog-list");
     let completed = dir.join("completed");
-    let failed = dir.join("failed");
     let completed_clip = completed.join("Surface 2/00 Agent/complete.mov");
-    let failed_clip = failed.join("Dam/Agent/failed.mov");
+    let failed_clip = completed.join("Dam/Agent/failed.mov");
     write_tagged_clip(&completed_clip, "complete", "2026-01-02T00:00:00Z");
     write_tagged_clip(&failed_clip, "failed", "2026-01-01T00:00:00Z");
-    let settings = AppSettings {
-        completed_output_path: completed.to_string_lossy().into_owned(),
-        save_failed_runs: true,
-        failed_output_path: failed.to_string_lossy().into_owned(),
-        ..AppSettings::default()
-    };
+    let settings =
+        AppSettings { completed_output_path: completed.to_string_lossy().into_owned(), ..AppSettings::default() };
     let catalog = test_catalog(&dir);
     seed_catalog_from_settings(&catalog, &settings).unwrap();
 
@@ -187,11 +175,8 @@ fn stream_configured_runs_refreshes_catalog_before_emitting() {
     let old_clip = completed.join("old.mov");
     let new_clip = completed.join("new.mov");
     write_tagged_clip(&old_clip, "complete", "2026-01-01T00:00:00Z");
-    let settings = AppSettings {
-        completed_output_path: completed.to_string_lossy().into_owned(),
-        save_failed_runs: false,
-        ..AppSettings::default()
-    };
+    let settings =
+        AppSettings { completed_output_path: completed.to_string_lossy().into_owned(), ..AppSettings::default() };
     let catalog = test_catalog(&dir);
     seed_catalog_from_settings(&catalog, &settings).unwrap();
     fs::remove_file(&old_clip).unwrap();
@@ -205,9 +190,10 @@ fn stream_configured_runs_refreshes_catalog_before_emitting() {
         true
     });
 
-    assert_eq!(clips.len(), 1);
+    assert_eq!(clips.len(), 2);
     assert_eq!(clips[0].file_name, "new.mov");
     assert_eq!(clips[0].metadata.timestamp, "2026-01-02T00:00:00Z");
+    assert!(clips[1].path.is_empty(), "missing videos retain their history row");
 }
 
 #[test]
@@ -217,4 +203,43 @@ fn runs_stream_params_defaults_refresh_to_false() {
     let params: RunsStreamParams =
         serde_json::from_value(serde_json::json!({ "refresh": true })).expect("refresh parses");
     assert!(params.refresh);
+}
+
+#[test]
+fn metadata_updates_persist_for_runs_without_video() {
+    let dir = TestDir::new("metadata-only-update");
+    let catalog = test_catalog(&dir);
+    let run = catalog
+        .create_finalized_run(
+            UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+            test_clip_metadata("complete", "2023-11-14T22:13:20Z"),
+        )
+        .expect("create finalized run");
+
+    let updated = update_run_metadata(
+        &catalog,
+        RunMetadataUpdateRequest {
+            run_id: run.run_id.clone(),
+            metadata: EditableRunMetadata {
+                rom_language: "jp".to_owned(),
+                status: "failed".to_owned(),
+                difficulty: "Agent".to_owned(),
+                time: "01:02".to_owned(),
+                level: "Dam".to_owned(),
+            },
+        },
+    )
+    .expect("update metadata-only run");
+
+    assert_eq!(updated.run_id, run.run_id);
+    assert!(updated.path.is_empty());
+    assert_eq!(updated.metadata.level, "Dam");
+    assert_eq!(updated.metadata.level_number, Some(1));
+    assert_eq!(updated.metadata.time_seconds, Some(62));
+    assert_eq!(updated.metadata.status, RunStatus::Failed);
+
+    let persisted = catalog.get_run(&updated.run_id).unwrap().expect("persisted run");
+    assert!(persisted.clip.is_none());
+    assert_eq!(persisted.metadata.rom_language, "jp");
+    assert_eq!(persisted.metadata.difficulty.as_deref(), Some("Agent"));
 }

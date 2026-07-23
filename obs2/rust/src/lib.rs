@@ -104,6 +104,7 @@ pub fn ge_test_write_tagged_clip(input: &Path, output: &Path, status: &str, time
     }
     let duration = ffmpeg::duration_secs(input).expect("probe tagged clip input");
     let metadata = ffmpeg::ClipMetadata {
+        run_id: String::new(),
         timestamp: timestamp.to_owned(),
         time: Some("02:03".to_owned()),
         time_seconds: Some(123),
@@ -115,6 +116,8 @@ pub fn ge_test_write_tagged_clip(input: &Path, output: &Path, status: &str, time
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin test".to_owned(),
         plugin_version: "test".to_owned(),
+        retention_state: "kept".to_owned(),
+        retention_reason: Some("imported".to_owned()),
     };
     ffmpeg::trim_with_metadata(input, output, 1.0, (duration - 1.0).max(2.0), Some(&metadata))
         .expect("write tagged clip");
@@ -205,6 +208,7 @@ pub extern "C" fn ge_rust_start() -> bool {
             return false;
         }
     };
+    let catalog_needs_seed = catalog_was_missing || run_catalog.needs_seed();
     let mut guard = match SERVER.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
@@ -269,7 +273,7 @@ pub extern "C" fn ge_rust_start() -> bool {
         frame_dump: std::sync::Mutex::new(None),
         frontend_ready_tx,
         run_catalog,
-        run_catalog_needs_seed: Mutex::new(catalog_was_missing),
+        run_catalog_needs_seed: Mutex::new(catalog_needs_seed),
         settings,
         reloaded_at: was_reloaded.then(std::time::Instant::now),
     });

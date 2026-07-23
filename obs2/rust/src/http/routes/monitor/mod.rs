@@ -170,6 +170,16 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // Keep the original source name for the app snapshot; it is also converted
     // to a CString below for the C capture bridge.
     let status_source_name = params.source_name.clone();
+    let effective_settings = state.settings.get_effective();
+    let catalog_state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        super::runs::seed_catalog_if_needed(&catalog_state, &effective_settings);
+        if let Err(err) = catalog_state.run_catalog.cleanup_recent(effective_settings.recent_run_limit) {
+            tracing::warn!("failed to clean recent-run history before monitor start: {err:#}");
+        }
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "run catalog task failed"))?;
     let recording_options = state.settings.get_recording_options();
     let source_name =
         CString::new(params.source_name).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;

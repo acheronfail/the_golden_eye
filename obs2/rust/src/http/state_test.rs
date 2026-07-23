@@ -23,7 +23,6 @@ fn test_snapshot() -> AppSnapshot {
             max_seconds: Some(1200),
             output_directory: Some("/captures".to_owned()),
             default_completed_output_path: Some("/captures/GoldenEye".to_owned()),
-            default_failed_output_path: Some("/captures/GoldenEye/failed".to_owned()),
         },
         settings_status: crate::settings::SettingsStatus {
             settings: crate::settings::AppSettings::default(),
@@ -127,15 +126,6 @@ fn recording_save_pending_event_uses_frontend_field_names() {
 }
 
 #[test]
-fn recording_save_discarded_event_uses_frontend_field_names() {
-    let event = AppEvent::RecordingSaveDiscarded { save_id: 7 };
-    let json = serde_json::to_value(event).unwrap();
-
-    assert_eq!(json["type"], "recordingSaveDiscarded");
-    assert_eq!(json["saveId"], 7);
-}
-
-#[test]
 fn recording_saved_event_uses_frontend_field_names() {
     let event = AppEvent::RecordingSaved(RecordingSaved {
         save_id: 7,
@@ -153,6 +143,16 @@ fn recording_saved_event_uses_frontend_field_names() {
     assert_eq!(json["replayPath"], "/tmp/replay.mp4");
     assert_eq!(json["durationSecs"], 74.5);
     assert!(json.get("stats").is_none());
+}
+
+#[test]
+fn run_catalog_changed_links_a_finalized_run_to_its_pending_save() {
+    let event = AppEvent::RunCatalogChanged { run_id: Some("run-7".to_owned()), save_id: Some(7) };
+    let json = serde_json::to_value(event).unwrap();
+
+    assert_eq!(json["type"], "runCatalogChanged");
+    assert_eq!(json["runId"], "run-7");
+    assert_eq!(json["saveId"], 7);
 }
 
 #[tokio::test]

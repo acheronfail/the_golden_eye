@@ -36,11 +36,8 @@
 	let showResetConfirmation = $state(false);
 	let configActionError = $state<string | null>(null);
 	let completedPathValidating = $state(false);
-	let failedPathValidating = $state(false);
 	let completedValidation: FolderValidation | null = $state(null);
-	let failedValidation: FolderValidation | null = $state(null);
 	let completedValidationSeq = 0;
-	let failedValidationSeq = 0;
 	let clipTemplateSeparator = $state('/');
 
 	const rememberTab = (tab: OptionsTab) => {
@@ -85,16 +82,9 @@
 	const { panel: panelClass, label: labelClass, hint: hintClass, pathButton: pathButtonClass } = optionsClasses;
 	const dangerPanelClass =
 		'grid gap-3 rounded border border-(--obs-danger) bg-[color-mix(in_srgb,var(--obs-danger)_14%,transparent)] px-4 py-4';
-	const normalizeFailedRunLimit = () => {
-		const value = Number(settings.failedRunLimit);
-		settings.failedRunLimit = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
-	};
-
-	const normalizeMinimumFailedRunLength = () => {
-		const value = Number(settings.minimumFailedRunLengthSecs);
-		settings.minimumFailedRunLengthSecs = Number.isFinite(value)
-			? Math.max(0, value)
-			: settings.defaults.minimumFailedRunLengthSecs;
+	const normalizeRecentRunLimit = () => {
+		const value = Number(settings.recentRunLimit);
+		settings.recentRunLimit = Number.isFinite(value) ? Math.min(20, Math.max(1, Math.trunc(value))) : 5;
 	};
 
 	const normalizePreRunPadding = () => {
@@ -144,8 +134,7 @@
 		return null;
 	}
 
-	const outputPath = (kind: OptionsPathKind): string =>
-		kind === 'completed' ? settings.completedOutputPath : settings.failedOutputPath;
+	const outputPath = (_kind: OptionsPathKind): string => settings.completedOutputPath;
 
 	const joinPath = (base: string, child: string): string => {
 		const trimmed = base.trim();
@@ -155,51 +144,24 @@
 		return `${trimmed.replace(/[\\/]+$/, '')}${separator}${child}`;
 	};
 
-	const siblingFailedPath = (base: string): string => {
-		const trimmed = base.trim().replace(/[\\/]+$/, '');
-		return trimmed ? `${trimmed} - failed` : '';
-	};
-
 	const completedDefaultOutputPath = (): string =>
 		replayBuffer.status?.defaultCompletedOutputPath ??
 		(replayBuffer.status?.outputDirectory ? joinPath(replayBuffer.status.outputDirectory, 'GoldenEye') : '');
 
 	let completedOutputPathPlaceholder = $derived(completedDefaultOutputPath() || 'OBS replay folder/GoldenEye');
-	let failedOutputPathPlaceholder = $derived(
-		siblingFailedPath(settings.completedOutputPath.trim() || completedOutputPathPlaceholder) ||
-			replayBuffer.status?.defaultFailedOutputPath ||
-			'GoldenEye - failed'
-	);
-
-	const setOutputPath = (kind: OptionsPathKind, value: string) => {
-		if (kind === 'completed') {
-			settings.completedOutputPath = value;
-		} else {
-			settings.failedOutputPath = value;
-		}
-	};
+	const setOutputPath = (_kind: OptionsPathKind, value: string) => (settings.completedOutputPath = value);
 
 	const setPathValidation = (kind: OptionsPathKind, validation: FolderValidation | null) => {
-		if (kind === 'completed') {
-			completedValidation = validation;
-		} else {
-			failedValidation = validation;
-		}
+		completedValidation = validation;
 	};
 
 	const setPathValidating = (kind: OptionsPathKind, value: boolean) => {
-		if (kind === 'completed') {
-			completedPathValidating = value;
-		} else {
-			failedPathValidating = value;
-		}
+		completedPathValidating = value;
 	};
 
-	const nextValidationSeq = (kind: OptionsPathKind): number =>
-		kind === 'completed' ? ++completedValidationSeq : ++failedValidationSeq;
+	const nextValidationSeq = (_kind: OptionsPathKind): number => ++completedValidationSeq;
 
-	const currentValidationSeq = (kind: OptionsPathKind): number =>
-		kind === 'completed' ? completedValidationSeq : failedValidationSeq;
+	const currentValidationSeq = (_kind: OptionsPathKind): number => completedValidationSeq;
 
 	const clearPathValidation = (kind: OptionsPathKind) => {
 		nextValidationSeq(kind);
@@ -245,15 +207,12 @@
 	};
 
 	const chooseOutputPath = async (kind: OptionsPathKind) => {
-		const currentPath =
-			kind === 'failed'
-				? settings.failedOutputPath.trim() || failedOutputPathPlaceholder
-				: settings.completedOutputPath.trim() || completedOutputPathPlaceholder;
+		const currentPath = settings.completedOutputPath.trim() || completedOutputPathPlaceholder;
 
 		pickingPath = kind;
 		try {
 			const result = await backend.pickFolder({
-				title: kind === 'completed' ? 'Choose completed clips folder' : 'Choose failed clips folder',
+				title: 'Choose run clips folder',
 				currentPath
 			});
 			if (!result.cancelled && result.path) {
@@ -323,11 +282,6 @@
 				validation: completedValidation,
 				placeholder: completedOutputPathPlaceholder
 			},
-			failed: {
-				validating: failedPathValidating,
-				validation: failedValidation,
-				placeholder: failedOutputPathPlaceholder
-			},
 			choose: chooseOutputPath,
 			clear: clearOutputPath,
 			clearValidation: clearPathValidation,
@@ -335,8 +289,7 @@
 			statusMessage: folderStatusMessage
 		},
 		normalize: {
-			failedRunLimit: normalizeFailedRunLimit,
-			minimumFailedRunLength: normalizeMinimumFailedRunLength,
+			recentRunLimit: normalizeRecentRunLimit,
 			preRunPadding: normalizePreRunPadding,
 			postRunPadding: normalizePostRunPadding
 		}
