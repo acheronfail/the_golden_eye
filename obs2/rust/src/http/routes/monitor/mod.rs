@@ -248,6 +248,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // run's clip is written out of the replay buffer.
     let event_tx = state.event_tx.clone();
     let recording_state = state.recording_state.clone();
+    let replay_saves = state.replay_saves.clone();
     let monitor_annotations_state = state.clone();
     let run_catalog = state.run_catalog.clone();
     let recording_source_name = status_source_name.clone();
@@ -273,6 +274,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         let mut recording = crate::recording::RecordingState::new(
             event_tx.clone(),
             recording_state,
+            replay_saves,
             recording_options,
             recording_source_name,
             recording_lang,

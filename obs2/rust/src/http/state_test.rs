@@ -19,6 +19,7 @@ fn test_snapshot() -> AppSnapshot {
         },
         level_match: None,
         recording_state: Some(RecordingStatus::Started),
+        replay_saves: vec![],
         sources: vec![routes::sources::Source { name: "N64 Capture".to_owned(), id: "av_capture_input".to_owned() }],
         replay_buffer: routes::record::ReplayBufferStatus {
             enabled: true,
@@ -57,6 +58,7 @@ fn snapshot_event_contains_retained_app_state() {
     assert_eq!(json["state"]["monitor"]["cvLanguage"], "en");
     assert!(json["state"]["match"].is_null());
     assert_eq!(json["state"]["recordingState"], "started");
+    assert_eq!(json["state"]["replaySaves"], serde_json::json!([]));
     assert_eq!(json["state"]["sources"][0]["name"], "N64 Capture");
     assert_eq!(json["state"]["replayBuffer"]["active"], true);
     assert_eq!(json["state"]["settingsStatus"]["configPath"], "/tmp/settings.json");
@@ -182,6 +184,31 @@ fn monitor_snapshot_tracks_and_clears_the_active_cv_language() {
 
     snapshot.set_monitor_running("N64 Capture".to_owned(), "en".to_owned());
     assert_eq!(snapshot.current().monitor.cv_language.as_deref(), Some("en"));
+}
+
+#[test]
+fn replay_save_store_retains_pipeline_transitions() {
+    let snapshot = SharedStateStore::new(test_snapshot());
+    let store = ReplaySaveStateStore::new(snapshot.clone());
+    store.schedule(ReplaySaveStatus {
+        tracking_id: 41,
+        save_id: 7,
+        stage: ReplaySaveStage::Scheduled,
+        level: "Facility".to_owned(),
+        difficulty: Some("00 Agent".to_owned()),
+        run_status: "complete".to_owned(),
+        estimated_duration_secs: 68.0,
+        error: None,
+    });
+
+    store.transition(41, ReplaySaveStage::SavingReplay);
+    assert_eq!(snapshot.current().replay_saves[0].stage, ReplaySaveStage::SavingReplay);
+
+    store.transition(41, ReplaySaveStage::Trimming);
+    assert_eq!(snapshot.current().replay_saves[0].stage, ReplaySaveStage::Trimming);
+
+    store.complete(41);
+    assert_eq!(snapshot.current().replay_saves[0].stage, ReplaySaveStage::Completed);
 }
 
 #[test]

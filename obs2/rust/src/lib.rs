@@ -248,6 +248,7 @@ pub extern "C" fn ge_rust_start() -> bool {
         monitor: MonitorSnapshot { enabled: false, source_name: None, cv_language: None },
         level_match: None,
         recording_state: None,
+        replay_saves: Vec::new(),
         sources: Vec::new(),
         replay_buffer: http::ReplayBufferStatus::unknown(),
         settings_status: settings.status_without_runtime_defaults(),
@@ -261,6 +262,7 @@ pub extern "C" fn ge_rust_start() -> bool {
     let (event_tx, _) = tokio::sync::broadcast::channel(64);
     let (frontend_ready_tx, _) = tokio::sync::watch::channel(was_reloaded);
     let recording_state = RecordingStateStore::new(snapshot.clone());
+    let replay_saves = http::ReplaySaveStateStore::new(snapshot.clone());
     let state = Arc::new(AppStateInner {
         oauth_pending: tokio::sync::Mutex::new(None),
         youtube: youtube::YoutubeUploadStore::new(settings.path(), run_catalog.clone()),
@@ -269,6 +271,7 @@ pub extern "C" fn ge_rust_start() -> bool {
         snapshot,
         event_tx,
         recording_state,
+        replay_saves,
         monitor_annotations_enabled: AtomicBool::new(false),
         frame_dump: std::sync::Mutex::new(None),
         frontend_ready_tx,

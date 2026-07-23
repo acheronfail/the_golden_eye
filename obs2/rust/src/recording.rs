@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, c_char};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -15,7 +16,16 @@ use tokio::sync::broadcast;
 
 use crate::cv::{LevelMatch, Screen};
 use crate::db::run_catalog::{RunCatalog, RunCatalogSave};
-use crate::http::{AppEvent, RecordingSavePending, RecordingSaved, RecordingStateStore, RecordingStatus};
+use crate::http::{
+    AppEvent,
+    RecordingSavePending,
+    RecordingSaved,
+    RecordingStateStore,
+    RecordingStatus,
+    ReplaySaveStage,
+    ReplaySaveStateStore,
+    ReplaySaveStatus,
+};
 use crate::models::clip_metadata::RunStatus;
 use crate::template_tokens::{RunTemplateTokens, format_iso_utc, format_time};
 use crate::{ffmpeg, ge};
@@ -46,6 +56,11 @@ const REPLAY_START_RETRY_DELAY: Duration = Duration::from_millis(250);
 /// event. Give the frontend a brief turn to finish its state transition.
 const REPLAY_STOP_SETTLE_DELAY: Duration = Duration::from_millis(400);
 const OBS_OUTPUT_PATH_BUFFER_SIZE: usize = 4096;
+static NEXT_REPLAY_TRACKING_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_replay_tracking_id() -> u64 {
+    NEXT_REPLAY_TRACKING_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 /// Recording behaviour supplied by the frontend when a monitor session starts.
 /// The settings store materializes empty output paths into runtime defaults
@@ -445,6 +460,8 @@ impl RunIdentityVote {
 /// seen. Decoupled from the active-run state: once scheduled it owns all it needs,
 /// so backing out or starting another run can't drop it -- it fires on its own timer.
 struct PendingSave {
+    /// Core-lifetime unique id for retained replay pipeline diagnostics.
+    tracking_id: u64,
     /// Identifier shared by the pending and saved WebSocket events.
     save_id: u64,
     /// When the post-run padding window elapses and we save the buffer.
@@ -608,6 +625,8 @@ pub struct RecordingState {
     event_tx: broadcast::Sender<AppEvent>,
     /// Retained recorder phase reported in app snapshots.
     recording_state: RecordingStateStore,
+    /// Retained replay-buffer save pipeline diagnostics.
+    replay_saves: ReplaySaveStateStore,
     /// Recording/output options fixed for this monitor session.
     options: RecordingOptions,
     /// OBS source this monitor session records from, stored in clip metadata.
@@ -622,6 +641,7 @@ impl RecordingState {
     pub fn new(
         event_tx: broadcast::Sender<AppEvent>,
         recording_state: RecordingStateStore,
+        replay_saves: ReplaySaveStateStore,
         options: RecordingOptions,
         source_name: String,
         rom_language: String,
@@ -636,6 +656,7 @@ impl RecordingState {
             next_save_id: 1,
             event_tx,
             recording_state,
+            replay_saves,
             options,
             source_name,
             rom_language,
@@ -687,6 +708,7 @@ impl RecordingState {
         let save_id = self.next_save_id;
         self.next_save_id = self.next_save_id.saturating_add(1).max(1);
         let pending = PendingSave {
+            tracking_id: next_replay_tracking_id(),
             save_id,
             fire_at: now + save_delay,
             clip_start,
@@ -717,6 +739,16 @@ impl RecordingState {
         };
         if !pending.pending_event_sent || time_changed {
             let event = save_pending_event(pending, &self.options, now);
+            self.replay_saves.schedule(ReplaySaveStatus {
+                tracking_id: pending.tracking_id,
+                save_id: event.save_id,
+                stage: ReplaySaveStage::Scheduled,
+                level: event.level.clone(),
+                difficulty: event.difficulty.clone(),
+                run_status: event.status.clone(),
+                estimated_duration_secs: event.estimated_duration_secs,
+                error: None,
+            });
             let _ = self.event_tx.send(AppEvent::RecordingSavePending(event));
             self.pending.as_mut().unwrap().pending_event_sent = true;
         }
@@ -727,6 +759,7 @@ impl RecordingState {
     /// `elapsed` seconds). A no-op when nothing is pending.
     fn take_pending_job(&mut self, now: Instant) -> Option<SaveAndTrimJob> {
         let pending = self.pending.take()?;
+        self.replay_saves.transition(pending.tracking_id, ReplaySaveStage::WaitingForReplaySave);
 
         let metadata = clip_metadata(
             pending.status,
@@ -756,6 +789,7 @@ impl RecordingState {
         let finish_before_save_secs = now.saturating_duration_since(pending.finish_at).as_secs_f64();
         let trim_tail_secs = (finish_before_save_secs - self.options.post_run_padding_secs()).max(0.0);
         Some(SaveAndTrimJob {
+            tracking_id: pending.tracking_id,
             save_id: pending.save_id,
             start_before_save_secs,
             trim_tail_secs,
@@ -766,6 +800,7 @@ impl RecordingState {
             options: self.options.clone(),
             event_tx: self.event_tx.clone(),
             recording_state: self.recording_state.clone(),
+            replay_saves: self.replay_saves.clone(),
             run_catalog: self.run_catalog.clone(),
             phase_generation: pending.phase_generation,
         })
@@ -999,6 +1034,7 @@ impl Drop for RecordingState {
 /// Inputs for saving the replay buffer and trimming it to the run window on a
 /// dedicated thread.
 struct SaveAndTrimJob {
+    tracking_id: u64,
     save_id: u64,
     start_before_save_secs: f64,
     trim_tail_secs: f64,
@@ -1009,6 +1045,7 @@ struct SaveAndTrimJob {
     options: RecordingOptions,
     event_tx: broadcast::Sender<AppEvent>,
     recording_state: RecordingStateStore,
+    replay_saves: ReplaySaveStateStore,
     #[cfg_attr(test, allow(dead_code))]
     run_catalog: Arc<RunCatalog>,
     /// See [`PendingSave::phase_generation`].
@@ -1045,6 +1082,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
         // triggering the save, so we only wake on the event this save produces and
         // `on_replay_saved` can distinguish it from the user's own manual saves.
         let since = begin_replay_save_request();
+        job.replay_saves.transition(job.tracking_id, ReplaySaveStage::SavingReplay);
         tracing::info!("saving replay buffer");
         unsafe { crate::ffi::obs_frontend_replay_buffer_save() };
 
@@ -1053,6 +1091,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
             Some(path) => path,
             None => {
                 tracing::error!("replay buffer save did not complete in time");
+                job.replay_saves.fail(job.tracking_id, "OBS replay buffer save timed out".to_owned());
                 return;
             }
         };
@@ -1068,6 +1107,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
     };
 
     let ResolvedReplay { path, safe_to_delete } = resolved;
+    job.replay_saves.transition(job.tracking_id, ReplaySaveStage::Trimming);
     let run_id = job.metadata.run_id.clone();
     match trim_clip(TrimClipRequest {
         save_id: job.save_id,
@@ -1095,13 +1135,17 @@ fn save_and_trim(job: SaveAndTrimJob) {
             // subscribers, but the save still succeeded.
             let _ = job.event_tx.send(AppEvent::RecordingSaved(saved));
             let _ = job.event_tx.send(AppEvent::RunCatalogChanged { run_id: Some(run_id), save_id: Some(job.save_id) });
+            job.replay_saves.complete(job.tracking_id);
             // Clear only this save's own phase transition, not the current value,
             // which a quick-restarted run may legitimately share for its own save.
             if let Some(generation) = job.phase_generation {
                 job.recording_state.clear_if_generation(generation);
             }
         }
-        Err(err) => tracing::error!("failed to trim replay clip: {err:#}"),
+        Err(err) => {
+            tracing::error!("failed to trim replay clip: {err:#}");
+            job.replay_saves.fail(job.tracking_id, format!("{err:#}"));
+        }
     }
 }
 
@@ -1153,9 +1197,12 @@ fn save_and_trim(_job: SaveAndTrimJob) {
 }
 
 fn spawn_save_and_trim(job: SaveAndTrimJob) {
+    let tracking_id = job.tracking_id;
+    let replay_saves = job.replay_saves.clone();
     let spawned = std::thread::Builder::new().name("ge-replay-save".to_owned()).spawn(move || save_and_trim(job));
     if let Err(err) = spawned {
         tracing::error!("failed to spawn replay save thread: {err}");
+        replay_saves.fail(tracking_id, format!("failed to start replay save worker: {err}"));
     }
 }
 

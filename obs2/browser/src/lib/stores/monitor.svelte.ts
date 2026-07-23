@@ -4,6 +4,7 @@ import {
 	type MonitorFps,
 	type MonitorStatus,
 	type MonitorStoppedReason,
+	type ReplaySaveStatus,
 	type RecordingSaved,
 	type RecordingStatus
 } from '$lib/api';
@@ -151,6 +152,7 @@ export const monitor = $state<{
 	match: LevelMatch | null;
 	fps: MonitorFps | null;
 	cvLanguage: 'en' | 'jp' | null;
+	replaySaves: ReplaySaveStatus[];
 	recordingState: RecordingStatus | null;
 	chromePhase: MonitorPhase | null;
 	kiaEffectId: number;
@@ -160,6 +162,7 @@ export const monitor = $state<{
 	match: null,
 	fps: null,
 	cvLanguage: null,
+	replaySaves: [],
 	recordingState: null,
 	chromePhase: null,
 	kiaEffectId: 0
@@ -192,6 +195,7 @@ export const applyMonitorSnapshot = (snapshot: AppSnapshot): void => {
 	monitor.loaded = true;
 	monitor.match = snapshot.match;
 	monitor.cvLanguage = snapshot.monitor.cvLanguage ?? null;
+	monitor.replaySaves = snapshot.replaySaves;
 	monitor.recordingState = nextStatus.enabled ? visibleRecordingState(snapshot.recordingState) : null;
 	if (!nextStatus.enabled || previousSource !== nextSource) {
 		monitor.fps = null;

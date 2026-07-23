@@ -10,6 +10,7 @@
 		transition = null,
 		recordingState = null,
 		cvLanguage = null,
+		replaySaves = [],
 		match = null,
 		fps = null,
 		recentRuns = [],
@@ -35,6 +36,7 @@
 	const seconds = (input: number | null | undefined): string =>
 		input == null ? 'null' : `${input} s (${formatMonitorTime(input)})`;
 	const matchJson = $derived(match ? JSON.stringify(match, null, 2) : 'null');
+	const stageLabel = (stage: string): string => stage.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
 	const labelClass = 'text-[0.65rem] tracking-[0.1em] text-(--obs-text-dim) uppercase';
 	const gridClass =
 		'grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] border-t border-l border-(--obs-border-muted) [&>div]:min-w-0 [&>div]:border-r [&>div]:border-b [&>div]:border-(--obs-border-muted) [&>div]:bg-(--obs-bg-elevated) [&>div]:px-2 [&>div]:py-1.5 [&>.state-cell]:bg-[color-mix(in_srgb,var(--debug-accent)_10%,var(--obs-bg-elevated))] [&_dt]:text-[0.65rem] [&_dt]:tracking-[0.1em] [&_dt]:text-(--obs-text-dim) [&_dt]:uppercase [&_dd]:mt-0.5 [&_dd]:text-(--obs-text) [&_dd]:[font-variant-numeric:tabular-nums] [&_dd]:[overflow-wrap:anywhere] [&_.state-cell_dd]:font-semibold [&_.state-cell_dd]:text-[color-mix(in_srgb,var(--debug-accent)_72%,var(--obs-text))]';
@@ -118,6 +120,62 @@
 				<dd>{presentation.statusLabel}</dd>
 			</div>
 		</dl>
+	</section>
+
+	<section class="mt-3" aria-labelledby="replay-handling-heading">
+		<h2 class="mb-1 {labelClass}" id="replay-handling-heading">Replay buffer handling</h2>
+		{#if replaySaves.length === 0}
+			<dl class={gridClass}>
+				<div>
+					<dt>in-flight clips</dt>
+					<dd>{@render scalar(null)}</dd>
+				</div>
+			</dl>
+		{:else}
+			<ol class="m-0 flex list-none flex-col gap-2 p-0">
+				{#each replaySaves as save (save.trackingId)}
+					<li data-replay-stage={save.stage}>
+						<dl class={gridClass}>
+							<div>
+								<dt>save</dt>
+								<dd>#{save.saveId}</dd>
+							</div>
+							<div class="state-cell">
+								<dt>stage</dt>
+								<dd
+									class:text-(--obs-danger)={save.stage === 'failed'}
+									class:text-(--obs-success)={save.stage === 'completed'}
+								>
+									{stageLabel(save.stage)}
+								</dd>
+							</div>
+							<div>
+								<dt>level</dt>
+								<dd>{@render scalar(save.level)}</dd>
+							</div>
+							<div>
+								<dt>difficulty</dt>
+								<dd>{@render scalar(save.difficulty)}</dd>
+							</div>
+							<div>
+								<dt>run status</dt>
+								<dd>{@render scalar(save.runStatus)}</dd>
+							</div>
+							<div>
+								<dt>estimated clip</dt>
+								<dd>{@render scalar(save.estimatedDurationSecs, `${save.estimatedDurationSecs.toFixed(1)} s`)}</dd>
+							</div>
+							{#if save.error}
+								<div class="state-cell">
+									<dt>error</dt>
+									<dd class="text-(--obs-danger)">{save.error}</dd>
+								</div>
+							{/if}
+						</dl>
+					</li>
+				{/each}
+			</ol>
+		{/if}
 	</section>
 
 	<section class="mt-3" aria-labelledby="match-heading">

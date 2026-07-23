@@ -591,10 +591,30 @@ export interface AppSnapshot {
 	monitor: MonitorSnapshot;
 	match: LevelMatch | null;
 	recordingState: RecordingStatus | null;
+	replaySaves: ReplaySaveStatus[];
 	sources: ObsSource[];
 	replayBuffer: ReplayBufferStatus;
 	settingsStatus: SettingsStatus;
 	update: UpdateStatus;
+}
+
+export type ReplaySaveStage =
+	| 'scheduled'
+	| 'waitingForReplaySave'
+	| 'savingReplay'
+	| 'trimming'
+	| 'completed'
+	| 'failed';
+
+export interface ReplaySaveStatus {
+	trackingId: number;
+	saveId: number;
+	stage: ReplaySaveStage;
+	level: string;
+	difficulty: string | null;
+	runStatus: string;
+	estimatedDurationSecs: number;
+	error?: string;
 }
 
 export type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'staged' | 'applying';

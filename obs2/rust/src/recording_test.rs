@@ -67,6 +67,7 @@ fn test_snapshot_store() -> SharedStateStore {
         },
         level_match: None,
         recording_state: None,
+        replay_saves: vec![],
         sources: Vec::new(),
         replay_buffer: crate::http::ReplayBufferStatus {
             enabled: true,
@@ -89,10 +90,12 @@ fn test_snapshot_store() -> SharedStateStore {
 
 fn test_recording(options: RecordingOptions) -> (RecordingState, tokio::sync::broadcast::Receiver<AppEvent>) {
     let (event_tx, event_rx) = tokio::sync::broadcast::channel(8);
-    let recording_state = RecordingStateStore::new(test_snapshot_store());
+    let snapshot = test_snapshot_store();
+    let recording_state = RecordingStateStore::new(snapshot.clone());
     let recording = RecordingState::new(
         event_tx,
         recording_state,
+        ReplaySaveStateStore::new(snapshot),
         options,
         "N64 Capture".to_owned(),
         "en".to_owned(),
@@ -266,8 +269,13 @@ fn failed_report_then_stats_schedules_failed_save() {
     assert_eq!(recording.status, None);
     assert!(recording.report.is_none());
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
+    let replay_saves = recording.replay_saves.current();
+    assert_eq!(replay_saves.len(), 1);
+    assert_eq!(replay_saves[0].save_id, pending.save_id);
+    assert_eq!(replay_saves[0].stage, ReplaySaveStage::Scheduled);
 
     let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
+    assert_eq!(recording.replay_saves.current()[0].stage, ReplaySaveStage::WaitingForReplaySave);
     assert_eq!(job.status, RunStatus::Failed);
     assert_eq!(job.stats.as_ref().map(|m| m.screen), Some(Screen::Stats));
     assert!((job.start_before_save_secs - 22.5).abs() < f64::EPSILON);
@@ -346,9 +354,11 @@ fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
         recent_run_limit: 1,
         ..RecordingOptions::default()
     };
+    let snapshot = test_snapshot_store();
     let mut recording = RecordingState::new(
         event_tx,
-        RecordingStateStore::new(test_snapshot_store()),
+        RecordingStateStore::new(snapshot.clone()),
+        ReplaySaveStateStore::new(snapshot),
         options.clone(),
         "N64 Capture".to_owned(),
         "en".to_owned(),
@@ -652,6 +662,10 @@ fn late_save_completion_does_not_clear_a_second_runs_matching_phase() {
     recording.on_frame(start + Duration::from_secs(22), &match_for_screen(Screen::Levels));
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::StatsSkipped));
     let _ = pending_save_event(&mut events);
+    let replay_saves = recording.replay_saves.current();
+    assert_eq!(replay_saves.len(), 2);
+    assert!(replay_saves.iter().any(|save| save.stage == ReplaySaveStage::WaitingForReplaySave));
+    assert!(replay_saves.iter().any(|save| save.stage == ReplaySaveStage::Scheduled));
 
     // Run 1's save completes late: clearing by its own (stale) generation
     // must leave run 2's `StatsSkipped` phase untouched.

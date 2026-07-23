@@ -98,6 +98,26 @@ describe('debug monitor', () => {
 			...props('debug', 'complete', levelMatch),
 			sourceName: 'N64 Capture',
 			cvLanguage: 'jp',
+			replaySaves: [
+				{
+					trackingId: 42,
+					saveId: 8,
+					stage: 'savingReplay',
+					level: 'Facility',
+					difficulty: '00 Agent',
+					runStatus: 'complete',
+					estimatedDurationSecs: 68
+				},
+				{
+					trackingId: 41,
+					saveId: 7,
+					stage: 'trimming',
+					level: 'Dam',
+					difficulty: 'Agent',
+					runStatus: 'failed',
+					estimatedDurationSecs: 82
+				}
+			],
 			showMonitorFps: true,
 			fps: { processedFps: 60, sourceFps: 60 }
 		});
@@ -106,11 +126,16 @@ describe('debug monitor', () => {
 		expect(screen.getByText('N64 Capture')).toBeInTheDocument();
 		expect(screen.getByText('CV language')).toBeInTheDocument();
 		expect(screen.getByText('jp')).toBeInTheDocument();
+		expect(screen.getByRole('heading', { name: 'Replay buffer handling' })).toBeInTheDocument();
+		expect(screen.getByText('saving replay')).toBeInTheDocument();
+		expect(screen.getByText('trimming')).toBeInTheDocument();
+		expect(screen.getByText('#8')).toBeInTheDocument();
+		expect(screen.getByText('#7')).toBeInTheDocument();
 		expect(screen.getAllByText('60')).toHaveLength(2);
 		expect(screen.getByText('[58,65,61]')).toBeInTheDocument();
 		expect(screen.getByText(/"score": 0.98/)).toBeInTheDocument();
 		expect(screen.queryByText(/show FPS setting/i)).not.toBeInTheDocument();
-		expect(view.container.querySelectorAll('.state-cell')).toHaveLength(5);
+		expect(view.container.querySelectorAll('.state-cell')).toHaveLength(7);
 		expect(view.container.querySelectorAll('[data-value-kind="true"]')).not.toHaveLength(0);
 		expect(view.container.querySelectorAll('[data-value-kind="false"]')).not.toHaveLength(0);
 		expect(view.container.querySelectorAll('[data-value-kind="null"]')).not.toHaveLength(0);

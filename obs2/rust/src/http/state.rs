@@ -29,6 +29,8 @@ pub struct AppStateInner {
     /// Latest recorder phase from the running monitor, with generation-aware
     /// timeout clearing. Writes also update `snapshot.recording_state`.
     pub recording_state: RecordingStateStore,
+    /// Retained per-clip replay save pipeline state for debug visibility.
+    pub replay_saves: ReplaySaveStateStore,
     /// Developer-only, in-memory switch that makes the live monitor include
     /// matcher regions and annotation sets in its debug/info payloads. This is
     /// intentionally not part of persisted settings.
@@ -75,6 +77,7 @@ pub struct AppSnapshot {
     #[serde(rename = "match")]
     pub level_match: Option<LevelMatch>,
     pub recording_state: Option<RecordingStatus>,
+    pub replay_saves: Vec<ReplaySaveStatus>,
     pub sources: Vec<routes::sources::Source>,
     pub replay_buffer: ReplayBufferStatus,
     pub settings_status: crate::settings::SettingsStatus,
@@ -130,6 +133,32 @@ impl SharedStateStore {
 
     pub fn set_recording_state(&self, recording_state: Option<RecordingStatus>) {
         self.update(|state| state.recording_state = recording_state);
+    }
+
+    pub fn set_replay_save(&self, replay_save: ReplaySaveStatus) {
+        self.update(|state| {
+            if let Some(existing) =
+                state.replay_saves.iter_mut().find(|existing| existing.tracking_id == replay_save.tracking_id)
+            {
+                *existing = replay_save;
+            } else {
+                state.replay_saves.push(replay_save);
+                state.replay_saves.sort_unstable_by(|a, b| b.tracking_id.cmp(&a.tracking_id));
+            }
+        });
+    }
+
+    pub fn update_replay_save(&self, tracking_id: u64, stage: ReplaySaveStage, error: Option<String>) {
+        self.update(|state| {
+            if let Some(existing) = state.replay_saves.iter_mut().find(|existing| existing.tracking_id == tracking_id) {
+                existing.stage = stage;
+                existing.error = error;
+            }
+        });
+    }
+
+    pub fn remove_replay_save(&self, tracking_id: u64) {
+        self.update(|state| state.replay_saves.retain(|save| save.tracking_id != tracking_id));
     }
 
     pub fn set_sources(&self, sources: Vec<routes::sources::Source>) {
@@ -296,6 +325,79 @@ pub enum RecordingStatus {
     /// screen): a save has been scheduled and will fire a few seconds later. A
     /// [`AppEvent::RecordingSaved`] follows once the clip is written.
     SavePending,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReplaySaveStage {
+    Scheduled,
+    WaitingForReplaySave,
+    SavingReplay,
+    Trimming,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaySaveStatus {
+    pub tracking_id: u64,
+    pub save_id: u64,
+    pub stage: ReplaySaveStage,
+    pub level: String,
+    pub difficulty: Option<String>,
+    pub run_status: String,
+    pub estimated_duration_secs: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct ReplaySaveStateStore {
+    snapshot: SharedStateStore,
+}
+
+impl ReplaySaveStateStore {
+    const COMPLETED_LINGER: Duration = Duration::from_secs(5);
+    const FAILED_LINGER: Duration = Duration::from_secs(30);
+
+    pub fn new(snapshot: SharedStateStore) -> Self {
+        Self { snapshot }
+    }
+
+    pub fn schedule(&self, status: ReplaySaveStatus) {
+        self.snapshot.set_replay_save(status);
+    }
+
+    #[cfg(test)]
+    pub fn current(&self) -> Vec<ReplaySaveStatus> {
+        self.snapshot.current().replay_saves
+    }
+
+    pub fn transition(&self, tracking_id: u64, stage: ReplaySaveStage) {
+        self.snapshot.update_replay_save(tracking_id, stage, None);
+    }
+
+    pub fn complete(&self, tracking_id: u64) {
+        self.snapshot.update_replay_save(tracking_id, ReplaySaveStage::Completed, None);
+        self.remove_after(tracking_id, Self::COMPLETED_LINGER);
+    }
+
+    pub fn fail(&self, tracking_id: u64, error: String) {
+        self.snapshot.update_replay_save(tracking_id, ReplaySaveStage::Failed, Some(error));
+        self.remove_after(tracking_id, Self::FAILED_LINGER);
+    }
+
+    fn remove_after(&self, tracking_id: u64, duration: Duration) {
+        let store = self.clone();
+        let spawned = std::thread::Builder::new().name("ge-replay-save-state-timeout".to_owned()).spawn(move || {
+            std::thread::sleep(duration);
+            store.snapshot.remove_replay_save(tracking_id);
+        });
+        if let Err(err) = spawned {
+            tracing::error!("failed to spawn replay save state timeout thread: {err}");
+        }
+    }
 }
 
 /// Retained recorder phase shared by the monitor worker and app snapshot.

@@ -14,6 +14,7 @@
 			verified: true,
 			monitoring: true,
 			recordingState: null,
+			cvLanguage: 'en',
 			match: match('unknown'),
 			onStop: () => {}
 		}
@@ -34,6 +35,43 @@
 />
 <Story name="Skipped stats" args={{ recordingState: 'statsSkipped', match: match('level select') }} />
 <Story name="Saving clip" args={{ recordingState: 'savePending', match: match('stats') }} />
+<Story
+	name="Overlapping replay handling"
+	args={{
+		recordingState: 'started',
+		match: match('start'),
+		replaySaves: [
+			{
+				trackingId: 43,
+				saveId: 9,
+				stage: 'scheduled',
+				level: 'Facility',
+				difficulty: '00 Agent',
+				runStatus: 'complete',
+				estimatedDurationSecs: 68
+			},
+			{
+				trackingId: 42,
+				saveId: 8,
+				stage: 'trimming',
+				level: 'Dam',
+				difficulty: 'Agent',
+				runStatus: 'failed',
+				estimatedDurationSecs: 82
+			},
+			{
+				trackingId: 41,
+				saveId: 7,
+				stage: 'failed',
+				level: 'Runway',
+				difficulty: 'Secret Agent',
+				runStatus: 'complete',
+				estimatedDurationSecs: 51,
+				error: 'OBS replay buffer save timed out'
+			}
+		]
+	}}
+/>
 <Story
 	name="Recent run history"
 	args={{

@@ -172,6 +172,7 @@
 	{transition}
 	recordingState={monitor.recordingState}
 	cvLanguage={monitor.cvLanguage}
+	replaySaves={monitor.replaySaves}
 	match={monitor.match}
 	fps={monitor.fps}
 	showMonitorFps={settings.showMonitorFps}
