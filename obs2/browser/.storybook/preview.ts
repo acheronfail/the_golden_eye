@@ -14,6 +14,11 @@ const preview: Preview = {
 					styles: { width: '420px', height: '900px' },
 					type: 'desktop'
 				},
+				obsDockHalfHeight: {
+					name: 'OBS side dock (half height)',
+					styles: { width: '420px', height: '450px' },
+					type: 'desktop'
+				},
 				...MINIMAL_VIEWPORTS
 			}
 		},
