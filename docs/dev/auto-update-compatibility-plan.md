@@ -634,7 +634,9 @@ that hotfix and remove it again afterward.
 ### PR 3: remove hardcoded shim paths and bump `v0.7.0` to `u1` (implementation complete)
 
 The branch implementation and automated package, Rust, integration, and shim checks are complete.
-The OBS simulator checks listed below remain before merge.
+The OBS checks also passed: `just dev` retained core-only hot reloads, a compatible `u1 -> u1`
+simulation downloaded and applied normally, and a published `u0` installation treated `u1` as a
+manual update without downloading it.
 
 The updater-version bump must be committed with the change that actually requires a new shim. Do not
 bump it in an unrelated release.
