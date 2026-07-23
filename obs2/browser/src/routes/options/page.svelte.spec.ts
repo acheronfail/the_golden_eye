@@ -261,7 +261,7 @@ describe('/options', () => {
 			currentVersion: 'v1.0.0',
 			latestVersion: 'v1.1.0',
 			releaseUrl: 'https://example.com/release',
-			updaterVersion: 1,
+			updaterVersion: 0,
 			requiresManualInstall: false
 		};
 		mocks.api.checkForUpdateNow.mockResolvedValue({ update });
@@ -293,7 +293,7 @@ describe('/options', () => {
 			currentVersion: '0.6.1',
 			latestVersion: '0.7.0',
 			releaseUrl: 'https://example.com/release',
-			updaterVersion: 2,
+			updaterVersion: 1,
 			requiresManualInstall: true
 		};
 		settings.autoUpdateEnabled = true;
