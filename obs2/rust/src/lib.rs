@@ -41,6 +41,7 @@ use tokio::sync::oneshot;
 use crate::settings::{SettingsReload, SettingsStore};
 
 pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
+pub(crate) const UPDATER_VERSION: &str = env!("GE_UPDATER_VERSION");
 
 pub(crate) type ObsPathGetter = unsafe extern "C" fn(*mut c_char, usize) -> bool;
 

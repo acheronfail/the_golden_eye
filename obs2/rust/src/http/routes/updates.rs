@@ -74,14 +74,19 @@ pub async fn handle_check_now(State(state): State<AppState>) -> Result<impl Into
 /// apply afterward via `POST /api/v1/updates/apply`. Returns 404 if up to date.
 #[axum::debug_handler]
 pub async fn handle_download_now(State(state): State<AppState>) -> Result<impl IntoResponse> {
-    let staged = crate::updates::download_and_stage_latest(state).await.map_err(|err| {
+    let result = crate::updates::download_and_stage_latest(state).await.map_err(|err| {
         tracing::error!("manual update download failed: {err:#}");
         (StatusCode::INTERNAL_SERVER_ERROR, "update download failed").into_response()
     })?;
-    if !staged {
-        return Err((StatusCode::NOT_FOUND, "no newer release is available to download").into_response().into());
+    match result {
+        crate::updates::DownloadUpdateResult::Staged => Ok(StatusCode::NO_CONTENT),
+        crate::updates::DownloadUpdateResult::UpToDate => {
+            Err((StatusCode::NOT_FOUND, "no newer release is available to download").into_response().into())
+        }
+        crate::updates::DownloadUpdateResult::ManualInstallRequired => {
+            Err((StatusCode::CONFLICT, "this update requires a manual installation").into_response().into())
+        }
     }
-    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Debug, Serialize)]

@@ -13,6 +13,9 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  LEGACY_ALIAS_RELEASE_TAG: v0.6.1
+
 jobs:
   check-youtube-credentials:
     name: Check YouTube credentials
@@ -36,12 +39,81 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Download packages
         uses: actions/download-artifact@v8
         with:
           pattern: the_golden_eye-*
           merge-multiple: true
           path: dist
+
+      - name: Validate canonical packages
+        shell: bash
+        run: |
+          updater_version="$(tr -d '[:space:]' < obs2/updater-version.txt)"
+          plugin_version="${GITHUB_REF_NAME#v}"
+          prefix="the_golden_eye-u${updater_version}-v${plugin_version}"
+          expected=(
+            "${prefix}-linux-x86_64.zip"
+            "${prefix}-macos-arm64.zip"
+            "${prefix}-macos-x86_64.zip"
+            "${prefix}-windows-x86_64.zip"
+          )
+
+          shopt -s nullglob
+          packages=(dist/*.zip)
+          if [[ ${#packages[@]} -ne ${#expected[@]} ]]; then
+            echo "Expected ${#expected[@]} canonical packages, found ${#packages[@]}: ${packages[*]}" >&2
+            exit 1
+          fi
+          for package in "${expected[@]}"; do
+            test -f "dist/${package}" || {
+              echo "Missing canonical package: ${package}" >&2
+              exit 1
+            }
+          done
+
+      - name: Create v0.6.1 legacy package aliases
+        if: github.ref_name == env.LEGACY_ALIAS_RELEASE_TAG
+        shell: bash
+        run: |
+          updater_version="$(tr -d '[:space:]' < obs2/updater-version.txt)"
+          plugin_version="${GITHUB_REF_NAME#v}"
+          prefix="the_golden_eye-u${updater_version}-v${plugin_version}-"
+
+          shopt -s nullglob
+          canonical=(dist/"${prefix}"*.zip)
+          for package in "${canonical[@]}"; do
+            suffix="${package#dist/${prefix}}"
+            cp "$package" "dist/the_golden_eye-${plugin_version}-${suffix}"
+          done
+
+      - name: Validate legacy package aliases
+        shell: bash
+        run: |
+          plugin_version="${GITHUB_REF_NAME#v}"
+          shopt -s nullglob
+          aliases=(dist/the_golden_eye-"${plugin_version}"-*.zip)
+
+          if [[ "$GITHUB_REF_NAME" != "$LEGACY_ALIAS_RELEASE_TAG" ]]; then
+            if [[ ${#aliases[@]} -ne 0 ]]; then
+              echo "Legacy package aliases are only allowed for ${LEGACY_ALIAS_RELEASE_TAG}" >&2
+              exit 1
+            fi
+            exit 0
+          fi
+
+          if [[ ${#aliases[@]} -ne 4 ]]; then
+            echo "Expected 4 legacy package aliases, found ${#aliases[@]}" >&2
+            exit 1
+          fi
+          updater_version="$(tr -d '[:space:]' < obs2/updater-version.txt)"
+          for alias in "${aliases[@]}"; do
+            suffix="${alias#dist/the_golden_eye-${plugin_version}-}"
+            cmp "$alias" "dist/the_golden_eye-u${updater_version}-v${plugin_version}-${suffix}"
+          done
 
       # NOTE: this is used by the plugin's auto-update mechanism
       - name: Generate checksums

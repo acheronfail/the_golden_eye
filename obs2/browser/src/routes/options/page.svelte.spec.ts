@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
 		checkForUpdateNow: vi.fn(),
 		downloadUpdateNow: vi.fn(),
 		applyUpdateNow: vi.fn(),
+		openUpdateRelease: vi.fn(),
 		putSettings: vi.fn(),
 		resetSettingsToDefaults: vi.fn(),
 		getYouTubeStatus: vi.fn()
@@ -65,6 +66,7 @@ vi.mock('$lib/api', async (importOriginal) => {
 			checkForUpdateNow: mocks.api.checkForUpdateNow,
 			downloadUpdateNow: mocks.api.downloadUpdateNow,
 			applyUpdateNow: mocks.api.applyUpdateNow,
+			openUpdateRelease: mocks.api.openUpdateRelease,
 			putSettings: mocks.api.putSettings,
 			resetSettingsToDefaults: mocks.api.resetSettingsToDefaults,
 			getYouTubeStatus: mocks.api.getYouTubeStatus
@@ -129,6 +131,7 @@ beforeEach(() => {
 	mocks.api.checkForUpdateNow.mockResolvedValue({ update: null });
 	mocks.api.downloadUpdateNow.mockResolvedValue(undefined);
 	mocks.api.applyUpdateNow.mockResolvedValue(undefined);
+	mocks.api.openUpdateRelease.mockResolvedValue(undefined);
 	mocks.api.getYouTubeStatus.mockResolvedValue({
 		enabled: true,
 		oauthConfigured: true,
@@ -257,7 +260,9 @@ describe('/options', () => {
 		const update = {
 			currentVersion: 'v1.0.0',
 			latestVersion: 'v1.1.0',
-			releaseUrl: 'https://example.com/release'
+			releaseUrl: 'https://example.com/release',
+			updaterVersion: 1,
+			requiresManualInstall: false
 		};
 		mocks.api.checkForUpdateNow.mockResolvedValue({ update });
 		mocks.api.getUpdateStatus
@@ -281,6 +286,30 @@ describe('/options', () => {
 		// Once the download finishes staging, the button becomes "Apply update now".
 		await screen.findByRole('button', { name: /^Apply update now$/i });
 		expect(mocks.api.downloadUpdateNow).toHaveBeenCalled();
+	});
+
+	it('preserves auto-update preference and opens the release page for a manual update', async () => {
+		const update = {
+			currentVersion: '0.6.1',
+			latestVersion: '0.7.0',
+			releaseUrl: 'https://example.com/release',
+			updaterVersion: 2,
+			requiresManualInstall: true
+		};
+		settings.autoUpdateEnabled = true;
+		updates.applyStatus({ phase: 'available', available: update });
+		const user = userEvent.setup();
+		render(OptionsPageHarness);
+
+		const autoUpdate = await screen.findByRole('checkbox', { name: /Automatically install updates/i });
+		expect(autoUpdate).toBeChecked();
+		expect(autoUpdate).toBeDisabled();
+		expect(screen.getByText(/automatic updates are temporarily unavailable/i)).toBeInTheDocument();
+
+		const [optionsButton] = screen.getAllByRole('button', { name: /^Open release page$/i });
+		await user.click(optionsButton);
+		expect(mocks.api.openUpdateRelease).toHaveBeenCalledWith(update.releaseUrl);
+		expect(mocks.api.downloadUpdateNow).not.toHaveBeenCalled();
 	});
 
 	it('shows "Apply update now" when an update is already staged', async () => {

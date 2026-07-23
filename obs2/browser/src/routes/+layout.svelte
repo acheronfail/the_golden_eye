@@ -13,7 +13,9 @@
 	import KiaDeathOverlay from '$lib/components/KiaDeathOverlay.svelte';
 	import NotificationFlags from '$lib/components/NotificationFlags.svelte';
 	import WelcomeDialog from '$lib/components/WelcomeDialog.svelte';
+	import ManualUpdateDialog from '$lib/components/ManualUpdateDialog.svelte';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
+	import { updates } from '$lib/stores/updates.svelte';
 	import { youtube } from '$lib/stores/youtube.svelte';
 	import { page } from '$app/state';
 	import { afterNavigate, goto } from '$app/navigation';
@@ -120,6 +122,7 @@
 	);
 	const activeMonitorStyle = $derived(monitorPhaseStyleForPhase(activeMonitorPhase ?? 'complete'));
 	const showWelcomeModal = $derived(settings.loaded && settings.fileError === null && !settings.welcomeModalShown);
+	const manualUpdate = $derived(!showWelcomeModal && !monitor.status?.enabled ? updates.manualUpdate : null);
 
 	const dismissWelcomeModal = () => {
 		settings.welcomeModalShown = true;
@@ -152,5 +155,11 @@
 
 	{#if showWelcomeModal}
 		<WelcomeDialog dismiss={dismissWelcomeModal} />
+	{:else if manualUpdate}
+		<ManualUpdateDialog
+			update={manualUpdate}
+			dismiss={() => updates.dismissManualUpdate()}
+			openRelease={() => updates.openAvailableRelease()}
+		/>
 	{/if}
 </div>

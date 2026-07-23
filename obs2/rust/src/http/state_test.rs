@@ -42,6 +42,8 @@ fn test_snapshot() -> AppSnapshot {
                 current_version: "1.0.0".to_owned(),
                 latest_version: "1.1.0".to_owned(),
                 release_url: "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.1.0".to_owned(),
+                updater_version: 1,
+                requires_manual_install: false,
             }),
         },
     }

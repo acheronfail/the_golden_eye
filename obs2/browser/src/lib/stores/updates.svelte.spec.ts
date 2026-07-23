@@ -29,7 +29,9 @@ vi.mock('$lib/api', async (importOriginal) => {
 const available = {
 	currentVersion: '0.5.0',
 	latestVersion: '0.6.0-beta2',
-	releaseUrl: 'https://example.com/0.6.0-beta2'
+	releaseUrl: 'https://example.com/0.6.0-beta2',
+	updaterVersion: 1,
+	requiresManualInstall: false
 };
 
 describe('update state', () => {
@@ -117,5 +119,26 @@ describe('update state', () => {
 		await updates.check();
 
 		expect(notifications.flags).toEqual([expect.objectContaining({ title: "You're up to date", timeoutMs: 2500 })]);
+	});
+
+	it('never downloads a manual update and keeps its release notice when auto-update is enabled', async () => {
+		const manualUpdate = { ...available, updaterVersion: 2, requiresManualInstall: true };
+		settings.autoUpdateEnabled = true;
+		updates.applyStatus({ phase: 'available', available: manualUpdate });
+
+		expect(updates.manualUpdate).toEqual(manualUpdate);
+		expect(notifications.flags).toEqual(
+			expect.arrayContaining([expect.objectContaining({ title: 'Manual plugin update required' })])
+		);
+
+		await updates.install();
+		expect(mocks.openUpdateRelease).toHaveBeenCalledWith(manualUpdate.releaseUrl);
+		expect(mocks.downloadUpdateNow).not.toHaveBeenCalled();
+
+		updates.dismissManualUpdate();
+		expect(updates.manualUpdate).toBeNull();
+		expect(notifications.flags).toEqual(
+			expect.arrayContaining([expect.objectContaining({ title: 'Manual plugin update required' })])
+		);
 	});
 });

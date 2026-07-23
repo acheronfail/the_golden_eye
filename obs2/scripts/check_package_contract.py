@@ -68,10 +68,13 @@ def main() -> int:
     version = os.environ.get("GE_PLUGIN_VERSION")
     if not version:
         raise SystemExit("GE_PLUGIN_VERSION is required")
+    updater_version = os.environ.get("GE_UPDATER_VERSION")
+    if not updater_version or not updater_version.isdigit() or int(updater_version) < 1:
+        raise SystemExit("GE_UPDATER_VERSION must be a positive integer")
 
     package = package_platform()
     arch = package_arch()
-    expected_zip_name = f"{PLUGIN_NAME}-{version}-{package}-{arch}.zip"
+    expected_zip_name = f"{PLUGIN_NAME}-u{updater_version}-v{version}-{package}-{arch}.zip"
     dist_dir = os.path.join(args.build_dir, "dist")
     zips = sorted(name for name in os.listdir(dist_dir) if name.startswith(f"{PLUGIN_NAME}-") and name.endswith(".zip"))
     if zips != [expected_zip_name]:

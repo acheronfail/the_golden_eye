@@ -12,7 +12,7 @@ use anyhow::Context;
 use sha2::{Digest, Sha256};
 
 use crate::http::{AppState, AppStateInner};
-use crate::updates::{GithubAsset, PluginUpdate};
+use crate::updates::{GithubAsset, PluginUpdate, platform_arch_suffix_for};
 
 const STAGED_DIR_NAME: &str = ".ge_update_staged";
 const DOWNLOAD_DIR_NAME: &str = ".ge_update_staged.download";
@@ -25,20 +25,9 @@ const AUTO_APPLY_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 /// this one run could clobber the other mid-copy and leave nothing staged.
 static STAGE_LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
 
-/// The exact `<platform>-<arch>` suffix `Package.cmake` bakes into release zip names
-/// (`the_golden_eye-<version>-<suffix>.zip`), including its `aarch64` -> `arm64`
+/// The exact `<platform>-<arch>` suffix `Package.cmake` bakes into release zip names,
+/// including its `aarch64` -> `arm64`
 /// normalization (Rust reports `"aarch64"`, while release assets use `"arm64"`).
-fn platform_arch_suffix_for(os: &str, arch: &str) -> Option<&'static str> {
-    match (os, arch) {
-        ("macos", "aarch64") => Some("macos-arm64"),
-        ("macos", "x86_64") => Some("macos-x86_64"),
-        ("windows", "x86_64") => Some("windows-x86_64"),
-        ("linux", "x86_64") => Some("linux-x86_64"),
-        ("linux", "aarch64") => Some("linux-arm64"),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 fn platform_arch_suffix() -> Option<&'static str> {
     platform_arch_suffix_for(std::env::consts::OS, std::env::consts::ARCH)
@@ -48,13 +37,13 @@ fn release_version_for_asset(version: &str) -> String {
     version.trim().trim_start_matches('v').to_owned()
 }
 
-fn asset_zip_name_for(version: &str, os: &str, arch: &str) -> Option<String> {
+fn asset_zip_name_for(version: &str, updater_version: u32, os: &str, arch: &str) -> Option<String> {
     let suffix = platform_arch_suffix_for(os, arch)?;
-    Some(format!("the_golden_eye-{}-{suffix}.zip", release_version_for_asset(version)))
+    Some(format!("the_golden_eye-u{updater_version}-v{}-{suffix}.zip", release_version_for_asset(version)))
 }
 
 fn asset_zip_name(update: &PluginUpdate) -> anyhow::Result<String> {
-    asset_zip_name_for(&update.latest_version, std::env::consts::OS, std::env::consts::ARCH)
+    asset_zip_name_for(&update.latest_version, update.updater_version, std::env::consts::OS, std::env::consts::ARCH)
         .context("unsupported OS/arch for auto-update")
 }
 
@@ -142,6 +131,14 @@ pub async fn auto_apply_when_safe(state: AppState) {
 /// `.ge_update_staged/` holds a checksum-verified core plus best-effort
 /// `cv_templates`/`locale`, ready for `trigger_apply`. `assets` is reused from `updates.rs`.
 pub async fn download_verify_and_stage(update: &PluginUpdate, assets: Vec<GithubAsset>) -> anyhow::Result<()> {
+    if update.requires_manual_install {
+        anyhow::bail!(
+            "update {} requires updater u{}, but this installation supports u{}",
+            update.latest_version,
+            update.updater_version,
+            crate::UPDATER_VERSION
+        );
+    }
     let _stage_guard = STAGE_LOCK.lock().await;
     if has_staged_update() {
         return Ok(());

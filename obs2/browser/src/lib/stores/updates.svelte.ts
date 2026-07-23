@@ -17,7 +17,13 @@ export const updates = new (class {
 	private availableNotificationId: number | null = null;
 	private progressNotificationId: number | null = null;
 	private dismissedVersion: string | null = null;
+	private dismissedManualVersion = $state<string | null>(null);
 	private pendingAction = $state<UpdatePhase | null>(null);
+
+	manualUpdate: PluginUpdate | null = $derived.by(() => {
+		const update = this.status.phase === 'available' ? this.status.available : null;
+		return update?.requiresManualInstall && this.dismissedManualVersion !== update.latestVersion ? update : null;
+	});
 
 	buttonPhase: UpdateButtonPhase = $derived.by(() => {
 		const phase = this.pendingAction ?? this.status.phase;
@@ -60,6 +66,7 @@ export const updates = new (class {
 
 	async download(): Promise<boolean> {
 		if (this.pending) return false;
+		if (this.status.phase === 'available' && this.status.available?.requiresManualInstall) return false;
 		this.pendingAction = 'downloading';
 		try {
 			await backend.downloadUpdateNow();
@@ -94,8 +101,26 @@ export const updates = new (class {
 	}
 
 	async install(): Promise<void> {
+		if (this.status.phase === 'available' && this.status.available?.requiresManualInstall) {
+			await this.openAvailableRelease();
+			return;
+		}
 		if (this.status.phase !== 'staged' && !(await this.download())) return;
 		if (this.status.phase === 'staged') await this.apply();
+	}
+
+	dismissManualUpdate(): void {
+		if (this.manualUpdate) this.dismissedManualVersion = this.manualUpdate.latestVersion;
+	}
+
+	async openAvailableRelease(): Promise<void> {
+		const update = this.status.available;
+		if (!update) return;
+		try {
+			await backend.openUpdateRelease(update.releaseUrl);
+		} catch (err) {
+			addNotificationFlag({ title: 'Could not open release page', detail: errorMessage(err), tone: 'error' });
+		}
 	}
 
 	handleStagingFailed(error: string): void {
@@ -135,7 +160,11 @@ export const updates = new (class {
 
 	private syncAvailableNotification(): void {
 		const update = this.status.phase === 'available' ? this.status.available : null;
-		if (!update || settings.autoUpdateEnabled || this.dismissedVersion === update.latestVersion) {
+		if (
+			!update ||
+			(settings.autoUpdateEnabled && !update.requiresManualInstall) ||
+			this.dismissedVersion === update.latestVersion
+		) {
 			this.removeAvailableNotification();
 			return;
 		}
@@ -183,6 +212,22 @@ export const updates = new (class {
 	}
 
 	private availableNotification(update: PluginUpdate) {
+		if (update.requiresManualInstall) {
+			return {
+				key: 'plugin-update-available',
+				title: 'Manual plugin update required',
+				detail: `${update.latestVersion} cannot be installed automatically.`,
+				meta: 'Click here to open the release page.',
+				tone: 'warning' as const,
+				sticky: true,
+				onDismiss: () => {
+					this.availableNotificationId = null;
+					this.dismissedVersion = update.latestVersion;
+				},
+				action: () => this.openAvailableRelease()
+			};
+		}
+
 		return {
 			key: 'plugin-update-available',
 			title: 'Plugin update available',

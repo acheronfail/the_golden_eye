@@ -460,6 +460,8 @@ export interface PluginUpdate {
 	currentVersion: string;
 	latestVersion: string;
 	releaseUrl: string;
+	updaterVersion: number;
+	requiresManualInstall: boolean;
 }
 
 export interface FolderPickResult {
