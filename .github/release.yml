@@ -14,19 +14,19 @@ changelog:
         - enhancement
     - title: Changes
       labels:
-        - tweak
+        - change
     - title: Fixes
       labels:
         - bug
         - fix
-    - title: Developer Experience
+    - title: Dependencies
+      labels:
+        - dependencies
+    - title: Developer / Repository
       labels:
         - repository
         - dev
         - ci
-    - title: Dependencies
-      labels:
-        - dependencies
     - title: Other Changes
       labels:
         - '*'
