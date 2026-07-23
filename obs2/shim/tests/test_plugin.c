@@ -101,7 +101,9 @@ int main(int argc, char **argv) {
   free(log);
 
   char expected_staged[PATH_MAX];
-  test_join(expected_staged, sizeof(expected_staged), custom_core_dir, ".ge_update_staged");
+  CHECK((size_t)snprintf(expected_staged, sizeof(expected_staged), "%s%c%s", custom_core_dir, GE_PATH_SEP,
+                         ".ge_update_staged") < sizeof(expected_staged),
+        "expected staging path is too long");
   char *reported_staged = test_read_file(staged_out);
   CHECK(reported_staged && strcmp(reported_staged, expected_staged) == 0,
         "core should receive staging beside GE_CORE_LIB: expected '%s', got '%s'", expected_staged,
