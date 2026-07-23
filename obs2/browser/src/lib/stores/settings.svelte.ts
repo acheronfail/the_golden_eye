@@ -11,6 +11,7 @@ const MonitorDesignSchema = z.enum(['signal-band', 'mission-glass', 'debug']);
 
 export interface Settings {
 	stopReplayBufferWhenMonitorStopped: boolean;
+	stopReplayBufferPromptShown: boolean;
 	monitorDesign: MonitorDesign;
 	showMonitorFps: boolean;
 	showDeveloperSettings: boolean;
@@ -54,6 +55,7 @@ const nonNegativeNumber = (value: unknown, fallback = 0): number => {
 
 const bootstrapSettings: Settings = {
 	stopReplayBufferWhenMonitorStopped: false,
+	stopReplayBufferPromptShown: false,
 	monitorDesign: 'signal-band',
 	showMonitorFps: false,
 	showDeveloperSettings: false,
@@ -80,6 +82,7 @@ const bootstrapSettings: Settings = {
 const settingsSchema = (defaults: Settings) =>
 	z.object({
 		stopReplayBufferWhenMonitorStopped: z.boolean().catch(defaults.stopReplayBufferWhenMonitorStopped),
+		stopReplayBufferPromptShown: z.boolean().catch(defaults.stopReplayBufferPromptShown),
 		monitorDesign: MonitorDesignSchema.catch(defaults.monitorDesign),
 		showMonitorFps: z.boolean().catch(defaults.showMonitorFps),
 		showDeveloperSettings: z.boolean().catch(defaults.showDeveloperSettings),
@@ -160,6 +163,7 @@ export const settings = new (class {
 	//
 
 	stopReplayBufferWhenMonitorStopped = $state(initialSettings.stopReplayBufferWhenMonitorStopped);
+	stopReplayBufferPromptShown = $state(initialSettings.stopReplayBufferPromptShown);
 	monitorDesign = $state<MonitorDesign>(initialSettings.monitorDesign);
 	showMonitorFps = $state(initialSettings.showMonitorFps);
 	showDeveloperSettings = $state(initialSettings.showDeveloperSettings);
@@ -212,6 +216,7 @@ export const settings = new (class {
 	savedState = $derived(
 		JSON.stringify({
 			stopReplayBufferWhenMonitorStopped: this.stopReplayBufferWhenMonitorStopped,
+			stopReplayBufferPromptShown: this.stopReplayBufferPromptShown,
 			monitorDesign: this.monitorDesign,
 			showMonitorFps: this.showMonitorFps,
 			showDeveloperSettings: this.showDeveloperSettings,
@@ -345,6 +350,7 @@ export const settings = new (class {
 
 	private apply(next: Settings): void {
 		this.stopReplayBufferWhenMonitorStopped = next.stopReplayBufferWhenMonitorStopped;
+		this.stopReplayBufferPromptShown = next.stopReplayBufferPromptShown;
 		this.monitorDesign = next.monitorDesign;
 		this.showMonitorFps = next.showMonitorFps;
 		this.showDeveloperSettings = next.showDeveloperSettings;

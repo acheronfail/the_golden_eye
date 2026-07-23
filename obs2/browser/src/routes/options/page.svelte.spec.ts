@@ -74,6 +74,7 @@ vi.mock('$lib/api', async (importOriginal) => {
 
 const defaultSettings: Settings = {
 	stopReplayBufferWhenMonitorStopped: false,
+	stopReplayBufferPromptShown: false,
 	monitorDesign: 'signal-band',
 	showMonitorFps: false,
 	showDeveloperSettings: false,

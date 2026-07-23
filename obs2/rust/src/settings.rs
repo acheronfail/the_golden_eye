@@ -103,6 +103,7 @@ pub const DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE: &str =
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub stop_replay_buffer_when_monitor_stopped: bool,
+    pub stop_replay_buffer_prompt_shown: bool,
     pub monitor_design: MonitorDesign,
     pub show_monitor_fps: bool,
     pub show_developer_settings: bool,
@@ -136,6 +137,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             stop_replay_buffer_when_monitor_stopped: false,
+            stop_replay_buffer_prompt_shown: false,
             monitor_design: DEFAULT_MONITOR_DESIGN,
             show_monitor_fps: false,
             show_developer_settings: false,
@@ -174,6 +176,10 @@ impl AppSettings {
             stop_replay_buffer_when_monitor_stopped: bool_field(
                 object.get("stopReplayBufferWhenMonitorStopped"),
                 default.stop_replay_buffer_when_monitor_stopped,
+            ),
+            stop_replay_buffer_prompt_shown: bool_field(
+                object.get("stopReplayBufferPromptShown"),
+                default.stop_replay_buffer_prompt_shown,
             ),
             monitor_design: MonitorDesign::from_json_value(object.get("monitorDesign")),
             show_monitor_fps: bool_field(object.get("showMonitorFps"), default.show_monitor_fps),

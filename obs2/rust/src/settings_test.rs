@@ -42,6 +42,7 @@ fn default_settings_use_five_second_pre_run_padding() {
     assert_eq!(AppSettings::default().pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
     assert_eq!(AppSettings::default().recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
     assert!(!AppSettings::default().stop_replay_buffer_when_monitor_stopped);
+    assert!(!AppSettings::default().stop_replay_buffer_prompt_shown);
     assert_eq!(AppSettings::default().monitor_design, DEFAULT_MONITOR_DESIGN);
     assert!(!AppSettings::default().show_monitor_fps);
     assert!(!AppSettings::default().show_developer_settings);
@@ -56,6 +57,7 @@ fn default_settings_use_five_second_pre_run_padding() {
     assert_eq!(AppSettings::from_json_value(json!({})).pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
     assert_eq!(AppSettings::from_json_value(json!({})).recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
     assert!(!AppSettings::from_json_value(json!({})).stop_replay_buffer_when_monitor_stopped);
+    assert!(!AppSettings::from_json_value(json!({})).stop_replay_buffer_prompt_shown);
     assert_eq!(AppSettings::from_json_value(json!({})).monitor_design, DEFAULT_MONITOR_DESIGN);
     assert_eq!(AppSettings::from_json_value(json!({ "monitorDesign": "debug" })).monitor_design, MonitorDesign::Debug);
     assert!(!AppSettings::from_json_value(json!({})).show_monitor_fps);
@@ -77,6 +79,7 @@ fn default_settings_use_five_second_pre_run_padding() {
 fn json_value_is_normalized_field_by_field() {
     let settings = AppSettings::from_json_value(json!({
         "stopReplayBufferWhenMonitorStopped": true,
+        "stopReplayBufferPromptShown": true,
         "monitorDesign": "mission-glass",
         "showMonitorFps": true,
         "showDeveloperSettings": true,
@@ -100,6 +103,7 @@ fn json_value_is_normalized_field_by_field() {
     }));
 
     assert!(settings.stop_replay_buffer_when_monitor_stopped);
+    assert!(settings.stop_replay_buffer_prompt_shown);
     assert_eq!(settings.monitor_design, MonitorDesign::MissionGlass);
     assert!(settings.show_monitor_fps);
     assert!(settings.show_developer_settings);
@@ -154,6 +158,7 @@ fn store_persists_and_loads_settings_json() {
     let saved = store
         .replace(AppSettings::from_json_value(json!({
             "stopReplayBufferWhenMonitorStopped": true,
+            "stopReplayBufferPromptShown": true,
             "monitorDesign": "mission-glass",
             "showMonitorFps": true,
             "showDeveloperSettings": true,
@@ -176,6 +181,7 @@ fn store_persists_and_loads_settings_json() {
 
     assert_eq!(saved.completed_output_path, "/runs");
     assert!(saved.stop_replay_buffer_when_monitor_stopped);
+    assert!(saved.stop_replay_buffer_prompt_shown);
     assert_eq!(saved.monitor_design, MonitorDesign::MissionGlass);
     assert!(saved.show_monitor_fps);
     assert!(saved.show_developer_settings);
