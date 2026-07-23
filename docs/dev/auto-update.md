@@ -34,8 +34,9 @@ the core library and bundled runtime data while OBS keeps the shim loaded.
    endpoint or the lower-level staging function.
 3. It downloads `checksums.txt`, verifies the package zip's SHA-256, and extracts the package into a
    temporary download directory.
-4. It copies the extracted update payload into `.ge_update_staged` next to the installed core
-   library.
+4. It interprets the package, renames the platform-standard packaged core to the installed core's
+   exact leaf name, and publishes the core plus required runtime data into the staging directory
+   supplied by the shim.
 
 ## Applying a staged update
 
@@ -48,14 +49,15 @@ the core library and bundled runtime data while OBS keeps the shim loaded.
 4. The shim then shuts down the running core: `ge_core_unload()` disconnects OBS callbacks/signals
    and calls `ge_rust_stop()`, which blocks until the Tokio runtime and Rust tasks are stopped. Only
    after that does the shim `dlclose` the old core.
-5. The shim starts the staged core from `.ge_update_staged` by calling
-   `ge_core_load(..., is_reload=true, ...)`. The new core sets its canonical path, marks itself as
-   reloaded, starts Rust, reconnects OBS signals, and refreshes sources.
-6. After the new core is running, the shim syncs the staged core binary over the canonical on-disk
-   core path, best-effort syncs bundled data directories such as `cv_templates` and `locale`, and
-   removes `.ge_update_staged`.
-7. If the staged core cannot load, the shim leaves the canonical files untouched and reopens the
-   previous canonical core as a rollback.
+5. The shim starts the staged core by calling
+   `ge_core_load(canonical_core, staged_directory, is_reload=true, ...)`.
+6. Before reporting startup success, the new Rust core resolves OBS's module data directory and
+   transactionally installs `cv_templates` and `locale` using destination-local temporary
+   directories. This also works when staging and OBS data are on different filesystems.
+7. After the new core is running, the shim copies only the staged core binary over the canonical
+   core path and removes staging.
+8. If runtime-data installation or core startup fails, Rust restores the previous data and reports
+   failure. The shim leaves the canonical core untouched and reopens it as a rollback.
 
 ## Manual installation boundary
 
@@ -85,12 +87,12 @@ Run the simulator in one terminal, then launch OBS with the printed `GE_UPDATE_C
 another:
 
 ```sh
-# Compatible with the checked-in u0 build: should download, stage, and apply.
-just simulate-update --updater-version 0
-
-# Incompatible with u0: should show manual-install UI and make no package request.
+# Compatible with the checked-in u1 build: should download, stage, and apply.
 just simulate-update --updater-version 1
-GE_UPDATER_VERSION=0 just obs
+
+# Incompatible with u1: should show manual-install UI and make no package request.
+just simulate-update --updater-version 2
+GE_UPDATER_VERSION=1 just obs
 ```
 
 The simulator resolves its updater version from `--updater-version`, then `GE_UPDATER_VERSION`, then
@@ -99,9 +101,11 @@ published `v0.6.1` bridge.
 
 ## What the shim updates
 
-- The shim replaces the hosted core library, not the shim library that OBS originally loaded.
-- The shim can also sync bundled data directories that `reload.c` explicitly knows about, currently
-  `cv_templates` and `locale`.
+- The shim replaces only the hosted core library, not the shim library that OBS originally loaded.
+- Rust owns package interpretation and transactionally installs runtime data through the data path
+  resolved by OBS. The shim has no knowledge of data filenames or packaged install layouts.
+- The canonical core and its adjacent staging directory may be unrelated to the shim and OBS data
+  directories; paths containing spaces and custom core filenames are supported.
 - The shim stays resident for the whole OBS session. Changes to shim code require a normal reinstall
   and OBS restart.
 

@@ -45,9 +45,9 @@ updater version before building that release.
 - PR #140 completed the numbering pivot, and the `u0 -> u0` and `u0 -> u1` OBS simulations passed.
 - The dual-named `v0.6.1` bridge is published, and its legacy-update and manual-install checks
   passed.
-- The one-release alias machinery is now being removed before work begins on `v0.7.0`.
-- The shim/path work described below defines updater `u1` and ships in `v0.7.0`; the bridge retains
-  the legacy core-only contract as explicit updater `u0`.
+- The one-release alias machinery was removed after the bridge checks passed.
+- The shim/path work described below is implemented on the `v0.7.0` branch, defines updater `u1`,
+  and keeps the legacy core-only contract identified as updater `u0`.
 
 ## Updater version configuration
 
@@ -157,8 +157,8 @@ The backend check is authoritative; frontend behavior must not be the only compa
 ## Arbitrary install paths in `u1`
 
 [Issue #119](https://github.com/acheronfail/the_golden_eye/issues/119) identifies the shim's
-hardcoded auto-update paths as the remaining installation limitation to remove before 1.0. The
-current implementation has three related assumptions:
+hardcoded auto-update paths as the remaining installation limitation to remove before 1.0. The `u0`
+implementation had three related assumptions:
 
 1. Rust stages next to the canonical core, while the shim independently looks for staging next to
    the shim.
@@ -631,7 +631,10 @@ release as latest, a legacy `v0.6.0` client will no longer discover the dual-nam
 If a `0.6.x` hotfix becomes unavoidable, temporarily restore the exact legacy-alias release step for
 that hotfix and remove it again afterward.
 
-### PR 3: remove hardcoded shim paths and bump `v0.7.0` to `u1`
+### PR 3: remove hardcoded shim paths and bump `v0.7.0` to `u1` (implementation complete)
+
+The branch implementation and automated package, Rust, integration, and shim checks are complete.
+The OBS simulator checks listed below remain before merge.
 
 The updater-version bump must be committed with the change that actually requires a new shim. Do not
 bump it in an unrelated release.
