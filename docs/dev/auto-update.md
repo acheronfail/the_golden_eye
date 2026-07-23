@@ -93,9 +93,9 @@ just simulate-update --updater-version 1
 GE_UPDATER_VERSION=0 just obs
 ```
 
-Use `--legacy-asset-alias` only to test the temporary `v0.6.1` dual-asset bridge. The simulator
-resolves its updater version from `--updater-version`, then `GE_UPDATER_VERSION`, then the
-checked-in file.
+The simulator resolves its updater version from `--updater-version`, then `GE_UPDATER_VERSION`, then
+the checked-in file. It serves canonical packages only; the legacy alias was limited to the
+published `v0.6.1` bridge.
 
 ## What the shim updates
 

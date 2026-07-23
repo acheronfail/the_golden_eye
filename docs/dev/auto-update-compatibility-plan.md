@@ -39,11 +39,13 @@ updater version before building that release.
 
 ## Current rollout status
 
-- PR 1 was merged to `main` as #139 with green CI.
+- PR 1 was merged to `master` as #139 with green CI.
 - The original `u1 -> u1` and `u1 -> u2` OBS simulations were manually verified before the numbering
   pivot.
-- Repeat them as `u0 -> u0` and `u0 -> u1` before publishing the bridge.
-- The next milestone is still the dual-named `v0.6.1` bridge release.
+- PR #140 completed the numbering pivot, and the `u0 -> u0` and `u0 -> u1` OBS simulations passed.
+- The dual-named `v0.6.1` bridge is published, and its legacy-update and manual-install checks
+  passed.
+- The one-release alias machinery is now being removed before work begins on `v0.7.0`.
 - The shim/path work described below defines updater `u1` and ships in `v0.7.0`; the bridge retains
   the legacy core-only contract as explicit updater `u0`.
 
@@ -313,30 +315,21 @@ The simulator must:
 - Continue serving the package for an incompatible test so an accidental backend download is visible
   and testable.
 
-Temporarily support:
-
-```text
---legacy-asset-alias
-```
-
-This exercises the one bridge-release scenario where both canonical and legacy names are published.
-Remove this option in the post-`0.6.1` cleanup PR.
+The simulator temporarily supported a legacy-asset alias while validating the `v0.6.1` bridge. That
+option is removed after publication; subsequent simulations expose canonical packages only.
 
 ## Release workflow
 
-Update the release workflow so that:
+The `v0.6.1` release workflow:
 
 1. Canonical packages always use the `uN-vX.Y.Z` naming convention.
 2. `checksums.txt` contains the canonical packages.
-3. A one-off `LEGACY_ALIAS_RELEASE_TAG: v0.6.1` setting enables a release step that creates legacy
-   aliases and includes them in `checksums.txt`.
-4. Normal releases cannot accidentally publish legacy aliases.
-5. The workflow verifies that every supported platform has exactly one canonical package.
-6. Every canonical package has the updater and plugin versions expected for the release tag.
+3. Used a one-off release step to create legacy aliases and include them in `checksums.txt`.
+4. The workflow verifies that every supported platform has exactly one canonical package.
+5. Every canonical package has the updater and plugin versions expected for the release tag.
 
-The alias step must require an exact match with `LEGACY_ALIAS_RELEASE_TAG`; it must not run for a
-version range or all `0.x` releases. Remove the setting and the alias step after `v0.6.1` has been
-published and verified.
+After the verified bridge release, the workflow must contain no legacy-alias branch: every later
+release publishes only its canonical packages and checksums.
 
 ## Test plan
 
@@ -422,7 +415,7 @@ matcher-quality goals for later work.
 Merged as #139. Its implementation initially used `u1` for the bridge; the required follow-up pivot
 below changes the unreleased contract to `u0` before the first tagged package.
 
-Create a feature branch from the latest `main`:
+Create a feature branch from the latest `master`:
 
 ```sh
 git switch -c codex/updater-version-compatibility
@@ -514,7 +507,7 @@ For the incompatible case, verify that:
 
 Open the PR with the release plan called out explicitly:
 
-- Merge target: `main`.
+- Merge target: `master`.
 - Next stable tag: `v0.6.1`.
 - Checked-in updater version: `u0`.
 - Release must contain canonical and legacy package names.
@@ -539,10 +532,10 @@ already verified manual-install behavior.
 
 ### Release 1: publish the `v0.6.1` bridge
 
-Create and push the tag from the verified `main` commit:
+Create and push the tag from the verified `master` commit:
 
 ```sh
-git switch main
+git switch master
 git pull --ff-only
 git tag v0.6.1
 git push origin v0.6.1
@@ -598,7 +591,7 @@ Create this cleanup branch only after the published bridge release and both end-
 passed:
 
 ```sh
-git switch main
+git switch master
 git pull --ff-only
 git switch -c codex/remove-v0.6.1-update-alias
 ```
@@ -643,10 +636,10 @@ that hotfix and remove it again afterward.
 The updater-version bump must be committed with the change that actually requires a new shim. Do not
 bump it in an unrelated release.
 
-Create a feature branch from cleaned-up `main`:
+Create a feature branch from cleaned-up `master`:
 
 ```sh
-git switch main
+git switch master
 git pull --ff-only
 git switch -c codex/v0.7-shim-and-updater-v1
 ```
@@ -700,7 +693,7 @@ auto-update to later `u1` betas and the stable release.
 For the stable release:
 
 ```sh
-git switch main
+git switch master
 git pull --ff-only
 git tag v0.7.0
 git push origin v0.7.0

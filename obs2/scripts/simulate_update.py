@@ -115,23 +115,15 @@ def make_handler(
     version: str,
     zip_path: Path,
     checksums_text: bytes,
-    legacy_asset_name: str | None,
 ) -> type[http.server.BaseHTTPRequestHandler]:
     zip_bytes = zip_path.read_bytes()
     base_url = f"http://127.0.0.1:{SERVER_PORT}"
-    package_assets = [
-        {"name": zip_path.name, "browser_download_url": f"{base_url}/{zip_path.name}"}
-    ]
-    if legacy_asset_name:
-        package_assets.append(
-            {"name": legacy_asset_name, "browser_download_url": f"{base_url}/{legacy_asset_name}"}
-        )
     latest_json = json.dumps(
         {
             "tag_name": f"v{version}",
             "html_url": RELEASE_URL,
             "assets": [
-                *package_assets,
+                {"name": zip_path.name, "browser_download_url": f"{base_url}/{zip_path.name}"},
                 {"name": "checksums.txt", "browser_download_url": f"{base_url}/checksums.txt"},
             ],
         }
@@ -148,9 +140,7 @@ def make_handler(
         def do_GET(self) -> None:  # noqa: N802 (BaseHTTPRequestHandler's own naming)
             if self.path == "/latest":
                 self._respond(latest_json, "application/json")
-            elif self.path == f"/{zip_path.name}" or (
-                legacy_asset_name and self.path == f"/{legacy_asset_name}"
-            ):
+            elif self.path == f"/{zip_path.name}":
                 self._respond(zip_bytes, "application/zip")
             elif self.path == "/checksums.txt":
                 self._respond(checksums_text, "text/plain")
@@ -166,11 +156,6 @@ def make_handler(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Serve a local simulated plugin update.")
     parser.add_argument("--updater-version", metavar="N")
-    parser.add_argument(
-        "--legacy-asset-alias",
-        action="store_true",
-        help="also expose the temporary pre-updater-version package name",
-    )
     args = parser.parse_args()
 
     version = bumped_version()
@@ -178,13 +163,7 @@ def main() -> int:
     installed_updater_version = checked_in_updater_version()
     zip_path = build_package(version, updater_version)
     checksum = sha256_of(zip_path)
-    legacy_asset_name = (
-        f"the_golden_eye-{version}-{package_platform()}-{package_arch()}.zip"
-        if args.legacy_asset_alias
-        else None
-    )
-    checksum_names = [zip_path.name, *([legacy_asset_name] if legacy_asset_name else [])]
-    checksums_text = "".join(f"{checksum}  {name}\n" for name in checksum_names).encode()
+    checksums_text = f"{checksum}  {zip_path.name}\n".encode()
     compatibility = "compatible" if updater_version == installed_updater_version else "manual install required"
 
     print(f"[simulate-update] serving fake release v{version} ({zip_path.name}, sha256 {checksum[:12]}...)")
@@ -192,8 +171,6 @@ def main() -> int:
         f"[simulate-update] target u{updater_version}; checked-in plugin support u{installed_updater_version}: "
         f"{compatibility}"
     )
-    if legacy_asset_name:
-        print(f"[simulate-update] also serving legacy alias {legacy_asset_name}")
     print(f"[simulate-update] run in another terminal:")
     print(f"[simulate-update]   GE_UPDATE_CHECK_URL=http://127.0.0.1:{SERVER_PORT}/latest just obs")
     if updater_version == installed_updater_version:
@@ -202,7 +179,7 @@ def main() -> int:
         print("[simulate-update] expect a manual-install prompt and no package download request")
     print("[simulate-update] press Ctrl+C to stop", flush=True)
 
-    handler = make_handler(version, zip_path, checksums_text, legacy_asset_name)
+    handler = make_handler(version, zip_path, checksums_text)
     server = http.server.HTTPServer(("127.0.0.1", SERVER_PORT), handler)
     try:
         server.serve_forever()
