@@ -156,6 +156,32 @@ fn catalog_personal_bests_are_computed_from_prior_catalog_runs() {
 }
 
 #[test]
+fn catalog_sorts_runs_by_time_with_missing_times_last() {
+    let dir = TestDir::new("sort-times");
+    let catalog = catalog(&dir);
+    let base = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+    let slow = catalog.create_finalized_run(base, finalized_metadata(RunStatus::Failed, Some(120), "Agent")).unwrap();
+    let missing = catalog
+        .create_finalized_run(base + Duration::from_secs(1), finalized_metadata(RunStatus::Failed, None, "Agent"))
+        .unwrap();
+    let fast = catalog
+        .create_finalized_run(base + Duration::from_secs(2), finalized_metadata(RunStatus::Failed, Some(45), "Agent"))
+        .unwrap();
+
+    let fastest = catalog.list_runs_sorted(RunSort::Fastest).unwrap();
+    assert_eq!(
+        fastest.iter().map(|run| &run.run_id).collect::<Vec<_>>(),
+        [&fast.run_id, &slow.run_id, &missing.run_id]
+    );
+
+    let slowest = catalog.list_runs_sorted(RunSort::Slowest).unwrap();
+    assert_eq!(
+        slowest.iter().map(|run| &run.run_id).collect::<Vec<_>>(),
+        [&slow.run_id, &fast.run_id, &missing.run_id]
+    );
+}
+
+#[test]
 fn recent_history_persists_and_both_delete_modes_preserve_the_requested_data() {
     let dir = TestDir::new("durable-history");
     let db_path = dir.join("runs.sqlite");
@@ -439,7 +465,9 @@ fn sqlite_metadata_document_round_trips_complete_metadata() {
     let mut statement = conn.prepare("PRAGMA index_list(runs)").unwrap();
     let indexes =
         statement.query_map([], |row| row.get::<_, String>(1)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
-    for index in ["runs_status_timestamp_idx", "runs_level_difficulty_timestamp_idx", "runs_time_idx"] {
+    for index in
+        ["runs_status_timestamp_idx", "runs_level_difficulty_timestamp_idx", "runs_time_idx", "runs_time_sort_idx"]
+    {
         assert!(indexes.iter().any(|candidate| candidate == index), "missing expression index {index}");
     }
 }

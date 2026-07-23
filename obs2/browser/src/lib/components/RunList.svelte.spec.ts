@@ -37,6 +37,8 @@ describe('RunList', () => {
 			scannedDirectoryCount: 2,
 			directoryCount: 2,
 			hasActiveFilters: false,
+			sort: 'newest',
+			onSortChange: () => {},
 			fileBrowserLabel: 'Show in Finder',
 			clearFilters: () => {},
 			open: () => {},

@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 use tokio_util::io::ReaderStream;
 
 use crate::db::clips;
-use crate::db::run_catalog::{IndexedRunClip, RunCatalog, RunCatalogRoot, RunRecord, RunRetentionState};
+use crate::db::run_catalog::{IndexedRunClip, RunCatalog, RunCatalogRoot, RunRecord, RunRetentionState, RunSort};
 use crate::ffmpeg::{self, ClipMetadata};
 use crate::http::AppState;
 use crate::models::clip_metadata::RunStatus;
@@ -30,6 +30,8 @@ pub struct RunPathParams {
 pub struct RunsStreamParams {
     #[serde(default)]
     refresh: bool,
+    #[serde(default)]
+    sort: RunSort,
 }
 
 #[derive(Debug, Deserialize)]
@@ -196,11 +198,15 @@ pub(crate) fn seed_catalog_if_needed(state: &AppState, settings: &AppSettings) {
 }
 
 #[axum::debug_handler]
-pub async fn handle_list(State(state): State<AppState>) -> Result<impl IntoResponse> {
+pub async fn handle_list(
+    State(state): State<AppState>,
+    Query(params): Query<RunsStreamParams>,
+) -> Result<impl IntoResponse> {
     let settings = state.settings.get_effective();
+    let sort = params.sort;
     let response = tokio::task::spawn_blocking(move || {
         seed_catalog_if_needed(&state, &settings);
-        list_configured_runs(&settings, &state.run_catalog)
+        list_configured_runs(&settings, &state.run_catalog, sort)
     })
     .await
     .map_err(|err| {
@@ -214,12 +220,13 @@ pub async fn handle_list(State(state): State<AppState>) -> Result<impl IntoRespo
 pub async fn handle_stream(State(state): State<AppState>, Query(params): Query<RunsStreamParams>) -> Result<Response> {
     let settings = state.settings.get_effective();
     let refresh = params.refresh;
+    let sort = params.sort;
     let (tx, mut rx) = mpsc::channel::<String>(32);
     let (mut writer, reader) = tokio::io::duplex(64 * 1024);
 
     std::mem::drop(tokio::task::spawn_blocking(move || {
         seed_catalog_if_needed(&state, &settings);
-        stream_configured_runs(&settings, &state.run_catalog, refresh, |event| {
+        stream_configured_runs(&settings, &state.run_catalog, refresh, sort, |event| {
             let Ok(mut line) = serde_json::to_string(&event) else {
                 return true;
             };
@@ -348,7 +355,7 @@ pub async fn handle_update_metadata(
     Ok((StatusCode::OK, Json(clip)))
 }
 
-pub fn list_configured_runs(settings: &AppSettings, catalog: &RunCatalog) -> RunsResponse {
+pub fn list_configured_runs(settings: &AppSettings, catalog: &RunCatalog, sort: RunSort) -> RunsResponse {
     let dirs = configured_run_directories(settings);
     let mut directories = Vec::new();
 
@@ -367,7 +374,7 @@ pub fn list_configured_runs(settings: &AppSettings, catalog: &RunCatalog) -> Run
         }
     }
 
-    let clips = match catalog.list_runs() {
+    let clips = match catalog.list_runs_sorted(sort) {
         Ok(runs) => runs.into_iter().map(run_clip_from_record).collect(),
         Err(err) => {
             tracing::warn!("failed to list run catalog: {err:#}");
@@ -382,6 +389,7 @@ pub fn stream_configured_runs(
     settings: &AppSettings,
     catalog: &RunCatalog,
     refresh: bool,
+    sort: RunSort,
     mut emit: impl FnMut(RunsStreamEvent) -> bool,
 ) {
     let dirs = configured_run_directories(settings);
@@ -414,7 +422,7 @@ pub fn stream_configured_runs(
         }
     }
 
-    match catalog.list_runs() {
+    match catalog.list_runs_sorted(sort) {
         Ok(runs) => {
             for run in runs {
                 if !emit(RunsStreamEvent::Clip { clip: Box::new(run_clip_from_record(run)) }) {

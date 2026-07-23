@@ -136,7 +136,7 @@ fn list_configured_runs_creates_missing_output_directories_before_scanning() {
         AppSettings { completed_output_path: completed.to_string_lossy().into_owned(), ..AppSettings::default() };
 
     let catalog = test_catalog(&dir);
-    let runs = list_configured_runs(&settings, &catalog);
+    let runs = list_configured_runs(&settings, &catalog, RunSort::Newest);
 
     assert!(completed.is_dir());
     assert!(runs.clips.is_empty());
@@ -160,7 +160,7 @@ fn list_configured_runs_reads_seeded_catalog_without_rescanning() {
     let catalog = test_catalog(&dir);
     seed_catalog_from_settings(&catalog, &settings).unwrap();
 
-    let runs = list_configured_runs(&settings, &catalog);
+    let runs = list_configured_runs(&settings, &catalog, RunSort::Newest);
 
     assert_eq!(runs.clips.len(), 2);
     assert_eq!(runs.clips[0].metadata.status, RunStatus::Complete);
@@ -183,7 +183,7 @@ fn stream_configured_runs_refreshes_catalog_before_emitting() {
     write_tagged_clip(&new_clip, "complete", "2026-01-02T00:00:00Z");
 
     let mut clips = Vec::new();
-    stream_configured_runs(&settings, &catalog, true, |event| {
+    stream_configured_runs(&settings, &catalog, true, RunSort::Newest, |event| {
         if let RunsStreamEvent::Clip { clip } = event {
             clips.push(*clip);
         }
@@ -200,9 +200,11 @@ fn stream_configured_runs_refreshes_catalog_before_emitting() {
 fn runs_stream_params_defaults_refresh_to_false() {
     let params: RunsStreamParams = serde_json::from_value(serde_json::json!({})).expect("missing refresh defaults");
     assert!(!params.refresh);
+    assert_eq!(params.sort, RunSort::Newest);
     let params: RunsStreamParams =
-        serde_json::from_value(serde_json::json!({ "refresh": true })).expect("refresh parses");
+        serde_json::from_value(serde_json::json!({ "refresh": true, "sort": "fastest" })).expect("params parse");
     assert!(params.refresh);
+    assert_eq!(params.sort, RunSort::Fastest);
 }
 
 #[test]

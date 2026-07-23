@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { backend, type EditableRunMetadata, type RunClip, type RunDirectoryScan, type RunsResponse } from '$lib/api';
+	import {
+		backend,
+		type EditableRunMetadata,
+		type RunClip,
+		type RunDirectoryScan,
+		type RunsResponse,
+		type RunSort
+	} from '$lib/api';
 	import RunDetailDialog from '$lib/components/RunDetailDialog.svelte';
 	import RunDeleteDialog from '$lib/components/RunDeleteDialog.svelte';
 	import RunFiltersForm from '$lib/components/RunFilters.svelte';
@@ -14,9 +21,11 @@
 		LEVEL_OPTIONS,
 		STATUS_OPTIONS,
 		hasActiveRunFilters,
-		activeRunFilterLabels,
+		activeRunFilters,
+		parseRunSort,
 		visibleRunClips,
 		type RunDetailView,
+		type RunFilterKey,
 		type RunFilters
 	} from '$lib/utils/runsView';
 	import { onDestroy, onMount } from 'svelte';
@@ -36,7 +45,8 @@
 	let folderBrowserLabel = $state('show clips folder');
 	let folderRevealBusy = $state(false);
 	let filters = $state<RunFilters>({ ...EMPTY_RUN_FILTERS });
-	let filtersCollapsed = $state(false);
+	let filtersCollapsed = $state(true);
+	let sort = $state<RunSort>(parseRunSort(page.url.searchParams.get('sort')));
 	let reloadAbort: AbortController | null = null;
 	let metadataSaveInFlight = false;
 	let metadataSaveQueued = false;
@@ -49,13 +59,13 @@
 
 	const clips = $derived(runs?.clips ?? []);
 	const clipByPath = $derived(new Map(clips.map((clip) => [runKey(clip), clip])));
-	const visibleClips = $derived(visibleRunClips(clips, filters));
+	const visibleClips = $derived(visibleRunClips(clips, filters, sort));
 	const directoryErrors = $derived((runs?.directories ?? []).filter((dir) => dir.error));
 	const scannedDirectoryCount = $derived(runs?.directories.length ?? 0);
 	const completedDirectory = $derived((runs?.directories ?? []).find((dir) => dir.kind === 'completed' && dir.exists));
 	const revealableDirectories = $derived([completedDirectory].filter((dir): dir is RunDirectoryScan => Boolean(dir)));
 	const hasActiveFilters = $derived(hasActiveRunFilters(filters));
-	const activeFilterLabels = $derived(activeRunFilterLabels(filters));
+	const activeFilters = $derived(activeRunFilters(filters));
 	let metadataDirty = $derived.by(() => {
 		if (!selected || !metadataDraft) return false;
 		return !sameMetadataDraft(metadataDraft, draftFromClip(selected));
@@ -83,7 +93,7 @@
 					}
 				},
 				abort.signal,
-				{ refresh }
+				{ refresh, sort }
 			);
 			if (selectedPath && !selectedFound) {
 				selected = null;
@@ -120,6 +130,20 @@
 		Object.assign(filters, EMPTY_RUN_FILTERS);
 	};
 
+	const clearFilter = (key: RunFilterKey) => {
+		filters[key] = '';
+	};
+
+	const changeSort = (next: RunSort) => {
+		if (sort === next) return;
+		sort = next;
+		const url = new URL(page.url);
+		if (sort === 'newest') url.searchParams.delete('sort');
+		else url.searchParams.set('sort', sort);
+		void goto(`${url.pathname}${url.search}`, { replaceState: true, noScroll: true, keepFocus: true });
+		void reload();
+	};
+
 	const close = () => {
 		void saveMetadata();
 		selected = null;
@@ -127,7 +151,9 @@
 		modalError = null;
 		modalBusy = null;
 		if (page.url.searchParams.has('runId')) {
-			void goto('/runs', { replaceState: true, noScroll: true, keepFocus: true });
+			const url = new URL(page.url);
+			url.searchParams.delete('runId');
+			void goto(`${url.pathname}${url.search}`, { replaceState: true, noScroll: true, keepFocus: true });
 		}
 	};
 
@@ -381,6 +407,24 @@
 		}
 	}
 
+	async function keepSelectedRun() {
+		const runId = selected?.runId;
+		if (!selected || !runId) return;
+		const target = selected;
+		const key = runKey(target);
+		modalBusy = 'keep';
+		modalError = null;
+		try {
+			const updated = await backend.keepRun(runId);
+			updateClipInList(key, updated);
+			if (selected?.runId === target.runId) selected = updated;
+		} catch (err) {
+			modalError = err instanceof Error ? err.message : String(err);
+		} finally {
+			modalBusy = null;
+		}
+	}
+
 	function normalizeDraftTime() {
 		if (!metadataDraft) return;
 		metadataDraft.time = normalizeTimeInput(metadataDraft.time);
@@ -424,6 +468,7 @@
 		actions: {
 			close,
 			delete: deleteSelectedRun,
+			keep: keepSelectedRun,
 			reveal: revealSelectedRun,
 			rename: renameSelectedRun,
 			saveMetadata,
@@ -442,9 +487,6 @@
 	<div class="mb-4 flex items-center gap-3">
 		<div class="min-w-0">
 			<h1 class="obs-heading text-xl font-semibold">Runs</h1>
-			<p class="obs-dim mt-1 font-mono text-xs">
-				{visibleClips.length} of {clips.length}{loading ? ' | scanning...' : ''}
-			</p>
 		</div>
 		<button
 			type="button"
@@ -468,9 +510,10 @@
 	<RunFiltersForm
 		bind:collapsed={filtersCollapsed}
 		{filters}
-		{activeFilterLabels}
+		{activeFilters}
 		{hasActiveFilters}
 		levelOptions={levelSelectOptions}
+		{clearFilter}
 		{clearFilters}
 	/>
 
@@ -507,6 +550,8 @@
 		directoryCount={runs?.directories.length ?? null}
 		{hasActiveFilters}
 		{clearFilters}
+		{sort}
+		onSortChange={changeSort}
 		{fileBrowserLabel}
 		busyPath={listActionBusyPath}
 		open={select}

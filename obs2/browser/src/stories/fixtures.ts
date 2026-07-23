@@ -51,6 +51,14 @@ export const failedRun: RunClip = {
 	}
 };
 
+export const pendingRun: RunClip = {
+	...completedRun,
+	runId: 'pending-facility-run',
+	retentionState: 'pending',
+	retentionReason: 'recent',
+	metadata: { ...completedRun.metadata }
+};
+
 export const abortedRun: RunClip = {
 	...completedRun,
 	path: '/runs/failed/2026-07-19-dam-secret-agent-aborted.mp4',
@@ -87,7 +95,7 @@ export const untaggedRun: RunClip = {
 	}
 };
 
-export const runClips = [completedRun, failedRun, abortedRun, untaggedRun];
+export const runClips = [pendingRun, failedRun, abortedRun, untaggedRun];
 
 export const draftForRun = (clip: RunClip): EditableRunMetadata => ({
 	romLanguage: clip.metadata.romLanguage,

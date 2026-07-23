@@ -1,7 +1,11 @@
 <script lang="ts">
 	import SectionTitle from '$lib/components/SectionTitle.svelte';
 
-	let { title = 'Metadata', withAction = false }: { title?: string; withAction?: boolean } = $props();
+	let {
+		title = 'Metadata',
+		detail,
+		withAction = false
+	}: { title?: string; detail?: string; withAction?: boolean } = $props();
 </script>
 
 {#snippet actions()}
@@ -13,6 +17,6 @@
 {/snippet}
 
 <main class="mx-auto w-full max-w-2xl px-6 py-8">
-	<SectionTitle {title} {actions} />
+	<SectionTitle {title} {detail} {actions} />
 	<div class="obs-panel mt-3 h-24 rounded"></div>
 </main>

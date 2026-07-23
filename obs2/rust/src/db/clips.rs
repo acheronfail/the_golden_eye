@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::run_catalog::{IndexedRunClip, RunCatalogRoot, RunCatalogSave, RunRecord, RunRetentionState};
+use super::run_catalog::{IndexedRunClip, RunCatalogRoot, RunCatalogSave, RunRecord, RunRetentionState, RunSort};
 use crate::ffmpeg;
 use crate::models::clip_metadata::ClipMetadata;
 use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
@@ -20,6 +20,10 @@ pub fn initialise(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(CREATE_STATUS_TIMESTAMP_INDEX)?;
     conn.execute_batch(CREATE_LEVEL_DIFFICULTY_TIMESTAMP_INDEX)?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS runs_time_idx ON runs(level_number, difficulty, time_seconds)")?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS runs_time_sort_idx
+         ON runs(time_seconds IS NULL, time_seconds, completed_unix_micros DESC, run_id DESC)",
+    )?;
     Ok(())
 }
 
@@ -29,11 +33,22 @@ pub fn drop_tables(conn: &Connection) -> anyhow::Result<()> {
 }
 
 pub fn list_runs(conn: &Connection) -> anyhow::Result<Vec<RunRecord>> {
-    let mut stmt = conn.prepare(
+    list_runs_sorted(conn, RunSort::Newest)
+}
+
+pub fn list_runs_sorted(conn: &Connection, sort: RunSort) -> anyhow::Result<Vec<RunRecord>> {
+    let order = match sort {
+        RunSort::Newest => "completed_unix_micros DESC, run_id DESC",
+        RunSort::Oldest => "completed_unix_micros ASC, run_id ASC",
+        RunSort::Fastest => "time_seconds IS NULL, time_seconds ASC, completed_unix_micros DESC, run_id DESC",
+        RunSort::Slowest => "time_seconds IS NULL, time_seconds DESC, completed_unix_micros DESC, run_id DESC",
+    };
+    let sql = format!(
         "SELECT run_id, completed_unix_micros, retention_state, retention_reason,
                 clip_path, size_bytes, modified_unix, duration_secs, metadata_json
-         FROM runs ORDER BY completed_unix_micros DESC, run_id DESC",
-    )?;
+         FROM runs ORDER BY {order}"
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([], row_to_run)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }

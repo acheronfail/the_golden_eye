@@ -1,7 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import RunDetailStory from './RunDetailStory.svelte';
-	import { completedRun, failedRun, untaggedRun, youtubeStatus } from './fixtures';
+	import { completedRun, failedRun, pendingRun, untaggedRun, youtubeStatus } from './fixtures';
 
 	const { Story } = defineMeta({
 		title: 'Runs/Run modal',
@@ -12,6 +12,7 @@
 </script>
 
 <Story name="Completed run" />
+<Story name="Pending cleanup" args={{ clip: pendingRun }} />
 <Story name="Failed run" args={{ clip: failedRun }} />
 <Story name="Missing metadata" args={{ clip: untaggedRun }} />
 <Story name="Saving metadata" args={{ modalBusy: 'metadata' }} />

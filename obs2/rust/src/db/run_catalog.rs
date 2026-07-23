@@ -28,6 +28,16 @@ pub enum RunRetentionState {
     Expired,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RunSort {
+    #[default]
+    Newest,
+    Oldest,
+    Fastest,
+    Slowest,
+}
+
 impl RunRetentionState {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -134,6 +144,10 @@ impl RunCatalog {
 
     pub fn list_runs(&self) -> anyhow::Result<Vec<RunRecord>> {
         clips::list_runs(&self.lock())
+    }
+
+    pub fn list_runs_sorted(&self, sort: RunSort) -> anyhow::Result<Vec<RunRecord>> {
+        clips::list_runs_sorted(&self.lock(), sort)
     }
 
     pub fn recent_runs(&self, limit: usize) -> anyhow::Result<Vec<RunRecord>> {

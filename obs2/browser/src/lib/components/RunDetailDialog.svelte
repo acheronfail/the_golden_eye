@@ -69,6 +69,29 @@
 			</header>
 
 			<div class="max-h-[calc(100vh-9rem)] overflow-y-auto p-4">
+				{#if clip.path && clip.retentionState === 'pending'}
+					<section
+						aria-label="Pending video retention"
+						class="mb-4 flex flex-col gap-3 rounded border border-[color-mix(in_srgb,var(--obs-danger),var(--obs-border)_35%)] bg-(--obs-danger-surface) px-4 py-3 sm:flex-row sm:items-center"
+					>
+						<div class="min-w-0 flex-1">
+							<p class="text-sm font-semibold text-(--obs-danger)">Pending cleanup</p>
+							<p class="mt-1 text-xs text-(--obs-text-muted)">
+								This video is temporary and will be deleted when it falls outside your recent-run history. Keep it to
+								retain the video.
+							</p>
+						</div>
+						<button
+							type="button"
+							onclick={view.actions.keep}
+							disabled={view.modal.busy !== null}
+							class="obs-text-button obs-button-danger shrink-0 px-3 py-2 font-mono text-xs"
+						>
+							{view.modal.busy === 'keep' ? 'keeping...' : 'keep video'}
+						</button>
+					</section>
+				{/if}
+
 				<div class="mb-4 flex flex-wrap justify-end gap-2">
 					<button
 						type="button"

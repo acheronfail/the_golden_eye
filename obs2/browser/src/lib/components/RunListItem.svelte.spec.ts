@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import RunListItem from './RunListItem.svelte';
 import type { RunClip } from '$lib/api';
+import { formatDate } from '$lib/utils/runsView';
 
 const clip: RunClip = {
 	path: '/runs/facility.mov',
@@ -27,6 +28,34 @@ const clip: RunClip = {
 };
 
 describe('RunListItem', () => {
+	it('stacks the run time with difficulty and exposes the full timestamp on hover', () => {
+		render(RunListItem, {
+			clip,
+			fileBrowserLabel: 'Show in Finder',
+			open: () => {},
+			rename: () => {},
+			reveal: () => {},
+			remove: () => {}
+		});
+
+		const time = screen.getByText('00:58');
+		expect(time.parentElement).toContainElement(screen.getByText('00 Agent'));
+		expect(screen.getByTitle(formatDate(clip.metadata.timestamp))).toBeInTheDocument();
+	});
+
+	it('highlights pending retention in red', () => {
+		render(RunListItem, {
+			clip: { ...clip, retentionState: 'pending' },
+			fileBrowserLabel: 'Show in Finder',
+			open: () => {},
+			rename: () => {},
+			reveal: () => {},
+			remove: () => {}
+		});
+
+		expect(screen.getByText('pending')).toHaveClass('text-(--obs-danger)');
+	});
+
 	it.each([
 		['Open', 'open'],
 		['Rename', 'rename'],

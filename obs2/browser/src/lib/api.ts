@@ -30,8 +30,8 @@ export class Backend {
 		return this.apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(source)}`);
 	}
 
-	public getRuns(): Promise<RunsResponse> {
-		return this.getJson('/api/v1/runs');
+	public getRuns(sort: RunSort = 'newest'): Promise<RunsResponse> {
+		return this.getJson(`/api/v1/runs?sort=${encodeURIComponent(sort)}`);
 	}
 
 	public getRecentRuns(limit?: number): Promise<RunClip[]> {
@@ -50,12 +50,15 @@ export class Backend {
 	public async streamRuns(
 		onEvent: (event: RunsStreamEvent) => void,
 		signal?: AbortSignal,
-		options: { refresh?: boolean } = {}
+		options: { refresh?: boolean; sort?: RunSort } = {}
 	): Promise<void> {
-		const path = options.refresh ? '/api/v1/runs/stream?refresh=true' : '/api/v1/runs/stream';
+		const query = new URLSearchParams();
+		if (options.refresh) query.set('refresh', 'true');
+		query.set('sort', options.sort ?? 'newest');
+		const path = `/api/v1/runs/stream?${query}`;
 		const res = await this.request(path, { signal });
 		if (!res.body) {
-			const runs = await this.getRuns();
+			const runs = await this.getRuns(options.sort);
 			for (const directory of runs.directories) onEvent({ type: 'directory', directory });
 			for (const clip of runs.clips) onEvent({ type: 'clip', clip });
 			onEvent({ type: 'done' });
@@ -411,6 +414,8 @@ export interface RunsResponse {
 	directories: RunDirectoryScan[];
 	clips: RunClip[];
 }
+
+export type RunSort = 'newest' | 'oldest' | 'fastest' | 'slowest';
 
 export type RunsStreamEvent =
 	| { type: 'directory'; directory: RunDirectoryScan }
