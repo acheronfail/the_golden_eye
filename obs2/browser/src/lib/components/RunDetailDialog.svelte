@@ -72,11 +72,11 @@
 				{#if clip.path && clip.retentionState === 'pending'}
 					<section
 						aria-label="Pending video retention"
-						class="mb-4 flex flex-col gap-3 rounded border border-[color-mix(in_srgb,var(--obs-danger),var(--obs-border)_35%)] bg-(--obs-danger-surface) px-4 py-3 sm:flex-row sm:items-center"
+						class="obs-alert-warning mb-4 flex flex-col gap-3 rounded px-4 py-3 sm:flex-row sm:items-center"
 					>
 						<div class="min-w-0 flex-1">
-							<p class="text-sm font-semibold text-(--obs-danger)">Pending cleanup</p>
-							<p class="mt-1 text-xs text-(--obs-text-muted)">
+							<p class="obs-alert-warning-title text-sm font-semibold">Pending cleanup</p>
+							<p class="obs-alert-warning-body mt-1 text-xs">
 								This video is temporary and will be deleted when it falls outside your recent-run history. Keep it to
 								retain the video.
 							</p>
@@ -85,7 +85,7 @@
 							type="button"
 							onclick={view.actions.keep}
 							disabled={view.modal.busy !== null}
-							class="obs-text-button obs-button-danger shrink-0 px-3 py-2 font-mono text-xs"
+							class="obs-text-button obs-button-gold shrink-0 px-3 py-2 font-mono text-xs"
 						>
 							{view.modal.busy === 'keep' ? 'keeping...' : 'keep video'}
 						</button>

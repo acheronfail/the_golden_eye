@@ -68,17 +68,11 @@
 	<div class="flex flex-wrap items-center justify-between gap-3">
 		<label class={styles.label} for="completed-output-path">Run clips</label>
 		<div class="flex flex-wrap justify-end gap-2">
-			<button
-				type="button"
-				class={styles.pathButton}
-				disabled={view.paths.picking !== null}
-				onclick={() => view.paths.choose('completed')}
-				>{view.paths.picking === 'completed' ? 'Choosing...' : 'Choose...'}</button
+			<button type="button" class={styles.pathButton} disabled={view.paths.picking} onclick={view.paths.choose}
+				>{view.paths.picking ? 'Choosing...' : 'Choose...'}</button
 			>
 			{#if settings.completedOutputPath.trim()}
-				<button type="button" class={styles.pathButton} onclick={() => view.paths.clear('completed')}
-					>Use default</button
-				>
+				<button type="button" class={styles.pathButton} onclick={view.paths.clear}>Use default</button>
 			{/if}
 		</div>
 	</div>
@@ -86,17 +80,17 @@
 		id="completed-output-path"
 		type="text"
 		bind:value={settings.completedOutputPath}
-		oninput={() => view.paths.clearValidation('completed')}
-		onblur={() => view.paths.validate('completed')}
-		placeholder={view.paths.completed.placeholder}
+		oninput={view.paths.clearValidation}
+		onblur={view.paths.validate}
+		placeholder={view.paths.placeholder}
 		class={styles.input}
 	/>
-	{#if view.paths.completed.validating}
+	{#if view.paths.validating}
 		<p class={styles.pathPending}>Checking folder...</p>
-	{:else if view.paths.completed.validation?.error}
-		<p class={styles.pathError}>{view.paths.completed.validation.error}</p>
-	{:else if view.paths.completed.validation && settings.completedOutputPath.trim()}
-		<p class={styles.pathStatus}>{view.paths.statusMessage(view.paths.completed.validation)}</p>
+	{:else if view.paths.validation?.error}
+		<p class={styles.pathError}>{view.paths.validation.error}</p>
+	{:else if view.paths.validation && settings.completedOutputPath.trim()}
+		<p class={styles.pathStatus}>{view.paths.statusMessage(view.paths.validation)}</p>
 	{:else}
 		<p class={styles.hint}>Defaults to a GoldenEye folder inside OBS's replay-buffer output folder.</p>
 	{/if}

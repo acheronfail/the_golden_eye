@@ -34,6 +34,9 @@
 	const seconds = (input: number | null | undefined): string =>
 		input == null ? 'null' : `${input} s (${formatMonitorTime(input)})`;
 	const matchJson = $derived(match ? JSON.stringify(match, null, 2) : 'null');
+	const labelClass = 'text-[0.65rem] tracking-[0.1em] text-[var(--obs-text-dim)] uppercase';
+	const gridClass =
+		'grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] border-t border-l border-[var(--obs-border-muted)] [&>div]:min-w-0 [&>div]:border-r [&>div]:border-b [&>div]:border-[var(--obs-border-muted)] [&>div]:bg-[var(--obs-bg-elevated)] [&>div]:px-2 [&>div]:py-1.5 [&>.state-cell]:bg-[color-mix(in_srgb,var(--debug-accent)_10%,var(--obs-bg-elevated))] [&_dt]:text-[0.65rem] [&_dt]:tracking-[0.1em] [&_dt]:text-[var(--obs-text-dim)] [&_dt]:uppercase [&_dd]:mt-0.5 [&_dd]:text-[var(--obs-text)] [&_dd]:[font-variant-numeric:tabular-nums] [&_dd]:[overflow-wrap:anywhere] [&_.state-cell_dd]:font-semibold [&_.state-cell_dd]:text-[color-mix(in_srgb,var(--debug-accent)_72%,var(--obs-text))]';
 
 	const valueKind = (input: unknown): 'true' | 'false' | 'null' | 'value' => {
 		if (input === true) return 'true';
@@ -47,11 +50,17 @@
 	<span data-value-kind={valueKind(input)}>{display}</span>
 {/snippet}
 
-<main class="monitor-debug" data-phase={presentation.phase} aria-live="polite">
-	<header>
+<main
+	class="monitor-debug @container relative h-full min-h-0 overflow-auto bg-[var(--obs-bg)] p-3 font-mono text-xs text-[var(--obs-text)] [--debug-accent:var(--obs-monitor-waiting)] data-[phase=complete]:[--debug-accent:var(--obs-gold-hover)] data-[phase=danger]:[--debug-accent:var(--obs-danger)] data-[phase=neutral]:[--debug-accent:var(--obs-text-muted)] data-[phase=recording]:[--debug-accent:var(--obs-success)] [&_[data-value-kind=false]]:text-[var(--obs-danger)] [&_[data-value-kind=null]]:text-[var(--obs-text-dim)] [&_[data-value-kind=null]]:italic [&_[data-value-kind=true]]:text-[var(--obs-success)]"
+	data-phase={presentation.phase}
+	aria-live="polite"
+>
+	<header class="flex items-start justify-between gap-4 border-b-2 border-[var(--debug-accent)] pb-3">
 		<div>
-			<p>FOR YOUR EYES ONLY</p>
-			<h1>{verified ? presentation.title : 'checking source'}</h1>
+			<p class={labelClass}>FOR YOUR EYES ONLY</p>
+			<h1 class="mt-0.5 text-2xl font-semibold text-[var(--debug-accent)]">
+				{verified ? presentation.title : 'checking source'}
+			</h1>
 		</div>
 		<button
 			type="button"
@@ -72,9 +81,9 @@
 		onKeep={onKeepRun}
 	/>
 
-	<section aria-labelledby="lifecycle-heading">
-		<h2 id="lifecycle-heading">Lifecycle</h2>
-		<dl>
+	<section class="mt-3" aria-labelledby="lifecycle-heading">
+		<h2 class="mb-1 {labelClass}" id="lifecycle-heading">Lifecycle</h2>
+		<dl class={gridClass}>
 			<div>
 				<dt>source</dt>
 				<dd>{@render scalar(sourceName)}</dd>
@@ -106,9 +115,9 @@
 		</dl>
 	</section>
 
-	<section aria-labelledby="match-heading">
-		<h2 id="match-heading">Current match</h2>
-		<dl>
+	<section class="mt-3" aria-labelledby="match-heading">
+		<h2 class="mb-1 {labelClass}" id="match-heading">Current match</h2>
+		<dl class={gridClass}>
 			<div class="state-cell">
 				<dt>screen</dt>
 				<dd>{@render scalar(match?.screen)}</dd>
@@ -160,9 +169,9 @@
 		</dl>
 	</section>
 
-	<section aria-labelledby="fps-heading">
-		<h2 id="fps-heading">Frame processing</h2>
-		<dl>
+	<section class="mt-3" aria-labelledby="fps-heading">
+		<h2 class="mb-1 {labelClass}" id="fps-heading">Frame processing</h2>
+		<dl class={gridClass}>
 			<div>
 				<dt>processed FPS</dt>
 				<dd>{@render scalar(fps?.processedFps)}</dd>
@@ -178,124 +187,9 @@
 		</dl>
 	</section>
 
-	<section aria-labelledby="payload-heading">
-		<h2 id="payload-heading">Raw match payload</h2>
-		<pre>{matchJson}</pre>
+	<section class="mt-3" aria-labelledby="payload-heading">
+		<h2 class="mb-1 {labelClass}" id="payload-heading">Raw match payload</h2>
+		<pre
+			class="m-0 border border-[var(--obs-border-muted)] bg-[var(--obs-bg-elevated)] p-2.5 font-[inherit] [overflow-wrap:anywhere] whitespace-pre-wrap text-[var(--obs-text-muted)]">{matchJson}</pre>
 	</section>
 </main>
-
-<style>
-	.monitor-debug {
-		--debug-accent: var(--obs-monitor-waiting);
-		position: relative;
-		container-type: size;
-		height: 100%;
-		min-height: 0;
-		overflow: auto;
-		padding: 0.75rem;
-		background: var(--obs-bg);
-		color: var(--obs-text);
-		font-family: var(--font-mono, ui-monospace, monospace);
-		font-size: 0.75rem;
-	}
-
-	.monitor-debug[data-phase='recording'] {
-		--debug-accent: var(--obs-success);
-	}
-	.monitor-debug[data-phase='complete'] {
-		--debug-accent: var(--obs-gold-hover);
-	}
-	.monitor-debug[data-phase='danger'] {
-		--debug-accent: var(--obs-danger);
-	}
-	.monitor-debug[data-phase='neutral'] {
-		--debug-accent: var(--obs-text-muted);
-	}
-
-	header {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: 1rem;
-		padding-bottom: 0.75rem;
-		border-bottom: 2px solid var(--debug-accent);
-	}
-
-	header p,
-	h2,
-	dt {
-		color: var(--obs-text-dim);
-		font-size: 0.65rem;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-	}
-
-	h1 {
-		margin-top: 0.2rem;
-		color: var(--debug-accent);
-		font-size: 1.5rem;
-		font-weight: 600;
-	}
-
-	section {
-		margin-top: 0.75rem;
-	}
-	h2 {
-		margin-bottom: 0.35rem;
-	}
-
-	dl {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-		border-top: 1px solid var(--obs-border-muted);
-		border-left: 1px solid var(--obs-border-muted);
-	}
-
-	dl div {
-		min-width: 0;
-		padding: 0.4rem 0.5rem;
-		border-right: 1px solid var(--obs-border-muted);
-		border-bottom: 1px solid var(--obs-border-muted);
-		background: var(--obs-bg-elevated);
-	}
-
-	dl .state-cell {
-		background: color-mix(in srgb, var(--debug-accent) 10%, var(--obs-bg-elevated));
-	}
-
-	.state-cell dd {
-		color: color-mix(in srgb, var(--debug-accent) 72%, var(--obs-text));
-		font-weight: 600;
-	}
-
-	[data-value-kind='true'] {
-		color: var(--obs-success);
-	}
-
-	[data-value-kind='false'] {
-		color: var(--obs-danger);
-	}
-
-	[data-value-kind='null'] {
-		color: var(--obs-text-dim);
-		font-style: italic;
-	}
-
-	dd {
-		margin-top: 0.2rem;
-		color: var(--obs-text);
-		font-variant-numeric: tabular-nums;
-		overflow-wrap: anywhere;
-	}
-
-	pre {
-		margin: 0;
-		padding: 0.6rem;
-		overflow-wrap: anywhere;
-		border: 1px solid var(--obs-border-muted);
-		background: var(--obs-bg-elevated);
-		color: var(--obs-text-muted);
-		font: inherit;
-		white-space: pre-wrap;
-	}
-</style>
