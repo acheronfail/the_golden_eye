@@ -143,7 +143,7 @@ impl SharedStateStore {
                 *existing = replay_save;
             } else {
                 state.replay_saves.push(replay_save);
-                state.replay_saves.sort_unstable_by(|a, b| b.tracking_id.cmp(&a.tracking_id));
+                state.replay_saves.sort_unstable_by_key(|save| std::cmp::Reverse(save.tracking_id));
             }
         });
     }
