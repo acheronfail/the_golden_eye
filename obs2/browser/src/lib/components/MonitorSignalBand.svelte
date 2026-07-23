@@ -56,16 +56,6 @@
 
 	<div class="signal-layout">
 		<div class="signal-primary">
-			{#key presentation.animationKey}
-				<section class="signal-content">
-					<p class="signal-kicker">{verified ? presentation.statusLabel : 'Verifying source'} / ACTIVE</p>
-					<h1>{verified ? presentation.title : 'checking source'}</h1>
-					{#if presentation.showDetail && verified}
-						<p class="signal-detail">{presentation.detail}</p>
-					{/if}
-				</section>
-			{/key}
-
 			{#if match?.times && !presentation.waitingForObs}
 				<div class="signal-metrics" aria-label="Run times">
 					<span>
@@ -86,6 +76,16 @@
 					{/if}
 				</div>
 			{/if}
+
+			{#key presentation.animationKey}
+				<section class="signal-content">
+					<p class="signal-kicker">{verified ? presentation.statusLabel : 'Verifying source'} / ACTIVE</p>
+					<h1>{verified ? presentation.title : 'checking source'}</h1>
+					{#if presentation.showDetail && verified}
+						<p class="signal-detail">{presentation.detail}</p>
+					{/if}
+				</section>
+			{/key}
 		</div>
 
 		<RecentRuns
@@ -306,7 +306,7 @@
 		display: grid;
 		grid-template-columns: repeat(3, minmax(0, 1fr));
 		gap: clamp(0.75rem, 4cqw, 2.5rem);
-		margin-top: clamp(1.25rem, 4cqh, 2.5rem);
+		margin-bottom: clamp(1.25rem, 4cqh, 2.5rem);
 		animation: metrics-in 400ms 80ms ease-out both;
 		font-family: var(--font-mono, ui-monospace, monospace);
 	}
@@ -335,12 +335,10 @@
 	@keyframes signal-title-in {
 		from {
 			opacity: 0;
-			clip-path: inset(0 100% 0 0);
 			transform: translateX(-1.5rem);
 		}
 		to {
 			opacity: 1;
-			clip-path: inset(0);
 			transform: none;
 		}
 	}
@@ -395,7 +393,7 @@
 		}
 		.signal-metrics {
 			gap: clamp(0.6rem, 2.5cqw, 1.5rem);
-			margin-top: 0.7rem;
+			margin-bottom: 0.7rem;
 		}
 		.signal-metrics small {
 			font-size: 0.58rem;
@@ -424,7 +422,7 @@
 			position: static;
 		}
 		.signal-metrics {
-			margin-top: 1rem;
+			margin-bottom: 1rem;
 		}
 		.stop-hint {
 			display: none;

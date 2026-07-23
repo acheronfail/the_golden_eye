@@ -107,7 +107,6 @@
 		max-height: 100%;
 		border-top: 1px solid color-mix(in srgb, var(--monitor-accent) 45%, var(--obs-border));
 		border-bottom: 1px solid color-mix(in srgb, var(--monitor-accent) 25%, var(--obs-border));
-		border-left: 0.3rem solid var(--monitor-accent);
 		background: color-mix(in srgb, var(--monitor-surface) 35%, var(--obs-bg-elevated));
 		box-shadow: 0 0 2rem var(--monitor-surface);
 	}
@@ -116,6 +115,11 @@
 		border-top: 1px solid var(--obs-border-muted);
 		border-left: 1px solid var(--obs-border-muted);
 		background: var(--obs-bg-elevated);
+	}
+	@container (min-height: 48rem) {
+		.recent-runs--mission-glass {
+			max-height: min(34cqh, 24rem);
+		}
 	}
 	header {
 		display: flex;

@@ -1,7 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import MonitorView from '$lib/components/MonitorView.svelte';
-	import { monitorMatch as match } from './monitorStoryFixtures';
+	import { longMonitorRecentRuns, monitorMatch as match } from './monitorStoryFixtures';
 	import { completedRun, failedRun } from './fixtures';
 
 	const { Story } = defineMeta({
@@ -41,6 +41,14 @@
 			{ ...completedRun, runId: 'recent-pb', retentionState: 'kept', retentionReason: 'personalBest' },
 			{ ...failedRun, runId: 'recent-pending', retentionState: 'pending' }
 		]
+	}}
+/>
+<Story
+	name="Stats with long recent history"
+	args={{
+		recordingState: 'complete',
+		match: match('stats', { time: 58, target_time: 65, best_time: 61 }),
+		recentRuns: longMonitorRecentRuns
 	}}
 />
 <Story name="Stopping monitor" args={{ transition: 'stopping' }} />
