@@ -6,6 +6,7 @@ use crate::settings::SETTINGS_FILE_NAME;
 
 #[cfg(target_os = "windows")]
 static APPDATA: EnvVar = EnvVar::new("APPDATA");
+#[cfg(not(target_os = "windows"))]
 static HOME: EnvVar = EnvVar::new("HOME");
 #[cfg(target_os = "windows")]
 static USERPROFILE: EnvVar = EnvVar::new("USERPROFILE");

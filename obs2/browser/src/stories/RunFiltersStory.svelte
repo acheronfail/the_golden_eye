@@ -44,7 +44,7 @@
 <main class="mx-auto w-full max-w-3xl px-3 py-4 sm:px-4 sm:py-6">
 	<RunFiltersForm
 		bind:collapsed
-		{filters}
+		bind:filters
 		{activeFilters}
 		{hasActiveFilters}
 		{levelOptions}

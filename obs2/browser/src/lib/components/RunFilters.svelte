@@ -11,7 +11,7 @@
 
 	let {
 		collapsed = $bindable(),
-		filters,
+		filters = $bindable(),
 		activeFilters,
 		hasActiveFilters,
 		levelOptions,
