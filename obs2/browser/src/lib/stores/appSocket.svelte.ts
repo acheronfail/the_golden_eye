@@ -15,6 +15,7 @@ import {
 import { refreshReplayBuffer, setReplayBufferStatus } from '$lib/stores/replayBuffer.svelte';
 import { settings } from '$lib/stores/settings.svelte';
 import { recentRuns } from '$lib/stores/recentRuns.svelte';
+import { setRunCatalogSync } from '$lib/stores/runCatalog.svelte';
 import { setObsSources } from '$lib/stores/sources.svelte';
 import { updates } from '$lib/stores/updates.svelte';
 import { youtube } from '$lib/stores/youtube.svelte';
@@ -66,6 +67,7 @@ const showSettingsError = (error: string): void => {
 
 const applyAppSnapshot = (snapshot: AppSnapshot): void => {
 	applyMonitorSnapshot(snapshot);
+	setRunCatalogSync(snapshot.runCatalogSync ?? null);
 	setObsSources(snapshot.sources);
 	setReplayBufferStatus(snapshot.replayBuffer);
 	if (!settings.dirty) {

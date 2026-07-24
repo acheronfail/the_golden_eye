@@ -66,6 +66,7 @@ fn test_snapshot_store() -> SharedStateStore {
             cv_language: Some("en".to_owned()),
         },
         level_match: None,
+        run_catalog_sync: None,
         recording_state: None,
         replay_saves: vec![],
         sources: Vec::new(),

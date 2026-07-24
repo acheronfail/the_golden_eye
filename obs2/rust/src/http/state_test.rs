@@ -18,6 +18,7 @@ fn test_snapshot() -> AppSnapshot {
             cv_language: Some("en".to_owned()),
         },
         level_match: None,
+        run_catalog_sync: Some(RunCatalogSync::Initial),
         recording_state: Some(RecordingStatus::Started),
         replay_saves: vec![],
         sources: vec![routes::sources::Source { name: "N64 Capture".to_owned(), id: "av_capture_input".to_owned() }],
@@ -59,6 +60,7 @@ fn snapshot_event_contains_retained_app_state() {
     assert_eq!(json["state"]["monitor"]["sourceName"], "N64 Capture");
     assert_eq!(json["state"]["monitor"]["cvLanguage"], "en");
     assert!(json["state"]["match"].is_null());
+    assert_eq!(json["state"]["runCatalogSync"], "initial");
     assert_eq!(json["state"]["recordingState"], "started");
     assert_eq!(json["state"]["replaySaves"], serde_json::json!([]));
     assert_eq!(json["state"]["sources"][0]["name"], "N64 Capture");

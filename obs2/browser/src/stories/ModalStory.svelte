@@ -2,6 +2,7 @@
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
 	import ReplayBufferStopDialog from '$lib/components/ReplayBufferStopDialog.svelte';
 	import ResetSettingsDialog from '$lib/components/ResetSettingsDialog.svelte';
+	import RunCatalogSyncDialog from '$lib/components/RunCatalogSyncDialog.svelte';
 	import WelcomeDialog from '$lib/components/WelcomeDialog.svelte';
 
 	let {
@@ -9,7 +10,7 @@
 		busy = false,
 		error = null
 	}: {
-		kind: 'modal-dialog' | 'replay-buffer' | 'welcome' | 'reset';
+		kind: 'modal-dialog' | 'replay-buffer' | 'welcome' | 'reset' | 'catalog-initial' | 'catalog-manual';
 		busy?: boolean;
 		error?: string | null;
 	} = $props();
@@ -32,4 +33,8 @@
 	<WelcomeDialog dismiss={noop} />
 {:else if kind === 'reset'}
 	<ResetSettingsDialog {busy} {error} cancel={noop} reset={noop} />
+{:else if kind === 'catalog-initial'}
+	<RunCatalogSyncDialog sync="initial" />
+{:else if kind === 'catalog-manual'}
+	<RunCatalogSyncDialog sync="manual" />
 {/if}

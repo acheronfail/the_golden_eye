@@ -14,9 +14,11 @@
 	import NotificationFlags from '$lib/components/NotificationFlags.svelte';
 	import WelcomeDialog from '$lib/components/WelcomeDialog.svelte';
 	import ManualUpdateDialog from '$lib/components/ManualUpdateDialog.svelte';
+	import RunCatalogSyncDialog from '$lib/components/RunCatalogSyncDialog.svelte';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import { updates } from '$lib/stores/updates.svelte';
 	import { youtube } from '$lib/stores/youtube.svelte';
+	import { runCatalog } from '$lib/stores/runCatalog.svelte';
 	import { page } from '$app/state';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
@@ -153,7 +155,9 @@
 	<NotificationFlags />
 	<KiaDeathOverlay trigger={monitor.kiaEffectId} />
 
-	{#if showWelcomeModal}
+	{#if runCatalog.sync}
+		<RunCatalogSyncDialog sync={runCatalog.sync} />
+	{:else if showWelcomeModal}
 		<WelcomeDialog dismiss={dismissWelcomeModal} />
 	{:else if manualUpdate}
 		<ManualUpdateDialog

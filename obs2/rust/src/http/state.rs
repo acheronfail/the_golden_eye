@@ -76,6 +76,7 @@ pub struct AppSnapshot {
     pub monitor: MonitorSnapshot,
     #[serde(rename = "match")]
     pub level_match: Option<LevelMatch>,
+    pub run_catalog_sync: Option<RunCatalogSync>,
     pub recording_state: Option<RecordingStatus>,
     pub replay_saves: Vec<ReplaySaveStatus>,
     pub sources: Vec<routes::sources::Source>,
@@ -129,6 +130,10 @@ impl SharedStateStore {
 
     pub fn set_match(&self, level_match: Option<LevelMatch>) {
         self.update(|state| state.level_match = level_match);
+    }
+
+    pub fn set_run_catalog_sync(&self, run_catalog_sync: Option<RunCatalogSync>) {
+        self.update(|state| state.run_catalog_sync = run_catalog_sync);
     }
 
     pub fn set_recording_state(&self, recording_state: Option<RecordingStatus>) {
@@ -197,6 +202,13 @@ impl SharedStateStore {
     fn lock_state(&self) -> std::sync::MutexGuard<'_, AppSnapshot> {
         self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RunCatalogSync {
+    Initial,
+    Manual,
 }
 
 /// A Discord webhook message we posted and may later edit.
