@@ -32,6 +32,7 @@ export interface MonitorPresentation {
 	phase: MonitorPhase;
 	animationKey: string;
 	fpsText: string | null;
+	fpsWarning: boolean;
 	fpsLagging: boolean;
 }
 
@@ -51,8 +52,8 @@ export const monitorPresentation = ({
 				? 'stopping monitor'
 				: (match?.screen ?? '...');
 	const fpsText = fps
-		? fps.sourceFps > 0
-			? `${fps.processedFps.toFixed(1)} / ${fps.sourceFps.toFixed(1)} FPS`
+		? fps.capturedFps > 0
+			? `${fps.processedFps.toFixed(1)} / ${fps.capturedFps.toFixed(1)} FPS`
 			: `${fps.processedFps.toFixed(1)} FPS`
 		: null;
 
@@ -69,7 +70,8 @@ export const monitorPresentation = ({
 			transition ? `transition-${transition}` : (recordingState ?? 'waiting')
 		].join(':'),
 		fpsText,
-		fpsLagging: Boolean(fps && fps.sourceFps > 0 && fps.processedFps + 0.5 < fps.sourceFps)
+		fpsWarning: fps?.health === 'warning',
+		fpsLagging: fps?.health === 'lagging'
 	};
 };
 

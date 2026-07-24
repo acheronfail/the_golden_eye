@@ -84,6 +84,24 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 		expect(screen.queryByRole('heading', { name: /^failed$/i })).not.toBeInTheDocument();
 		expect(screen.getByText('0:58')).toBeInTheDocument();
 	});
+
+	it('uses backend throughput health for FPS warning colours', async () => {
+		const view = render(MonitorView, {
+			...props(design, 'started', match('start')),
+			showMonitorFps: true,
+			fps: { processedFps: 29, capturedFps: 30, sourceFps: 30, droppedFrames: 1, health: 'warning' }
+		});
+		const meter = screen.getByText('29.0 / 30.0 FPS');
+		expect(meter).toHaveClass('fps-warning');
+		expect(meter).not.toHaveClass('fps-lagging');
+
+		await view.rerender({
+			...props(design, 'started', match('start')),
+			showMonitorFps: true,
+			fps: { processedFps: 25, capturedFps: 30, sourceFps: 30, droppedFrames: 3, health: 'lagging' }
+		});
+		expect(screen.getByText('25.0 / 30.0 FPS')).toHaveClass('fps-lagging');
+	});
 });
 
 describe('debug monitor', () => {
@@ -118,7 +136,7 @@ describe('debug monitor', () => {
 				}
 			],
 			showMonitorFps: true,
-			fps: { processedFps: 60, sourceFps: 60 }
+			fps: { processedFps: 60, capturedFps: 60, sourceFps: 60, droppedFrames: 0, health: 'healthy' }
 		});
 
 		expect(screen.getByRole('heading', { name: /^complete$/i })).toBeInTheDocument();
@@ -130,7 +148,7 @@ describe('debug monitor', () => {
 		expect(screen.getByText('trimming')).toBeInTheDocument();
 		expect(screen.getByText('#8')).toBeInTheDocument();
 		expect(screen.getByText('#7')).toBeInTheDocument();
-		expect(screen.getAllByText('60')).toHaveLength(2);
+		expect(screen.getAllByText('60')).toHaveLength(3);
 		expect(screen.getByText('[58,65,61]')).toBeInTheDocument();
 		expect(screen.getByText(/"score": 0.98/)).toBeInTheDocument();
 		expect(screen.queryByText(/show FPS setting/i)).not.toBeInTheDocument();

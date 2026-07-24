@@ -34,6 +34,8 @@ pub(super) struct Frame {
     pub(super) height: u32,
     pub(super) captured_at: Option<Instant>,
     pub(super) capture_ms: Option<f64>,
+    pub(super) callback_interval_ms: Option<f64>,
+    pub(super) capture_timings: Option<crate::ffi::GeCaptureTimings>,
     pub(super) dropped_frames_total: u64,
 }
 
@@ -192,12 +194,28 @@ pub(super) struct ProducerCtx {
     pub(super) region: Arc<Mutex<Option<CaptureRegion>>>,
     pub(super) mailbox: Arc<FrameMailbox>,
     pub(super) timing_enabled: bool,
+    pub(super) last_callback_at: Mutex<Option<Instant>>,
 }
 
 // SAFETY: see MonitorHandle -- the box is created on the start thread and
 // dropped on the stop thread, but `ctx` is only ever used on the graphics thread
 // and the two are never concurrent (registration/unregistration fence it).
 unsafe impl Send for ProducerCtx {}
+
+fn callback_interval_ms(
+    enabled: bool,
+    last_callback_at: &Mutex<Option<Instant>>,
+    now: impl FnOnce() -> Instant,
+) -> Option<f64> {
+    if !enabled {
+        return None;
+    }
+    let now = now();
+    let mut last = last_callback_at.lock().unwrap_or_else(|p| p.into_inner());
+    let interval = last.map(|previous| now.duration_since(previous).as_secs_f64() * 1000.0);
+    *last = Some(now);
+    interval
+}
 
 impl Drop for ProducerCtx {
     fn drop(&mut self) {
@@ -215,6 +233,7 @@ pub(super) unsafe extern "C" fn ge_frame_callback(param: *mut c_void, _cx: u32, 
     // serializes this with `ge_obs_unregister_frame_callback`, so it never runs
     // after the monitor unregisters and frees the box.
     let producer = unsafe { &*(param as *const ProducerCtx) };
+    let callback_interval_ms = callback_interval_ms(producer.timing_enabled, &producer.last_callback_at, Instant::now);
 
     // Translate the matcher's learned region (if any) into the C capture
     // transform, so the GPU crops + un-stretches at capture time -- mirrors what
@@ -239,6 +258,8 @@ pub(super) unsafe extern "C" fn ge_frame_callback(param: *mut c_void, _cx: u32, 
 
     let mut width: u32 = 0;
     let mut height: u32 = 0;
+    let mut capture_timings = producer.timing_enabled.then(crate::ffi::GeCaptureTimings::default);
+    let timings_ptr = capture_timings.as_mut().map_or(std::ptr::null_mut(), |timings| timings as *mut _);
     let capture_started = producer.timing_enabled.then(Instant::now);
     // We're already on the graphics thread inside a graphics context, so the
     // obs_enter_graphics nested inside this call is a no-op ref-bump, not a
@@ -251,6 +272,7 @@ pub(super) unsafe extern "C" fn ge_frame_callback(param: *mut c_void, _cx: u32, 
             region_ptr,
             &mut width,
             &mut height,
+            timings_ptr,
         )
     };
     // Null means no frame this tick: the source wasn't renderable, or (with the
@@ -271,14 +293,18 @@ pub(super) unsafe extern "C" fn ge_frame_callback(param: *mut c_void, _cx: u32, 
         height,
         captured_at,
         capture_ms,
+        callback_interval_ms,
+        capture_timings,
         dropped_frames_total: 0,
     });
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct CapturedFrameStats {
-    pub(super) capture_ms: f64,
-    pub(super) mailbox_wait_ms: f64,
+    pub(super) capture_ms: Option<f64>,
+    pub(super) callback_interval_ms: Option<f64>,
+    pub(super) capture_timings: Option<crate::ffi::GeCaptureTimings>,
+    pub(super) mailbox_wait_ms: Option<f64>,
     pub(super) dropped_frames_total: u64,
 }
 

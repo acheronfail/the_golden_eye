@@ -4,6 +4,7 @@
 #include <obs/libobs/obs-module.h>
 #include <obs/libobs/util/bmem.h>
 #include <obs/libobs/util/config-file.h>
+#include <obs/libobs/util/platform.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -225,7 +226,12 @@ void ge_capture_destroy(ge_capture_ctx *ctx) {
 }
 
 uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint32_t max_height,
-                              const struct ge_capture_region *region, uint32_t *out_width, uint32_t *out_height) {
+                              const struct ge_capture_region *region, uint32_t *out_width, uint32_t *out_height,
+                              struct ge_capture_timings *timings) {
+  uint64_t call_started = timings ? os_gettime_ns() : 0;
+  if (timings) {
+    memset(timings, 0, sizeof(*timings));
+  }
   if (!ctx || !source_name) {
     return NULL;
   }
@@ -293,14 +299,18 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
   *out_width = width;
   *out_height = height;
 
+  uint64_t source_finished = timings ? os_gettime_ns() : 0;
   size_t buffer_size = width * height * 4;
   uint8_t *pixel_buffer = (uint8_t *)malloc(buffer_size);
   if (!pixel_buffer) {
     obs_source_release(source);
     return NULL;
   }
+  uint64_t allocation_finished = timings ? os_gettime_ns() : 0;
 
   obs_enter_graphics();
+  uint64_t render_stage_finished = allocation_finished;
+  uint64_t map_copy_finished = allocation_finished;
 
   int surface_count = ctx->double_buffered ? 2 : 1;
 
@@ -348,6 +358,7 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
 
     /* Issue the GPU->staging copy for this frame. */
     gs_stage_texture(ctx->stagesurfaces[cur], gs_texrender_get_texture(ctx->texrender));
+    render_stage_finished = timings ? os_gettime_ns() : 0;
 
     /* Choose which staged frame to read back. Synchronous: map the frame just
      * staged (stalls on the GPU, no latency). Double-buffered: map the previous
@@ -381,13 +392,24 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
       free(pixel_buffer);
       pixel_buffer = NULL;
     }
+    map_copy_finished = timings ? os_gettime_ns() : 0;
   } else {
     free(pixel_buffer);
     pixel_buffer = NULL;
+    render_stage_finished = timings ? os_gettime_ns() : 0;
+    map_copy_finished = render_stage_finished;
   }
 
   obs_leave_graphics();
   obs_source_release(source);
+  if (timings) {
+    uint64_t cleanup_finished = os_gettime_ns();
+    timings->source_ms = (double)(source_finished - call_started) / 1000000.0;
+    timings->allocation_ms = (double)(allocation_finished - source_finished) / 1000000.0;
+    timings->render_stage_ms = (double)(render_stage_finished - allocation_finished) / 1000000.0;
+    timings->map_copy_ms = (double)(map_copy_finished - render_stage_finished) / 1000000.0;
+    timings->cleanup_ms = (double)(cleanup_finished - map_copy_finished) / 1000000.0;
+  }
   return pixel_buffer;
 }
 
@@ -408,7 +430,7 @@ uint8_t *ge_obs_get_source_frame(const char *source_name, uint32_t *out_width, u
     return NULL;
   }
 
-  uint8_t *frame = ge_capture_get_frame(ctx, source_name, 0, NULL, out_width, out_height);
+  uint8_t *frame = ge_capture_get_frame(ctx, source_name, 0, NULL, out_width, out_height, NULL);
   ge_capture_destroy(ctx);
   return frame;
 }

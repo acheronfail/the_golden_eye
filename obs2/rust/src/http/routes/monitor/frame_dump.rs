@@ -134,8 +134,14 @@ pub(crate) fn start_frame_dump(state: &AppState, source_name: String) -> StartRe
             _ => Arc::new(Mutex::new(None)),
         }
     };
-    let producer =
-        Box::into_raw(Box::new(ProducerCtx { ctx, name, region, mailbox: mailbox.clone(), timing_enabled: false }));
+    let producer = Box::into_raw(Box::new(ProducerCtx {
+        ctx,
+        name,
+        region,
+        mailbox: mailbox.clone(),
+        timing_enabled: false,
+        last_callback_at: Mutex::new(None),
+    }));
     unsafe { crate::ffi::ge_obs_register_frame_callback(ge_frame_callback, producer.cast()) };
 
     // Write frames on a dedicated OS thread so disk I/O never runs on the OBS

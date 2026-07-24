@@ -96,7 +96,16 @@
 		recordingState: 'started',
 		match: match('start'),
 		showMonitorFps: true,
-		fps: { processedFps: 60, sourceFps: 60 }
+		fps: { processedFps: 60, capturedFps: 60, sourceFps: 60, droppedFrames: 0, health: 'healthy' }
+	}}
+/>
+<Story
+	name="Warning monitor FPS"
+	args={{
+		recordingState: 'started',
+		match: match('start'),
+		showMonitorFps: true,
+		fps: { processedFps: 59, capturedFps: 60, sourceFps: 60, droppedFrames: 1, health: 'warning' }
 	}}
 />
 <Story
@@ -105,6 +114,6 @@
 		recordingState: 'started',
 		match: match('start'),
 		showMonitorFps: true,
-		fps: { processedFps: 43.2, sourceFps: 60 }
+		fps: { processedFps: 43.2, capturedFps: 60, sourceFps: 60, droppedFrames: 3, health: 'lagging' }
 	}}
 />

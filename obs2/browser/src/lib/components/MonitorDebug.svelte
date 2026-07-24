@@ -240,8 +240,24 @@
 				<dd>{@render scalar(fps?.processedFps)}</dd>
 			</div>
 			<div>
-				<dt>source FPS</dt>
+				<dt>captured FPS</dt>
+				<dd>{@render scalar(fps?.capturedFps)}</dd>
+			</div>
+			<div>
+				<dt>configured FPS</dt>
 				<dd>{@render scalar(fps?.sourceFps)}</dd>
+			</div>
+			<div>
+				<dt>dropped frames</dt>
+				<dd>{@render scalar(fps?.droppedFrames)}</dd>
+			</div>
+			<div>
+				<dt>health</dt>
+				<dd>{@render scalar(fps?.health)}</dd>
+			</div>
+			<div>
+				<dt>warning</dt>
+				<dd>{@render scalar(presentation.fpsWarning)}</dd>
 			</div>
 			<div>
 				<dt>lagging</dt>
