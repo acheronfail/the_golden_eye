@@ -9,6 +9,8 @@ use crate::ffmpeg;
 use crate::models::clip_metadata::RunStatus;
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+const CREATE_SCHEMA_V2_FIXTURE: &str = include_str!("sql/runs/create_schema_v2_fixture.sql");
+const INSERT_SCHEMA_V2_RUN_FIXTURE: &str = include_str!("sql/runs/insert_schema_v2_run_fixture.sql");
 
 struct TestDir {
     path: PathBuf,
@@ -644,35 +646,8 @@ fn schema_two_migrates_difficulty_to_numbers_without_reseeding() {
     let metadata_json = serde_json::to_string(&metadata).unwrap();
     {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
-             INSERT INTO meta(key, value) VALUES ('schema_version', '2');
-             CREATE TABLE runs (
-                 run_id TEXT PRIMARY KEY NOT NULL,
-                 completed_unix_micros INTEGER NOT NULL,
-                 level_number INTEGER,
-                 difficulty TEXT,
-                 status TEXT NOT NULL,
-                 time_seconds INTEGER,
-                 retention_state TEXT NOT NULL,
-                 retention_reason TEXT,
-                 clip_path TEXT UNIQUE,
-                 size_bytes INTEGER,
-                 modified_unix INTEGER,
-                 duration_secs REAL,
-                 metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json)),
-                 youtube_json TEXT CHECK (youtube_json IS NULL OR json_valid(youtube_json))
-             );",
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO runs (
-                 run_id, completed_unix_micros, level_number, difficulty, status,
-                 time_seconds, retention_state, metadata_json
-             ) VALUES ('durable-id', 10, 8, ' secret AGENT ', 'complete', 91, 'kept', ?1)",
-            [&metadata_json],
-        )
-        .unwrap();
+        conn.execute_batch(CREATE_SCHEMA_V2_FIXTURE).unwrap();
+        conn.execute(INSERT_SCHEMA_V2_RUN_FIXTURE, [&metadata_json]).unwrap();
     }
 
     let catalog = RunCatalog::open(db_path.clone()).expect("schema two migrates");
