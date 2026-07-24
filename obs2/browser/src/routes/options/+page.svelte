@@ -285,8 +285,8 @@
 
 <main class="mx-auto grid w-full max-w-2xl gap-5 px-4 py-8 sm:px-6 sm:py-12">
 	<div class="grid gap-2">
-		<h1 class="obs-heading text-2xl font-semibold">Options</h1>
-		<p class="obs-subtitle text-sm">Settings are saved automatically.</p>
+		<h1 class="text-2xl font-semibold obs-heading">Options</h1>
+		<p class="text-sm obs-subtitle">Settings are saved automatically.</p>
 	</div>
 
 	{#if settings.fileError}
@@ -295,7 +295,7 @@
 				<div class="grid min-w-0 flex-1 gap-3">
 					<h2 class="text-sm font-semibold text-(--obs-danger)">Config file error</h2>
 					{#if settings.configPath}
-						<p class="obs-dim font-mono text-xs break-all">{settings.configPath}</p>
+						<p class="font-mono text-xs break-all obs-dim">{settings.configPath}</p>
 					{/if}
 					<pre
 						class="text(--obs-danger) max-h-52 overflow-auto font-mono text-xs wrap-break-word whitespace-pre-wrap">{settings.fileError}</pre>
@@ -313,7 +313,7 @@
 	{/if}
 
 	<div class="flex items-center gap-3">
-		<label for="options-section" class="obs-dim shrink-0 font-mono text-xs tracking-wide uppercase">Section</label>
+		<label for="options-section" class="shrink-0 font-mono text-xs tracking-wide obs-dim uppercase">Section</label>
 		<Select
 			id="options-section"
 			class="min-w-0 flex-1 font-mono text-sm sm:max-w-60"
@@ -341,7 +341,7 @@
 				<div class="grid min-w-0 gap-1">
 					<h2 class={labelClass}>Configuration file</h2>
 					{#if settings.configPath}
-						<p class="obs-dim font-mono text-xs break-all">{settings.configPath}</p>
+						<p class="font-mono text-xs break-all obs-dim">{settings.configPath}</p>
 					{:else}
 						<p class={hintClass}>Open the settings JSON file in the system file explorer.</p>
 					{/if}

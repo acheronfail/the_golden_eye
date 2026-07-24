@@ -28,16 +28,16 @@
 	};
 </script>
 
-<div class="obs-overlay fixed inset-0 z-50 flex items-center justify-center p-4" role="presentation">
+<div class="fixed inset-0 z-50 flex items-center justify-center obs-overlay p-4" role="presentation">
 	<div
-		class="obs-dialog w-full max-w-md overflow-hidden rounded"
+		class="w-full max-w-md overflow-hidden rounded obs-dialog"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="manual-update-dialog-title"
 		aria-describedby="manual-update-dialog-body"
 	>
 		<div class="obs-dialog-header px-4 py-3">
-			<h2 id="manual-update-dialog-title" class="obs-heading text-lg font-semibold">Manual plugin update required</h2>
+			<h2 id="manual-update-dialog-title" class="text-lg font-semibold obs-heading">Manual plugin update required</h2>
 		</div>
 		<div id="manual-update-dialog-body" class="grid gap-3 px-4 py-4 text-sm leading-6">
 			<p>

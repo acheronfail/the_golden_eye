@@ -90,7 +90,7 @@
 {#if open}
 	<div
 		bind:this={menuElement}
-		class="obs-menu-panel absolute right-0 z-20 grid max-h-[calc(100vh-1rem)] w-40 overflow-y-auto rounded p-1"
+		class="absolute right-0 z-20 grid max-h-[calc(100vh-1rem)] w-40 overflow-y-auto rounded obs-menu-panel p-1"
 		class:bottom-full={placement === 'above'}
 		class:mb-1={placement === 'above'}
 		class:top-full={placement === 'below'}
@@ -103,7 +103,7 @@
 			<button
 				type="button"
 				role="menuitem"
-				class="obs-menu-link cursor-pointer rounded px-3 py-2 text-left font-mono text-xs"
+				class="cursor-pointer rounded obs-menu-link px-3 py-2 text-left font-mono text-xs"
 				class:obs-menu-link-danger={item.tone === 'danger'}
 				onclick={() => runAction(item)}>{item.label}</button
 			>

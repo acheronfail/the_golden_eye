@@ -67,7 +67,7 @@
 		</div>
 		<button
 			type="button"
-			class="obs-button obs-button-danger min-h-10 px-4 py-2 text-xs"
+			class="obs-button min-h-10 obs-button-danger px-4 py-2 text-xs"
 			disabled={!monitoring || transition === 'stopping'}
 			aria-label="Stop monitoring"
 			onclick={onStop}

@@ -25,6 +25,6 @@
 		{alt}
 		loading="lazy"
 		onerror={markMissing}
-		class="obs-preview aspect-video max-h-36 w-full shrink-0 object-contain sm:h-36 sm:w-auto"
+		class="aspect-video max-h-36 w-full shrink-0 obs-preview object-contain sm:h-36 sm:w-auto"
 	/>
 {/if}

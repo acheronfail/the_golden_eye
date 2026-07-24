@@ -463,13 +463,13 @@
 <main class="mx-auto w-full max-w-3xl px-3 py-4 sm:px-4 sm:py-6">
 	<div class="mb-4 flex items-center gap-3">
 		<div class="min-w-0">
-			<h1 class="obs-heading text-xl font-semibold">Runs</h1>
+			<h1 class="text-xl font-semibold obs-heading">Runs</h1>
 		</div>
 		<button
 			type="button"
 			onclick={openFolderChooser}
 			disabled={folderRevealBusy || revealableDirectories.length === 0}
-			class="obs-text-button ml-auto shrink-0 px-2 py-1 font-mono text-xs underline-offset-2"
+			class="ml-auto obs-text-button shrink-0 px-2 py-1 font-mono text-xs underline-offset-2"
 			title={revealableDirectories.length > 0 ? 'Choose a clips folder to open' : 'Set a clips folder in Options first'}
 		>
 			{folderRevealBusy ? 'opening...' : folderBrowserLabel}
@@ -495,16 +495,16 @@
 	/>
 
 	{#if error}
-		<div class="obs-alert-error mb-4 rounded px-4 py-3">
-			<p class="obs-alert-error-title text-sm font-semibold">Could not load runs</p>
-			<p class="obs-alert-error-body mt-1 font-mono text-xs">{error}</p>
+		<div class="mb-4 rounded obs-alert-error px-4 py-3">
+			<p class="text-sm font-semibold obs-alert-error-title">Could not load runs</p>
+			<p class="mt-1 font-mono text-xs obs-alert-error-body">{error}</p>
 		</div>
 	{/if}
 
 	{#if directoryErrors.length > 0}
-		<div class="obs-alert-warning mb-4 rounded px-4 py-3">
-			<p class="obs-alert-warning-title text-sm font-semibold">Some folders could not be scanned</p>
-			<ul class="obs-alert-warning-body mt-2 space-y-1 font-mono text-xs">
+		<div class="mb-4 rounded obs-alert-warning px-4 py-3">
+			<p class="text-sm font-semibold obs-alert-warning-title">Some folders could not be scanned</p>
+			<ul class="mt-2 space-y-1 font-mono text-xs obs-alert-warning-body">
 				{#each directoryErrors as dir}
 					<li>{dir.kind}: {dir.path} ({dir.error})</li>
 				{/each}
@@ -513,9 +513,9 @@
 	{/if}
 
 	{#if listActionError}
-		<div class="obs-alert-error mb-4 rounded px-4 py-3">
-			<p class="obs-alert-error-title text-sm font-semibold">Run action failed</p>
-			<p class="obs-alert-error-body mt-1 font-mono text-xs">{listActionError}</p>
+		<div class="mb-4 rounded obs-alert-error px-4 py-3">
+			<p class="text-sm font-semibold obs-alert-error-title">Run action failed</p>
+			<p class="mt-1 font-mono text-xs obs-alert-error-body">{listActionError}</p>
 		</div>
 	{/if}
 

@@ -49,13 +49,13 @@
 	</button>
 
 	{#if open}
-		<div class="obs-menu-panel absolute right-0 z-30 mt-1 grid w-40 rounded p-1" role="menu" aria-label="Sort runs">
+		<div class="absolute right-0 z-30 mt-1 grid w-40 rounded obs-menu-panel p-1" role="menu" aria-label="Sort runs">
 			{#each RUN_SORT_OPTIONS as option}
 				<button
 					type="button"
 					role="menuitemradio"
 					aria-checked={sort === option.value}
-					class="obs-menu-link rounded px-3 py-2 text-left font-mono text-xs"
+					class="rounded obs-menu-link px-3 py-2 text-left font-mono text-xs"
 					class:obs-menu-link-active={sort === option.value}
 					onclick={() => select(option.value)}
 				>

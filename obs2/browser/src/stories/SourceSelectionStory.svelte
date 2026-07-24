@@ -42,20 +42,20 @@
 
 <WizardFrame title="Choose your capture source" subtitle="Pick the OBS source attached to your N64's video output.">
 	{#if disabled}
-		<div class="obs-alert-warning mb-4 rounded px-4 py-3">
-			<p class="obs-alert-warning-title text-sm font-semibold">Replay buffer is disabled</p>
-			<p class="obs-alert-warning-body mt-1 font-mono text-xs">
+		<div class="mb-4 rounded obs-alert-warning px-4 py-3">
+			<p class="text-sm font-semibold obs-alert-warning-title">Replay buffer is disabled</p>
+			<p class="mt-1 font-mono text-xs obs-alert-warning-body">
 				Enable it in OBS under Settings → Output → Replay Buffer. You can't pick a source until it is usable.
 			</p>
 		</div>
 	{/if}
 
 	{#if state === 'loading'}
-		<p class="obs-dim font-mono text-sm">Loading sources…</p>
+		<p class="font-mono text-sm obs-dim">Loading sources…</p>
 	{:else if state === 'empty'}
-		<div class="obs-empty-state rounded px-4 py-6 text-center">
-			<p class="obs-muted text-sm">No OBS sources found.</p>
-			<p class="obs-dim mt-1 font-mono text-xs">Add a video capture source in OBS.</p>
+		<div class="rounded obs-empty-state px-4 py-6 text-center">
+			<p class="text-sm obs-muted">No OBS sources found.</p>
+			<p class="mt-1 font-mono text-xs obs-dim">Add a video capture source in OBS.</p>
 		</div>
 	{:else}
 		<div class="mb-2 flex justify-end">

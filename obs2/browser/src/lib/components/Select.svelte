@@ -52,7 +52,13 @@
 	let activeIndex = $state(-1);
 	let triggerEl = $state<HTMLButtonElement>();
 	let listEl = $state<HTMLUListElement>();
-	let menuStyle = $state('');
+	let menuPosition = $state({
+		left: '0px',
+		minWidth: '0px',
+		maxHeight: '120px',
+		top: 'auto',
+		bottom: 'auto'
+	});
 	let typeahead = '';
 	let typeaheadTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -74,13 +80,13 @@
 		// Flip above only when there's clearly more room there.
 		const above = spaceBelow < 160 && spaceAbove > spaceBelow;
 		const maxHeight = Math.max(120, Math.floor(above ? spaceAbove : spaceBelow));
-		const vertical = above
-			? `bottom:${Math.round(window.innerHeight - rect.top + margin)}px;`
-			: `top:${Math.round(rect.bottom + margin)}px;`;
-		menuStyle =
-			`position:fixed;left:${Math.round(rect.left)}px;` +
-			`min-width:${Math.round(rect.width)}px;max-height:${maxHeight}px;` +
-			vertical;
+		menuPosition = {
+			left: `${Math.round(rect.left)}px`,
+			minWidth: `${Math.round(rect.width)}px`,
+			maxHeight: `${maxHeight}px`,
+			top: above ? 'auto' : `${Math.round(rect.bottom + margin)}px`,
+			bottom: above ? `${Math.round(window.innerHeight - rect.top + margin)}px` : 'auto'
+		};
 	}
 
 	function scrollActiveIntoView() {
@@ -219,7 +225,7 @@
 	aria-expanded={open}
 	aria-haspopup="listbox"
 	aria-activedescendant={open && activeIndex >= 0 ? optionId(activeIndex) : undefined}
-	class="obs-select flex items-center text-left disabled:cursor-not-allowed {className}"
+	class="flex obs-select items-center text-left disabled:cursor-not-allowed {className}"
 	class:obs-select-placeholder={!selected}
 	onclick={() => (open ? closeMenu() : openMenu())}
 	onkeydown={onTriggerKeydown}
@@ -242,8 +248,12 @@
 		id={listId}
 		role="listbox"
 		tabindex="-1"
-		style={menuStyle}
-		class="obs-select-menu z-50 overflow-auto rounded"
+		style:--select-left={menuPosition.left}
+		style:--select-min-width={menuPosition.minWidth}
+		style:--select-max-height={menuPosition.maxHeight}
+		style:--select-top={menuPosition.top}
+		style:--select-bottom={menuPosition.bottom}
+		class="fixed top-(--select-top) bottom-(--select-bottom) left-(--select-left) z-50 obs-select-menu max-h-(--select-max-height) min-w-(--select-min-width) overflow-auto rounded"
 		use:portal
 	>
 		{#each options as option, index (option.value)}
