@@ -486,7 +486,7 @@
 
 	<RunFiltersForm
 		bind:collapsed={filtersCollapsed}
-		{filters}
+		bind:filters
 		{activeFilters}
 		{hasActiveFilters}
 		levelOptions={levelSelectOptions}
