@@ -20,3 +20,11 @@
 		error: 'Start date must not be after end date.'
 	}}
 />
+<Story
+	name="Without group by"
+	args={{
+		value: { preset: '30d', customFrom: '2026-07-01', customTo: '2026-07-24' },
+		bucket: 'year',
+		showGroupBy: false
+	}}
+/>

@@ -35,7 +35,7 @@
 	const validPreset = (value: string | null): DateRangePreset =>
 		['today', '7d', '30d', '12m', 'all', 'custom'].includes(value ?? '') ? (value as DateRangePreset) : '30d';
 	const validBucket = (value: string | null): StatisticsBucket =>
-		['day', 'week', 'month'].includes(value ?? '') ? (value as StatisticsBucket) : 'week';
+		['day', 'week', 'month', 'year'].includes(value ?? '') ? (value as StatisticsBucket) : 'week';
 	const validLevel = (value: string | null): number => {
 		const parsed = Number(value);
 		return Number.isInteger(parsed) && parsed >= 1 && parsed <= 20 ? parsed : 1;
@@ -294,6 +294,7 @@
 		bind:levelNumber
 		bind:difficultyNumber
 		bind:tab
+		{bucket}
 		{sessions}
 		bind:selectedSessionId
 		{sessionDetail}
@@ -309,7 +310,12 @@
 		{#snippet controls()}
 			<section>
 				<SectionTitle title="Filters" class="mb-3" />
-				<DateRangeSelect bind:value={range} bind:bucket error={resolvedRange.error ?? null} />
+				<DateRangeSelect
+					bind:value={range}
+					bind:bucket
+					showGroupBy={tab !== 'improvement'}
+					error={resolvedRange.error ?? null}
+				/>
 			</section>
 		{/snippet}
 	</StatisticsDashboard>

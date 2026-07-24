@@ -725,12 +725,13 @@ fn statistics_and_sessions_use_numeric_difficulty() {
         .statistics(StatisticsQuery {
             from: None,
             to: 1_800_000_000_000_000,
-            bucket: Bucket::Month,
+            bucket: Bucket::Year,
             level_number: Some(8),
             difficulty_number: Some(0),
         })
         .unwrap();
     assert_eq!(data.summary.counts.total, 2);
+    assert_eq!(data.range.bucket, "year");
     assert_eq!(data.summary.total_session_seconds, 30.0);
     assert_eq!(data.selected_cohort.as_ref().unwrap().run_times[0].run_id, first.run_id);
     assert_eq!(data.summary.combined_best_times.recorded_cells, 1);

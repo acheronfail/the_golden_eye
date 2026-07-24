@@ -13,6 +13,7 @@ pub enum Bucket {
     Day,
     Week,
     Month,
+    Year,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -192,6 +193,7 @@ pub fn aggregate(
                 Bucket::Day => "day",
                 Bucket::Week => "week",
                 Bucket::Month => "month",
+                Bucket::Year => "year",
             },
             time_zone: Local::now().format("%Z").to_string(),
         },
@@ -270,6 +272,7 @@ fn bucket_start(value: DateTime<Local>, bucket: Bucket) -> DateTime<Local> {
         Bucket::Day => value.date_naive(),
         Bucket::Week => value.date_naive() - Duration::days(i64::from(value.weekday().num_days_from_monday())),
         Bucket::Month => NaiveDate::from_ymd_opt(value.year(), value.month(), 1).expect("valid local month"),
+        Bucket::Year => NaiveDate::from_ymd_opt(value.year(), 1, 1).expect("valid local year"),
     };
     local_midnight(date)
 }
@@ -283,6 +286,7 @@ fn next_bucket(value: DateTime<Local>, bucket: Bucket) -> DateTime<Local> {
                 if value.month() == 12 { (value.year() + 1, 1) } else { (value.year(), value.month() + 1) };
             local_midnight(NaiveDate::from_ymd_opt(year, month, 1).expect("valid next month"))
         }
+        Bucket::Year => local_midnight(NaiveDate::from_ymd_opt(value.year() + 1, 1, 1).expect("valid next year")),
     }
 }
 

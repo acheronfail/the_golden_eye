@@ -20,7 +20,7 @@ const preferences: StatisticsPreferences = {
 	version: 1,
 	tab: 'outcomes',
 	range: { preset: 'custom', customFrom: '2026-07-01', customTo: '2026-07-24' },
-	bucket: 'day',
+	bucket: 'year',
 	levelNumber: 7,
 	difficultyNumber: 2,
 	attemptsByLevelStatuses: ['complete', 'kia'],
@@ -56,7 +56,7 @@ describe('statistics preferences', () => {
 		expect(readStatisticsPreferences(storage)).toEqual(
 			expect.objectContaining({
 				version: 1,
-				bucket: 'day',
+				bucket: 'year',
 				attemptsByLevelStatuses: ['complete'],
 				improvementSeries: ['running-best']
 			})

@@ -31,7 +31,7 @@ export const STATISTICS_PREFERENCES_STORAGE_KEY = 'the-golden-eye.statistics-pre
 
 const tabs: StatisticsTab[] = ['overview', 'improvement', 'outcomes', 'sessions'];
 const presets: DateRangeSelection['preset'][] = ['today', '7d', '30d', '12m', 'all', 'custom'];
-const buckets: StatisticsBucket[] = ['day', 'week', 'month'];
+const buckets: StatisticsBucket[] = ['day', 'week', 'month', 'year'];
 const statuses: RunStatus[] = ['complete', 'failed', 'abort', 'kia'];
 const improvementSeries: StatisticsImprovementSeries[] = [...statuses, 'running-best'];
 function isRecord(value: unknown): value is Record<string, unknown> {

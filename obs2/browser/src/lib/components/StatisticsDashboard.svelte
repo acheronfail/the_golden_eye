@@ -5,6 +5,7 @@
 		MonitoringSessionDetail,
 		MonitoringSessionSummary,
 		RunStatus,
+		StatisticsBucket,
 		StatisticsResponse
 	} from '$lib/api';
 	import Chart from './Chart.svelte';
@@ -37,6 +38,7 @@
 		levelNumber = $bindable(),
 		difficultyNumber = $bindable(),
 		tab = $bindable(),
+		bucket = 'week',
 		sessions,
 		selectedSessionId = $bindable(),
 		sessionDetail,
@@ -56,6 +58,7 @@
 		levelNumber: number;
 		difficultyNumber: DifficultyNumber;
 		tab: StatisticsTab;
+		bucket?: StatisticsBucket;
 		sessions: MonitoringSessionSummary[];
 		selectedSessionId: string;
 		sessionDetail: MonitoringSessionDetail | null;
@@ -87,6 +90,18 @@
 		]}
 		ariaLabel="Attempts by level order"
 		onChange={(value) => (levelOrder = value as StatisticsLevelOrder)}
+	/>
+{/snippet}
+
+{#snippet outcomeMeasureActions()}
+	<SegmentedControl
+		value={outcomeMeasure}
+		options={[
+			{ value: 'share', label: 'Share' },
+			{ value: 'count', label: 'Count' }
+		]}
+		ariaLabel="Outcome measurement"
+		onChange={(value) => (outcomeMeasure = value as StatisticsOutcomeMeasure)}
 	/>
 {/snippet}
 
@@ -141,6 +156,22 @@
 			/>
 		</div>
 		<section class="mt-4 rounded-sm obs-panel p-4">
+			<SectionTitle title="Attempts over time" />
+			<div class="mt-3">
+				<Chart
+					data={overallAttemptsData(data.overallBuckets)}
+					title="Attempts over time"
+					description="All attempts grouped into calendar buckets and split by outcome"
+					xLabel="Date"
+					yLabel="Attempts"
+					formatXValue={bucket === 'year' ? (value) => String(new Date(Number(value)).getFullYear()) : undefined}
+					interactiveLegend
+					visibleSeriesIds={attemptsOverTimeStatuses}
+					onVisibleSeriesChange={(ids) => (attemptsOverTimeStatuses = ids as RunStatus[])}
+				/>
+			</div>
+		</section>
+		<section class="mt-4 rounded-sm obs-panel p-4">
 			<SectionTitle title="Attempts by level" actions={levelOrderActions} />
 			<div class="mt-3">
 				<Chart
@@ -151,21 +182,6 @@
 					interactiveLegend
 					visibleSeriesIds={attemptsByLevelStatuses}
 					onVisibleSeriesChange={(ids) => (attemptsByLevelStatuses = ids as RunStatus[])}
-				/>
-			</div>
-		</section>
-		<section class="mt-4 rounded-sm obs-panel p-4">
-			<SectionTitle title="Attempts over time" />
-			<div class="mt-3">
-				<Chart
-					data={overallAttemptsData(data.overallBuckets)}
-					title="Attempts over time"
-					description="All attempts grouped into calendar buckets and split by outcome"
-					xLabel="Date"
-					yLabel="Attempts"
-					interactiveLegend
-					visibleSeriesIds={attemptsOverTimeStatuses}
-					onVisibleSeriesChange={(ids) => (attemptsOverTimeStatuses = ids as RunStatus[])}
 				/>
 			</div>
 		</section>
@@ -193,19 +209,8 @@
 			</div>
 		</section>
 	{:else if tab === 'outcomes'}
-		<div class="mt-4 flex justify-end">
-			<SegmentedControl
-				value={outcomeMeasure}
-				options={[
-					{ value: 'share', label: 'Share' },
-					{ value: 'count', label: 'Count' }
-				]}
-				ariaLabel="Outcome measurement"
-				onChange={(value) => (outcomeMeasure = value as StatisticsOutcomeMeasure)}
-			/>
-		</div>
 		<section class="mt-4 rounded-sm obs-panel p-4">
-			<SectionTitle title="Outcome mix" />
+			<SectionTitle title="Outcome mix" actions={outcomeMeasureActions} />
 			<p class="mt-1 text-xs obs-dim">Selected outcomes are side-by-side for each calendar bucket.</p>
 			<div class="mt-3">
 				<Chart
@@ -214,6 +219,7 @@
 					description="Grouped bars compare the selected run outcomes in each period"
 					xLabel="Date"
 					yLabel={outcomeMeasure === 'share' ? 'Share' : 'Attempts'}
+					formatXValue={bucket === 'year' ? (value) => String(new Date(Number(value)).getFullYear()) : undefined}
 					formatValue={outcomeMeasure === 'share' ? (value) => `${Math.round(value)}%` : undefined}
 					interactiveLegend
 					visibleSeriesIds={outcomeStatuses}

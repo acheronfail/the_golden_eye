@@ -6,8 +6,14 @@
 	let {
 		value = $bindable(),
 		bucket = $bindable(),
+		showGroupBy = true,
 		error = null
-	}: { value: DateRangeSelection; bucket: StatisticsBucket; error?: string | null } = $props();
+	}: {
+		value: DateRangeSelection;
+		bucket: StatisticsBucket;
+		showGroupBy?: boolean;
+		error?: string | null;
+	} = $props();
 
 	const options = [
 		{ value: 'today', label: 'Today' },
@@ -20,7 +26,8 @@
 	const bucketOptions = [
 		{ value: 'day', label: 'Day' },
 		{ value: 'week', label: 'Week' },
-		{ value: 'month', label: 'Month' }
+		{ value: 'month', label: 'Month' },
+		{ value: 'year', label: 'Year' }
 	];
 
 	function updatePreset(preset: string) {
@@ -59,20 +66,22 @@
 			/>
 		</label>
 	{/if}
-	<label
-		class="grid min-w-28 gap-1 text-xs font-semibold obs-muted"
-		class:basis-full={value.preset === 'custom'}
-		for="statistics-bucket"
-	>
-		Group by
-		<Select
-			id="statistics-bucket"
-			value={bucket}
-			options={bucketOptions}
-			onChange={(next) => (bucket = next as StatisticsBucket)}
-			class="px-3 py-2 text-left text-sm"
-		/>
-	</label>
+	{#if showGroupBy}
+		<label
+			class="grid min-w-28 gap-1 text-xs font-semibold obs-muted"
+			class:basis-full={value.preset === 'custom'}
+			for="statistics-bucket"
+		>
+			Group by
+			<Select
+				id="statistics-bucket"
+				value={bucket}
+				options={bucketOptions}
+				onChange={(next) => (bucket = next as StatisticsBucket)}
+				class="px-3 py-2 text-left text-sm"
+			/>
+		</label>
+	{/if}
 </div>
 {#if error}
 	<p class="mt-2 text-sm text-(--obs-danger)" role="alert">{error}</p>

@@ -417,7 +417,7 @@ export interface RunsResponse {
 export type RunSort = 'newest' | 'oldest' | 'fastest' | 'slowest';
 
 export type RunStatus = 'complete' | 'failed' | 'abort' | 'kia';
-export type StatisticsBucket = 'day' | 'week' | 'month';
+export type StatisticsBucket = 'day' | 'week' | 'month' | 'year';
 export type DifficultyNumber = 0 | 1 | 2 | 3;
 
 export const DIFFICULTY_LABELS: Record<DifficultyNumber, string> = {

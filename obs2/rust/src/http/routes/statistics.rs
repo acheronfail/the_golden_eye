@@ -84,6 +84,7 @@ fn parse_statistics_params(params: StatisticsParams) -> Result<StatisticsQuery, 
         "day" => Bucket::Day,
         "week" => Bucket::Week,
         "month" => Bucket::Month,
+        "year" => Bucket::Year,
         _ => return Err((StatusCode::BAD_REQUEST, "invalid bucket")),
     };
     if params.level_number.is_some() != params.difficulty_number.is_some() {
@@ -135,12 +136,12 @@ mod tests {
         let parsed = parse_statistics_params(StatisticsParams {
             from: Some("2026-07-01T00:00:00+10:00".to_owned()),
             to: Some("2026-08-01T00:00:00+10:00".to_owned()),
-            bucket: Some("month".to_owned()),
+            bucket: Some("year".to_owned()),
             level_number: Some(7),
             difficulty_number: Some(2),
         })
         .unwrap();
-        assert_eq!(parsed.bucket, Bucket::Month);
+        assert_eq!(parsed.bucket, Bucket::Year);
         assert_eq!(parsed.level_number, Some(7));
         assert_eq!(parsed.difficulty_number, Some(2));
     }
