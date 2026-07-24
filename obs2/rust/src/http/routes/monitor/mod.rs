@@ -1,7 +1,7 @@
 use std::ffi::CString;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use axum::Json;
 use axum::extract::State;
@@ -10,11 +10,12 @@ use axum::response::{IntoResponse, Result};
 use serde::Deserialize;
 
 use crate::cv::{CaptureRegion, LevelMatch};
-use crate::http::{AppEvent, AppState, MonitorFps, MonitorStoppedReason};
+use crate::http::{AppEvent, AppState, MonitorStoppedReason};
 
 mod capture;
 mod frame_dump;
 mod session;
+mod throughput;
 
 pub use capture::MonitorHandle;
 use capture::{
@@ -28,9 +29,9 @@ use capture::{
 };
 pub use session::MonitorSession;
 use session::{DisplayTimeSmoother, log_level_match, switch_detected_language};
+use throughput::ThroughputMeter;
 
 const DEFAULT_MONITOR_LANGUAGE: &str = "jp";
-const MONITOR_FPS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartParams {
@@ -74,13 +75,12 @@ impl ObsSource {
             MailboxRecv::Timeout => return Captured::Idle,
             MailboxRecv::Closed => return Captured::Closed,
         };
-        let stats = match (frame.captured_at, frame.capture_ms) {
-            (Some(captured_at), Some(capture_ms)) => Some(CapturedFrameStats {
-                capture_ms,
-                mailbox_wait_ms: captured_at.elapsed().as_secs_f64() * 1000.0,
-                dropped_frames_total: frame.dropped_frames_total,
-            }),
-            _ => None,
+        let stats = CapturedFrameStats {
+            capture_ms: frame.capture_ms,
+            callback_interval_ms: frame.callback_interval_ms,
+            capture_timings: frame.capture_timings,
+            mailbox_wait_ms: frame.captured_at.map(|at| at.elapsed().as_secs_f64() * 1000.0),
+            dropped_frames_total: frame.dropped_frames_total,
         };
         let result = use_frame(frame.buf.as_slice(), frame.width, frame.height);
         Captured::Frame(result, stats)
@@ -90,7 +90,7 @@ impl ObsSource {
 /// Outcome of [`ObsSource::capture_with_stats_until`].
 enum Captured<R> {
     /// A frame was matched, with optional capture timing.
-    Frame(R, Option<CapturedFrameStats>),
+    Frame(R, CapturedFrameStats),
     /// The deadline passed with no frame; poll pending timers and wait again.
     Idle,
     /// The mailbox is closed and drained; the monitor loop should exit.
@@ -118,7 +118,7 @@ impl MonitorTiming {
 
     fn observe(
         &mut self,
-        stats: Option<CapturedFrameStats>,
+        stats: CapturedFrameStats,
         match_ms: Option<f64>,
         cv_runtime_ms: Option<f64>,
         source_fps: f64,
@@ -126,19 +126,27 @@ impl MonitorTiming {
         if self.mode == MonitorTimingMode::Off {
             return;
         }
-        let (Some(stats), Some(match_ms)) = (stats, match_ms) else {
+        let (Some(capture_ms), Some(capture_timings), Some(mailbox_wait_ms), Some(match_ms)) =
+            (stats.capture_ms, stats.capture_timings, stats.mailbox_wait_ms, match_ms)
+        else {
             return;
         };
 
         let dropped_frames = stats.dropped_frames_total.saturating_sub(self.last_dropped_frames_total);
         self.last_dropped_frames_total = stats.dropped_frames_total;
-        let total_ms = stats.capture_ms + stats.mailbox_wait_ms + match_ms;
+        let total_ms = capture_ms + mailbox_wait_ms + match_ms;
         let slow = total_ms >= self.slow_ms || dropped_frames > 0;
 
         if slow {
             tracing::warn!(
-                capture_ms = stats.capture_ms,
-                mailbox_wait_ms = stats.mailbox_wait_ms,
+                callback_interval_ms = stats.callback_interval_ms,
+                capture_ms,
+                capture_source_ms = capture_timings.source_ms,
+                capture_allocation_ms = capture_timings.allocation_ms,
+                capture_render_stage_ms = capture_timings.render_stage_ms,
+                capture_map_copy_ms = capture_timings.map_copy_ms,
+                capture_cleanup_ms = capture_timings.cleanup_ms,
+                mailbox_wait_ms,
                 match_ms,
                 cv_runtime_ms,
                 total_ms,
@@ -150,8 +158,14 @@ impl MonitorTiming {
             );
         } else if self.mode == MonitorTimingMode::Verbose {
             tracing::info!(
-                capture_ms = stats.capture_ms,
-                mailbox_wait_ms = stats.mailbox_wait_ms,
+                callback_interval_ms = stats.callback_interval_ms,
+                capture_ms,
+                capture_source_ms = capture_timings.source_ms,
+                capture_allocation_ms = capture_timings.allocation_ms,
+                capture_render_stage_ms = capture_timings.render_stage_ms,
+                capture_map_copy_ms = capture_timings.map_copy_ms,
+                capture_cleanup_ms = capture_timings.cleanup_ms,
+                mailbox_wait_ms,
                 match_ms,
                 cv_runtime_ms,
                 total_ms,
@@ -230,6 +244,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         region: region.clone(),
         mailbox: mailbox.clone(),
         timing_enabled: monitor_timing_mode != MonitorTimingMode::Off,
+        last_callback_at: Mutex::new(None),
     }));
 
     // From here on OBS pushes a captured frame into the mailbox once per rendered
@@ -263,9 +278,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         let mut last: Option<LevelMatch> = None;
         let mut display_smoother = DisplayTimeSmoother::new();
         let mut last_diagnostics_enabled = false;
-        let mut last_fps_emit = Instant::now();
-        let mut last_frame_completed: Option<Instant> = None;
-        let mut slowest_frame_fps: Option<f64> = None;
+        let mut throughput = ThroughputMeter::new(Instant::now(), source_fps);
         let mut monitor_timing = MonitorTiming::new(source_fps, monitor_timing_mode);
         let timing_enabled = monitor_timing.enabled();
         // Drives the replay-buffer save/trim as the session progresses. Fed
@@ -309,21 +322,8 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                 Captured::Closed => break,
             };
             let now = Instant::now();
-            if let Some(previous) = last_frame_completed {
-                let frame_elapsed = now.duration_since(previous).as_secs_f64();
-                if frame_elapsed > 0.0 {
-                    let frame_fps = 1.0 / frame_elapsed;
-                    slowest_frame_fps = Some(slowest_frame_fps.map_or(frame_fps, |fps| fps.min(frame_fps)));
-                }
-            }
-            last_frame_completed = Some(now);
-
-            if now.duration_since(last_fps_emit) >= MONITOR_FPS_EMIT_INTERVAL {
-                if let Some(processed_fps) = slowest_frame_fps {
-                    let _ = event_tx.send(AppEvent::MonitorFps(MonitorFps { processed_fps, source_fps }));
-                }
-                last_fps_emit = now;
-                slowest_frame_fps = None;
+            if let Some(fps) = throughput.observe(now, stats.dropped_frames_total) {
+                let _ = event_tx.send(AppEvent::MonitorFps(fps));
             }
 
             // Once the matcher has calibrated this source's aspect, hand the

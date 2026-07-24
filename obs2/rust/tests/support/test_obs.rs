@@ -401,6 +401,7 @@ pub unsafe extern "C" fn ge_capture_get_frame(
     _region: *const c_void,
     out_width: *mut u32,
     out_height: *mut u32,
+    _timings: *mut c_void,
 ) -> *mut u8 {
     let frame = {
         let mut state = STATE.lock().unwrap();

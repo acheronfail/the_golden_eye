@@ -92,12 +92,21 @@ fn youtube_status_changed_event_uses_frontend_field_names() {
 
 #[test]
 fn monitor_fps_event_uses_frontend_field_names() {
-    let event = AppEvent::MonitorFps(MonitorFps { processed_fps: 59.5, source_fps: 60.0 });
+    let event = AppEvent::MonitorFps(MonitorFps {
+        processed_fps: 59.5,
+        captured_fps: 60.0,
+        source_fps: 60.0,
+        dropped_frames: 1,
+        health: MonitorFpsHealth::Warning,
+    });
     let json = serde_json::to_value(event).unwrap();
 
     assert_eq!(json["type"], "monitorFps");
     assert_eq!(json["processedFps"], 59.5);
+    assert_eq!(json["capturedFps"], 60.0);
     assert_eq!(json["sourceFps"], 60.0);
+    assert_eq!(json["droppedFrames"], 1);
+    assert_eq!(json["health"], "warning");
     assert!(json.get("processed_fps").is_none());
 }
 

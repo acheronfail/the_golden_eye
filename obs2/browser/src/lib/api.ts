@@ -579,7 +579,10 @@ export type MonitorStoppedReason = 'userStopped' | 'replayBufferStopped';
 
 export interface MonitorFps {
 	processedFps: number;
+	capturedFps: number;
 	sourceFps: number;
+	droppedFrames: number;
+	health: 'healthy' | 'warning' | 'lagging';
 }
 
 /** A message pushed over the app event stream. Mirrors the Rust `AppEvent`. */

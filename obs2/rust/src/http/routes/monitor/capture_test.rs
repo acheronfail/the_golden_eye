@@ -7,6 +7,8 @@ fn owned_frame(tag: u8, width: u32) -> Frame {
         height: 1,
         captured_at: None,
         capture_ms: None,
+        callback_interval_ms: None,
+        capture_timings: None,
         dropped_frames_total: 0,
     }
 }
@@ -46,4 +48,20 @@ fn mailbox_recv_returns_none_once_closed_and_drained() {
     // A push after close is dropped, not stored.
     mailbox.push(owned_frame(9, 40));
     assert!(mailbox.recv().is_none(), "push after close is a no-op");
+}
+
+#[test]
+fn disabled_timing_does_not_read_the_clock_or_lock_state() {
+    let last = Mutex::new(None);
+    let interval = callback_interval_ms(false, &last, || panic!("disabled timing read the clock"));
+    assert_eq!(interval, None);
+    assert!(last.into_inner().unwrap().is_none());
+}
+
+#[test]
+fn callback_timing_tracks_consecutive_intervals_when_enabled() {
+    let start = Instant::now();
+    let last = Mutex::new(None);
+    assert_eq!(callback_interval_ms(true, &last, || start), None);
+    assert_eq!(callback_interval_ms(true, &last, || start + std::time::Duration::from_millis(33)), Some(33.0));
 }

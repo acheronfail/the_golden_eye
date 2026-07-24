@@ -24,6 +24,16 @@ pub struct GeCaptureRegion {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GeCaptureTimings {
+    pub source_ms: f64,
+    pub allocation_ms: f64,
+    pub render_stage_ms: f64,
+    pub map_copy_ms: f64,
+    pub cleanup_ms: f64,
+}
+
+#[repr(C)]
 #[allow(dead_code)]
 enum ObsTaskType {
     Ui,
@@ -111,6 +121,7 @@ unsafe extern "C" {
         region: *const GeCaptureRegion,
         out_width: *mut u32,
         out_height: *mut u32,
+        timings: *mut GeCaptureTimings,
     ) -> *mut u8;
     /// Destroys a capture context and its surfaces.
     pub fn ge_capture_destroy(ctx: *mut GeCaptureCtx);

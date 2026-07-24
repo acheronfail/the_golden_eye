@@ -58,6 +58,15 @@ struct ge_capture_region {
   uint32_t out_height;
 };
 
+/* Optional per-call capture timings. Callers pass NULL to avoid timing work. */
+struct ge_capture_timings {
+  double source_ms;
+  double allocation_ms;
+  double render_stage_ms;
+  double map_copy_ms;
+  double cleanup_ms;
+};
+
 /* Create a capture context (reusable texrender); NULL on failure, release via
  * ge_capture_destroy. double_buffered avoids readback stalls (one frame latency)
  * but its first call (and post-resize) only primes: NULL means "no frame yet". */
@@ -67,7 +76,8 @@ ge_capture_ctx *ge_capture_create(bool double_buffered);
  * A non-NULL region captures its sub-rectangle at out_*; else non-zero max_height
  * downscales a taller source (NULL/0 = native). NULL = not found or priming call. */
 uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint32_t max_height,
-                              const struct ge_capture_region *region, uint32_t *out_width, uint32_t *out_height);
+                              const struct ge_capture_region *region, uint32_t *out_width, uint32_t *out_height,
+                              struct ge_capture_timings *timings);
 
 /* Destroy a capture context and its surfaces. */
 void ge_capture_destroy(ge_capture_ctx *ctx);

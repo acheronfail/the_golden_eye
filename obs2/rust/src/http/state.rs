@@ -234,9 +234,8 @@ pub enum AppEvent {
     /// The complete retained app/session state. Sent on connect and after every
     /// retained-state change so new tabs sync to the backend source of truth.
     Snapshot { state: Box<AppSnapshot> },
-    /// Periodic monitor throughput telemetry. `processed_fps` is the slowest
-    /// completed-frame cadence observed since the last telemetry push;
-    /// `source_fps` is the OBS video cadence driving capture callbacks.
+    /// Rolling monitor throughput and backend-owned matcher health. Captured
+    /// frames are either processed or superseded in the latest-frame mailbox.
     MonitorFps(MonitorFps),
     /// A run's clip save was scheduled and will fire after the post-run padding.
     RecordingSavePending(RecordingSavePending),
@@ -294,13 +293,23 @@ pub enum MonitorStoppedReason {
     ReplayBufferStopped,
 }
 
-/// Monitor throughput sampled by the worker thread and pushed to the frontend
-/// while monitoring is active.
+/// Rolling capture/processing throughput pushed while monitoring is active.
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MonitorFps {
     pub processed_fps: f64,
+    pub captured_fps: f64,
     pub source_fps: f64,
+    pub dropped_frames: u64,
+    pub health: MonitorFpsHealth,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MonitorFpsHealth {
+    Healthy,
+    Warning,
+    Lagging,
 }
 
 /// A transition in the recorder's per-run state, retained in [`AppSnapshot`] so

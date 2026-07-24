@@ -97,6 +97,7 @@ pub unsafe extern "C" fn ge_capture_get_frame(
     _region: *const c_void,
     _out_width: *mut u32,
     _out_height: *mut u32,
+    _timings: *mut c_void,
 ) -> *mut u8 {
     ptr::null_mut()
 }
