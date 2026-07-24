@@ -38,6 +38,7 @@
 	]);
 	const completed = $derived(isCompleted(clip));
 	const failed = $derived(['failed', 'abort', 'kia'].includes(clip.metadata.status));
+	const personalBest = $derived(clip.retentionReason === 'personalBest');
 	const pending = $derived(Boolean(clip.path && clip.retentionState === 'pending'));
 	const levelName = $derived(clip.metadata.level || 'unknown');
 	const retentionLabel = $derived(!clip.path ? 'history only' : clip.retentionState === 'pending' ? 'pending' : 'kept');
@@ -45,7 +46,7 @@
 	const timestampLabel = $derived(formatRunListDate(clip.metadata.timestamp, showDate));
 	const timestampTitle = $derived(formatDate(clip.metadata.timestamp));
 	const compactStatusLabel = $derived(
-		clip.metadata.status === 'kia' ? 'Killed' : statusLabel(clip.metadata.status) || 'unknown'
+		personalBest ? 'pb' : clip.metadata.status === 'kia' ? 'Killed' : statusLabel(clip.metadata.status) || 'unknown'
 	);
 </script>
 
@@ -67,16 +68,20 @@
 		</span>
 
 		<span class="flex min-w-0 flex-col">
-			<strong class="font-mono text-sm font-semibold tabular-nums">{clip.metadata.time || '—'}</strong>
+			<strong class="font-mono text-sm font-semibold tabular-nums" class:text-(--obs-gold-hover)={personalBest}
+				>{clip.metadata.time || '—'}</strong
+			>
 			<span class="truncate text-[10px] text-(--obs-text-dim)">{clip.metadata.difficulty || '—'}</span>
 		</span>
 		<span class="flex min-w-0 items-center gap-1.5 truncate font-mono text-[10px]">
 			<span
-				class="size-1.5 shrink-0 rounded-full {completed
-					? 'bg-(--obs-success)'
-					: failed
-						? 'bg-(--obs-danger)'
-						: 'bg-(--obs-text-dim)'}"
+				class="size-1.5 shrink-0 rounded-full {personalBest
+					? 'bg-(--obs-gold)'
+					: completed
+						? 'bg-(--obs-success)'
+						: failed
+							? 'bg-(--obs-danger)'
+							: 'bg-(--obs-text-dim)'}"
 				aria-hidden="true"
 			></span>
 			{compactStatusLabel}
