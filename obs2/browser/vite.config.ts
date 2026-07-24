@@ -48,6 +48,7 @@ export default defineConfig({
 		}
 	},
 	test: {
+		reporters: ['default'],
 		expect: {
 			requireAssertions: true
 		},
