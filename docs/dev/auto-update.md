@@ -1,127 +1,119 @@
-# Auto-update flow
+# Auto-update architecture
 
-The installed OBS module is a small shim plus a separately loaded core library. Auto-update replaces
-the core library and bundled runtime data while OBS keeps the shim loaded.
+OBS loads a small resident shim, which in turn loads the replaceable core. Rust, linked into the
+core, owns release selection, package verification, data installation, and update policy. The shim
+only owns path resolution, dynamic loading, and core replacement—the operations that must survive
+unloading Rust. OBS supplies the module data path and plugin lifecycle.
 
-## Release check
+The current updater contract is `u1`, read from `obs2/updater-version.txt`.
 
-1. `updates.rs` runs on the configured interval, or immediately from the manual "check now"
-   endpoint.
-2. By default it fetches GitHub's `releases/latest` API endpoint, which excludes draft and
-   pre-release releases.
-3. If `GE_UPDATE_INCLUDE_PRERELEASES` is set and no URL override is set, it fetches GitHub's full
-   releases list instead.
-4. If `GE_UPDATE_CHECK_URL` is set, that exact URL is fetched regardless of the pre-release setting.
-   The response may be either one release object or an array of release objects.
-5. The selector always skips drafts. It includes pre-release items only when
-   `GE_UPDATE_INCLUDE_PRERELEASES` is truthy, then chooses the highest SemVer release newer than the
-   running plugin.
-6. The updater selects exactly one canonical package for the current platform and architecture.
-   Canonical packages use `the_golden_eye-uN-vX.Y.Z-<platform>-<arch>.zip`, and the package version
-   must match the release tag.
-7. The package's `uN` value is compared with the updater version compiled into the running core.
-   Equal values are compatible; any mismatch requires a manual installation.
-8. If a newer release is found, the app snapshot is updated with the release and compatibility
-   details for later user-facing notices.
-9. If no newer release is found, the update snapshot is cleared and the plugin is considered up to
-   date.
+## Compatibility and packages
 
-## Download and staging
+Release packages are named:
 
-1. If auto-update is enabled in settings, a compatible update starts a background staging task. If
-   it is disabled, staging only happens after the user clicks the button in options.
-2. An incompatible update is never downloaded or staged, including through the explicit download
-   endpoint or the lower-level staging function.
-3. It downloads `checksums.txt`, verifies the package zip's SHA-256, and extracts the package into a
-   temporary download directory.
-4. It interprets the platform-standard package, renames its core to the installed core's exact leaf
-   name, and copies the complete packaged module-data root into `module-data/` in the staging
-   directory supplied by the shim. Arbitrary regular files, directories, and future nested layouts
-   under that data root are included.
+```text
+the_golden_eye-u<updater>-v<plugin-version>-<platform>-<arch>.zip
+```
 
-## Applying a staged update
+For example:
 
-1. `auto_apply_when_safe` waits until an update is staged and the app is not in a
-   recording-sensitive monitoring state.
-2. Rust calls `ge_core_trigger_reload()`, which only wakes the shim reload worker and returns
-   immediately.
-3. The shim prechecks the staged core by opening it and resolving its entry points without calling
-   `ge_core_load()`.
-4. The shim then shuts down the running core: `ge_core_unload()` disconnects OBS callbacks/signals
-   and calls `ge_rust_stop()`, which blocks until the Tokio runtime and Rust tasks are stopped. Only
-   after that does the shim `dlclose` the old core.
-5. The shim starts the staged core by calling
-   `ge_core_load(canonical_core, staged_directory, is_reload=true, ...)`.
-6. Before reporting startup success, the new Rust core resolves OBS's module data directory and
-   provisionally replaces the complete directory using destination-local incoming and backup
-   directories. It retains the previous data until the core commit finishes.
-7. After the new core is running, the shim moves only the staged core binary over the canonical core
-   path, tells Rust to commit its pending data transaction, and removes staging.
-8. If runtime-data installation, core startup, or canonical replacement fails, Rust restores the
-   previous data. The shim discards staging and reopens the unchanged canonical core.
+```text
+the_golden_eye-u1-v0.7.0-windows-x86_64.zip
+```
 
-## Manual installation boundary
+The updater number versions the installation and shim/core contract; it is independent of plugin
+SemVer. A package can update automatically only when its updater number exactly matches the running
+core. A mismatch is never downloaded; the UI asks for a manual installation instead.
 
-The updater version describes the package/install contract, independently of the plugin's SemVer.
-Increment it only when the installed updater cannot safely apply the new package, such as a change
-to the resident shim.
+Increment `obs2/updater-version.txt` only when the existing installation cannot safely apply the new
+release, such as when changing the resident shim or the ABI below. The shim is absent from automatic
+update payloads because OBS has already loaded it.
 
-When a release's updater version differs from the running core:
+## Update sequence
 
-- Auto-update remains saved as the user's preference but is temporarily disabled in Options.
-- The app shows a manual-install dialog when monitoring is inactive and keeps a sticky notice.
-- The download/apply action is replaced with a link to the GitHub release.
-- The user must close OBS and install the package normally. Settings and run history are retained.
+1. Rust selects the package matching the release, platform, architecture, and updater number, then
+   verifies it against `checksums.txt`.
+2. It finds the packaged core and complete data root:
 
-The checked-in updater version is `obs2/updater-version.txt`. `GE_UPDATER_VERSION` can override it
-for builds and local simulations. Release packages and the compiled Rust core always receive the
-same resolved value.
+   | Platform | Core                                  | Data root            |
+   | -------- | ------------------------------------- | -------------------- |
+   | macOS    | `Contents/MacOS/libgolden_core.dylib` | `Contents/Resources` |
+   | Linux    | `bin/<arch>/libgolden_core.so`        | `data`               |
+   | Windows  | `bin/<arch>/golden_core.dll`          | `data`               |
 
-The `v0.6.1` bridge release is the only release that publishes both canonical `u0-v0.6.1` packages
-and legacy `0.6.1` aliases. The aliases allow clients without updater-version support to reach the
-bridge. `v0.7.0` introduces the path-safe `u1` updater contract. Later releases publish canonical
-packages only.
+3. Rust stages the core under its installed filename and the data as `module-data/**` beside it.
+4. When monitoring and recording work are idle, Rust wakes the shim reload worker.
+5. The shim prechecks the staged core, unloads the old core, and loads the new core through a fresh
+   temporary copy to avoid platform loader caching.
+6. The new Rust core provisionally swaps OBS's complete module data directory, retaining a backup.
+7. The shim replaces the canonical core, calls `ge_core_commit_update()`, and removes staging.
+
+Only 1 core is loaded at any instant. This matters because each core binds the same local HTTP port.
+
+## Module-data behavior
+
+The packaged data root is an authoritative snapshot:
+
+- Arbitrary regular files, empty directories, and future paths such as
+  `data/new-runtime-dir/config.json` are included without updater changes.
+- Files omitted by a newer package disappear after a successful update.
+- Symbolic links and special filesystem entries are rejected.
+- Settings and `runs.sqlite` are unaffected because they live in the application config directory,
+  outside the OBS module data root.
+
+The incoming copy and backup sit beside OBS's resolved data directory, so staging and data may use
+different filesystems, custom paths, spaces, or a custom core filename.
+
+## Failure and rollback
+
+- Failures before reload leave the installation untouched.
+- A core that fails precheck or startup is discarded and the canonical core is reopened.
+- If replacing the canonical core fails, unloading the new core restores the old data before
+  reopening the old core.
+
+## Shim ABI contract
+
+The `u1` shim resolves these C symbols from every core:
+
+```c
+typedef void (*ge_request_reload_fn)(void);
+
+bool ge_core_load(
+    void *module,
+    const char *canonical_core_path,
+    const char *staged_directory,
+    bool is_reload,
+    ge_request_reload_fn request_reload);
+void ge_core_post_load(void);
+void ge_core_commit_update(void);
+void ge_core_unload(void);
+```
+
+Their behavioral contract is:
+
+- `ge_core_load` stores its arguments, starts Rust, and returns `false` unless the core is ready. On
+  reload, readiness includes provisional module-data installation.
+  - `request_reload` must only wake the shim worker and return. It runs on a stack inside the core
+    being replaced and must never load, unload, or call back into that core.
+- `ge_core_post_load` performs work that must wait for OBS's post-load lifecycle hook.
+- `ge_core_commit_update` commits the pending module-data transaction only after the shim has
+  replaced the canonical core.
+- `ge_core_unload` synchronously stops callbacks, Rust tasks, threads, and HTTP before returning.
+
+Every `u1` core must preserve these symbols, signatures, and semantics. A breaking change requires a
+new updater number and manual installation.
 
 ## Local simulation
 
-Run the simulator in one terminal, then launch OBS with the printed `GE_UPDATE_CHECK_URL` in
-another:
-
 ```sh
-# Compatible with the checked-in u1 build: should download, stage, and apply.
+# Compatible: run these in separate terminals.
 just simulate-update --updater-version 1
+GE_UPDATE_CHECK_URL=http://127.0.0.1:31339/latest just obs
 
-# Incompatible with u1: should show manual-install UI and make no package request.
+# Incompatible: shows manual installation and makes no package request.
 just simulate-update --updater-version 2
-GE_UPDATER_VERSION=1 just obs
 ```
 
-The simulator resolves its updater version from `--updater-version`, then `GE_UPDATER_VERSION`, then
-the checked-in file. It serves canonical packages only; the legacy alias was limited to the
-published `v0.6.1` bridge.
-
-## What the shim updates
-
-- The shim replaces only the hosted core library, not the shim library that OBS originally loaded.
-- Rust owns package interpretation and transactionally installs runtime data through the data path
-  resolved by OBS. The shim has no knowledge of data filenames or packaged install layouts.
-- The full package data root is authoritative. New paths such as `data/new-runtime-dir/**` require
-  no updater change, and paths removed from a package are removed from the installed data snapshot
-  after a successful update.
-- Symbolic links and non-regular filesystem entries in module data are rejected. Files outside the
-  platform package's data root and native libraries beside the core are not auto-installed.
-- The canonical core and its adjacent staging directory may be unrelated to the shim and OBS data
-  directories; paths containing spaces and custom core filenames are supported.
-- The shim stays resident for the whole OBS session. Changes to shim code require a normal reinstall
-  and OBS restart.
-
-## Environment variables
-
-- `GE_UPDATE_CHECK_URL`: exact release API URL override, mainly for tests or local mock servers. It
-  takes precedence over the default stable/full-list URL selection and may return one release object
-  or an array.
-- `GE_UPDATE_INCLUDE_PRERELEASES`: when set, allows pre-release versions from the fetched response.
-  Without `GE_UPDATE_CHECK_URL`, it also switches the default GitHub endpoint from `releases/latest`
-  to the full releases list. Leave unset for stable-only behavior.
-- `GE_UPDATER_VERSION`: build-time override for the non-negative integer in
-  `obs2/updater-version.txt`. It changes both the compiled compatibility value and package name.
+- `GE_UPDATE_CHECK_URL` overrides the release API
+- `GE_UPDATE_INCLUDE_PRERELEASES` includes a check for prereleases (drafts are always ignored)
+- `GE_UPDATER_VERSION` overrides the updater number at build time

@@ -290,8 +290,8 @@ describe('/options', () => {
 
 	it('preserves auto-update preference and opens the release page for a manual update', async () => {
 		const update = {
-			currentVersion: '0.6.1',
-			latestVersion: '0.7.0',
+			currentVersion: '1.2.3',
+			latestVersion: '2.0.0',
 			releaseUrl: 'https://example.com/release',
 			updaterVersion: 1,
 			requiresManualInstall: true

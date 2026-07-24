@@ -24,15 +24,6 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let stopped = true;
 let settingsErrorNotificationId: number | null = null;
 const youtubeNotifiedFailedIds = new Set<string>();
-const UPDATE_APPLIED_STORAGE_KEY = 'ge-update-applied-version';
-
-const discardPersistedUpdateAppliedNotification = (): void => {
-	try {
-		sessionStorage.removeItem(UPDATE_APPLIED_STORAGE_KEY);
-	} catch (err) {
-		console.warn('Failed to discard legacy update-applied notice', err);
-	}
-};
 
 const notifyYoutubeUploadFailure = (upload: import('$lib/api').YouTubeUploadStatus): void => {
 	if (upload.state === 'failed' && !youtubeNotifiedFailedIds.has(upload.id)) {
@@ -175,7 +166,6 @@ const connect = (): void => {
 
 export const startAppSocket = (): void => {
 	if (!browser) return;
-	discardPersistedUpdateAppliedNotification();
 	stopped = false;
 	connect();
 };

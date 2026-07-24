@@ -6,8 +6,7 @@ This is a plugin for OBS Studio that assists with GoldenEye N64 speed-running.
 
 > [!WARNING] Until version `1.0.0`, this plugin is pre-release software with no stability or
 > compatibility guarantees. `0.x.x` releases may include breaking changes, including to stored run
-> data. Upgrading from `0.6.x` to `0.7.0` requires a manual installation; later compatible `0.7.x`
-> updates can again install automatically. See
+> data or the installation format. See
 > [Changes for 1.0.0](https://github.com/acheronfail/the_golden_eye/issues/119) for details.
 
 ## OBS compatibility
@@ -22,6 +21,13 @@ Follow the instructions for your operating system:
 - [Install on Linux](docs/install-linux.md)
 - [Install on macOS](docs/install-macos.md)
 - [Install on Windows](docs/install-windows.md)
+
+## Updates
+
+The plugin has an auto-update feature! Most of the time it can update itself just fine.
+
+If there's ever a new update that requires the plugin to be manually installed, the plugin will let
+you know.
 
 ## Troubleshooting
 
