@@ -161,6 +161,31 @@ fn runtime_data_commit_keeps_new_directories() {
 }
 
 #[test]
+fn installed_linux_package_data_root_is_replaced_without_module_name_nesting() {
+    let dir = tempdir();
+    let plugin = dir.path().join("the_golden_eye");
+    let staged = plugin.join("bin/64bit/.ge_update_staged");
+    let data = plugin.join("data");
+
+    std::fs::create_dir_all(data.join("cv_templates")).unwrap();
+    std::fs::create_dir_all(data.join("locale")).unwrap();
+    std::fs::write(data.join("foo.txt"), b"old package data").unwrap();
+    std::fs::write(data.join("locale/en-US.ini"), b"old locale").unwrap();
+    std::fs::create_dir_all(staged.join(STAGED_MODULE_DATA_DIR).join("cv_templates")).unwrap();
+    std::fs::create_dir_all(staged.join(STAGED_MODULE_DATA_DIR).join("locale")).unwrap();
+    std::fs::write(staged.join(STAGED_MODULE_DATA_DIR).join("locale/en-US.ini"), b"locale").unwrap();
+    std::fs::write(staged.join(STAGED_MODULE_DATA_DIR).join("bar.txt"), b"new package data").unwrap();
+
+    let transaction = RuntimeDataTransaction::install(&staged, &data).unwrap();
+    transaction.commit();
+
+    assert_eq!(std::fs::read(data.join("locale/en-US.ini")).unwrap(), b"locale");
+    assert_eq!(std::fs::read(data.join("bar.txt")).unwrap(), b"new package data");
+    assert!(!data.join("foo.txt").exists());
+    assert!(!data.join("the_golden_eye").exists());
+}
+
+#[test]
 fn runtime_data_startup_failure_restores_old_directories() {
     let dir = tempdir();
     let staged = dir.path().join("unrelated staging");
