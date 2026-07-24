@@ -98,8 +98,7 @@ fn test_recording(options: RecordingOptions) -> (RecordingState, tokio::sync::br
         recording_state,
         ReplaySaveStateStore::new(snapshot),
         options,
-        "N64 Capture".to_owned(),
-        "en".to_owned(),
+        super::RecordingSessionContext::new("N64 Capture".to_owned(), "en".to_owned(), None),
         test_run_catalog("recording-state"),
     );
     (recording, event_rx)
@@ -361,8 +360,7 @@ fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
         RecordingStateStore::new(snapshot.clone()),
         ReplaySaveStateStore::new(snapshot),
         options.clone(),
-        "N64 Capture".to_owned(),
-        "en".to_owned(),
+        super::RecordingSessionContext::new("N64 Capture".to_owned(), "en".to_owned(), None),
         catalog.clone(),
     );
     let now = Instant::now();

@@ -3,6 +3,8 @@
 	import RunListItemStory from './RunListItemStory.svelte';
 	import { completedRun, failedRun, untaggedRun } from './fixtures';
 
+	const personalBestRun = { ...completedRun, retentionReason: 'personalBest' };
+
 	const { Story } = defineMeta({
 		title: 'Runs/Run list item',
 		component: RunListItemStory,
@@ -12,6 +14,7 @@
 </script>
 
 <Story name="Completed" />
+<Story name="Personal best" args={{ clip: personalBestRun }} />
 <Story name="Failed" args={{ clip: failedRun }} />
 <Story name="Untagged" args={{ clip: untaggedRun }} />
 <Story name="Actions open" args={{ menuOpen: true }} />

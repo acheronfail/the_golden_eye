@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS run_sessions;
+DROP TABLE IF EXISTS monitor_sessions;
+DROP TABLE IF EXISTS clips;
+DROP TABLE IF EXISTS runs;

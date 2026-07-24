@@ -503,8 +503,8 @@
 	let placedAnnotations = $derived<PlacedAnnotation[]>(placeAnnotations(visibleAnnotationItems));
 </script>
 
-<div class="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4">
-	<h1 class="mb-4 text-2xl font-bold obs-heading">Developer Utilities</h1>
+<div class="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 obs-page-top pb-4 sm:px-6">
+	<h1 class="mb-4 text-2xl font-semibold obs-heading">Developer Utilities</h1>
 
 	<div class="flex flex-col gap-3 rounded obs-panel px-4 py-3">
 		<h2 class="text-xl font-semibold">Visual Effects</h2>

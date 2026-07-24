@@ -178,6 +178,10 @@
 	@apply bg-(--obs-bg);
 }
 
+@utility obs-page-top {
+	@apply pt-4 sm:pt-6;
+}
+
 @utility obs-banner {
 	@apply text-(--obs-gold-hover);
 }
@@ -462,11 +466,11 @@
 }
 
 @utility obs-menu-link-active {
-	@apply border-[#b18108] bg-(--obs-gold) text-[#111318];
+	@apply border-(--obs-gold)! bg-(--obs-gold-surface) text-(--obs-gold-hover);
 
 	&:hover,
 	&:active {
-		@apply border-[#b18108] bg-(--obs-gold) text-[#111318];
+		@apply border-(--obs-gold-hover)! bg-(--obs-gold-surface) text-(--obs-gold-hover);
 	}
 }
 
@@ -537,7 +541,7 @@
 
 @utility obs-notification {
 	--obs-notification-accent: var(--obs-gold);
-	@apply border border-(--obs-border) bg-[linear-gradient(90deg,var(--obs-notification-accent)_0_4px,transparent_4px),var(--obs-panel)] shadow-[0_10px_26px_rgb(0_0_0_/_40%),inset_0_1px_0_var(--obs-border-soft)];
+	@apply border border-(--obs-border) bg-(--obs-panel) [background-image:linear-gradient(90deg,var(--obs-notification-accent)_0_4px,transparent_4px)] shadow-[0_10px_26px_rgb(0_0_0_/_40%),inset_0_1px_0_var(--obs-border-soft)];
 }
 
 @utility obs-notification-actionable {

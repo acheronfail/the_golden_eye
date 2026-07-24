@@ -376,13 +376,11 @@ pub extern "C" fn ge_rust_stop() {
         return;
     };
 
-    // Dev hot reload deliberately permits an active monitor/recording. Stop and
-    // join it before the shim unloads this core, so no old Rust code runs after
-    // its library is closed. Production updates are gated before reaching here.
-    if cfg!(feature = "dev") {
-        let state = handle.state.clone();
-        let _ = handle.runtime_handle.block_on(http::stop_monitor(&state));
-    }
+    // Join any active monitor before the shim unloads this core, and persist a
+    // truthful session end reason for both development reloads and OBS shutdown.
+    let state = handle.state.clone();
+    let end_reason = if cfg!(feature = "dev") { "coreReload" } else { "obsShutdown" };
+    let _ = handle.runtime_handle.block_on(http::stop_monitor(&state, end_reason));
 
     // Signal the server to begin a graceful shutdown. The receiver may already
     // be gone if the server task exited on its own; that's fine.
@@ -582,7 +580,7 @@ pub extern "C" fn ge_replay_buffer_stopped() {
     };
 
     runtime_handle.spawn(async move {
-        if http::stop_monitor(&state).await {
+        if http::stop_monitor(&state, "replayBufferStopped").await {
             tracing::warn!("replay buffer stopped while monitoring was active; monitoring disabled");
             let _ = state.event_tx.send(AppEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped });
         }

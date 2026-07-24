@@ -64,11 +64,12 @@
 	};
 
 	// When the replay buffer is confirmed unavailable, force the user back to `/`
-	// (which explains how to enable it); `/`, `/runs`, `/options`, and `/developer`
+	// (which explains how to enable it); `/`, `/runs`, `/statistics`, `/options`, and `/developer`
 	// are exempt. An unknown status (null) never redirects.
 	$effect(() => {
 		const path = page.url.pathname;
-		const exempt = path === '/' || path === '/runs' || path === '/options' || path === '/developer';
+		const exempt =
+			path === '/' || path === '/runs' || path === '/statistics' || path === '/options' || path === '/developer';
 		if (replayBuffer.status?.available === false && !exempt) {
 			navigate('/', { replaceState: true });
 		}
@@ -112,6 +113,7 @@
 
 	const links = $derived([
 		{ href: '/', label: 'Monitor' },
+		{ href: '/statistics', label: 'Statistics' },
 		{ href: '/runs', label: 'Runs' },
 		{ href: '/options', label: 'Options' },
 		...(settings.showDeveloperSettings ? [{ href: '/developer', label: 'Developer' }] : [])

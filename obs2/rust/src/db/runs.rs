@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -7,28 +8,98 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::run_catalog::{IndexedRunClip, RunCatalogRoot, RunCatalogSave, RunRecord, RunRetentionState, RunSort};
 use crate::ffmpeg;
-use crate::models::clip_metadata::ClipMetadata;
+use crate::models::clip_metadata::{ClipMetadata, RunStatus};
 use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
 
 const CREATE_TABLE: &str = include_str!("sql/runs/create_table.sql");
 const CREATE_STATUS_TIMESTAMP_INDEX: &str = include_str!("sql/runs/create_status_timestamp_index.sql");
 const CREATE_LEVEL_DIFFICULTY_TIMESTAMP_INDEX: &str =
     include_str!("sql/runs/create_level_difficulty_timestamp_index.sql");
+const CREATE_TIME_INDEX: &str = include_str!("sql/runs/create_time_index.sql");
+const CREATE_TIME_SORT_INDEX: &str = include_str!("sql/runs/create_time_sort_index.sql");
+const DROP_TABLES: &str = include_str!("sql/runs/drop_tables.sql");
+const MIGRATE_V2_ROWS: &str = include_str!("sql/runs/migrate_v2_rows.sql");
+const CREATE_SESSION_TABLES: &str = include_str!("sql/runs/create_session_tables.sql");
+const LIST_RUNS_NEWEST: &str = include_str!("sql/runs/list_runs_newest.sql");
+const LIST_RUNS_OLDEST: &str = include_str!("sql/runs/list_runs_oldest.sql");
+const LIST_RUNS_FASTEST: &str = include_str!("sql/runs/list_runs_fastest.sql");
+const LIST_RUNS_SLOWEST: &str = include_str!("sql/runs/list_runs_slowest.sql");
+const RECENT_RUNS: &str = include_str!("sql/runs/recent_runs.sql");
+const GET_RUN: &str = include_str!("sql/runs/get_run.sql");
+const GET_RUN_BY_PATH: &str = include_str!("sql/runs/get_run_by_path.sql");
+const INSERT_FINALIZED: &str = include_str!("sql/runs/insert_finalized.sql");
+const BEST_TIME: &str = include_str!("sql/runs/best_time.sql");
+const STATISTIC_FACTS: &str = include_str!("sql/runs/statistic_facts.sql");
+const TOTAL_MONITOR_SESSION_MICROS: &str = include_str!("sql/runs/total_monitor_session_micros.sql");
+const COMBINED_BEST_ROWS: &str = include_str!("sql/runs/combined_best_rows.sql");
+const INSERT_MONITOR_SESSION: &str = include_str!("sql/runs/insert_monitor_session.sql");
+const END_MONITOR_SESSION: &str = include_str!("sql/runs/end_monitor_session.sql");
+const DELETE_EMPTY_MONITOR_SESSION: &str = include_str!("sql/runs/delete_empty_monitor_session.sql");
+const RECONCILE_MONITOR_SESSIONS: &str = include_str!("sql/runs/reconcile_monitor_sessions.sql");
+const MONITOR_SESSIONS: &str = include_str!("sql/runs/monitor_sessions.sql");
+const MONITOR_SESSION: &str = include_str!("sql/runs/monitor_session.sql");
+const MONITOR_SESSION_FACTS: &str = include_str!("sql/runs/monitor_session_facts.sql");
+const ATTACH_SAVED_CLIP: &str = include_str!("sql/runs/attach_saved_clip.sql");
+const UPDATE_METADATA: &str = include_str!("sql/runs/update_metadata.sql");
+const UPSERT_IMPORTED: &str = include_str!("sql/runs/upsert_imported.sql");
+const DETACH_CLIP: &str = include_str!("sql/runs/detach_clip.sql");
+
+#[derive(Debug, Clone)]
+pub struct RunStatisticFact {
+    pub run_id: String,
+    pub completed_unix_micros: i64,
+    pub level_number: Option<i32>,
+    pub difficulty_number: Option<i32>,
+    pub status: RunStatus,
+    pub time_seconds: Option<i32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CombinedBestRow {
+    pub level_number: i32,
+    pub difficulty_number: i32,
+    pub time_seconds: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct MonitorSessionRow {
+    pub session_id: String,
+    pub started_unix_micros: i64,
+    pub ended_unix_micros: Option<i64>,
+    pub source_name: String,
+    pub initial_cv_language: Option<String>,
+    pub plugin_version: String,
+    pub end_reason: Option<String>,
+}
 
 pub fn initialise(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(CREATE_TABLE)?;
     conn.execute_batch(CREATE_STATUS_TIMESTAMP_INDEX)?;
     conn.execute_batch(CREATE_LEVEL_DIFFICULTY_TIMESTAMP_INDEX)?;
-    conn.execute_batch("CREATE INDEX IF NOT EXISTS runs_time_idx ON runs(level_number, difficulty, time_seconds)")?;
-    conn.execute_batch(
-        "CREATE INDEX IF NOT EXISTS runs_time_sort_idx
-         ON runs(time_seconds IS NULL, time_seconds, completed_unix_micros DESC, run_id DESC)",
-    )?;
+    conn.execute_batch(CREATE_TIME_INDEX)?;
+    conn.execute_batch(CREATE_TIME_SORT_INDEX)?;
     Ok(())
 }
 
 pub fn drop_tables(conn: &Connection) -> anyhow::Result<()> {
-    conn.execute_batch("DROP TABLE IF EXISTS clips; DROP TABLE IF EXISTS runs")?;
+    conn.execute_batch(DROP_TABLES)?;
+    Ok(())
+}
+
+pub fn migrate_v2_to_v3(conn: &mut Connection) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute_batch("ALTER TABLE runs RENAME TO runs_v2;")?;
+    tx.execute_batch(CREATE_TABLE)?;
+    tx.execute_batch(MIGRATE_V2_ROWS)?;
+    initialise(&tx)?;
+    initialise_sessions(&tx)?;
+    super::meta::set_schema_version(&tx)?;
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn initialise_sessions(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch(CREATE_SESSION_TABLES)?;
     Ok(())
 }
 
@@ -37,54 +108,29 @@ pub fn list_runs(conn: &Connection) -> anyhow::Result<Vec<RunRecord>> {
 }
 
 pub fn list_runs_sorted(conn: &Connection, sort: RunSort) -> anyhow::Result<Vec<RunRecord>> {
-    let order = match sort {
-        RunSort::Newest => "completed_unix_micros DESC, run_id DESC",
-        RunSort::Oldest => "completed_unix_micros ASC, run_id ASC",
-        RunSort::Fastest => "time_seconds IS NULL, time_seconds ASC, completed_unix_micros DESC, run_id DESC",
-        RunSort::Slowest => "time_seconds IS NULL, time_seconds DESC, completed_unix_micros DESC, run_id DESC",
+    let sql = match sort {
+        RunSort::Newest => LIST_RUNS_NEWEST,
+        RunSort::Oldest => LIST_RUNS_OLDEST,
+        RunSort::Fastest => LIST_RUNS_FASTEST,
+        RunSort::Slowest => LIST_RUNS_SLOWEST,
     };
-    let sql = format!(
-        "SELECT run_id, completed_unix_micros, retention_state, retention_reason,
-                clip_path, size_bytes, modified_unix, duration_secs, metadata_json
-         FROM runs ORDER BY {order}"
-    );
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare(sql)?;
     let rows = stmt.query_map([], row_to_run)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 pub fn recent_runs(conn: &Connection, limit: usize) -> anyhow::Result<Vec<RunRecord>> {
-    let mut stmt = conn.prepare(
-        "SELECT run_id, completed_unix_micros, retention_state, retention_reason,
-                clip_path, size_bytes, modified_unix, duration_secs, metadata_json
-         FROM runs ORDER BY completed_unix_micros DESC, run_id DESC LIMIT ?1",
-    )?;
+    let mut stmt = conn.prepare(RECENT_RUNS)?;
     let rows = stmt.query_map([limit as i64], row_to_run)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 pub fn get_run(conn: &Connection, run_id: &str) -> anyhow::Result<Option<RunRecord>> {
-    conn.query_row(
-        "SELECT run_id, completed_unix_micros, retention_state, retention_reason,
-                clip_path, size_bytes, modified_unix, duration_secs, metadata_json
-         FROM runs WHERE run_id = ?1",
-        [run_id],
-        row_to_run,
-    )
-    .optional()
-    .map_err(Into::into)
+    conn.query_row(GET_RUN, [run_id], row_to_run).optional().map_err(Into::into)
 }
 
 pub fn get_run_by_path(conn: &Connection, path: &Path) -> anyhow::Result<Option<RunRecord>> {
-    conn.query_row(
-        "SELECT run_id, completed_unix_micros, retention_state, retention_reason,
-                clip_path, size_bytes, modified_unix, duration_secs, metadata_json
-         FROM runs WHERE clip_path = ?1",
-        [path_to_string(&catalog_path(path))],
-        row_to_run,
-    )
-    .optional()
-    .map_err(Into::into)
+    conn.query_row(GET_RUN_BY_PATH, [path_to_string(&catalog_path(path))], row_to_run).optional().map_err(Into::into)
 }
 
 pub fn insert_finalized(
@@ -94,15 +140,12 @@ pub fn insert_finalized(
     metadata: &ClipMetadata,
 ) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT INTO runs (
-            run_id, completed_unix_micros, level_number, difficulty, status, time_seconds,
-            retention_state, retention_reason, metadata_json
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        INSERT_FINALIZED,
         params![
             run_id,
             completed_unix_micros,
-            metadata.level_number,
-            metadata.difficulty,
+            normalized_level_number(metadata.level_number),
+            metadata.difficulty.as_deref().and_then(crate::ge::difficulty_number),
             metadata.status.as_str(),
             metadata.time_seconds,
             metadata.retention_state,
@@ -113,13 +156,117 @@ pub fn insert_finalized(
     Ok(())
 }
 
-pub fn best_time(conn: &Connection, level_number: i32, difficulty: &str) -> anyhow::Result<Option<i32>> {
-    Ok(conn.query_row(
-        "SELECT MIN(time_seconds) FROM runs
-         WHERE status = 'complete' AND level_number = ?1 AND difficulty = ?2 AND time_seconds IS NOT NULL",
-        params![level_number, difficulty],
-        |row| row.get(0),
-    )?)
+pub fn best_time(conn: &Connection, level_number: i32, difficulty_number: i32) -> anyhow::Result<Option<i32>> {
+    Ok(conn.query_row(BEST_TIME, params![level_number, difficulty_number], |row| row.get(0))?)
+}
+
+pub fn statistic_facts(conn: &Connection, from: Option<i64>, to: i64) -> anyhow::Result<Vec<RunStatisticFact>> {
+    let mut stmt = conn.prepare(STATISTIC_FACTS)?;
+    let rows = stmt.query_map(params![from, to], row_to_statistic_fact)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn total_monitor_session_micros(conn: &Connection, from: Option<i64>, to: i64) -> anyhow::Result<i64> {
+    Ok(conn.query_row(TOTAL_MONITOR_SESSION_MICROS, params![from, to], |row| row.get(0))?)
+}
+
+pub fn combined_best_rows(conn: &Connection) -> anyhow::Result<Vec<CombinedBestRow>> {
+    let mut stmt = conn.prepare(COMBINED_BEST_ROWS)?;
+    let rows = stmt.query_map([], |row| {
+        Ok(CombinedBestRow { level_number: row.get(0)?, difficulty_number: row.get(1)?, time_seconds: row.get(2)? })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn insert_monitor_session(conn: &Connection, session: &MonitorSessionRow) -> anyhow::Result<()> {
+    conn.execute(
+        INSERT_MONITOR_SESSION,
+        params![
+            session.session_id,
+            session.started_unix_micros,
+            session.ended_unix_micros,
+            session.source_name,
+            session.initial_cv_language,
+            session.plugin_version,
+            session.end_reason,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn end_monitor_session(
+    conn: &Connection,
+    session_id: &str,
+    ended_unix_micros: Option<i64>,
+    reason: &str,
+) -> anyhow::Result<()> {
+    conn.execute(END_MONITOR_SESSION, params![ended_unix_micros, reason, session_id])?;
+    Ok(())
+}
+
+pub fn delete_empty_monitor_session(conn: &Connection, session_id: &str) -> anyhow::Result<()> {
+    conn.execute(DELETE_EMPTY_MONITOR_SESSION, [session_id])?;
+    Ok(())
+}
+
+pub fn associate_run_session(conn: &Connection, run_id: &str, session_id: &str) -> anyhow::Result<()> {
+    conn.execute("INSERT INTO run_sessions (session_id, run_id) VALUES (?1, ?2)", params![session_id, run_id])?;
+    Ok(())
+}
+
+pub fn reconcile_monitor_sessions(conn: &Connection) -> anyhow::Result<usize> {
+    Ok(conn.execute(RECONCILE_MONITOR_SESSIONS, [])?)
+}
+
+pub fn monitor_sessions(conn: &Connection) -> anyhow::Result<Vec<MonitorSessionRow>> {
+    let mut stmt = conn.prepare(MONITOR_SESSIONS)?;
+    let rows = stmt.query_map([], row_to_monitor_session)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn monitor_session(conn: &Connection, session_id: &str) -> anyhow::Result<Option<MonitorSessionRow>> {
+    conn.query_row(MONITOR_SESSION, [session_id], row_to_monitor_session).optional().map_err(Into::into)
+}
+
+pub fn monitor_session_facts(conn: &Connection, session_id: &str) -> anyhow::Result<Vec<RunStatisticFact>> {
+    let mut stmt = conn.prepare(MONITOR_SESSION_FACTS)?;
+    let rows = stmt.query_map([session_id], row_to_statistic_fact)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+fn row_to_statistic_fact(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunStatisticFact> {
+    let status: String = row.get(4)?;
+    let status = RunStatus::from_str(&status).map_err(|_| {
+        rusqlite::Error::FromSqlConversionFailure(
+            4,
+            rusqlite::types::Type::Text,
+            format!("unknown run status {status}").into(),
+        )
+    })?;
+    Ok(RunStatisticFact {
+        run_id: row.get(0)?,
+        completed_unix_micros: row.get(1)?,
+        level_number: row.get(2)?,
+        difficulty_number: row.get(3)?,
+        status,
+        time_seconds: row.get(5)?,
+    })
+}
+
+fn row_to_monitor_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<MonitorSessionRow> {
+    Ok(MonitorSessionRow {
+        session_id: row.get(0)?,
+        started_unix_micros: row.get(1)?,
+        ended_unix_micros: row.get(2)?,
+        source_name: row.get(3)?,
+        initial_cv_language: row.get(4)?,
+        plugin_version: row.get(5)?,
+        end_reason: row.get(6)?,
+    })
+}
+
+fn normalized_level_number(value: Option<i32>) -> Option<i32> {
+    value.filter(|number| (1..=20).contains(number))
 }
 
 pub fn attach_saved_clip(conn: &Connection, save: &RunCatalogSave) -> anyhow::Result<IndexedRunClip> {
@@ -136,9 +283,7 @@ pub fn attach_saved_clip(conn: &Connection, save: &RunCatalogSave) -> anyhow::Re
         retention_reason: save.metadata.retention_reason.clone(),
     };
     let changed = conn.execute(
-        "UPDATE runs SET clip_path = ?1, size_bytes = ?2, modified_unix = ?3,
-             duration_secs = ?4, metadata_json = ?5, retention_state = ?6, retention_reason = ?7
-         WHERE run_id = ?8",
+        ATTACH_SAVED_CLIP,
         params![
             path_to_string(&clip.path),
             clip.size_bytes as i64,
@@ -156,11 +301,10 @@ pub fn attach_saved_clip(conn: &Connection, save: &RunCatalogSave) -> anyhow::Re
 
 pub fn update_metadata(conn: &Connection, run_id: &str, metadata: &ClipMetadata) -> anyhow::Result<()> {
     let changed = conn.execute(
-        "UPDATE runs SET level_number = ?1, difficulty = ?2, status = ?3, time_seconds = ?4,
-             metadata_json = ?5 WHERE run_id = ?6",
+        UPDATE_METADATA,
         params![
-            metadata.level_number,
-            metadata.difficulty,
+            normalized_level_number(metadata.level_number),
+            metadata.difficulty.as_deref().and_then(crate::ge::difficulty_number),
             metadata.status.as_str(),
             metadata.time_seconds,
             serde_json::to_string(metadata)?,
@@ -188,22 +332,12 @@ pub fn update_retention(
 
 pub fn upsert_imported(conn: &Connection, clip: &IndexedRunClip, completed_unix_micros: i64) -> anyhow::Result<()> {
     conn.execute(
-        "INSERT INTO runs (
-            run_id, completed_unix_micros, level_number, difficulty, status, time_seconds,
-            retention_state, retention_reason, clip_path, size_bytes, modified_unix,
-            duration_secs, metadata_json
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-         ON CONFLICT(run_id) DO UPDATE SET
-            clip_path = excluded.clip_path, size_bytes = excluded.size_bytes,
-            modified_unix = excluded.modified_unix, duration_secs = excluded.duration_secs,
-            level_number = excluded.level_number, difficulty = excluded.difficulty,
-            status = excluded.status, time_seconds = excluded.time_seconds,
-            metadata_json = excluded.metadata_json",
+        UPSERT_IMPORTED,
         params![
             clip.run_id,
             completed_unix_micros,
-            clip.metadata.level_number,
-            clip.metadata.difficulty,
+            normalized_level_number(clip.metadata.level_number),
+            clip.metadata.difficulty.as_deref().and_then(crate::ge::difficulty_number),
             clip.metadata.status.as_str(),
             clip.metadata.time_seconds,
             clip.retention_state.as_str(),
@@ -225,12 +359,7 @@ pub fn detach_clip(
     reason: &str,
     metadata: &ClipMetadata,
 ) -> anyhow::Result<()> {
-    conn.execute(
-        "UPDATE runs SET clip_path = NULL, size_bytes = NULL, modified_unix = NULL,
-             duration_secs = NULL, retention_state = ?1, retention_reason = ?2, metadata_json = ?3
-         WHERE run_id = ?4",
-        params![state.as_str(), reason, serde_json::to_string(metadata)?, run_id],
-    )?;
+    conn.execute(DETACH_CLIP, params![state.as_str(), reason, serde_json::to_string(metadata)?, run_id])?;
     Ok(())
 }
 

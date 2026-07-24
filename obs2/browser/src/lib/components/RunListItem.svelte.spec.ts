@@ -59,6 +59,36 @@ describe('RunListItem', () => {
 		expect(screen.getByText('pending')).toHaveClass('text-(--obs-danger)');
 	});
 
+	it('uses a gold time and compact PB status for personal-best runs', () => {
+		render(RunListItem, {
+			clip: { ...clip, retentionReason: 'personalBest' },
+			fileBrowserLabel: 'Show in Finder',
+			open: () => {},
+			rename: () => {},
+			reveal: () => {},
+			remove: () => {}
+		});
+
+		expect(screen.getByText('00:58')).toHaveClass('text-(--obs-gold-hover)');
+		const pb = screen.getByText('PB');
+		expect(pb.querySelector('[aria-hidden="true"]')).toHaveClass('bg-(--obs-gold)');
+		expect(screen.queryByText('Complete')).not.toBeInTheDocument();
+	});
+
+	it('uses the compact Killed label only in list rows', () => {
+		render(RunListItem, {
+			clip: { ...clip, metadata: { ...clip.metadata, status: 'kia' } },
+			fileBrowserLabel: 'Show in Finder',
+			open: () => {},
+			rename: () => {},
+			reveal: () => {},
+			remove: () => {}
+		});
+
+		expect(screen.getByText('Killed')).toBeInTheDocument();
+		expect(screen.queryByText('Killed in Action')).not.toBeInTheDocument();
+	});
+
 	it.each([
 		['Open', 'open'],
 		['Rename', 'rename'],

@@ -25,6 +25,7 @@ describe('AppHeader', () => {
 		expect(monitor).not.toHaveClass('obs-menu-link-active');
 		expect(monitor).not.toHaveAttribute('aria-current');
 		expect(options).toHaveClass('obs-menu-link-active');
+		expect(options).toHaveClass('border');
 		expect(options).toHaveAttribute('aria-current', 'page');
 	});
 

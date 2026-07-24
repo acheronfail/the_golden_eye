@@ -96,7 +96,7 @@
 					<SectionTitle
 						title={group.label}
 						detail={`${group.clips.length} ${group.clips.length === 1 ? 'run' : 'runs'}`}
-						class="mb-0.5"
+						class="sticky top-[var(--runs-filter-sticky-height,0px)] z-10 mb-0.5 bg-(--obs-bg) pt-2"
 					/>
 				{/if}
 				{#each group.clips as clip (clip.runId ?? clip.path)}

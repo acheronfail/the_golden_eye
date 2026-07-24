@@ -596,9 +596,21 @@ fn save_pending_event(pending: &PendingSave, options: &RecordingOptions, now: In
     )
 }
 
+/// Metadata shared by runs finalized during one monitoring session.
+pub struct RecordingSessionContext {
+    source_name: String,
+    rom_language: String,
+    monitor_session_id: Option<String>,
+}
+
+impl RecordingSessionContext {
+    pub fn new(source_name: String, rom_language: String, monitor_session_id: Option<String>) -> Self {
+        Self { source_name, rom_language, monitor_session_id }
+    }
+}
+
 /// Tracks one recording session as it moves through the on-screen states, and
-/// drives the replay-buffer save + trim when a run finishes. Fed one matched
-/// frame at a time via [`RecordingState::on_frame`].
+/// drives replay-buffer saves when runs finish. Fed via [`RecordingState::on_frame`].
 pub struct RecordingState {
     /// When the currently-active run began, or `None` when no run is in
     /// progress. A scheduled save lives in `pending` instead, so it survives the
@@ -635,6 +647,8 @@ pub struct RecordingState {
     rom_language: String,
     /// Index of saved run clips, updated after successful trims.
     run_catalog: Arc<RunCatalog>,
+    /// Durable monitoring session associated with finalized runs from this worker.
+    monitor_session_id: Option<String>,
 }
 
 impl RecordingState {
@@ -643,8 +657,7 @@ impl RecordingState {
         recording_state: RecordingStateStore,
         replay_saves: ReplaySaveStateStore,
         options: RecordingOptions,
-        source_name: String,
-        rom_language: String,
+        session: RecordingSessionContext,
         run_catalog: Arc<RunCatalog>,
     ) -> Self {
         RecordingState {
@@ -658,9 +671,10 @@ impl RecordingState {
             recording_state,
             replay_saves,
             options,
-            source_name,
-            rom_language,
+            source_name: session.source_name,
+            rom_language: session.rom_language,
             run_catalog,
+            monitor_session_id: session.monitor_session_id,
         }
     }
 
@@ -768,7 +782,11 @@ impl RecordingState {
             &self.source_name,
             &pending.rom_language,
         );
-        let (finalized, tracked) = match self.run_catalog.create_finalized_run(pending.completed_at, metadata.clone()) {
+        let (finalized, tracked) = match self.run_catalog.create_finalized_run_in_session(
+            pending.completed_at,
+            metadata.clone(),
+            self.monitor_session_id.as_deref(),
+        ) {
             Ok(run) => (run, true),
             Err(err) => {
                 tracing::warn!(

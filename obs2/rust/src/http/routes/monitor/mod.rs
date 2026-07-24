@@ -1,7 +1,7 @@
 use std::ffi::CString;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use axum::Json;
 use axum::extract::State;
@@ -266,6 +266,19 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let replay_saves = state.replay_saves.clone();
     let monitor_annotations_state = state.clone();
     let run_catalog = state.run_catalog.clone();
+    let monitor_session_id = match run_catalog.create_monitor_session(
+        SystemTime::now(),
+        status_source_name.clone(),
+        Some(DEFAULT_MONITOR_LANGUAGE.to_owned()),
+        env!("GE_PLUGIN_VERSION").to_owned(),
+    ) {
+        Ok(session_id) => Some(session_id),
+        Err(err) => {
+            tracing::warn!("failed to persist monitoring session; continuing without association: {err:#}");
+            None
+        }
+    };
+    let recording_session_id = monitor_session_id.clone();
     let recording_source_name = status_source_name.clone();
     let recording_lang = DEFAULT_MONITOR_LANGUAGE.to_owned();
     let source_fps = unsafe { crate::ffi::ge_obs_video_fps() };
@@ -289,8 +302,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             recording_state,
             replay_saves,
             recording_options,
-            recording_source_name,
-            recording_lang,
+            crate::recording::RecordingSessionContext::new(recording_source_name, recording_lang, recording_session_id),
             run_catalog.clone(),
         );
         loop {
@@ -370,6 +382,11 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             // Unwind the registration and free the producer (which destroys ctx).
             unsafe { crate::ffi::ge_obs_unregister_frame_callback(ge_frame_callback, producer.cast()) };
             drop(unsafe { Box::from_raw(producer) });
+            if let Some(session_id) = monitor_session_id.as_deref()
+                && let Err(error) = state.run_catalog.delete_empty_monitor_session(session_id)
+            {
+                tracing::warn!("failed to remove provisional monitoring session: {error:#}");
+            }
             return Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to spawn monitor thread").into());
         }
     };
@@ -379,6 +396,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         producer: ProducerPtr(producer),
         thread,
         source_name: status_source_name.clone(),
+        session_id: monitor_session_id,
         region: handle_region,
     });
     state.snapshot.set_monitor_running(status_source_name, DEFAULT_MONITOR_LANGUAGE.to_owned());
@@ -390,7 +408,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
 
 #[axum::debug_handler]
 pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoResponse> {
-    if !stop_monitor(&state).await {
+    if !stop_monitor(&state, "userStopped").await {
         return Err((StatusCode::CONFLICT, "no monitor is running").into());
     }
     let _ = state.event_tx.send(AppEvent::MonitorStopped { reason: MonitorStoppedReason::UserStopped });
@@ -401,7 +419,7 @@ pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoRespo
 pub use frame_dump::{FrameDumpHandle, handle_frame_dump};
 /// Stop the active monitor, if any, and clear all retained monitor/recording
 /// state. Returns `false` when no monitor was running.
-pub(crate) async fn stop_monitor(state: &AppState) -> bool {
+pub(crate) async fn stop_monitor(state: &AppState, end_reason: &'static str) -> bool {
     let handle = {
         let mut guard = state.monitor.lock().unwrap_or_else(|p| p.into_inner());
         guard.take()
@@ -410,6 +428,12 @@ pub(crate) async fn stop_monitor(state: &AppState) -> bool {
     let Some(handle) = handle else {
         return false;
     };
+
+    if let Some(session_id) = handle.session_id.as_deref()
+        && let Err(err) = state.run_catalog.end_monitor_session(session_id, Some(SystemTime::now()), end_reason)
+    {
+        tracing::warn!("failed to close monitoring session {session_id}: {err:#}");
+    }
 
     // Tear down on a blocking thread so we don't stall the async runtime while
     // the in-flight match finishes. Joining the thread drops the session,

@@ -11,6 +11,14 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 use super::runs::ClipValidation;
+use super::statistics::{
+    MonitoringSessionDetail,
+    MonitoringSessionSummary,
+    StatisticsData,
+    StatisticsQuery,
+    aggregate,
+    session_detail,
+};
 use super::{meta, runs};
 use crate::models::clip_metadata::{ClipMetadata, RunStatus};
 use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
@@ -112,8 +120,9 @@ impl RunCatalog {
             fs::create_dir_all(parent)
                 .with_context(|| format!("creating run catalog directory {}", parent.display()))?;
         }
-        let conn = Connection::open(&db_path).with_context(|| format!("opening run catalog {}", db_path.display()))?;
-        let reset = initialise_schema(&conn)?;
+        let mut conn =
+            Connection::open(&db_path).with_context(|| format!("opening run catalog {}", db_path.display()))?;
+        let reset = initialise_schema(&mut conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
             needs_seed: !existed || reset,
@@ -167,10 +176,16 @@ impl RunCatalog {
         runs::get_run(&self.lock(), run_id)
     }
 
-    pub fn create_finalized_run(
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn create_finalized_run(&self, completed_at: SystemTime, metadata: ClipMetadata) -> anyhow::Result<RunRecord> {
+        self.create_finalized_run_in_session(completed_at, metadata, None)
+    }
+
+    pub fn create_finalized_run_in_session(
         &self,
         completed_at: SystemTime,
         mut metadata: ClipMetadata,
+        session_id: Option<&str>,
     ) -> anyhow::Result<RunRecord> {
         #[cfg(test)]
         if self.fail_create_finalized.load(Ordering::SeqCst) {
@@ -180,11 +195,14 @@ impl RunCatalog {
         let mut conn = self.lock();
         let is_pb = metadata.status == RunStatus::Complete
             && metadata.time_seconds.is_some()
-            && metadata.level_number.is_some()
-            && metadata.difficulty.as_deref().is_some_and(|value| !value.is_empty())
+            && metadata.level_number.is_some_and(|value| (1..=20).contains(&value))
+            && metadata.difficulty.as_deref().and_then(crate::ge::difficulty_number).is_some()
             && {
-                let best =
-                    runs::best_time(&conn, metadata.level_number.unwrap(), metadata.difficulty.as_deref().unwrap())?;
+                let best = runs::best_time(
+                    &conn,
+                    metadata.level_number.unwrap(),
+                    crate::ge::difficulty_number(metadata.difficulty.as_deref().unwrap()).unwrap(),
+                )?;
                 best.is_none_or(|best| metadata.time_seconds.unwrap() < best)
             };
         metadata.retention_state = if is_pb { "kept" } else { "pending" }.to_owned();
@@ -200,6 +218,9 @@ impl RunCatalog {
         metadata.run_id = run_id.clone();
         let tx = conn.transaction()?;
         runs::insert_finalized(&tx, &run_id, completed_unix_micros, &metadata)?;
+        if let Some(session_id) = session_id {
+            runs::associate_run_session(&tx, &run_id, session_id)?;
+        }
         tx.commit()?;
         Ok(RunRecord {
             run_id,
@@ -428,6 +449,86 @@ impl RunCatalog {
         runs::clear_youtube_history(&self.lock(), Path::new(display_path))
     }
 
+    pub fn statistics(&self, query: StatisticsQuery) -> anyhow::Result<StatisticsData> {
+        let conn = self.lock();
+        let facts = runs::statistic_facts(&conn, query.from, query.to)?;
+        let combined = runs::combined_best_rows(&conn)?;
+        let total_session_seconds =
+            runs::total_monitor_session_micros(&conn, query.from, query.to)? as f64 / 1_000_000.0;
+        Ok(aggregate(facts, combined, total_session_seconds, query))
+    }
+
+    pub fn create_monitor_session(
+        &self,
+        started_at: SystemTime,
+        source_name: String,
+        initial_cv_language: Option<String>,
+        plugin_version: String,
+    ) -> anyhow::Result<String> {
+        let started_unix_micros = unix_micros(started_at);
+        let conn = self.lock();
+        let base = format!("session-{started_unix_micros}");
+        let mut session_id = base.clone();
+        let mut suffix = 2;
+        while runs::monitor_session(&conn, &session_id)?.is_some() {
+            session_id = format!("{base}-{suffix}");
+            suffix += 1;
+        }
+        runs::insert_monitor_session(
+            &conn,
+            &runs::MonitorSessionRow {
+                session_id: session_id.clone(),
+                started_unix_micros,
+                ended_unix_micros: None,
+                source_name,
+                initial_cv_language,
+                plugin_version,
+                end_reason: None,
+            },
+        )?;
+        Ok(session_id)
+    }
+
+    pub fn end_monitor_session(
+        &self,
+        session_id: &str,
+        ended_at: Option<SystemTime>,
+        reason: &str,
+    ) -> anyhow::Result<()> {
+        runs::end_monitor_session(&self.lock(), session_id, ended_at.map(unix_micros), reason)
+    }
+
+    pub fn delete_empty_monitor_session(&self, session_id: &str) -> anyhow::Result<()> {
+        runs::delete_empty_monitor_session(&self.lock(), session_id)
+    }
+
+    pub fn monitoring_sessions(&self, from: Option<i64>, to: i64) -> anyhow::Result<Vec<MonitoringSessionSummary>> {
+        let conn = self.lock();
+        let mut result = Vec::new();
+        for session in runs::monitor_sessions(&conn)? {
+            let facts = runs::monitor_session_facts(&conn, &session.session_id)?;
+            let lower = from.unwrap_or(i64::MIN);
+            let effective_end = session.ended_unix_micros.or_else(|| {
+                (session.end_reason.as_deref() == Some("interrupted"))
+                    .then(|| facts.last().map_or(session.started_unix_micros, |fact| fact.completed_unix_micros))
+            });
+            let overlaps = session.started_unix_micros < to && effective_end.is_none_or(|ended| ended > lower);
+            if overlaps {
+                result.push(session_detail(session, facts).summary);
+            }
+        }
+        Ok(result)
+    }
+
+    pub fn monitoring_session(&self, session_id: &str) -> anyhow::Result<Option<MonitoringSessionDetail>> {
+        let conn = self.lock();
+        let Some(session) = runs::monitor_session(&conn, session_id)? else {
+            return Ok(None);
+        };
+        let facts = runs::monitor_session_facts(&conn, session_id)?;
+        Ok(Some(session_detail(session, facts)))
+    }
+
     fn prepare_imported_metadata(&self, path: &Path, mut metadata: ClipMetadata) -> anyhow::Result<ClipMetadata> {
         metadata.retention_state = "kept".to_owned();
         metadata.retention_reason = Some("imported".to_owned());
@@ -463,15 +564,39 @@ impl RunCatalog {
     }
 }
 
-fn initialise_schema(conn: &Connection) -> anyhow::Result<bool> {
-    let reset = meta::needs_reset(conn)?;
-    if reset {
-        runs::drop_tables(conn)?;
-        meta::drop_tables(conn)?;
-    }
+fn initialise_schema(conn: &mut Connection) -> anyhow::Result<bool> {
     meta::initialise(conn)?;
-    runs::initialise(conn)?;
-    Ok(reset)
+    match meta::stored_schema_version(conn)? {
+        None => {
+            runs::initialise(conn)?;
+            runs::initialise_sessions(conn)?;
+            meta::set_schema_version(conn)?;
+            Ok(true)
+        }
+        Some(1) => {
+            runs::drop_tables(conn)?;
+            meta::drop_tables(conn)?;
+            meta::initialise(conn)?;
+            runs::initialise(conn)?;
+            runs::initialise_sessions(conn)?;
+            meta::set_schema_version(conn)?;
+            Ok(true)
+        }
+        Some(2) => {
+            runs::migrate_v2_to_v3(conn)?;
+            Ok(false)
+        }
+        Some(meta::SCHEMA_VERSION) => {
+            runs::initialise(conn)?;
+            runs::initialise_sessions(conn)?;
+            runs::reconcile_monitor_sessions(conn)?;
+            Ok(false)
+        }
+        Some(version) => anyhow::bail!(
+            "run catalog schema {version} is not supported by this plugin (expected {})",
+            meta::SCHEMA_VERSION
+        ),
+    }
 }
 
 fn unix_micros(time: SystemTime) -> i64 {
