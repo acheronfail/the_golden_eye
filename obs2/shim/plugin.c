@@ -195,7 +195,9 @@ bool obs_module_load(void) {
   if (!resolve_canonical_core_path(g_canonical_path, sizeof(g_canonical_path))) {
     return false;
   }
-  if (!bundled_path(GE_STAGED_UPDATE_DIR_NAME, g_staged_dir, sizeof(g_staged_dir))) {
+  char core_dir[PATH_MAX];
+  if (!copy_dirname(g_canonical_path, core_dir, sizeof(core_dir)) ||
+      !join_path(g_staged_dir, sizeof(g_staged_dir), core_dir, GE_STAGED_UPDATE_DIR_NAME)) {
     return false;
   }
 
@@ -206,7 +208,7 @@ bool obs_module_load(void) {
   }
 
   char err[256];
-  if (!ge_core_open(g_canonical_path, g_canonical_path, obs_current_module(), /*is_reload=*/false,
+  if (!ge_core_open(g_canonical_path, g_canonical_path, g_staged_dir, obs_current_module(), /*is_reload=*/false,
                     ge_reload_worker_request, &g_handle, err, sizeof(err))) {
     GE_LOG(LOG_ERROR, "core failed to load; plugin disabled: %s", err);
     ge_reload_worker_stop();

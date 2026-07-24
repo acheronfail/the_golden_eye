@@ -38,17 +38,47 @@ struct MockState {
     asset_delay: Duration,
 }
 
-fn build_zip(core_leaf: &str, contents: &[u8]) -> Vec<u8> {
+fn packaged_core_leaf() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "golden_core.dll"
+    } else if cfg!(target_os = "macos") {
+        "libgolden_core.dylib"
+    } else {
+        "libgolden_core.so"
+    }
+}
+
+fn packaged_core_path() -> String {
+    if cfg!(target_os = "macos") {
+        format!("the_golden_eye.plugin/Contents/MacOS/{}", packaged_core_leaf())
+    } else {
+        format!("the_golden_eye/bin/64bit/{}", packaged_core_leaf())
+    }
+}
+
+fn packaged_data_path(relative: &str) -> String {
+    if cfg!(target_os = "macos") {
+        format!("the_golden_eye.plugin/Contents/Resources/{relative}")
+    } else {
+        format!("the_golden_eye/data/{relative}")
+    }
+}
+
+fn build_zip(contents: &[u8]) -> Vec<u8> {
     let mut buf = Vec::new();
     {
         let mut writer = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
         let options: zip::write::FileOptions<()> = zip::write::FileOptions::default();
-        writer.start_file(core_leaf, options).unwrap();
+        writer.start_file(packaged_core_path(), options).unwrap();
         writer.write_all(contents).unwrap();
-        // A real release package also bundles data directories; include an
-        // empty one to confirm staging doesn't choke when they're present
-        // but irrelevant to this test's assertions.
-        writer.add_directory("cv_templates", options).unwrap();
+        writer.start_file(packaged_data_path("cv_templates/template.png"), options).unwrap();
+        writer.write_all(b"template").unwrap();
+        writer.start_file(packaged_data_path("locale/en-US.ini"), options).unwrap();
+        writer.write_all(b"locale").unwrap();
+        writer.start_file(packaged_data_path("new-runtime-dir/nested/config.json"), options).unwrap();
+        writer.write_all(b"future data").unwrap();
+        writer.start_file(packaged_data_path("runtime-index.json"), options).unwrap();
+        writer.write_all(b"top-level data").unwrap();
         writer.finish().unwrap();
     }
     buf
@@ -98,7 +128,7 @@ async fn start_mock_github(
 }
 
 async fn start_mock_github_with_delays(
-    core_leaf: &str,
+    _core_leaf: &str,
     correct_checksum: bool,
     release_delay: Duration,
     asset_delay: Duration,
@@ -107,7 +137,7 @@ async fn start_mock_github_with_delays(
     let addr = listener.local_addr().unwrap();
     let base_url = format!("http://{addr}");
 
-    let zip_bytes = build_zip(core_leaf, CORE_MARKER_CONTENT);
+    let zip_bytes = build_zip(CORE_MARKER_CONTENT);
     let real_hash = sha256_hex(&zip_bytes);
     let hash = if correct_checksum { real_hash } else { "0".repeat(64) };
     let mut checksums_text = String::new();
@@ -175,12 +205,12 @@ async fn sequenced_checksums_txt(State(state): State<Arc<SequencedMockState>>) -
     state.checksums_text.clone()
 }
 
-async fn start_sequenced_mock_github(core_leaf: &str) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
+async fn start_sequenced_mock_github(_core_leaf: &str) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let base_url = format!("http://{addr}");
 
-    let zip_bytes = build_zip(core_leaf, CORE_MARKER_CONTENT);
+    let zip_bytes = build_zip(CORE_MARKER_CONTENT);
     let hash = sha256_hex(&zip_bytes);
     let mut checksums_text = String::new();
     for suffix in PLATFORM_ARCH_SUFFIXES {
@@ -279,6 +309,10 @@ async fn wait_for_staged_core(core_path: &std::path::Path) -> Vec<u8> {
     }
 }
 
+fn staged_data_path(core_path: &std::path::Path, relative: &str) -> std::path::PathBuf {
+    core_path.parent().unwrap().join(".ge_update_staged/module-data").join(relative)
+}
+
 /// `trigger_apply` (update_apply.rs) deliberately fires `ge_core_trigger_reload`
 /// from a detached `std::thread` rather than the request-handling task -- see
 /// its doc comment -- so `/api/v1/updates/apply` returning 202 only means the
@@ -350,6 +384,11 @@ async fn valid_update_is_downloaded_verified_staged_and_can_be_applied() {
 
     let staged_bytes = wait_for_staged_core(&core_path).await;
     assert_eq!(staged_bytes, CORE_MARKER_CONTENT);
+    assert_eq!(
+        tokio::fs::read(staged_data_path(&core_path, "new-runtime-dir/nested/config.json")).await.unwrap(),
+        b"future data"
+    );
+    assert_eq!(tokio::fs::read(staged_data_path(&core_path, "runtime-index.json")).await.unwrap(), b"top-level data");
 
     // Nothing is monitoring/recording, and an update is staged: applying now
     // should succeed and reach the shim's (faked) reload trigger.

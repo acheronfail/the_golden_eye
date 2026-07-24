@@ -46,4 +46,19 @@ static inline void ge_fixture_record_canonical(const char *canonical_path) {
   fclose(f);
 }
 
+static inline void ge_fixture_record_staged(const char *staged_dir) {
+  const char *out = getenv("GE_FIXTURE_STAGED_OUT");
+  if (!out || !*out) {
+    return;
+  }
+  FILE *f = fopen(out, "wb");
+  if (!f) {
+    return;
+  }
+  if (staged_dir) {
+    fputs(staged_dir, f);
+  }
+  fclose(f);
+}
+
 #endif /* GE_FIXTURE_COMMON_H */

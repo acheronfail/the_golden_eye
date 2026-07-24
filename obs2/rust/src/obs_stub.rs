@@ -63,11 +63,6 @@ pub extern "C" fn ge_obs_module_data_path(_buffer: *mut c_char, _buffer_size: us
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ge_obs_module_binary_path(_buffer: *mut c_char, _buffer_size: usize) -> bool {
-    false
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn ge_obs_video_fps() -> f64 {
     60.0
 }

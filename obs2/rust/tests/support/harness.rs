@@ -91,7 +91,6 @@ impl Harness {
 
         let obs = TestObs::install(Config {
             data_path: root.join("obs2"),
-            binary_path: core_path.clone(),
             replay_output_directory: replay_dir.clone(),
             replay_fixture: fixture,
             fps: 59.94,
@@ -104,10 +103,11 @@ impl Harness {
             sources: vec![(SOURCE_NAME.into(), "test_input".into())],
         });
 
-        // Normally set by core.c's ge_core_load; the harness calls Rust directly,
-        // so each test must provide its isolated canonical core path itself.
+        // Normally set by core.c's ge_core_load; the harness calls Rust directly.
         let core_path_c = std::ffi::CString::new(core_path.to_string_lossy().into_owned()).unwrap();
-        unsafe { ge_rust::ge_rust_set_core_path(core_path_c.as_ptr()) };
+        let staged_dir = temp.join(".ge_update_staged");
+        let staged_dir_c = std::ffi::CString::new(staged_dir.to_string_lossy().into_owned()).unwrap();
+        unsafe { ge_rust::ge_rust_set_update_paths(core_path_c.as_ptr(), staged_dir_c.as_ptr()) };
 
         assert!(ge_rust::ge_rust_start(), "server failed to start");
         let client = reqwest::Client::new();

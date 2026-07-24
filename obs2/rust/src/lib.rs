@@ -64,27 +64,15 @@ fn existing_template_dir(candidate: impl AsRef<Path>) -> Option<PathBuf> {
     Some(candidate.canonicalize().unwrap_or_else(|_| candidate.to_path_buf()))
 }
 
-fn resolve_cv_template_dir(data_path: Option<&Path>, binary_path: Option<&Path>) -> Option<PathBuf> {
-    if let Some(path) = data_path.and_then(|path| existing_template_dir(path.join("cv_templates"))) {
-        return Some(path);
-    }
-
-    let binary_dir = binary_path.and_then(Path::parent)?;
-    ["../../data/cv_templates", "../Resources/cv_templates", "../cv_templates", "cv_templates"]
-        .into_iter()
-        .find_map(|relative| existing_template_dir(binary_dir.join(relative)))
+fn resolve_cv_template_dir(data_path: Option<&Path>) -> Option<PathBuf> {
+    data_path.and_then(|path| existing_template_dir(path.join("cv_templates")))
 }
 
 fn configure_cv_template_dir() {
     let data_path = read_obs_path(ffi::ge_obs_module_data_path);
-    let binary_path = read_obs_path(ffi::ge_obs_module_binary_path);
 
-    let Some(template_dir) = resolve_cv_template_dir(data_path.as_deref(), binary_path.as_deref()) else {
-        tracing::warn!(
-            data_path = ?data_path,
-            binary_path = ?binary_path,
-            "OBS did not resolve the bundled CV templates directory"
-        );
+    let Some(template_dir) = resolve_cv_template_dir(data_path.as_deref()) else {
+        tracing::warn!(data_path = ?data_path, "OBS did not resolve the bundled CV templates directory");
         return;
     };
 
@@ -137,28 +125,39 @@ struct ServerHandle {
 
 /// Global handle to the running server. `None` when the server is stopped.
 static SERVER: Mutex<Option<ServerHandle>> = Mutex::new(None);
+static PENDING_RUNTIME_DATA: Mutex<Option<update_apply::RuntimeDataTransaction>> = Mutex::new(None);
 
-/// The shim's canonical on-disk path for *this* core, set via `ge_rust_set_core_path`.
-/// NOT the dlopen'd temp copy nor the shim's `ge_obs_module_binary_path`; `update_apply`
-/// needs it to stage updates. A `Mutex` (not `OnceLock`) so each load can reset it.
-static CORE_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
-
-pub(crate) fn core_path() -> Option<PathBuf> {
-    CORE_PATH.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+#[derive(Clone)]
+struct UpdatePaths {
+    core: PathBuf,
+    staged_dir: PathBuf,
 }
 
-/// Called by the C core (`ge_core_load`) with the shim's canonical path for this core.
+/// Durable paths resolved by the resident shim. A Mutex lets every core load
+/// replace them, including a rollback after a failed update.
+static UPDATE_PATHS: Mutex<Option<UpdatePaths>> = Mutex::new(None);
+
+pub(crate) fn core_path() -> Option<PathBuf> {
+    UPDATE_PATHS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_ref().map(|paths| paths.core.clone())
+}
+
+pub(crate) fn staged_update_dir() -> Option<PathBuf> {
+    UPDATE_PATHS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_ref().map(|paths| paths.staged_dir.clone())
+}
+
+/// Called by the C core with paths resolved by the resident shim.
 /// # Safety
-/// `path` must be null or a valid NUL-terminated C string for this call; copied at once.
+/// Both pointers must reference valid NUL-terminated strings for this call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ge_rust_set_core_path(path: *const c_char) {
-    if path.is_null() {
+pub unsafe extern "C" fn ge_rust_set_update_paths(core_path: *const c_char, staged_dir: *const c_char) {
+    if core_path.is_null() || staged_dir.is_null() {
         return;
     }
-    // SAFETY: the caller guarantees a valid NUL-terminated string for the
-    // duration of this call; copied into an owned PathBuf immediately.
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
-    *CORE_PATH.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(PathBuf::from(path));
+    // SAFETY: the caller keeps both strings valid for this call.
+    let core = unsafe { CStr::from_ptr(core_path) }.to_string_lossy().into_owned();
+    let staged_dir = unsafe { CStr::from_ptr(staged_dir) }.to_string_lossy().into_owned();
+    *UPDATE_PATHS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+        Some(UpdatePaths { core: PathBuf::from(core), staged_dir: PathBuf::from(staged_dir) });
 }
 
 /// Whether *this* core load followed a successful update apply, set by
@@ -198,6 +197,28 @@ mod obs_stub;
 pub extern "C" fn ge_rust_start() -> bool {
     logging::init();
 
+    let mut guard = match SERVER.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if guard.is_some() {
+        tracing::warn!("ge_rust_start called while server is already running");
+        return true;
+    }
+
+    let was_reloaded = WAS_RELOADED.load(Ordering::Acquire);
+    let data_transaction = if was_reloaded {
+        match update_apply::install_staged_runtime_data() {
+            Ok(transaction) => Some(transaction),
+            Err(error) => {
+                tracing::error!("failed to install staged runtime data: {error:#}");
+                return false;
+            }
+        }
+    } else {
+        None
+    };
+
     configure_cv_template_dir();
 
     let settings = SettingsStore::load_default();
@@ -210,15 +231,6 @@ pub extern "C" fn ge_rust_start() -> bool {
         }
     };
     let catalog_needs_seed = catalog_was_missing || run_catalog.needs_seed();
-    let mut guard = match SERVER.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    if guard.is_some() {
-        tracing::warn!("ge_rust_start called while server is already running");
-        return true;
-    }
 
     let runtime = match Runtime::new() {
         Ok(runtime) => runtime,
@@ -243,7 +255,6 @@ pub extern "C" fn ge_rust_start() -> bool {
     };
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let was_reloaded = WAS_RELOADED.load(Ordering::Acquire);
 
     let snapshot = SharedStateStore::new(AppSnapshot {
         monitor: MonitorSnapshot { enabled: false, source_name: None, cv_language: None },
@@ -282,6 +293,15 @@ pub extern "C" fn ge_rust_start() -> bool {
         reloaded_at: was_reloaded.then(std::time::Instant::now),
     });
 
+    if let Some(transaction) = data_transaction {
+        let mut pending = PENDING_RUNTIME_DATA.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if pending.is_some() {
+            tracing::error!("a runtime data transaction is already pending");
+            return false;
+        }
+        *pending = Some(transaction);
+    }
+
     // Spawn the server onto the runtime. `spawn` returns immediately so the
     // C caller is never blocked; the runtime drives the future on its own
     // worker threads.
@@ -301,6 +321,17 @@ pub extern "C" fn ge_rust_start() -> bool {
     let runtime_handle = runtime.handle().clone();
     *guard = Some(ServerHandle { runtime, runtime_handle, shutdown: shutdown_tx, state });
     true
+}
+
+/// Commits runtime data after the shim has durably replaced the canonical core.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_rust_commit_update() {
+    let transaction = PENDING_RUNTIME_DATA.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+    if let Some(transaction) = transaction {
+        transaction.commit();
+    } else {
+        tracing::warn!("ge_rust_commit_update called without a pending runtime data transaction");
+    }
 }
 
 async fn watch_settings_file(state: AppState) {
@@ -358,6 +389,10 @@ pub extern "C" fn ge_rust_stop() {
 
     // Block until all tasks finish and the runtime is fully torn down.
     handle.runtime.shutdown_timeout(Duration::from_secs(30));
+
+    // A normal unload after a committed update has nothing pending. Closing a
+    // newly loaded core before commit drops this transaction and restores data.
+    drop(PENDING_RUNTIME_DATA.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take());
 
     tracing::info!("server stopped");
 }

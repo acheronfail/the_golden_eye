@@ -349,6 +349,7 @@ obs-packaged: make-package
 # runs OBS with the plugin (release)
 [linux]
 obs: make-release-flatpak
+    just _flatpak-build stage-obs-run-data
     just _run-obs-flatpak
 
 # launches the Flatpak OBS against the plugin already built into obs2/build-flatpak
@@ -362,7 +363,7 @@ _run-obs-flatpak:
       --talk-name=org.freedesktop.portal.Desktop \
       --env=LD_LIBRARY_PATH="/app/lib" \
       --env=OBS_PLUGINS_PATH="$(pwd)/%module%/bin/64bit" \
-      --env=OBS_PLUGINS_DATA_PATH="$(pwd)/%module%/data" \
+      --env=OBS_PLUGINS_DATA_PATH="$(pwd)/obs-run-data" \
       {{ if env_var_or_default("RUST_LOG", "") != "" { "--env=RUST_LOG=" + env_var("RUST_LOG") } else { "" } }} \
       {{ if env_var_or_default("GE_UPDATE_CHECK_URL", "") != "" { "--env=GE_UPDATE_CHECK_URL=" + env_var("GE_UPDATE_CHECK_URL") } else { "" } }} \
       com.obsproject.Studio
@@ -388,8 +389,9 @@ obs: make-release
     #!/usr/bin/env bash
     set -euo pipefail
     obs_dir="C:/Program Files/obs-studio/bin/64bit"
+    cmake --build obs2/build --config Release --target stage-obs-run-data
     export OBS_PLUGINS_PATH="$(cygpath -w "$(pwd)/obs2/build/Release")"
-    export OBS_PLUGINS_DATA_PATH="$(cygpath -w "$(pwd)/obs2/build")"
+    export OBS_PLUGINS_DATA_PATH="$(cygpath -w "$(pwd)/obs2/build/obs-run-data")"
     cd "$(cygpath -u "${obs_dir}")"
     ./obs64.exe
 
@@ -405,7 +407,7 @@ make-release-flatpak:
 _dev-build:
     just configure-dev
     cmake --build obs2/build --target rust_build
-    just _flatpak-build all OFF Debug ON
+    just _flatpak-build stage-obs-run-data OFF Debug ON
 
 # rebuilds the host Rust staticlib, then relinks the core inside the Flatpak SDK
 # so dev.py can stage the fresh core for the auto-update hot-reload path.

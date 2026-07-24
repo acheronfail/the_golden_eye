@@ -12,6 +12,15 @@
 
 static int g_failures = 0;
 
+static const char *path_leaf(const char *path) {
+  const char *slash = strrchr(path, '/');
+  const char *backslash = strrchr(path, '\\');
+  if (!slash || (backslash && backslash > slash)) {
+    slash = backslash;
+  }
+  return slash ? slash + 1 : path;
+}
+
 // The three entry points OBS itself would dlsym and call.
 extern bool obs_module_load(void);
 extern void obs_module_post_load(void);
@@ -65,11 +74,21 @@ int main(int argc, char **argv) {
   obs_module_unload(); // must not crash or hang even though load never succeeded
 
   // --- Scenario 4: the happy path -- a single registered module and a
-  // --- valid core. load/post_load/unload should reach the core in order.
+  // --- valid core at an unrelated path. Staging must follow that core.
   fake_obs_reset();
   self = fake_obs_register_module("the_golden_eye.so", "/path/a/the_golden_eye.so");
   obs_module_set_pointer(self);
-  test_set_env("GE_CORE_LIB", fixture_v1);
+  char custom_core_dir[PATH_MAX];
+  CHECK(test_make_dirs(work_dir, "custom core location with spaces", custom_core_dir, sizeof(custom_core_dir)),
+        "failed to create custom core directory");
+  char custom_core[PATH_MAX];
+  test_join(custom_core, sizeof(custom_core), custom_core_dir, path_leaf(fixture_v1));
+  CHECK(test_copy_file(fixture_v1, custom_core), "failed to copy fixture to custom core path");
+  test_set_env("GE_CORE_LIB", custom_core);
+
+  char staged_out[PATH_MAX];
+  test_join(staged_out, sizeof(staged_out), work_dir, "plugin_staged_out.txt");
+  test_set_env("GE_FIXTURE_STAGED_OUT", staged_out);
 
   remove(log_path);
   CHECK(obs_module_load(), "obs_module_load should succeed with a single registered module and a valid core");
@@ -80,6 +99,16 @@ int main(int argc, char **argv) {
   CHECK(log != NULL && strcmp(log, "load gen=1\npost_load gen=1\nunload gen=1\n") == 0, "unexpected log sequence: %s",
         log ? log : "(missing)");
   free(log);
+
+  char expected_staged[PATH_MAX];
+  CHECK((size_t)snprintf(expected_staged, sizeof(expected_staged), "%s%c%s", custom_core_dir, GE_PATH_SEP,
+                         ".ge_update_staged") < sizeof(expected_staged),
+        "expected staging path is too long");
+  char *reported_staged = test_read_file(staged_out);
+  CHECK(reported_staged && strcmp(reported_staged, expected_staged) == 0,
+        "core should receive staging beside GE_CORE_LIB: expected '%s', got '%s'", expected_staged,
+        reported_staged ? reported_staged : "(missing)");
+  free(reported_staged);
 
   if (g_failures == 0) {
     printf("all shim plugin tests passed\n");

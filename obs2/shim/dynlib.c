@@ -30,7 +30,16 @@ const char *ge_dynlib_error(void) {
 
 ge_dynlib_handle ge_dynlib_open(const char *path) {
 #ifdef _WIN32
-  return LoadLibraryA(path);
+  DWORD previous_mode;
+  const DWORD quiet_mode = SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX;
+  BOOL restore_mode = SetThreadErrorMode(quiet_mode, &previous_mode);
+  HMODULE module = LoadLibraryA(path);
+  DWORD load_error = GetLastError();
+  if (restore_mode) {
+    SetThreadErrorMode(previous_mode, NULL);
+  }
+  SetLastError(load_error);
+  return module;
 #else
   dlerror();
   return dlopen(path, RTLD_NOW | RTLD_LOCAL);

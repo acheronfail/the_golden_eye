@@ -137,6 +137,22 @@ endif()
 
 add_dependencies(stage-plugin ${PLUGIN_NAME})
 
+if(NOT APPLE)
+  set(GE_OBS_RUN_DATA_ROOT "${CMAKE_CURRENT_BINARY_DIR}/obs-run-data")
+  set(GE_OBS_RUN_MODULE_DATA_DIR "${GE_OBS_RUN_DATA_ROOT}/${PLUGIN_NAME}")
+
+  add_custom_target(stage-obs-run-data
+      COMMAND ${CMAKE_COMMAND} -E rm -rf "${GE_OBS_RUN_MODULE_DATA_DIR}"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${GE_OBS_RUN_MODULE_DATA_DIR}"
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+              "${GE_PACKAGE_DATA_DIR}"
+              "${GE_OBS_RUN_MODULE_DATA_DIR}"
+      COMMENT "Staging OBS run data for ${PLUGIN_NAME}"
+      VERBATIM
+  )
+  add_dependencies(stage-obs-run-data stage-plugin)
+endif()
+
 add_custom_target(package-plugin
     COMMAND ${CMAKE_COMMAND} -E make_directory "${GE_PACKAGE_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND}
@@ -150,7 +166,11 @@ add_custom_target(package-plugin
     COMMENT "Packaging ${GE_PACKAGE_ZIP_BASENAME}"
     VERBATIM
 )
-add_dependencies(package-plugin stage-plugin)
+if(APPLE)
+  add_dependencies(package-plugin stage-plugin)
+else()
+  add_dependencies(package-plugin stage-obs-run-data)
+endif()
 
 add_custom_target(install-plugin
     COMMAND ${CMAKE_COMMAND} -E make_directory "${GE_PLUGIN_INSTALL_ROOT}"

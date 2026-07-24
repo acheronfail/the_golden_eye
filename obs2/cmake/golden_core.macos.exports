@@ -1,3 +1,4 @@
 _ge_core_load
 _ge_core_post_load
+_ge_core_commit_update
 _ge_core_unload
