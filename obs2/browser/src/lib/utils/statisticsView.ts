@@ -49,8 +49,7 @@ function statusSeries(status: RunStatus, points: ChartSeries['points']): ChartSe
 		color: complete ? 'var(--obs-success)' : 'var(--obs-danger)',
 		surfaceColor: complete ? 'var(--obs-success-surface)' : 'var(--obs-danger-surface)',
 		pattern: status === 'abort' ? 'diagonal' : status === 'kia' ? 'dots' : 'plain',
-		shape:
-			status === 'complete' ? 'circle' : status === 'failed' ? 'square' : status === 'abort' ? 'diamond' : 'triangle'
+		shape: status === 'abort' ? 'square' : status === 'kia' ? 'triangle' : 'circle'
 	};
 }
 
@@ -107,11 +106,11 @@ export function overallAttemptsData(buckets: BucketCounts[]): ChartData {
 	};
 }
 
-export function runTimeData(response: StatisticsResponse, statuses: RunStatus[]): ChartData {
+export function runTimeData(response: StatisticsResponse): ChartData {
 	const cohort = response.selectedCohort;
 	if (!cohort) return { kind: 'line', xType: 'time', series: [] };
-	const series = statuses.map((status) =>
-		statusSeries(
+	const series: ChartSeries[] = ALL_STATUSES.map((status) => ({
+		...statusSeries(
 			status,
 			cohort.runTimes
 				.filter((run) => run.status === status)
@@ -121,34 +120,59 @@ export function runTimeData(response: StatisticsResponse, statuses: RunStatus[])
 					label: new Date(run.completedAt).toLocaleString(),
 					detail: `${levelLabel(cohort.levelNumber)} · ${difficultyLabel(cohort.difficultyNumber)}`
 				}))
-		)
-	);
+		),
+		lineStyle: 'none' as const
+	}));
 	let best: number | null = null;
 	const bestPoints = cohort.runTimes
 		.filter((run) => run.status === 'complete')
-		.map((run) => {
-			best = best == null ? run.timeSeconds : Math.min(best, run.timeSeconds);
-			return { x: new Date(run.completedAt).getTime(), y: best, label: 'Completed running best' };
+		.flatMap((run) => {
+			if (best != null && run.timeSeconds >= best) return [];
+			best = run.timeSeconds;
+			return [
+				{
+					x: new Date(run.completedAt).getTime(),
+					y: best,
+					label: new Date(run.completedAt).toLocaleString(),
+					detail: `${levelLabel(cohort.levelNumber)} · ${difficultyLabel(cohort.difficultyNumber)}`
+				}
+			];
 		});
 	if (bestPoints.length > 0) {
-		series.push({
+		series.unshift({
 			id: 'running-best',
-			label: 'Completed running best',
+			label: 'Personal best',
 			points: bestPoints,
 			color: 'var(--obs-gold-hover)',
 			surfaceColor: 'var(--obs-gold-surface)',
 			pattern: 'plain',
-			shape: 'circle'
+			shape: 'circle',
+			lineStyle: 'step'
 		});
 	}
-	return { kind: 'line', xType: 'time', series };
+	return {
+		kind: 'line',
+		xType: 'time',
+		series,
+		referenceLines:
+			best == null
+				? []
+				: [
+						{
+							id: 'personal-best',
+							value: best,
+							color: 'var(--obs-gold-hover)',
+							seriesId: 'running-best'
+						}
+					]
+	};
 }
 
 export function outcomeData(buckets: BucketCounts[], statuses: RunStatus[], measure: 'share' | 'count'): ChartData {
 	return {
 		kind: 'groupedBar',
 		xType: 'time',
-		series: statuses.map((status) =>
+		series: ALL_STATUSES.map((status) =>
 			statusSeries(
 				status,
 				buckets.map((bucket) => {

@@ -70,7 +70,7 @@ describe('RunListItem', () => {
 		});
 
 		expect(screen.getByText('00:58')).toHaveClass('text-(--obs-gold-hover)');
-		const pb = screen.getByText('pb');
+		const pb = screen.getByText('PB');
 		expect(pb.querySelector('[aria-hidden="true"]')).toHaveClass('bg-(--obs-gold)');
 		expect(screen.queryByText('Complete')).not.toBeInTheDocument();
 	});

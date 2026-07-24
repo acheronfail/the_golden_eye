@@ -320,19 +320,7 @@ pub struct MonitoringSessionSummary {
 pub struct MonitoringSessionDetail {
     #[serde(flatten)]
     pub summary: MonitoringSessionSummary,
-    pub levels: Vec<SessionLevel>,
     pub attempts: Vec<SessionAttempt>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionLevel {
-    pub level_number: Option<i32>,
-    pub difficulty_number: Option<i32>,
-    pub counts: StatusCounts,
-    pub timed_runs: usize,
-    pub average_time_seconds: Option<f64>,
-    pub best_completed_time_seconds: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -349,22 +337,12 @@ pub struct SessionAttempt {
 
 pub fn session_detail(session: MonitorSessionRow, facts: Vec<RunStatisticFact>) -> MonitoringSessionDetail {
     let mut counts = StatusCounts::default();
-    let mut levels = BTreeMap::<(Option<i32>, Option<i32>), (StatusCounts, i64, usize, Option<i32>)>::new();
     let mut distinct = BTreeMap::<Option<i32>, ()>::new();
     let attempts = facts
         .iter()
         .map(|fact| {
             counts.add(fact.status);
             distinct.insert(fact.level_number, ());
-            let entry = levels.entry((fact.level_number, fact.difficulty_number)).or_default();
-            entry.0.add(fact.status);
-            if let Some(time) = fact.time_seconds {
-                entry.1 += i64::from(time);
-                entry.2 += 1;
-                if fact.status == RunStatus::Complete {
-                    entry.3 = Some(entry.3.map_or(time, |best| best.min(time)));
-                }
-            }
             SessionAttempt {
                 run_id: fact.run_id.clone(),
                 completed_at: format_micros(fact.completed_unix_micros),
@@ -374,17 +352,6 @@ pub fn session_detail(session: MonitorSessionRow, facts: Vec<RunStatisticFact>) 
                 status: fact.status,
                 time_seconds: fact.time_seconds,
             }
-        })
-        .collect();
-    let levels = levels
-        .into_iter()
-        .map(|((level_number, difficulty_number), (counts, sum, timed_runs, best))| SessionLevel {
-            level_number,
-            difficulty_number,
-            counts,
-            timed_runs,
-            average_time_seconds: (timed_runs > 0).then_some(sum as f64 / timed_runs as f64),
-            best_completed_time_seconds: best,
         })
         .collect();
     MonitoringSessionDetail {
@@ -399,7 +366,6 @@ pub fn session_detail(session: MonitorSessionRow, facts: Vec<RunStatisticFact>) 
             counts,
             distinct_levels: distinct.keys().filter(|level| level.is_some()).count(),
         },
-        levels,
         attempts,
     }
 }

@@ -501,14 +501,6 @@ export interface MonitoringSessionSummary {
 }
 
 export interface MonitoringSessionDetail extends MonitoringSessionSummary {
-	levels: Array<{
-		levelNumber: number | null;
-		difficultyNumber: DifficultyNumber | null;
-		counts: StatusCounts;
-		timedRuns: number;
-		averageTimeSeconds: number | null;
-		bestCompletedTimeSeconds: number | null;
-	}>;
 	attempts: Array<{
 		runId: string;
 		completedAt: string;

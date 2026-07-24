@@ -14,7 +14,6 @@
 	import SessionStatistics from './SessionStatistics.svelte';
 	import StatisticsSummaryPanel from './StatisticsSummaryPanel.svelte';
 	import StatisticsFilters from './StatisticsFilters.svelte';
-	import StatusSeriesPicker from './StatusSeriesPicker.svelte';
 	import {
 		ALL_STATUSES,
 		attemptsByLevelData,
@@ -24,7 +23,12 @@
 		overallAttemptsData,
 		runTimeData
 	} from '$lib/utils/statisticsView';
-	import type { StatisticsLevelOrder, StatisticsOutcomeMeasure, StatisticsTab } from '$lib/utils/statisticsPreferences';
+	import type {
+		StatisticsImprovementSeries,
+		StatisticsLevelOrder,
+		StatisticsOutcomeMeasure,
+		StatisticsTab
+	} from '$lib/utils/statisticsPreferences';
 
 	let {
 		data,
@@ -37,8 +41,11 @@
 		selectedSessionId = $bindable(),
 		sessionDetail,
 		sessionLoading = false,
-		improvementStatuses = $bindable([...ALL_STATUSES]),
+		attemptsByLevelStatuses = $bindable([...ALL_STATUSES]),
+		attemptsOverTimeStatuses = $bindable([...ALL_STATUSES]),
+		improvementSeries = $bindable(['running-best']),
 		outcomeStatuses = $bindable([...ALL_STATUSES]),
+		sessionStatuses = $bindable([...ALL_STATUSES]),
 		outcomeMeasure = $bindable('share'),
 		levelOrder = $bindable('attempts'),
 		controls
@@ -53,8 +60,11 @@
 		selectedSessionId: string;
 		sessionDetail: MonitoringSessionDetail | null;
 		sessionLoading?: boolean;
-		improvementStatuses?: RunStatus[];
+		attemptsByLevelStatuses?: RunStatus[];
+		attemptsOverTimeStatuses?: RunStatus[];
+		improvementSeries?: StatisticsImprovementSeries[];
 		outcomeStatuses?: RunStatus[];
+		sessionStatuses?: RunStatus[];
 		outcomeMeasure?: StatisticsOutcomeMeasure;
 		levelOrder?: StatisticsLevelOrder;
 		controls?: Snippet;
@@ -138,6 +148,9 @@
 					title="Attempts by level"
 					description="Horizontal bars show attempts for every level split by Complete, Failed, Aborted, and Killed in Action"
 					xLabel="Share of attempts"
+					interactiveLegend
+					visibleSeriesIds={attemptsByLevelStatuses}
+					onVisibleSeriesChange={(ids) => (attemptsByLevelStatuses = ids as RunStatus[])}
 				/>
 			</div>
 		</section>
@@ -150,6 +163,9 @@
 					description="All attempts grouped into calendar buckets and split by outcome"
 					xLabel="Date"
 					yLabel="Attempts"
+					interactiveLegend
+					visibleSeriesIds={attemptsOverTimeStatuses}
+					onVisibleSeriesChange={(ids) => (attemptsOverTimeStatuses = ids as RunStatus[])}
 				/>
 			</div>
 		</section>
@@ -158,18 +174,21 @@
 		<div class="mt-4">
 			<StatisticsFilters bind:levelNumber bind:difficultyNumber />
 		</div>
-		<div class="mt-4"><StatusSeriesPicker bind:value={improvementStatuses} /></div>
 		<section class="mt-4 rounded-sm obs-panel p-4">
 			<SectionTitle title="Run time improvement" />
-			<p class="mt-1 text-xs obs-dim">The gold line tracks completed PBs.</p>
+			<p class="mt-1 text-xs obs-dim">The gold step line tracks personal-best progression.</p>
 			<div class="mt-3">
 				<Chart
-					data={runTimeData(data, improvementStatuses)}
+					data={runTimeData(data)}
 					title="Game time over chronological attempts"
 					description="Individual game times for the selected level and difficulty"
 					xLabel="Attempt date"
 					yLabel="Game time"
 					formatValue={formatDuration}
+					includeZero={false}
+					interactiveLegend
+					visibleSeriesIds={improvementSeries}
+					onVisibleSeriesChange={(ids) => (improvementSeries = ids as StatisticsImprovementSeries[])}
 				/>
 			</div>
 			{#if data.selectedCohort?.untimedRuns}
@@ -177,8 +196,7 @@
 			{/if}
 		</section>
 	{:else if tab === 'outcomes'}
-		<div class="mt-4 flex flex-wrap items-center justify-between gap-3">
-			<StatusSeriesPicker bind:value={outcomeStatuses} />
+		<div class="mt-4 flex justify-end">
 			<SegmentedControl
 				value={outcomeMeasure}
 				options={[
@@ -200,12 +218,21 @@
 					xLabel="Date"
 					yLabel={outcomeMeasure === 'share' ? 'Share' : 'Attempts'}
 					formatValue={outcomeMeasure === 'share' ? (value) => `${Math.round(value)}%` : undefined}
+					interactiveLegend
+					visibleSeriesIds={outcomeStatuses}
+					onVisibleSeriesChange={(ids) => (outcomeStatuses = ids as RunStatus[])}
 				/>
 			</div>
 		</section>
 	{:else}
 		<div class="mt-4">
-			<SessionStatistics {sessions} bind:selectedSessionId detail={sessionDetail} loading={sessionLoading} />
+			<SessionStatistics
+				{sessions}
+				bind:selectedSessionId
+				detail={sessionDetail}
+				loading={sessionLoading}
+				bind:sessionStatuses
+			/>
 		</div>
 	{/if}
 {/if}

@@ -16,11 +16,20 @@ export interface ChartSeries {
 	color: string;
 	surfaceColor?: string;
 	pattern?: ChartPattern;
-	shape?: 'circle' | 'square' | 'diamond' | 'triangle';
+	shape?: 'circle' | 'square' | 'triangle';
+	lineStyle?: 'linear' | 'step' | 'none';
+}
+
+export interface ChartReferenceLine {
+	id: string;
+	value: number;
+	color: string;
+	seriesId?: string;
 }
 
 export interface ChartData {
 	kind: ChartKind;
 	series: ChartSeries[];
 	xType: 'time' | 'category';
+	referenceLines?: ChartReferenceLine[];
 }

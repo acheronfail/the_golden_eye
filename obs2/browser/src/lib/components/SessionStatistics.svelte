@@ -1,27 +1,23 @@
 <script lang="ts">
-	import type { MonitoringSessionDetail, MonitoringSessionSummary } from '$lib/api';
+	import type { MonitoringSessionDetail, MonitoringSessionSummary, RunStatus } from '$lib/api';
 	import Chart from './Chart.svelte';
 	import SectionTitle from './SectionTitle.svelte';
 	import Select from './Select.svelte';
 	import StatisticsSummaryPanel from './StatisticsSummaryPanel.svelte';
-	import {
-		difficultyLabel,
-		formatDuration,
-		levelLabel,
-		sessionAttemptsData,
-		STATUS_LABELS
-	} from '$lib/utils/statisticsView';
+	import { formatDuration, sessionAttemptsData, STATUS_LABELS, ALL_STATUSES } from '$lib/utils/statisticsView';
 
 	let {
 		sessions,
 		selectedSessionId = $bindable(),
 		detail,
-		loading = false
+		loading = false,
+		sessionStatuses = $bindable([...ALL_STATUSES])
 	}: {
 		sessions: MonitoringSessionSummary[];
 		selectedSessionId: string;
 		detail: MonitoringSessionDetail | null;
 		loading?: boolean;
+		sessionStatuses?: RunStatus[];
 	} = $props();
 
 	const options = $derived(
@@ -85,57 +81,11 @@
 					yLabel="Game time"
 					formatXValue={(value) => formatDuration(Number(value))}
 					formatValue={formatDuration}
+					interactiveLegend
+					visibleSeriesIds={sessionStatuses}
+					onVisibleSeriesChange={(ids) => (sessionStatuses = ids as RunStatus[])}
 				/>
 			</div>
-		</section>
-
-		<section class="mt-4 overflow-x-auto rounded-sm obs-panel p-4">
-			<SectionTitle title="Level and difficulty cohorts" />
-			<table class="mt-3 w-full min-w-120 table-fixed border-collapse text-left text-sm">
-				<colgroup>
-					<col class="w-[24%]" />
-					<col class="w-[11%]" />
-					<col class="w-[27%]" />
-					<col class="w-[22%]" />
-					<col class="w-[16%]" />
-				</colgroup>
-				<thead class="text-xs obs-dim">
-					<tr>
-						<th class="border-b border-(--obs-border-muted) py-2 pr-2">Cohort</th>
-						<th class="border-b border-(--obs-border-muted) py-2 pr-2">Runs</th>
-						<th class="border-b border-(--obs-border-muted) py-2 pr-2">Outcomes</th>
-						<th class="border-b border-(--obs-border-muted) py-2 pr-2">Average</th>
-						<th class="border-b border-(--obs-border-muted) py-2">Best</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each detail.levels as level}
-						<tr>
-							<td class="border-b border-(--obs-border-muted) py-2 pr-2">
-								<span class="block">{levelLabel(level.levelNumber)}</span>
-								<span class="block text-xs obs-muted">{difficultyLabel(level.difficultyNumber)}</span>
-							</td>
-							<td class="border-b border-(--obs-border-muted) py-2 pr-2">{level.counts.total}</td>
-							<td class="border-b border-(--obs-border-muted) py-2 pr-2 text-xs obs-muted">
-								<ul class="m-0 grid list-none gap-0.5 p-0">
-									{#each outcomes as outcome}
-										{#if level.counts[outcome.key] > 0}
-											<li><span class="font-mono">{level.counts[outcome.key]}</span> {STATUS_LABELS[outcome.key]}</li>
-										{/if}
-									{/each}
-								</ul>
-							</td>
-							<td class="border-b border-(--obs-border-muted) py-2 pr-2">
-								{level.averageTimeSeconds == null ? '—' : formatDuration(level.averageTimeSeconds)}
-								<span class="block text-xs obs-dim">of {level.timedRuns} timed</span>
-							</td>
-							<td class="border-b border-(--obs-border-muted) py-2">
-								{level.bestCompletedTimeSeconds == null ? '—' : formatDuration(level.bestCompletedTimeSeconds)}
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
 		</section>
 	{/if}
 {/if}

@@ -46,7 +46,7 @@
 	const timestampLabel = $derived(formatRunListDate(clip.metadata.timestamp, showDate));
 	const timestampTitle = $derived(formatDate(clip.metadata.timestamp));
 	const compactStatusLabel = $derived(
-		personalBest ? 'pb' : clip.metadata.status === 'kia' ? 'Killed' : statusLabel(clip.metadata.status) || 'unknown'
+		personalBest ? 'PB' : clip.metadata.status === 'kia' ? 'Killed' : statusLabel(clip.metadata.status) || 'unknown'
 	);
 </script>
 

@@ -4,6 +4,7 @@ import { isLocalDateValue, type DateRangeSelection } from './statisticsRange';
 export type StatisticsTab = 'overview' | 'improvement' | 'outcomes' | 'sessions';
 export type StatisticsLevelOrder = 'attempts' | 'mission';
 export type StatisticsOutcomeMeasure = 'share' | 'count';
+export type StatisticsImprovementSeries = RunStatus | 'running-best';
 
 export interface StatisticsPreferences {
 	version: 1;
@@ -12,8 +13,11 @@ export interface StatisticsPreferences {
 	bucket: StatisticsBucket;
 	levelNumber: number;
 	difficultyNumber: DifficultyNumber;
-	improvementStatuses: RunStatus[];
+	attemptsByLevelStatuses: RunStatus[];
+	attemptsOverTimeStatuses: RunStatus[];
+	improvementSeries: StatisticsImprovementSeries[];
 	outcomeStatuses: RunStatus[];
+	sessionStatuses: RunStatus[];
 	outcomeMeasure: StatisticsOutcomeMeasure;
 	levelOrder: StatisticsLevelOrder;
 	selectedSessionId: string;
@@ -29,16 +33,25 @@ const tabs: StatisticsTab[] = ['overview', 'improvement', 'outcomes', 'sessions'
 const presets: DateRangeSelection['preset'][] = ['today', '7d', '30d', '12m', 'all', 'custom'];
 const buckets: StatisticsBucket[] = ['day', 'week', 'month'];
 const statuses: RunStatus[] = ['complete', 'failed', 'abort', 'kia'];
+const improvementSeries: StatisticsImprovementSeries[] = [...statuses, 'running-best'];
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function storedStatuses(value: unknown): RunStatus[] | undefined {
 	if (!Array.isArray(value)) return undefined;
-	const normalized = [
-		...new Set(value.filter((status): status is RunStatus => statuses.includes(status as RunStatus)))
+	return [...new Set(value.filter((status): status is RunStatus => statuses.includes(status as RunStatus)))];
+}
+
+function storedImprovementSeries(value: unknown): StatisticsImprovementSeries[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	return [
+		...new Set(
+			value.filter((series): series is StatisticsImprovementSeries =>
+				improvementSeries.includes(series as StatisticsImprovementSeries)
+			)
+		)
 	];
-	return normalized.length > 0 ? normalized : undefined;
 }
 
 export function readStatisticsPreferences(storage: StorageReader): StoredPreferences | null {
@@ -72,10 +85,21 @@ export function readStatisticsPreferences(storage: StorageReader): StoredPrefere
 						: ''
 			};
 		}
-		const improvementStatuses = storedStatuses(parsed.improvementStatuses);
-		if (improvementStatuses) stored.improvementStatuses = improvementStatuses;
+		const selectedImprovementSeries = storedImprovementSeries(parsed.improvementSeries);
+		if (selectedImprovementSeries) {
+			stored.improvementSeries = selectedImprovementSeries;
+		} else {
+			const legacyStatuses = storedStatuses(parsed.improvementStatuses);
+			if (legacyStatuses) stored.improvementSeries = [...legacyStatuses, 'running-best'];
+		}
+		const attemptsByLevelStatuses = storedStatuses(parsed.attemptsByLevelStatuses);
+		if (attemptsByLevelStatuses) stored.attemptsByLevelStatuses = attemptsByLevelStatuses;
+		const attemptsOverTimeStatuses = storedStatuses(parsed.attemptsOverTimeStatuses);
+		if (attemptsOverTimeStatuses) stored.attemptsOverTimeStatuses = attemptsOverTimeStatuses;
 		const outcomeStatuses = storedStatuses(parsed.outcomeStatuses);
 		if (outcomeStatuses) stored.outcomeStatuses = outcomeStatuses;
+		const sessionStatuses = storedStatuses(parsed.sessionStatuses);
+		if (sessionStatuses) stored.sessionStatuses = sessionStatuses;
 		if (parsed.outcomeMeasure === 'share' || parsed.outcomeMeasure === 'count') {
 			stored.outcomeMeasure = parsed.outcomeMeasure;
 		}

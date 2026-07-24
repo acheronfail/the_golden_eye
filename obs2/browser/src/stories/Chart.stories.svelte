@@ -32,6 +32,49 @@
 
 <Story name="Line" />
 <Story
+	name="PB progression"
+	args={{
+		interactiveLegend: true,
+		visibleSeriesIds: ['running-best'],
+		data: {
+			kind: 'line',
+			xType: 'time',
+			series: [
+				{
+					id: 'running-best',
+					label: 'Personal best',
+					color: 'var(--obs-gold-hover)',
+					surfaceColor: 'var(--obs-gold-surface)',
+					lineStyle: 'step',
+					points: [
+						{ x: Date.UTC(2026, 6, 1), y: 82 },
+						{ x: Date.UTC(2026, 6, 12), y: 76 },
+						{ x: Date.UTC(2026, 6, 22), y: 71 }
+					]
+				},
+				{
+					id: 'failed',
+					label: 'Failed',
+					color: 'var(--obs-danger)',
+					lineStyle: 'none',
+					points: [
+						{ x: Date.UTC(2026, 6, 8), y: 79 },
+						{ x: Date.UTC(2026, 6, 18), y: 74 }
+					]
+				}
+			],
+			referenceLines: [
+				{
+					id: 'personal-best',
+					value: 71,
+					color: 'var(--obs-gold-hover)',
+					seriesId: 'running-best'
+				}
+			]
+		}
+	}}
+/>
+<Story
 	name="One point"
 	args={{
 		data: {

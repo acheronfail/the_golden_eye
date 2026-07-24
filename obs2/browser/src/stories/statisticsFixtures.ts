@@ -69,24 +69,6 @@ export const sessionSummaryFixture: MonitoringSessionSummary = {
 
 export const sessionDetailFixture: MonitoringSessionDetail = {
 	...sessionSummaryFixture,
-	levels: [
-		{
-			levelNumber: 1,
-			difficultyNumber: 0,
-			counts: counts(2, 5, 8, 0),
-			timedRuns: 15,
-			averageTimeSeconds: 78.4,
-			bestCompletedTimeSeconds: 71
-		},
-		{
-			levelNumber: 7,
-			difficultyNumber: 2,
-			counts: counts(1, 4, 4, 1),
-			timedRuns: 9,
-			averageTimeSeconds: 133.2,
-			bestCompletedTimeSeconds: 124
-		}
-	],
 	attempts: [
 		{
 			runId: 's1',

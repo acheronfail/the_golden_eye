@@ -9,7 +9,11 @@
 		xLabel = '',
 		yLabel = '',
 		formatXValue,
-		formatValue = (value: number) => String(Math.round(value))
+		formatValue = (value: number) => String(Math.round(value)),
+		includeZero = true,
+		interactiveLegend = false,
+		visibleSeriesIds,
+		onVisibleSeriesChange
 	}: {
 		data: ChartData;
 		title: string;
@@ -18,6 +22,10 @@
 		yLabel?: string;
 		formatXValue?: (value: XValue) => string;
 		formatValue?: (value: number) => string;
+		includeZero?: boolean;
+		interactiveLegend?: boolean;
+		visibleSeriesIds?: string[];
+		onVisibleSeriesChange?: (ids: string[]) => void;
 	} = $props();
 
 	const uid = $props.id();
@@ -34,10 +42,15 @@
 			: { top: 22, right: 16, bottom: 60, left: yLabel ? 58 : 40 }
 	);
 	const plotWidth = $derived(Math.max(1, width - margin.left - margin.right));
-	const visibleSeries = $derived(data.series.filter((series) => series.points.length > 0));
+	const legendSeries = $derived(data.series);
+	const visibleSeries = $derived(
+		legendSeries.filter(
+			(series) => !interactiveLegend || visibleSeriesIds == null || visibleSeriesIds.includes(series.id)
+		)
+	);
 	const categories = $derived.by(() => {
 		const values: XValue[] = [];
-		for (const series of visibleSeries) {
+		for (const series of legendSeries) {
 			for (const point of series.points) {
 				if (!values.includes(point.x)) values.push(point.x);
 			}
@@ -49,6 +62,10 @@
 	);
 	const plotHeight = $derived(height - margin.top - margin.bottom);
 	const allPoints = $derived(visibleSeries.flatMap((series) => series.points));
+	const rawMinValue = $derived(allPoints.length > 0 ? Math.min(...allPoints.map((point) => point.y)) : 0);
+	const rawMaxValue = $derived(allPoints.length > 0 ? Math.max(...allPoints.map((point) => point.y)) : 1);
+	const fittedPadding = $derived(Math.max(1, (rawMaxValue - rawMinValue) * 0.08));
+	const minValue = $derived(data.kind === 'line' && !includeZero ? Math.max(0, rawMinValue - fittedPadding) : 0);
 	const maxValue = $derived.by(() => {
 		if (data.kind === 'stackedBar' || data.kind === 'horizontalStackedBar') {
 			return Math.max(
@@ -58,9 +75,9 @@
 				)
 			);
 		}
-		return Math.max(1, ...allPoints.map((point) => point.y));
+		return data.kind === 'line' && !includeZero ? rawMaxValue + fittedPadding : Math.max(1, rawMaxValue);
 	});
-	const yTicks = $derived(Array.from({ length: 5 }, (_, index) => (maxValue * index) / 4));
+	const yTicks = $derived(Array.from({ length: 5 }, (_, index) => minValue + ((maxValue - minValue) * index) / 4));
 
 	$effect(() => {
 		const selection = selected;
@@ -115,7 +132,7 @@
 	}
 
 	function yPosition(y: number): number {
-		return margin.top + plotHeight - (y / maxValue) * plotHeight;
+		return margin.top + plotHeight - ((y - minValue) / Math.max(1, maxValue - minValue)) * plotHeight;
 	}
 
 	function categoryBand(): number {
@@ -123,10 +140,31 @@
 	}
 
 	function linePath(series: ChartSeries): string {
-		return [...series.points]
-			.sort((a, b) => Number(a.x) - Number(b.x))
+		const points = [...series.points].sort((a, b) => Number(a.x) - Number(b.x));
+		if (series.lineStyle === 'step') {
+			const path = points
+				.map((point, index) => {
+					if (index === 0) return `M ${xPosition(point.x)} ${yPosition(point.y)}`;
+					return `H ${xPosition(point.x)} V ${yPosition(point.y)}`;
+				})
+				.join(' ');
+			const lastCategory = categories.at(-1);
+			const lastPoint = points.at(-1);
+			return lastCategory != null && lastPoint != null && Number(lastCategory) > Number(lastPoint.x)
+				? `${path} H ${xPosition(lastCategory)}`
+				: path;
+		}
+		return points
 			.map((point, index) => `${index === 0 ? 'M' : 'L'} ${xPosition(point.x)} ${yPosition(point.y)}`)
 			.join(' ');
+	}
+
+	function toggleSeries(seriesId: string) {
+		if (!interactiveLegend || !onVisibleSeriesChange) return;
+		const current = visibleSeriesIds ?? legendSeries.map((series) => series.id);
+		onVisibleSeriesChange(
+			current.includes(seriesId) ? current.filter((id) => id !== seriesId) : [...current, seriesId]
+		);
 	}
 
 	function fillFor(series: ChartSeries): string {
@@ -237,8 +275,8 @@
 <figure class="m-0 min-w-0" aria-label={title}>
 	<div bind:this={container} class="w-full min-w-0 overflow-hidden rounded-sm">
 		{#if categories.length === 0}
-			<div class="flex min-h-52 items-center justify-center rounded-sm obs-empty-state px-4 text-sm obs-muted">
-				No data in this range
+			<div class="obs-preview-missing min-h-52 rounded-sm px-4">
+				<span class="font-mono text-xs leading-snug">No data in this range</span>
 			</div>
 		{:else}
 			<svg
@@ -311,7 +349,7 @@
 
 				{#if data.kind === 'line'}
 					{#each visibleSeries as series}
-						{#if series.points.length > 1}
+						{#if series.lineStyle !== 'none' && series.points.length > 1}
 							<path d={linePath(series)} fill="none" stroke={series.color} stroke-width="2" stroke-linejoin="round" />
 						{/if}
 						{#each series.points as point}
@@ -332,13 +370,6 @@
 										y={yPosition(point.y) - 4}
 										width="8"
 										height="8"
-										fill={series.surfaceColor ?? 'var(--obs-panel)'}
-										stroke={series.color}
-										stroke-width="2"
-									/>
-								{:else if series.shape === 'diamond'}
-									<path
-										d={`M ${xPosition(point.x)} ${yPosition(point.y) - 5} L ${xPosition(point.x) + 5} ${yPosition(point.y)} L ${xPosition(point.x)} ${yPosition(point.y) + 5} L ${xPosition(point.x) - 5} ${yPosition(point.y)} Z`}
 										fill={series.surfaceColor ?? 'var(--obs-panel)'}
 										stroke={series.color}
 										stroke-width="2"
@@ -445,6 +476,24 @@
 					{/each}
 				{/if}
 
+				{#each data.referenceLines ?? [] as reference}
+					{#if reference.seriesId == null || visibleSeries.some((series) => series.id === reference.seriesId)}
+						<line
+							data-chart-reference-line={reference.id}
+							x1={margin.left}
+							x2={width - margin.right}
+							y1={yPosition(reference.value)}
+							y2={yPosition(reference.value)}
+							stroke={reference.color}
+							stroke-width="2"
+							stroke-dasharray="1 5"
+							stroke-linecap="round"
+							opacity="0.9"
+							aria-hidden="true"
+						/>
+					{/if}
+				{/each}
+
 				{#if data.kind !== 'horizontalStackedBar'}
 					{#each xTickCategories() as category}
 						<text
@@ -517,23 +566,67 @@
 		{/if}
 	</div>
 
-	{#if visibleSeries.length > 0}
+	{#if legendSeries.length > 0}
 		<ul class="mt-2 flex list-none flex-wrap gap-x-4 gap-y-2 p-0 text-xs obs-muted" aria-label="Chart legend">
-			{#each visibleSeries as series}
-				<li class="flex items-center gap-1.5">
-					<svg class="h-4 w-4 overflow-hidden" viewBox="0 0 12 12" aria-hidden="true">
-						<rect
-							x="1"
-							y="1"
-							width="10"
-							height="10"
-							rx="1"
-							fill={fillFor(series)}
-							stroke={series.color}
-							stroke-width="1"
-						/>
-					</svg>
-					{series.label}
+			{#each legendSeries as series}
+				{@const enabled = !interactiveLegend || visibleSeriesIds == null || visibleSeriesIds.includes(series.id)}
+				<li>
+					{#if interactiveLegend}
+						<button
+							type="button"
+							class="flex items-center gap-1.5 rounded-sm transition-opacity hover:text-(--obs-text) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--obs-gold-hover)"
+							class:opacity-45={!enabled}
+							class:line-through={!enabled}
+							aria-pressed={enabled}
+							aria-label={`${enabled ? 'Hide' : 'Show'} ${series.label}`}
+							onclick={() => toggleSeries(series.id)}
+						>
+							<svg class="h-4 w-4 overflow-visible" viewBox="0 0 12 12" aria-hidden="true">
+								{#if data.kind === 'line' && series.lineStyle === 'step'}
+									<path
+										d="M1 9 H6 V3 H11"
+										fill="none"
+										stroke={enabled ? series.color : 'currentColor'}
+										stroke-width="2"
+									/>
+								{:else if data.kind === 'line' && series.shape === 'square'}
+									<rect x="3" y="3" width="6" height="6" fill={enabled ? series.color : 'currentColor'} />
+								{:else if data.kind === 'line' && series.shape === 'triangle'}
+									<path d="M6 2 L10 9 L2 9 Z" fill={enabled ? series.color : 'currentColor'} />
+								{:else if data.kind === 'line'}
+									<circle cx="6" cy="6" r="3" fill={enabled ? series.color : 'currentColor'} />
+								{:else}
+									<rect
+										x="1"
+										y="1"
+										width="10"
+										height="10"
+										rx="1"
+										fill={enabled ? fillFor(series) : 'currentColor'}
+										stroke={enabled ? series.color : 'currentColor'}
+										stroke-width="1"
+									/>
+								{/if}
+							</svg>
+							{series.label}
+						</button>
+					{:else}
+						<span class="flex items-center gap-1.5">
+							<svg class="h-4 w-4 overflow-hidden" viewBox="0 0 12 12" aria-hidden="true">
+								<rect
+									x="1"
+									y="1"
+									width="10"
+									height="10"
+									rx="1"
+									fill={fillFor(series)}
+									stroke={series.color}
+									stroke-width="1"
+								/>
+							</svg>
+							{series.label}
+						</span>
+					{/if}
 				</li>
 			{/each}
 		</ul>

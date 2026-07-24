@@ -61,8 +61,11 @@ describe('/statistics', () => {
 				bucket: 'month',
 				levelNumber: 7,
 				difficultyNumber: 2,
-				improvementStatuses: ['complete'],
+				attemptsByLevelStatuses: ['complete'],
+				attemptsOverTimeStatuses: ['complete', 'failed'],
+				improvementSeries: ['running-best'],
 				outcomeStatuses: ['failed', 'abort'],
+				sessionStatuses: ['complete'],
 				outcomeMeasure: 'count',
 				levelOrder: 'mission',
 				selectedSessionId: ''
@@ -79,6 +82,8 @@ describe('/statistics', () => {
 			difficultyNumber: 2
 		});
 		expect(await screen.findByRole('radio', { name: 'Count' })).toHaveAttribute('aria-checked', 'true');
+		expect(screen.getByRole('button', { name: 'Hide Failed' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Show Complete' })).toBeInTheDocument();
 	});
 
 	it('gives URL filters precedence over stored values', async () => {

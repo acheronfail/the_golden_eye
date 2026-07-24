@@ -23,8 +23,11 @@ const preferences: StatisticsPreferences = {
 	bucket: 'day',
 	levelNumber: 7,
 	difficultyNumber: 2,
-	improvementStatuses: ['complete', 'failed'],
+	attemptsByLevelStatuses: ['complete', 'kia'],
+	attemptsOverTimeStatuses: [],
+	improvementSeries: ['running-best', 'failed'],
 	outcomeStatuses: ['abort', 'kia'],
+	sessionStatuses: ['complete'],
 	outcomeMeasure: 'count',
 	levelOrder: 'mission',
 	selectedSessionId: 'session-123'
@@ -44,7 +47,8 @@ describe('statistics preferences', () => {
 				tab: 'unknown',
 				levelNumber: 99,
 				difficultyNumber: -1,
-				improvementStatuses: ['complete', 'unknown', 'complete'],
+				attemptsByLevelStatuses: ['complete', 'unknown', 'complete'],
+				improvementSeries: ['running-best', 'unknown', 'running-best'],
 				outcomeStatuses: []
 			})
 		);
@@ -53,17 +57,18 @@ describe('statistics preferences', () => {
 			expect.objectContaining({
 				version: 1,
 				bucket: 'day',
-				improvementStatuses: ['complete']
+				attemptsByLevelStatuses: ['complete'],
+				improvementSeries: ['running-best']
 			})
 		);
 		expect(readStatisticsPreferences(storage)).not.toEqual(
 			expect.objectContaining({
 				tab: expect.anything(),
 				levelNumber: expect.anything(),
-				difficultyNumber: expect.anything(),
-				outcomeStatuses: expect.anything()
+				difficultyNumber: expect.anything()
 			})
 		);
+		expect(readStatisticsPreferences(storage)).toEqual(expect.objectContaining({ outcomeStatuses: [] }));
 	});
 
 	it('rejects unknown versions and invalid JSON', () => {
@@ -73,5 +78,14 @@ describe('statistics preferences', () => {
 				memoryStorage(JSON.stringify({ ...preferences, version: 2, key: STATISTICS_PREFERENCES_STORAGE_KEY }))
 			)
 		).toBeNull();
+	});
+
+	it('keeps legacy improvement selections and adds the PB series', () => {
+		const { improvementSeries: _, ...legacy } = preferences;
+		const storage = memoryStorage(JSON.stringify({ ...legacy, improvementStatuses: ['complete'] }));
+
+		expect(readStatisticsPreferences(storage)).toEqual(
+			expect.objectContaining({ improvementSeries: ['complete', 'running-best'] })
+		);
 	});
 });

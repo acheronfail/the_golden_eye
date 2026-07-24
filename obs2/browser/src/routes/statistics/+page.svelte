@@ -22,6 +22,7 @@
 	import {
 		readStatisticsPreferences,
 		writeStatisticsPreferences,
+		type StatisticsImprovementSeries,
 		type StatisticsLevelOrder,
 		type StatisticsOutcomeMeasure,
 		type StatisticsTab
@@ -58,8 +59,11 @@
 	let data = $state<StatisticsResponse | null>(null);
 	let sessions = $state<MonitoringSessionSummary[]>([]);
 	let selectedSessionId = $state('');
-	let improvementStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
+	let attemptsByLevelStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
+	let attemptsOverTimeStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
+	let improvementSeries = $state<StatisticsImprovementSeries[]>(['running-best']);
 	let outcomeStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
+	let sessionStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
 	let outcomeMeasure = $state<StatisticsOutcomeMeasure>('share');
 	let levelOrder = $state<StatisticsLevelOrder>('attempts');
 	let sessionDetail = $state<MonitoringSessionDetail | null>(null);
@@ -195,8 +199,11 @@
 				difficultyNumber = stored.difficultyNumber;
 			}
 			if (stored.levelNumber != null && stored.difficultyNumber != null) initialCohortResolved = true;
-			if (stored.improvementStatuses) improvementStatuses = stored.improvementStatuses;
+			if (stored.attemptsByLevelStatuses) attemptsByLevelStatuses = stored.attemptsByLevelStatuses;
+			if (stored.attemptsOverTimeStatuses) attemptsOverTimeStatuses = stored.attemptsOverTimeStatuses;
+			if (stored.improvementSeries) improvementSeries = stored.improvementSeries;
 			if (stored.outcomeStatuses) outcomeStatuses = stored.outcomeStatuses;
+			if (stored.sessionStatuses) sessionStatuses = stored.sessionStatuses;
 			if (stored.outcomeMeasure) outcomeMeasure = stored.outcomeMeasure;
 			if (stored.levelOrder) levelOrder = stored.levelOrder;
 			if (stored.selectedSessionId) selectedSessionId = stored.selectedSessionId;
@@ -256,8 +263,11 @@
 			bucket,
 			levelNumber,
 			difficultyNumber,
-			improvementStatuses,
+			attemptsByLevelStatuses,
+			attemptsOverTimeStatuses,
+			improvementSeries,
 			outcomeStatuses,
+			sessionStatuses,
 			outcomeMeasure,
 			levelOrder,
 			selectedSessionId
@@ -288,8 +298,11 @@
 		bind:selectedSessionId
 		{sessionDetail}
 		{sessionLoading}
-		bind:improvementStatuses
+		bind:attemptsByLevelStatuses
+		bind:attemptsOverTimeStatuses
+		bind:improvementSeries
 		bind:outcomeStatuses
+		bind:sessionStatuses
 		bind:outcomeMeasure
 		bind:levelOrder
 	>

@@ -1,0 +1,83 @@
+import { render, screen } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import Chart from './Chart.svelte';
+
+vi.stubGlobal(
+	'ResizeObserver',
+	class {
+		observe() {}
+		disconnect() {}
+	}
+);
+
+describe('Chart', () => {
+	it('uses the missing-preview treatment when there is no chart data', () => {
+		render(Chart, {
+			title: 'Empty chart',
+			description: 'An empty chart',
+			data: { kind: 'line', xType: 'time', series: [] }
+		});
+
+		expect(screen.getByText('No data in this range').parentElement).toHaveClass('obs-preview-missing');
+	});
+
+	it('uses clickable legend items to control visible series', async () => {
+		const user = userEvent.setup();
+		const onVisibleSeriesChange = vi.fn();
+		const { container } = render(Chart, {
+			title: 'PB progression',
+			description: 'Personal-best progression and attempts',
+			data: {
+				kind: 'line',
+				xType: 'time',
+				series: [
+					{
+						id: 'running-best',
+						label: 'Personal best',
+						color: 'var(--obs-gold)',
+						lineStyle: 'step',
+						points: [
+							{ x: 1, y: 80 },
+							{ x: 2, y: 70 }
+						]
+					},
+					{
+						id: 'complete',
+						label: 'Complete',
+						color: 'var(--obs-success)',
+						lineStyle: 'none',
+						points: [{ x: 2, y: 75 }]
+					},
+					{
+						id: 'kia',
+						label: 'Killed in Action',
+						color: 'var(--obs-danger)',
+						lineStyle: 'none',
+						points: []
+					}
+				],
+				referenceLines: [
+					{
+						id: 'personal-best',
+						value: 70,
+						color: 'var(--obs-gold)',
+						seriesId: 'running-best'
+					}
+				]
+			},
+			interactiveLegend: true,
+			visibleSeriesIds: ['running-best'],
+			onVisibleSeriesChange
+		});
+
+		expect(screen.getByRole('button', { name: 'Hide Personal best' })).toHaveAttribute('aria-pressed', 'true');
+		expect(container.querySelector('[data-chart-reference-line="personal-best"]')).toBeInTheDocument();
+		const complete = screen.getByRole('button', { name: 'Show Complete' });
+		expect(complete).toHaveClass('line-through');
+		expect(screen.getByRole('button', { name: 'Show Killed in Action' })).toBeInTheDocument();
+
+		await user.click(complete);
+		expect(onVisibleSeriesChange).toHaveBeenCalledWith(['running-best', 'complete']);
+	});
+});

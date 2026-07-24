@@ -749,7 +749,7 @@ fn statistics_and_sessions_use_numeric_difficulty() {
 
     let detail = catalog.monitoring_session(&session_id).unwrap().unwrap();
     assert_eq!(detail.summary.counts.total, 2);
-    assert_eq!(detail.levels[0].difficulty_number, Some(0));
+    assert_eq!(detail.attempts[0].difficulty_number, Some(0));
 
     let scoped = catalog
         .statistics(StatisticsQuery {
