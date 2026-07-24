@@ -81,9 +81,13 @@
 				<section class="signal-content">
 					<p class="signal-kicker">{verified ? presentation.statusLabel : 'Verifying source'} / ACTIVE</p>
 					<h1>{verified ? presentation.title : 'checking source'}</h1>
-					{#if presentation.showDetail && verified}
-						<p class="signal-detail">{presentation.detail}</p>
-					{/if}
+					<p
+						class="signal-detail"
+						class:invisible={!presentation.showDetail || !verified}
+						aria-hidden={!presentation.showDetail || !verified}
+					>
+						{verified ? presentation.detail : '...'}
+					</p>
 				</section>
 			{/key}
 		</div>

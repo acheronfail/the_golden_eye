@@ -59,7 +59,7 @@
 				<h1>{verified ? presentation.title : 'checking source'}</h1>
 				<p
 					class="glass-detail"
-					class:detail-hidden={!presentation.showDetail || !verified}
+					class:invisible={!presentation.showDetail || !verified}
 					aria-hidden={!presentation.showDetail || !verified}
 				>
 					{verified ? presentation.detail : '...'}
@@ -326,10 +326,6 @@
 
 	.glass-detail {
 		color: var(--obs-text-dim);
-	}
-
-	.detail-hidden {
-		visibility: hidden;
 	}
 
 	.glass-metrics {
