@@ -109,5 +109,8 @@ describe('/statistics', () => {
 			levelNumber: 2,
 			difficultyNumber: 1
 		});
+		expect(await screen.findByRole('button', { name: 'Hide Personal best' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Hide Complete' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Show Failed' })).toBeInTheDocument();
 	});
 });

@@ -35,7 +35,7 @@
 	name="PB progression"
 	args={{
 		interactiveLegend: true,
-		visibleSeriesIds: ['running-best'],
+		visibleSeriesIds: ['running-best', 'complete'],
 		data: {
 			kind: 'line',
 			xType: 'time',
@@ -50,6 +50,18 @@
 						{ x: Date.UTC(2026, 6, 1), y: 82 },
 						{ x: Date.UTC(2026, 6, 12), y: 76 },
 						{ x: Date.UTC(2026, 6, 22), y: 71 }
+					]
+				},
+				{
+					id: 'complete',
+					label: 'Complete',
+					color: 'var(--obs-success)',
+					surfaceColor: 'var(--obs-success-surface)',
+					lineStyle: 'none',
+					shape: 'circle',
+					points: [
+						{ x: Date.UTC(2026, 6, 6), y: 80 },
+						{ x: Date.UTC(2026, 6, 16), y: 74 }
 					]
 				},
 				{

@@ -114,7 +114,6 @@ pub struct SelectedCohort {
     pub counts: StatusCounts,
     pub buckets: Vec<BucketCounts>,
     pub run_times: Vec<RunTimePoint>,
-    pub untimed_runs: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -179,7 +178,6 @@ pub fn aggregate(
                 difficulty_number,
                 counts: cohort_counts,
                 buckets: bucket_counts(&cohort, query.from, query.to, query.bucket),
-                untimed_runs: cohort_counts.total.saturating_sub(run_times.len()),
                 run_times,
             })
         }

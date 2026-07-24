@@ -284,9 +284,9 @@
 				class="block h-auto w-full overflow-hidden"
 				viewBox={`0 0 ${width} ${height}`}
 				role="img"
-				aria-labelledby={`${uid}-title ${uid}-desc`}
+				aria-label={title}
+				aria-describedby={`${uid}-desc`}
 			>
-				<title id={`${uid}-title`}>{title}</title>
 				<desc id={`${uid}-desc`}>{description}</desc>
 				<defs>
 					{#each visibleSeries as series}

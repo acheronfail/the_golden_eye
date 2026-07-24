@@ -43,7 +43,7 @@
 		sessionLoading = false,
 		attemptsByLevelStatuses = $bindable([...ALL_STATUSES]),
 		attemptsOverTimeStatuses = $bindable([...ALL_STATUSES]),
-		improvementSeries = $bindable(['running-best']),
+		improvementSeries = $bindable(['running-best', 'complete']),
 		outcomeStatuses = $bindable([...ALL_STATUSES]),
 		sessionStatuses = $bindable([...ALL_STATUSES]),
 		outcomeMeasure = $bindable('share'),
@@ -191,9 +191,6 @@
 					onVisibleSeriesChange={(ids) => (improvementSeries = ids as StatisticsImprovementSeries[])}
 				/>
 			</div>
-			{#if data.selectedCohort?.untimedRuns}
-				<p class="mt-2 text-xs obs-muted">{data.selectedCohort.untimedRuns} untimed runs omitted</p>
-			{/if}
 		</section>
 	{:else if tab === 'outcomes'}
 		<div class="mt-4 flex justify-end">

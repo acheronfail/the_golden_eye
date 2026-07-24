@@ -50,8 +50,7 @@ export const statisticsFixture: StatisticsResponse = {
 			{ runId: '2', completedAt: '2026-07-04T19:00:00+10:00', status: 'failed', timeSeconds: 79 },
 			{ runId: '3', completedAt: '2026-07-10T19:00:00+10:00', status: 'complete', timeSeconds: 76 },
 			{ runId: '4', completedAt: '2026-07-19T19:00:00+10:00', status: 'complete', timeSeconds: 71 }
-		],
-		untimedRuns: 2
+		]
 	}
 };
 

@@ -61,7 +61,7 @@
 	let selectedSessionId = $state('');
 	let attemptsByLevelStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
 	let attemptsOverTimeStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
-	let improvementSeries = $state<StatisticsImprovementSeries[]>(['running-best']);
+	let improvementSeries = $state<StatisticsImprovementSeries[]>(['running-best', 'complete']);
 	let outcomeStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
 	let sessionStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
 	let outcomeMeasure = $state<StatisticsOutcomeMeasure>('share');

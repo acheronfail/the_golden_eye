@@ -484,7 +484,6 @@ export interface StatisticsResponse {
 			status: RunStatus;
 			timeSeconds: number;
 		}>;
-		untimedRuns: number;
 	} | null;
 }
 

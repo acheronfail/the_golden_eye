@@ -75,6 +75,8 @@ describe('Chart', () => {
 		const referenceLine = container.querySelector('[data-chart-reference-line="personal-best"]');
 		expect(referenceLine).toHaveAttribute('stroke-width', '1');
 		expect(referenceLine).toHaveAttribute('stroke-dasharray', '0.5 2.5');
+		expect(container.querySelector('svg')).toHaveAttribute('aria-label', 'PB progression');
+		expect(container.querySelector('svg title')).not.toBeInTheDocument();
 		const complete = screen.getByRole('button', { name: 'Show Complete' });
 		expect(complete).toHaveClass('line-through');
 		expect(screen.getByRole('button', { name: 'Show Killed in Action' })).toBeInTheDocument();
