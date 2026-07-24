@@ -248,22 +248,10 @@
 	});
 </script>
 
-<canvas bind:this={canvas} class={`kia-death-overlay${playing ? ' kia-death-overlay-visible' : ''}`} aria-hidden="true"
+<canvas
+	bind:this={canvas}
+	class="pointer-events-none fixed inset-0 z-[60] h-screen w-screen transition-opacity duration-[120ms] ease-out"
+	class:opacity-0={!playing}
+	class:opacity-100={playing}
+	aria-hidden="true"
 ></canvas>
-
-<style>
-	.kia-death-overlay {
-		position: fixed;
-		inset: 0;
-		z-index: 60;
-		width: 100vw;
-		height: 100vh;
-		pointer-events: none;
-		opacity: 0;
-		transition: opacity 120ms ease-out;
-	}
-
-	.kia-death-overlay-visible {
-		opacity: 1;
-	}
-</style>

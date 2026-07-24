@@ -68,9 +68,8 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 		expect(view.container.querySelector(animatedSelector)).toBe(animatedContent);
 		expect(screen.getByRole('heading', { name: /^recording$/i })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /stop monitoring/i })).toBeEnabled();
-		if (design === 'mission-glass') {
-			expect(view.container.querySelector('.glass-detail')).toHaveClass('detail-hidden');
-		}
+		const detailSelector = design === 'signal-band' ? '.signal-detail' : '.glass-detail';
+		expect(view.container.querySelector(detailSelector)).toHaveClass('invisible');
 	});
 
 	it('lands on the newest state when updates arrive faster than the animation', async () => {
