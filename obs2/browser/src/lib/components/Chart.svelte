@@ -48,6 +48,12 @@
 			(series) => !interactiveLegend || visibleSeriesIds == null || visibleSeriesIds.includes(series.id)
 		)
 	);
+	const renderSeries = $derived(
+		visibleSeries
+			.map((series, index) => ({ series, index }))
+			.sort((a, b) => (a.series.renderPriority ?? 0) - (b.series.renderPriority ?? 0) || a.index - b.index)
+			.map(({ series }) => series)
+	);
 	const categories = $derived.by(() => {
 		const values: XValue[] = [];
 		for (const series of legendSeries) {
@@ -348,12 +354,20 @@
 				{/each}
 
 				{#if data.kind === 'line'}
-					{#each visibleSeries as series}
+					{#each renderSeries as series}
 						{#if series.lineStyle !== 'none' && series.points.length > 1}
-							<path d={linePath(series)} fill="none" stroke={series.color} stroke-width="2" stroke-linejoin="round" />
+							<path
+								data-chart-series={series.id}
+								d={linePath(series)}
+								fill="none"
+								stroke={series.color}
+								stroke-width="2"
+								stroke-linejoin="round"
+							/>
 						{/if}
 						{#each series.points as point}
 							<g
+								data-chart-series={series.id}
 								tabindex="0"
 								role="button"
 								aria-label={`${series.label}: ${point.label ?? tickLabel(point.x)}, ${formatValue(point.y)}`}

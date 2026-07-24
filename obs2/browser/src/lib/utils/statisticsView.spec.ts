@@ -26,6 +26,7 @@ describe('statistics chart data', () => {
 			76, 71
 		]);
 		expect(data.series.find((series) => series.id === 'running-best')?.lineStyle).toBe('step');
+		expect(data.series.find((series) => series.id === 'running-best')?.renderPriority).toBe(1);
 		expect(
 			data.series.filter((series) => series.id !== 'running-best').every((series) => series.lineStyle === 'none')
 		).toBe(true);

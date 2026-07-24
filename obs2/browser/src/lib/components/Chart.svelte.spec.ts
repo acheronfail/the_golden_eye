@@ -37,6 +37,7 @@ describe('Chart', () => {
 						label: 'Personal best',
 						color: 'var(--obs-gold)',
 						lineStyle: 'step',
+						renderPriority: 1,
 						points: [
 							{ x: 1, y: 80 },
 							{ x: 2, y: 70 }
@@ -67,7 +68,7 @@ describe('Chart', () => {
 				]
 			},
 			interactiveLegend: true,
-			visibleSeriesIds: ['running-best'],
+			visibleSeriesIds: ['running-best', 'complete'],
 			onVisibleSeriesChange
 		});
 
@@ -77,11 +78,15 @@ describe('Chart', () => {
 		expect(referenceLine).toHaveAttribute('stroke-dasharray', '0.5 2.5');
 		expect(container.querySelector('svg')).toHaveAttribute('aria-label', 'PB progression');
 		expect(container.querySelector('svg title')).not.toBeInTheDocument();
-		const complete = screen.getByRole('button', { name: 'Show Complete' });
-		expect(complete).toHaveClass('line-through');
+		expect([...container.querySelectorAll('[data-chart-series]')].at(-1)).toHaveAttribute(
+			'data-chart-series',
+			'running-best'
+		);
+		const complete = screen.getByRole('button', { name: 'Hide Complete' });
+		expect(complete).not.toHaveClass('line-through');
 		expect(screen.getByRole('button', { name: 'Show Killed in Action' })).toBeInTheDocument();
 
 		await user.click(complete);
-		expect(onVisibleSeriesChange).toHaveBeenCalledWith(['running-best', 'complete']);
+		expect(onVisibleSeriesChange).toHaveBeenCalledWith(['running-best']);
 	});
 });

@@ -18,6 +18,7 @@ export interface ChartSeries {
 	pattern?: ChartPattern;
 	shape?: 'circle' | 'square' | 'triangle';
 	lineStyle?: 'linear' | 'step' | 'none';
+	renderPriority?: number;
 }
 
 export interface ChartReferenceLine {

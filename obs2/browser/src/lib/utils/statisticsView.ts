@@ -147,7 +147,8 @@ export function runTimeData(response: StatisticsResponse): ChartData {
 			surfaceColor: 'var(--obs-gold-surface)',
 			pattern: 'plain',
 			shape: 'circle',
-			lineStyle: 'step'
+			lineStyle: 'step',
+			renderPriority: 1
 		});
 	}
 	return {

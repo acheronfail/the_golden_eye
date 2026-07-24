@@ -46,6 +46,7 @@
 					color: 'var(--obs-gold-hover)',
 					surfaceColor: 'var(--obs-gold-surface)',
 					lineStyle: 'step',
+					renderPriority: 1,
 					points: [
 						{ x: Date.UTC(2026, 6, 1), y: 82 },
 						{ x: Date.UTC(2026, 6, 12), y: 76 },
