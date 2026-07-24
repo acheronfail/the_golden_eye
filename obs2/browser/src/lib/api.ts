@@ -233,6 +233,38 @@ export class Backend {
 		return this.postVoid('/api/v1/monitor/stop');
 	}
 
+	public getStatistics(
+		filters: StatisticsFilters,
+		options: { signal?: AbortSignal } = {}
+	): Promise<StatisticsResponse> {
+		const query = new URLSearchParams();
+		if (filters.from) query.set('from', filters.from);
+		if (filters.to) query.set('to', filters.to);
+		query.set('bucket', filters.bucket);
+		if (filters.levelNumber != null) query.set('levelNumber', String(filters.levelNumber));
+		if (filters.difficultyNumber != null) query.set('difficultyNumber', String(filters.difficultyNumber));
+		return this.getJson(`/api/v1/statistics?${query}`, { signal: options.signal });
+	}
+
+	public getStatisticsSessions(
+		range: Pick<StatisticsFilters, 'from' | 'to'>,
+		options: { signal?: AbortSignal } = {}
+	): Promise<MonitoringSessionSummary[]> {
+		const query = new URLSearchParams();
+		if (range.from) query.set('from', range.from);
+		if (range.to) query.set('to', range.to);
+		return this.getJson(`/api/v1/statistics/sessions?${query}`, { signal: options.signal });
+	}
+
+	public getStatisticsSession(
+		sessionId: string,
+		options: { signal?: AbortSignal } = {}
+	): Promise<MonitoringSessionDetail> {
+		return this.getJson(`/api/v1/statistics/sessions/${encodeURIComponent(sessionId)}`, {
+			signal: options.signal
+		});
+	}
+
 	private getJson<T>(path: string, init?: RequestInit): Promise<T> {
 		return this.json<T>(path, init);
 	}
@@ -383,6 +415,110 @@ export interface RunsResponse {
 }
 
 export type RunSort = 'newest' | 'oldest' | 'fastest' | 'slowest';
+
+export type RunStatus = 'complete' | 'failed' | 'abort' | 'kia';
+export type StatisticsBucket = 'day' | 'week' | 'month';
+export type DifficultyNumber = 0 | 1 | 2 | 3;
+
+export const DIFFICULTY_LABELS: Record<DifficultyNumber, string> = {
+	0: 'Agent',
+	1: 'Secret Agent',
+	2: '00 Agent',
+	3: '007'
+};
+
+export interface StatisticsFilters {
+	from?: string;
+	to: string;
+	bucket: StatisticsBucket;
+	levelNumber?: number;
+	difficultyNumber?: DifficultyNumber;
+}
+
+export interface StatusCounts {
+	total: number;
+	complete: number;
+	failed: number;
+	abort: number;
+	kia: number;
+}
+
+export interface BucketCounts {
+	start: string;
+	end: string;
+	counts: StatusCounts;
+}
+
+export interface StatisticsResponse {
+	range: {
+		from: string | null;
+		to: string;
+		bucket: StatisticsBucket;
+		timeZone: string;
+	};
+	summary: {
+		counts: StatusCounts;
+		totalSessionSeconds: number;
+		combinedBestTimes: {
+			overallSeconds: number;
+			recordedCells: number;
+			totalCells: number;
+			byDifficulty: Array<{
+				difficultyNumber: 0 | 1 | 2;
+				totalSeconds: number;
+				recordedLevels: number;
+				totalLevels: number;
+			}>;
+		};
+	};
+	byLevel: Array<{ levelNumber: number | null; counts: StatusCounts }>;
+	overallBuckets: BucketCounts[];
+	selectedCohort: {
+		levelNumber: number;
+		difficultyNumber: DifficultyNumber;
+		counts: StatusCounts;
+		buckets: BucketCounts[];
+		runTimes: Array<{
+			runId: string;
+			completedAt: string;
+			status: RunStatus;
+			timeSeconds: number;
+		}>;
+		untimedRuns: number;
+	} | null;
+}
+
+export interface MonitoringSessionSummary {
+	sessionId: string;
+	startedAt: string;
+	endedAt: string | null;
+	sourceName: string;
+	initialCvLanguage: string | null;
+	pluginVersion: string;
+	endReason: 'userStopped' | 'replayBufferStopped' | 'obsShutdown' | 'coreReload' | 'interrupted' | null;
+	counts: StatusCounts;
+	distinctLevels: number;
+}
+
+export interface MonitoringSessionDetail extends MonitoringSessionSummary {
+	levels: Array<{
+		levelNumber: number | null;
+		difficultyNumber: DifficultyNumber | null;
+		counts: StatusCounts;
+		timedRuns: number;
+		averageTimeSeconds: number | null;
+		bestCompletedTimeSeconds: number | null;
+	}>;
+	attempts: Array<{
+		runId: string;
+		completedAt: string;
+		elapsedSeconds: number;
+		levelNumber: number | null;
+		difficultyNumber: DifficultyNumber | null;
+		status: RunStatus;
+		timeSeconds: number | null;
+	}>;
+}
 
 export interface EditableRunMetadata {
 	romLanguage: string;

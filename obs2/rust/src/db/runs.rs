@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -7,7 +8,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::run_catalog::{IndexedRunClip, RunCatalogRoot, RunCatalogSave, RunRecord, RunRetentionState, RunSort};
 use crate::ffmpeg;
-use crate::models::clip_metadata::ClipMetadata;
+use crate::models::clip_metadata::{ClipMetadata, RunStatus};
 use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
 
 const CREATE_TABLE: &str = include_str!("sql/runs/create_table.sql");
@@ -15,11 +16,41 @@ const CREATE_STATUS_TIMESTAMP_INDEX: &str = include_str!("sql/runs/create_status
 const CREATE_LEVEL_DIFFICULTY_TIMESTAMP_INDEX: &str =
     include_str!("sql/runs/create_level_difficulty_timestamp_index.sql");
 
+#[derive(Debug, Clone)]
+pub struct RunStatisticFact {
+    pub run_id: String,
+    pub completed_unix_micros: i64,
+    pub level_number: Option<i32>,
+    pub difficulty_number: Option<i32>,
+    pub status: RunStatus,
+    pub time_seconds: Option<i32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CombinedBestRow {
+    pub level_number: i32,
+    pub difficulty_number: i32,
+    pub time_seconds: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct MonitorSessionRow {
+    pub session_id: String,
+    pub started_unix_micros: i64,
+    pub ended_unix_micros: Option<i64>,
+    pub source_name: String,
+    pub initial_cv_language: Option<String>,
+    pub plugin_version: String,
+    pub end_reason: Option<String>,
+}
+
 pub fn initialise(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(CREATE_TABLE)?;
     conn.execute_batch(CREATE_STATUS_TIMESTAMP_INDEX)?;
     conn.execute_batch(CREATE_LEVEL_DIFFICULTY_TIMESTAMP_INDEX)?;
-    conn.execute_batch("CREATE INDEX IF NOT EXISTS runs_time_idx ON runs(level_number, difficulty, time_seconds)")?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS runs_time_idx ON runs(level_number, difficulty_number, time_seconds)",
+    )?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS runs_time_sort_idx
          ON runs(time_seconds IS NULL, time_seconds, completed_unix_micros DESC, run_id DESC)",
@@ -28,7 +59,81 @@ pub fn initialise(conn: &Connection) -> anyhow::Result<()> {
 }
 
 pub fn drop_tables(conn: &Connection) -> anyhow::Result<()> {
-    conn.execute_batch("DROP TABLE IF EXISTS clips; DROP TABLE IF EXISTS runs")?;
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS run_sessions;
+         DROP TABLE IF EXISTS monitor_sessions;
+         DROP TABLE IF EXISTS clips;
+         DROP TABLE IF EXISTS runs",
+    )?;
+    Ok(())
+}
+
+pub fn migrate_v2_to_v3(conn: &mut Connection) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute_batch("ALTER TABLE runs RENAME TO runs_v2;")?;
+    tx.execute_batch(CREATE_TABLE)?;
+    tx.execute_batch(
+        "INSERT INTO runs (
+             run_id, completed_unix_micros, level_number, difficulty_number, status,
+             time_seconds, retention_state, retention_reason, clip_path, size_bytes,
+             modified_unix, duration_secs, metadata_json, youtube_json
+         )
+         SELECT
+             run_id, completed_unix_micros,
+             CASE
+                 WHEN typeof(level_number) = 'integer' AND level_number BETWEEN 1 AND 20
+                 THEN level_number
+                 ELSE NULL
+             END,
+             CASE lower(trim(difficulty))
+                 WHEN 'agent' THEN 0
+                 WHEN 'secret agent' THEN 1
+                 WHEN '00 agent' THEN 2
+                 WHEN '007' THEN 3
+                 ELSE NULL
+             END,
+             status, time_seconds, retention_state, retention_reason, clip_path,
+             size_bytes, modified_unix, duration_secs, metadata_json, youtube_json
+         FROM runs_v2;
+         DROP TABLE runs_v2;",
+    )?;
+    initialise(&tx)?;
+    initialise_sessions(&tx)?;
+    super::meta::set_schema_version(&tx)?;
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn initialise_sessions(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS monitor_sessions (
+             session_id TEXT PRIMARY KEY NOT NULL,
+             started_unix_micros INTEGER NOT NULL,
+             ended_unix_micros INTEGER,
+             source_name TEXT NOT NULL,
+             initial_cv_language TEXT,
+             plugin_version TEXT NOT NULL,
+             end_reason TEXT CHECK (
+                 end_reason IS NULL OR end_reason IN (
+                     'userStopped', 'replayBufferStopped', 'obsShutdown',
+                     'coreReload', 'interrupted'
+                 )
+             ),
+             CHECK (ended_unix_micros IS NULL OR ended_unix_micros >= started_unix_micros)
+         );
+         CREATE TABLE IF NOT EXISTS run_sessions (
+             session_id TEXT NOT NULL
+                 REFERENCES monitor_sessions(session_id) ON DELETE CASCADE,
+             run_id TEXT NOT NULL
+                 REFERENCES runs(run_id) ON DELETE CASCADE,
+             PRIMARY KEY (session_id, run_id),
+             UNIQUE (run_id)
+         );
+         CREATE INDEX IF NOT EXISTS monitor_sessions_started_idx
+             ON monitor_sessions(started_unix_micros DESC);
+         CREATE INDEX IF NOT EXISTS monitor_sessions_ended_idx
+             ON monitor_sessions(ended_unix_micros);",
+    )?;
     Ok(())
 }
 
@@ -95,14 +200,14 @@ pub fn insert_finalized(
 ) -> anyhow::Result<()> {
     conn.execute(
         "INSERT INTO runs (
-            run_id, completed_unix_micros, level_number, difficulty, status, time_seconds,
+            run_id, completed_unix_micros, level_number, difficulty_number, status, time_seconds,
             retention_state, retention_reason, metadata_json
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             run_id,
             completed_unix_micros,
-            metadata.level_number,
-            metadata.difficulty,
+            normalized_level_number(metadata.level_number),
+            metadata.difficulty.as_deref().and_then(crate::ge::difficulty_number),
             metadata.status.as_str(),
             metadata.time_seconds,
             metadata.retention_state,
@@ -113,13 +218,198 @@ pub fn insert_finalized(
     Ok(())
 }
 
-pub fn best_time(conn: &Connection, level_number: i32, difficulty: &str) -> anyhow::Result<Option<i32>> {
+pub fn best_time(conn: &Connection, level_number: i32, difficulty_number: i32) -> anyhow::Result<Option<i32>> {
     Ok(conn.query_row(
         "SELECT MIN(time_seconds) FROM runs
-         WHERE status = 'complete' AND level_number = ?1 AND difficulty = ?2 AND time_seconds IS NOT NULL",
-        params![level_number, difficulty],
+         WHERE status = 'complete' AND level_number = ?1
+           AND difficulty_number = ?2 AND time_seconds IS NOT NULL",
+        params![level_number, difficulty_number],
         |row| row.get(0),
     )?)
+}
+
+pub fn statistic_facts(conn: &Connection, from: Option<i64>, to: i64) -> anyhow::Result<Vec<RunStatisticFact>> {
+    let mut stmt = conn.prepare(
+        "SELECT run_id, completed_unix_micros, level_number, difficulty_number,
+                status, time_seconds
+         FROM runs
+         WHERE (?1 IS NULL OR completed_unix_micros >= ?1)
+           AND completed_unix_micros < ?2
+         ORDER BY completed_unix_micros, run_id",
+    )?;
+    let rows = stmt.query_map(params![from, to], row_to_statistic_fact)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn total_monitor_session_micros(conn: &Connection, from: Option<i64>, to: i64) -> anyhow::Result<i64> {
+    Ok(conn.query_row(
+        "WITH session_bounds AS (
+             SELECT
+                 s.started_unix_micros AS started,
+                 CASE
+                     WHEN s.ended_unix_micros IS NOT NULL THEN s.ended_unix_micros
+                     WHEN s.end_reason IS NULL THEN ?2
+                     ELSE COALESCE(MAX(r.completed_unix_micros), s.started_unix_micros)
+                 END AS effective_end
+             FROM monitor_sessions s
+             LEFT JOIN run_sessions rs ON rs.session_id = s.session_id
+             LEFT JOIN runs r ON r.run_id = rs.run_id
+             GROUP BY s.session_id
+         )
+         SELECT CAST(COALESCE(SUM(
+             CASE
+                 WHEN MIN(effective_end, ?2) > MAX(started, COALESCE(?1, started))
+                 THEN MIN(effective_end, ?2) - MAX(started, COALESCE(?1, started))
+                 ELSE 0
+             END
+         ), 0) AS INTEGER)
+         FROM session_bounds",
+        params![from, to],
+        |row| row.get(0),
+    )?)
+}
+
+pub fn combined_best_rows(conn: &Connection) -> anyhow::Result<Vec<CombinedBestRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT level_number, difficulty_number, MIN(time_seconds)
+         FROM runs
+         WHERE status = 'complete'
+           AND level_number BETWEEN 1 AND 20
+           AND difficulty_number IN (0, 1, 2)
+           AND time_seconds BETWEEN 0 AND 1023
+         GROUP BY level_number, difficulty_number",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(CombinedBestRow { level_number: row.get(0)?, difficulty_number: row.get(1)?, time_seconds: row.get(2)? })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn insert_monitor_session(conn: &Connection, session: &MonitorSessionRow) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO monitor_sessions (
+             session_id, started_unix_micros, ended_unix_micros, source_name,
+             initial_cv_language, plugin_version, end_reason
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            session.session_id,
+            session.started_unix_micros,
+            session.ended_unix_micros,
+            session.source_name,
+            session.initial_cv_language,
+            session.plugin_version,
+            session.end_reason,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn end_monitor_session(
+    conn: &Connection,
+    session_id: &str,
+    ended_unix_micros: Option<i64>,
+    reason: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE monitor_sessions
+         SET ended_unix_micros = ?1, end_reason = ?2
+         WHERE session_id = ?3 AND end_reason IS NULL",
+        params![ended_unix_micros, reason, session_id],
+    )?;
+    Ok(())
+}
+
+pub fn delete_empty_monitor_session(conn: &Connection, session_id: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "DELETE FROM monitor_sessions
+         WHERE session_id = ?1
+           AND NOT EXISTS (SELECT 1 FROM run_sessions WHERE session_id = ?1)",
+        [session_id],
+    )?;
+    Ok(())
+}
+
+pub fn associate_run_session(conn: &Connection, run_id: &str, session_id: &str) -> anyhow::Result<()> {
+    conn.execute("INSERT INTO run_sessions (session_id, run_id) VALUES (?1, ?2)", params![session_id, run_id])?;
+    Ok(())
+}
+
+pub fn reconcile_monitor_sessions(conn: &Connection) -> anyhow::Result<usize> {
+    Ok(conn.execute(
+        "UPDATE monitor_sessions SET end_reason = 'interrupted'
+         WHERE ended_unix_micros IS NULL AND end_reason IS NULL",
+        [],
+    )?)
+}
+
+pub fn monitor_sessions(conn: &Connection) -> anyhow::Result<Vec<MonitorSessionRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT session_id, started_unix_micros, ended_unix_micros, source_name,
+                initial_cv_language, plugin_version, end_reason
+         FROM monitor_sessions ORDER BY started_unix_micros DESC, session_id DESC",
+    )?;
+    let rows = stmt.query_map([], row_to_monitor_session)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn monitor_session(conn: &Connection, session_id: &str) -> anyhow::Result<Option<MonitorSessionRow>> {
+    conn.query_row(
+        "SELECT session_id, started_unix_micros, ended_unix_micros, source_name,
+                initial_cv_language, plugin_version, end_reason
+         FROM monitor_sessions WHERE session_id = ?1",
+        [session_id],
+        row_to_monitor_session,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn monitor_session_facts(conn: &Connection, session_id: &str) -> anyhow::Result<Vec<RunStatisticFact>> {
+    let mut stmt = conn.prepare(
+        "SELECT r.run_id, r.completed_unix_micros, r.level_number,
+                r.difficulty_number, r.status, r.time_seconds
+         FROM runs r
+         INNER JOIN run_sessions rs ON rs.run_id = r.run_id
+         WHERE rs.session_id = ?1
+         ORDER BY r.completed_unix_micros, r.run_id",
+    )?;
+    let rows = stmt.query_map([session_id], row_to_statistic_fact)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+fn row_to_statistic_fact(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunStatisticFact> {
+    let status: String = row.get(4)?;
+    let status = RunStatus::from_str(&status).map_err(|_| {
+        rusqlite::Error::FromSqlConversionFailure(
+            4,
+            rusqlite::types::Type::Text,
+            format!("unknown run status {status}").into(),
+        )
+    })?;
+    Ok(RunStatisticFact {
+        run_id: row.get(0)?,
+        completed_unix_micros: row.get(1)?,
+        level_number: row.get(2)?,
+        difficulty_number: row.get(3)?,
+        status,
+        time_seconds: row.get(5)?,
+    })
+}
+
+fn row_to_monitor_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<MonitorSessionRow> {
+    Ok(MonitorSessionRow {
+        session_id: row.get(0)?,
+        started_unix_micros: row.get(1)?,
+        ended_unix_micros: row.get(2)?,
+        source_name: row.get(3)?,
+        initial_cv_language: row.get(4)?,
+        plugin_version: row.get(5)?,
+        end_reason: row.get(6)?,
+    })
+}
+
+fn normalized_level_number(value: Option<i32>) -> Option<i32> {
+    value.filter(|number| (1..=20).contains(number))
 }
 
 pub fn attach_saved_clip(conn: &Connection, save: &RunCatalogSave) -> anyhow::Result<IndexedRunClip> {
@@ -156,11 +446,11 @@ pub fn attach_saved_clip(conn: &Connection, save: &RunCatalogSave) -> anyhow::Re
 
 pub fn update_metadata(conn: &Connection, run_id: &str, metadata: &ClipMetadata) -> anyhow::Result<()> {
     let changed = conn.execute(
-        "UPDATE runs SET level_number = ?1, difficulty = ?2, status = ?3, time_seconds = ?4,
+        "UPDATE runs SET level_number = ?1, difficulty_number = ?2, status = ?3, time_seconds = ?4,
              metadata_json = ?5 WHERE run_id = ?6",
         params![
-            metadata.level_number,
-            metadata.difficulty,
+            normalized_level_number(metadata.level_number),
+            metadata.difficulty.as_deref().and_then(crate::ge::difficulty_number),
             metadata.status.as_str(),
             metadata.time_seconds,
             serde_json::to_string(metadata)?,
@@ -189,21 +479,21 @@ pub fn update_retention(
 pub fn upsert_imported(conn: &Connection, clip: &IndexedRunClip, completed_unix_micros: i64) -> anyhow::Result<()> {
     conn.execute(
         "INSERT INTO runs (
-            run_id, completed_unix_micros, level_number, difficulty, status, time_seconds,
+            run_id, completed_unix_micros, level_number, difficulty_number, status, time_seconds,
             retention_state, retention_reason, clip_path, size_bytes, modified_unix,
             duration_secs, metadata_json
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(run_id) DO UPDATE SET
             clip_path = excluded.clip_path, size_bytes = excluded.size_bytes,
             modified_unix = excluded.modified_unix, duration_secs = excluded.duration_secs,
-            level_number = excluded.level_number, difficulty = excluded.difficulty,
+            level_number = excluded.level_number, difficulty_number = excluded.difficulty_number,
             status = excluded.status, time_seconds = excluded.time_seconds,
             metadata_json = excluded.metadata_json",
         params![
             clip.run_id,
             completed_unix_micros,
-            clip.metadata.level_number,
-            clip.metadata.difficulty,
+            normalized_level_number(clip.metadata.level_number),
+            clip.metadata.difficulty.as_deref().and_then(crate::ge::difficulty_number),
             clip.metadata.status.as_str(),
             clip.metadata.time_seconds,
             clip.retention_state.as_str(),

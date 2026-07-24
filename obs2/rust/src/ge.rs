@@ -49,6 +49,17 @@ pub fn difficulty_name(difficulty: i32) -> Option<&'static str> {
     }
 }
 
+/// Canonical matcher difficulty keyed by a human-readable metadata label.
+pub fn difficulty_number(value: &str) -> Option<i32> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "agent" => Some(AGENT),
+        "secret agent" => Some(SECRET_AGENT),
+        "00 agent" => Some(AGENT_00),
+        "007" => Some(AGENT_007),
+        _ => None,
+    }
+}
+
 /// A target time expressed as minutes:seconds, in seconds.
 const fn mmss(minutes: i32, seconds: i32) -> i32 {
     minutes * 60 + seconds

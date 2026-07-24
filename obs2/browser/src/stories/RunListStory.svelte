@@ -21,9 +21,9 @@
 	} = $props();
 </script>
 
-<main class="mx-auto w-full max-w-3xl px-3 py-6 sm:px-4">
+<main class="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
 	<div class="mb-4">
-		<h1 class="text-xl font-semibold obs-heading">Runs</h1>
+		<h1 class="text-2xl font-semibold obs-heading">Runs</h1>
 		<p class="mt-1 font-mono text-xs obs-dim">
 			{visibleClips.length} of {clips.length}{loading ? ' | scanning...' : ''}
 		</p>

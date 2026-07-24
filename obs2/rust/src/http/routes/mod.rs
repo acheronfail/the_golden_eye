@@ -10,5 +10,6 @@ pub mod runs;
 pub mod screenshot;
 pub mod settings;
 pub mod sources;
+pub mod statistics;
 pub mod updates;
 pub mod youtube;

@@ -16,3 +16,12 @@ fn difficulty_name_uses_menu_labels() {
     assert_eq!(difficulty_name(AGENT_007), Some("007"));
     assert_eq!(difficulty_name(4), None);
 }
+
+#[test]
+fn difficulty_number_normalizes_metadata_labels() {
+    assert_eq!(difficulty_number("Agent"), Some(AGENT));
+    assert_eq!(difficulty_number(" secret AGENT "), Some(SECRET_AGENT));
+    assert_eq!(difficulty_number("00 agent"), Some(AGENT_00));
+    assert_eq!(difficulty_number("007"), Some(AGENT_007));
+    assert_eq!(difficulty_number("unknown"), None);
+}

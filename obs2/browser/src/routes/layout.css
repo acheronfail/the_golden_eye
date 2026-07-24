@@ -178,6 +178,10 @@
 	@apply bg-(--obs-bg);
 }
 
+@utility obs-page-top {
+	@apply pt-4 sm:pt-6;
+}
+
 @utility obs-banner {
 	@apply text-(--obs-gold-hover);
 }
@@ -462,11 +466,11 @@
 }
 
 @utility obs-menu-link-active {
-	@apply border-[#b18108] bg-(--obs-gold) text-[#111318];
+	@apply border-(--obs-gold)! bg-(--obs-gold-surface) text-(--obs-gold-hover);
 
 	&:hover,
 	&:active {
-		@apply border-[#b18108] bg-(--obs-gold) text-[#111318];
+		@apply border-(--obs-gold-hover)! bg-(--obs-gold-surface) text-(--obs-gold-hover);
 	}
 }
 

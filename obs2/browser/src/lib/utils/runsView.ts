@@ -178,13 +178,13 @@ export function statusLabel(status: string): string {
 	switch (status) {
 		case 'completed':
 		case 'complete':
-			return 'complete';
+			return 'Complete';
 		case 'failed':
-			return 'failed';
+			return 'Failed';
 		case 'abort':
-			return 'aborted';
+			return 'Aborted';
 		case 'kia':
-			return 'KIA';
+			return 'Killed in Action';
 		default:
 			return status;
 	}

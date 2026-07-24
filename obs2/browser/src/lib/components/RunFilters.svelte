@@ -32,20 +32,26 @@
 
 	onMount(() => {
 		const scroller = formElement.closest<HTMLElement>('.obs-content-scroller');
-		if (!scroller) return;
+		const route = formElement.parentElement;
+		if (!scroller || !route) return;
 
-		const updatePinned = () => {
+		const updateStickyState = () => {
 			pinned =
 				scroller.scrollTop > 0 && formElement.getBoundingClientRect().top <= scroller.getBoundingClientRect().top + 1;
+			route.style.setProperty('--runs-filter-sticky-height', `${formElement.offsetHeight}px`);
 		};
 
-		scroller.addEventListener('scroll', updatePinned, { passive: true });
-		window.addEventListener('resize', updatePinned);
-		updatePinned();
+		const observer = new ResizeObserver(updateStickyState);
+		observer.observe(formElement);
+		scroller.addEventListener('scroll', updateStickyState, { passive: true });
+		window.addEventListener('resize', updateStickyState);
+		updateStickyState();
 
 		return () => {
-			scroller.removeEventListener('scroll', updatePinned);
-			window.removeEventListener('resize', updatePinned);
+			observer.disconnect();
+			scroller.removeEventListener('scroll', updateStickyState);
+			window.removeEventListener('resize', updateStickyState);
+			route.style.removeProperty('--runs-filter-sticky-height');
 		};
 	});
 </script>

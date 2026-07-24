@@ -460,10 +460,10 @@
 
 <svelte:window {onkeydown} />
 
-<main class="mx-auto w-full max-w-3xl px-3 py-4 sm:px-4 sm:py-6">
+<main class="mx-auto w-full max-w-3xl px-4 obs-page-top pb-4 sm:px-6 sm:pb-6">
 	<div class="mb-4 flex items-center gap-3">
 		<div class="min-w-0">
-			<h1 class="text-xl font-semibold obs-heading">Runs</h1>
+			<h1 class="text-2xl font-semibold obs-heading">Runs</h1>
 		</div>
 		<button
 			type="button"

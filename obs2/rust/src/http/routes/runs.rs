@@ -477,13 +477,9 @@ fn normalize_status(value: &str) -> std::result::Result<RunStatus, RunPathError>
 }
 
 fn normalize_difficulty(value: &str) -> std::result::Result<&'static str, RunPathError> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "agent" => Ok("Agent"),
-        "secret agent" => Ok("Secret Agent"),
-        "00 agent" => Ok("00 Agent"),
-        "007" => Ok("007"),
-        _ => Err(RunPathError::BadRequest("difficulty must be agent, secret agent, 00 agent, or 007")),
-    }
+    crate::ge::difficulty_number(value)
+        .and_then(crate::ge::difficulty_name)
+        .ok_or(RunPathError::BadRequest("difficulty must be agent, secret agent, 00 agent, or 007"))
 }
 
 fn normalize_level(value: &str) -> std::result::Result<LevelOption, RunPathError> {

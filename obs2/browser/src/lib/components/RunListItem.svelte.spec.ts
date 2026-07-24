@@ -59,6 +59,20 @@ describe('RunListItem', () => {
 		expect(screen.getByText('pending')).toHaveClass('text-(--obs-danger)');
 	});
 
+	it('uses the compact Killed label only in list rows', () => {
+		render(RunListItem, {
+			clip: { ...clip, metadata: { ...clip.metadata, status: 'kia' } },
+			fileBrowserLabel: 'Show in Finder',
+			open: () => {},
+			rename: () => {},
+			reveal: () => {},
+			remove: () => {}
+		});
+
+		expect(screen.getByText('Killed')).toBeInTheDocument();
+		expect(screen.queryByText('Killed in Action')).not.toBeInTheDocument();
+	});
+
 	it.each([
 		['Open', 'open'],
 		['Rename', 'rename'],

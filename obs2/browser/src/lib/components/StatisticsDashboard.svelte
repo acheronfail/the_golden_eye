@@ -1,0 +1,211 @@
+<script lang="ts">
+	import type { Snippet } from 'svelte';
+	import type {
+		DifficultyNumber,
+		MonitoringSessionDetail,
+		MonitoringSessionSummary,
+		RunStatus,
+		StatisticsResponse
+	} from '$lib/api';
+	import Chart from './Chart.svelte';
+	import CombinedBestTimes from './CombinedBestTimes.svelte';
+	import SectionTitle from './SectionTitle.svelte';
+	import SegmentedControl from './SegmentedControl.svelte';
+	import SessionStatistics from './SessionStatistics.svelte';
+	import StatisticsSummaryPanel from './StatisticsSummaryPanel.svelte';
+	import StatisticsFilters from './StatisticsFilters.svelte';
+	import StatusSeriesPicker from './StatusSeriesPicker.svelte';
+	import {
+		ALL_STATUSES,
+		attemptsByLevelData,
+		formatDuration,
+		mostPlayedLevel,
+		outcomeData,
+		overallAttemptsData,
+		runTimeData
+	} from '$lib/utils/statisticsView';
+	import type { StatisticsLevelOrder, StatisticsOutcomeMeasure, StatisticsTab } from '$lib/utils/statisticsPreferences';
+
+	let {
+		data,
+		loading,
+		error,
+		levelNumber = $bindable(),
+		difficultyNumber = $bindable(),
+		tab = $bindable(),
+		sessions,
+		selectedSessionId = $bindable(),
+		sessionDetail,
+		sessionLoading = false,
+		improvementStatuses = $bindable([...ALL_STATUSES]),
+		outcomeStatuses = $bindable([...ALL_STATUSES]),
+		outcomeMeasure = $bindable('share'),
+		levelOrder = $bindable('attempts'),
+		controls
+	}: {
+		data: StatisticsResponse | null;
+		loading: boolean;
+		error: string | null;
+		levelNumber: number;
+		difficultyNumber: DifficultyNumber;
+		tab: StatisticsTab;
+		sessions: MonitoringSessionSummary[];
+		selectedSessionId: string;
+		sessionDetail: MonitoringSessionDetail | null;
+		sessionLoading?: boolean;
+		improvementStatuses?: RunStatus[];
+		outcomeStatuses?: RunStatus[];
+		outcomeMeasure?: StatisticsOutcomeMeasure;
+		levelOrder?: StatisticsLevelOrder;
+		controls?: Snippet;
+	} = $props();
+
+	const tabs: Array<{ id: StatisticsTab; label: string }> = [
+		{ id: 'overview', label: 'Overview' },
+		{ id: 'improvement', label: 'Improvement' },
+		{ id: 'outcomes', label: 'Outcomes' },
+		{ id: 'sessions', label: 'Sessions' }
+	];
+</script>
+
+{#snippet levelOrderActions()}
+	<SegmentedControl
+		value={levelOrder}
+		options={[
+			{ value: 'attempts', label: 'Most attempted' },
+			{ value: 'mission', label: 'Mission order' }
+		]}
+		ariaLabel="Attempts by level order"
+		onChange={(value) => (levelOrder = value as StatisticsLevelOrder)}
+	/>
+{/snippet}
+
+<div class="sticky top-0 z-20 -mx-4 border-b border-(--obs-border-muted) bg-(--obs-bg) px-4 sm:-mx-6 sm:px-6">
+	<div class="flex gap-1 overflow-x-auto" role="tablist" aria-label="Statistics views">
+		{#each tabs as item}
+			<button
+				type="button"
+				role="tab"
+				aria-selected={tab === item.id}
+				class="border-b-2 px-3 py-2 text-sm font-semibold transition-colors"
+				class:border-(--obs-gold)={tab === item.id}
+				class:text-(--obs-gold-hover)={tab === item.id}
+				class:border-transparent={tab !== item.id}
+				class:obs-muted={tab !== item.id}
+				onclick={() => (tab = item.id)}
+			>
+				{item.label}
+			</button>
+		{/each}
+	</div>
+</div>
+
+{#if controls}
+	<div class="mt-4">
+		{@render controls()}
+	</div>
+{/if}
+
+{#if error}
+	<div class="mt-4 rounded-sm border border-(--obs-danger) bg-(--obs-danger-surface) p-3 text-sm" role="alert">
+		{error}
+	</div>
+{/if}
+
+{#if loading && !data}
+	<div class="mt-4 rounded-sm obs-panel p-8 text-center text-sm obs-muted">Loading statistics…</div>
+{:else if data}
+	{#if tab === 'overview'}
+		<div class="mt-4">
+			<StatisticsSummaryPanel
+				title="General statistics"
+				items={[
+					{ label: 'Attempts', value: String(data.summary.counts.total) },
+					{ label: 'Total session time', value: formatDuration(data.summary.totalSessionSeconds) },
+					{ label: 'Most played', value: mostPlayedLevel(data) },
+					{
+						label: 'Overall combined time',
+						value: formatDuration(data.summary.combinedBestTimes.overallSeconds)
+					}
+				]}
+			/>
+		</div>
+		<section class="mt-4 rounded-sm obs-panel p-4">
+			<SectionTitle title="Attempts by level" actions={levelOrderActions} />
+			<div class="mt-3">
+				<Chart
+					data={attemptsByLevelData(data, levelOrder)}
+					title="Attempts by level"
+					description="Horizontal bars show attempts for every level split by Complete, Failed, Aborted, and Killed in Action"
+					xLabel="Share of attempts"
+				/>
+			</div>
+		</section>
+		<section class="mt-4 rounded-sm obs-panel p-4">
+			<SectionTitle title="Attempts over time" />
+			<div class="mt-3">
+				<Chart
+					data={overallAttemptsData(data.overallBuckets)}
+					title="Attempts over time"
+					description="All attempts grouped into calendar buckets and split by outcome"
+					xLabel="Date"
+					yLabel="Attempts"
+				/>
+			</div>
+		</section>
+		<div class="mt-4"><CombinedBestTimes value={data.summary.combinedBestTimes} /></div>
+	{:else if tab === 'improvement'}
+		<div class="mt-4">
+			<StatisticsFilters bind:levelNumber bind:difficultyNumber />
+		</div>
+		<div class="mt-4"><StatusSeriesPicker bind:value={improvementStatuses} /></div>
+		<section class="mt-4 rounded-sm obs-panel p-4">
+			<SectionTitle title="Run time improvement" />
+			<p class="mt-1 text-xs obs-dim">The gold line tracks completed PBs.</p>
+			<div class="mt-3">
+				<Chart
+					data={runTimeData(data, improvementStatuses)}
+					title="Game time over chronological attempts"
+					description="Individual game times for the selected level and difficulty"
+					xLabel="Attempt date"
+					yLabel="Game time"
+					formatValue={formatDuration}
+				/>
+			</div>
+			{#if data.selectedCohort?.untimedRuns}
+				<p class="mt-2 text-xs obs-muted">{data.selectedCohort.untimedRuns} untimed runs omitted</p>
+			{/if}
+		</section>
+	{:else if tab === 'outcomes'}
+		<div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+			<StatusSeriesPicker bind:value={outcomeStatuses} />
+			<SegmentedControl
+				value={outcomeMeasure}
+				options={[
+					{ value: 'share', label: 'Share' },
+					{ value: 'count', label: 'Count' }
+				]}
+				ariaLabel="Outcome measurement"
+				onChange={(value) => (outcomeMeasure = value as StatisticsOutcomeMeasure)}
+			/>
+		</div>
+		<section class="mt-4 rounded-sm obs-panel p-4">
+			<SectionTitle title="Outcome mix" />
+			<p class="mt-1 text-xs obs-dim">Selected outcomes are side-by-side for each calendar bucket.</p>
+			<div class="mt-3">
+				<Chart
+					data={outcomeData(data.overallBuckets, outcomeStatuses, outcomeMeasure)}
+					title="Outcome mix over time"
+					description="Grouped bars compare the selected run outcomes in each period"
+					xLabel="Date"
+					yLabel={outcomeMeasure === 'share' ? 'Share' : 'Attempts'}
+					formatValue={outcomeMeasure === 'share' ? (value) => `${Math.round(value)}%` : undefined}
+				/>
+			</div>
+		</section>
+	{:else}
+		<div class="mt-4">
+			<SessionStatistics {sessions} bind:selectedSessionId detail={sessionDetail} loading={sessionLoading} />
+		</div>
+	{/if}
+{/if}

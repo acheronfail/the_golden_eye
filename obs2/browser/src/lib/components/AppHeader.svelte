@@ -44,9 +44,9 @@
                          ┛`;
 	const menuButtonClass = 'obs-icon-button inline-flex h-8 w-8 shrink-0 items-center justify-center';
 	const menuPanelClass =
-		'obs-menu-panel absolute top-full right-2 z-40 mt-2 w-[min(20rem,calc(100vw-1rem))] rounded p-2 text-sm';
+		'obs-menu-panel absolute top-full right-2 z-40 mt-2 w-max max-w-[calc(100vw-1rem)] rounded p-2 text-sm';
 	const menuLinkCommon =
-		'obs-menu-link flex min-h-11 items-center justify-end rounded px-3 py-2 text-right transition-colors';
+		'obs-menu-link flex min-h-11 w-full items-center justify-end rounded border border-transparent py-2 pr-4 pl-12 text-right transition-colors';
 	const menuLinkClass = menuLinkCommon;
 	const menuLinkActiveClass = `${menuLinkCommon} obs-menu-link-active`;
 	const isCurrentLink = (link: AppHeaderLink): boolean =>
@@ -86,7 +86,7 @@
 			<ul class="flex flex-col gap-1">
 				{#each links as link}
 					{@const isCurrentPage = isCurrentLink(link)}
-					<li>
+					<li class="w-full text-right">
 						<a
 							class={isCurrentPage ? menuLinkActiveClass : menuLinkClass}
 							href={link.href}

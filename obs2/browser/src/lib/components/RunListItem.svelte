@@ -44,6 +44,9 @@
 	const itemLabel = $derived(clip.fileName ? `Open ${clip.fileName}` : `Open ${levelName} run history only`);
 	const timestampLabel = $derived(formatRunListDate(clip.metadata.timestamp, showDate));
 	const timestampTitle = $derived(formatDate(clip.metadata.timestamp));
+	const compactStatusLabel = $derived(
+		clip.metadata.status === 'kia' ? 'Killed' : statusLabel(clip.metadata.status) || 'unknown'
+	);
 </script>
 
 <div
@@ -76,7 +79,7 @@
 						: 'bg-(--obs-text-dim)'}"
 				aria-hidden="true"
 			></span>
-			{statusLabel(clip.metadata.status) || 'unknown'}
+			{compactStatusLabel}
 		</span>
 		<span
 			class="truncate font-mono text-[10px] {pending ? 'font-semibold text-(--obs-danger)' : 'text-(--obs-text-dim)'}"

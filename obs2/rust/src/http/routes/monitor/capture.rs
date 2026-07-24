@@ -14,6 +14,8 @@ pub struct MonitorHandle {
     pub(super) thread: JoinHandle<()>,
     /// The source name this monitor uses, retained in the shared app snapshot.
     pub(super) source_name: String,
+    /// Durable catalog session for this monitor lifecycle, when creation succeeded.
+    pub(super) session_id: Option<String>,
     /// The latched capture transform, shared so a standalone frame dump on the
     /// same source can crop/un-stretch its frames identically to the matcher.
     pub(super) region: Arc<Mutex<Option<CaptureRegion>>>,

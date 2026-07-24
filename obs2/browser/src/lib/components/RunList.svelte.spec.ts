@@ -30,6 +30,30 @@ const runClip = (fileName: string, level: string): RunClip => ({
 });
 
 describe('RunList', () => {
+	it('keeps chronological date separators sticky', () => {
+		const clips = [runClip('facility.mov', 'Facility')];
+		const { container } = render(RunList, {
+			loading: false,
+			clips,
+			visibleClips: clips,
+			scannedDirectoryCount: 1,
+			directoryCount: 1,
+			hasActiveFilters: false,
+			sort: 'newest',
+			onSortChange: () => {},
+			fileBrowserLabel: 'Show in Finder',
+			clearFilters: () => {},
+			open: () => {},
+			rename: () => {},
+			reveal: () => {},
+			remove: () => {}
+		});
+
+		const separator = container.querySelector('[role="list"] section .sticky');
+		expect(separator).toBeInTheDocument();
+		expect(separator).toHaveClass('top-[var(--runs-filter-sticky-height,0px)]');
+	});
+
 	it('keeps one action menu open and dismisses it on an outside click', async () => {
 		const user = userEvent.setup();
 		const clips = [runClip('facility.mov', 'Facility'), runClip('control.mov', 'Control')];

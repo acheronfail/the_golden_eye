@@ -283,7 +283,7 @@
 	<title>Options</title>
 </svelte:head>
 
-<main class="mx-auto grid w-full max-w-2xl gap-5 px-4 py-8 sm:px-6 sm:py-12">
+<main class="mx-auto grid w-full max-w-2xl gap-5 px-4 obs-page-top pb-8 sm:px-6 sm:pb-12">
 	<div class="grid gap-2">
 		<h1 class="text-2xl font-semibold obs-heading">Options</h1>
 		<p class="text-sm obs-subtitle">Settings are saved automatically.</p>

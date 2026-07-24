@@ -586,7 +586,7 @@ fn sqlite_metadata_document_round_trips_complete_metadata() {
         "run_id",
         "completed_unix_micros",
         "level_number",
-        "difficulty",
+        "difficulty_number",
         "status",
         "time_seconds",
         "retention_state",
@@ -634,4 +634,182 @@ fn schema_one_drops_and_reseeds_without_failing_open() {
     // The dropped catalog reseeds from disk on the next resync.
     catalog.resync(&[RunCatalogRoot { path: root.clone() }]).unwrap();
     assert_eq!(catalog.list(&[RunCatalogRoot { path: root }]).unwrap().len(), 1);
+}
+
+#[test]
+fn schema_two_migrates_difficulty_to_numbers_without_reseeding() {
+    let dir = TestDir::new("schema-two-migration");
+    let db_path = dir.join("runs.sqlite");
+    let metadata = finalized_metadata(RunStatus::Complete, Some(91), " secret AGENT ");
+    let metadata_json = serde_json::to_string(&metadata).unwrap();
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
+             INSERT INTO meta(key, value) VALUES ('schema_version', '2');
+             CREATE TABLE runs (
+                 run_id TEXT PRIMARY KEY NOT NULL,
+                 completed_unix_micros INTEGER NOT NULL,
+                 level_number INTEGER,
+                 difficulty TEXT,
+                 status TEXT NOT NULL,
+                 time_seconds INTEGER,
+                 retention_state TEXT NOT NULL,
+                 retention_reason TEXT,
+                 clip_path TEXT UNIQUE,
+                 size_bytes INTEGER,
+                 modified_unix INTEGER,
+                 duration_secs REAL,
+                 metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json)),
+                 youtube_json TEXT CHECK (youtube_json IS NULL OR json_valid(youtube_json))
+             );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO runs (
+                 run_id, completed_unix_micros, level_number, difficulty, status,
+                 time_seconds, retention_state, metadata_json
+             ) VALUES ('durable-id', 10, 8, ' secret AGENT ', 'complete', 91, 'kept', ?1)",
+            [&metadata_json],
+        )
+        .unwrap();
+    }
+
+    let catalog = RunCatalog::open(db_path.clone()).expect("schema two migrates");
+    assert!(!catalog.needs_seed());
+    assert_eq!(catalog.get_run("durable-id").unwrap().unwrap().metadata, metadata);
+    drop(catalog);
+
+    let conn = rusqlite::Connection::open(db_path).unwrap();
+    let migrated: (i32, String) = conn
+        .query_row("SELECT difficulty_number, metadata_json FROM runs WHERE run_id = 'durable-id'", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .unwrap();
+    assert_eq!(migrated.0, 1);
+    assert_eq!(migrated.1, metadata_json);
+    let version: String =
+        conn.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| row.get(0)).unwrap();
+    assert_eq!(version, "3");
+}
+
+#[test]
+fn statistics_and_sessions_use_numeric_difficulty() {
+    use crate::db::statistics::{Bucket, StatisticsQuery};
+
+    let dir = TestDir::new("statistics");
+    let catalog = catalog(&dir);
+    let started = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    let session_id = catalog
+        .create_monitor_session(started, "N64 Capture".to_owned(), Some("en".to_owned()), "test".to_owned())
+        .unwrap();
+    let first = catalog
+        .create_finalized_run_in_session(
+            started + Duration::from_secs(10),
+            finalized_metadata(RunStatus::Complete, Some(80), "Agent"),
+            Some(&session_id),
+        )
+        .unwrap();
+    catalog
+        .create_finalized_run_in_session(
+            started + Duration::from_secs(20),
+            finalized_metadata(RunStatus::Abort, None, "Agent"),
+            Some(&session_id),
+        )
+        .unwrap();
+    catalog.end_monitor_session(&session_id, Some(started + Duration::from_secs(30)), "userStopped").unwrap();
+    let after_completed = catalog.monitoring_sessions(Some(1_700_000_030_000_000), 1_700_000_040_000_000).unwrap();
+    assert!(after_completed.is_empty());
+
+    let data = catalog
+        .statistics(StatisticsQuery {
+            from: None,
+            to: 1_800_000_000_000_000,
+            bucket: Bucket::Month,
+            level_number: Some(8),
+            difficulty_number: Some(0),
+        })
+        .unwrap();
+    assert_eq!(data.summary.counts.total, 2);
+    assert_eq!(data.summary.total_session_seconds, 30.0);
+    assert_eq!(data.selected_cohort.as_ref().unwrap().run_times[0].run_id, first.run_id);
+    assert_eq!(data.summary.combined_best_times.recorded_cells, 1);
+
+    let suggested = catalog
+        .statistics(StatisticsQuery {
+            from: None,
+            to: 1_800_000_000_000_000,
+            bucket: Bucket::Month,
+            level_number: None,
+            difficulty_number: None,
+        })
+        .unwrap();
+    assert_eq!(suggested.selected_cohort.as_ref().map(|value| value.level_number), Some(8));
+    assert_eq!(suggested.selected_cohort.as_ref().map(|value| value.difficulty_number), Some(0));
+
+    let detail = catalog.monitoring_session(&session_id).unwrap().unwrap();
+    assert_eq!(detail.summary.counts.total, 2);
+    assert_eq!(detail.levels[0].difficulty_number, Some(0));
+
+    let scoped = catalog
+        .statistics(StatisticsQuery {
+            from: Some(1_700_000_012_000_000),
+            to: 1_700_000_025_000_000,
+            bucket: Bucket::Day,
+            level_number: None,
+            difficulty_number: None,
+        })
+        .unwrap();
+    assert_eq!(scoped.summary.total_session_seconds, 13.0);
+
+    let empty_interrupted = catalog
+        .create_monitor_session(
+            started + Duration::from_secs(35),
+            "N64 Capture".to_owned(),
+            Some("en".to_owned()),
+            "test".to_owned(),
+        )
+        .unwrap();
+    catalog.end_monitor_session(&empty_interrupted, None, "interrupted").unwrap();
+    let after_empty_interrupted =
+        catalog.monitoring_sessions(Some(1_700_000_040_000_000), 1_700_000_044_000_000).unwrap();
+    assert!(after_empty_interrupted.iter().all(|session| session.session_id != empty_interrupted));
+
+    catalog
+        .create_monitor_session(
+            started + Duration::from_secs(45),
+            "N64 Capture".to_owned(),
+            Some("en".to_owned()),
+            "test".to_owned(),
+        )
+        .unwrap();
+    let interrupted = catalog
+        .create_monitor_session(
+            started + Duration::from_secs(50),
+            "N64 Capture".to_owned(),
+            Some("en".to_owned()),
+            "test".to_owned(),
+        )
+        .unwrap();
+    catalog
+        .create_finalized_run_in_session(
+            started + Duration::from_secs(60),
+            finalized_metadata(RunStatus::Failed, Some(90), "Agent"),
+            Some(&interrupted),
+        )
+        .unwrap();
+    catalog.end_monitor_session(&interrupted, None, "interrupted").unwrap();
+    let interrupted_overlap = catalog.monitoring_sessions(Some(1_700_000_055_000_000), 1_700_000_058_000_000).unwrap();
+    assert!(interrupted_overlap.iter().any(|session| session.session_id == interrupted));
+
+    let mixed_sessions = catalog
+        .statistics(StatisticsQuery {
+            from: Some(1_700_000_040_000_000),
+            to: 1_700_000_070_000_000,
+            bucket: Bucket::Day,
+            level_number: None,
+            difficulty_number: None,
+        })
+        .unwrap();
+    assert_eq!(mixed_sessions.summary.total_session_seconds, 35.0);
 }
