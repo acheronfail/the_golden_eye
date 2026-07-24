@@ -485,8 +485,8 @@
 							y1={yPosition(reference.value)}
 							y2={yPosition(reference.value)}
 							stroke={reference.color}
-							stroke-width="2"
-							stroke-dasharray="1 5"
+							stroke-width="1"
+							stroke-dasharray="0.5 2.5"
 							stroke-linecap="round"
 							opacity="0.9"
 							aria-hidden="true"

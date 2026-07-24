@@ -72,7 +72,9 @@ describe('Chart', () => {
 		});
 
 		expect(screen.getByRole('button', { name: 'Hide Personal best' })).toHaveAttribute('aria-pressed', 'true');
-		expect(container.querySelector('[data-chart-reference-line="personal-best"]')).toBeInTheDocument();
+		const referenceLine = container.querySelector('[data-chart-reference-line="personal-best"]');
+		expect(referenceLine).toHaveAttribute('stroke-width', '1');
+		expect(referenceLine).toHaveAttribute('stroke-dasharray', '0.5 2.5');
 		const complete = screen.getByRole('button', { name: 'Show Complete' });
 		expect(complete).toHaveClass('line-through');
 		expect(screen.getByRole('button', { name: 'Show Killed in Action' })).toBeInTheDocument();
