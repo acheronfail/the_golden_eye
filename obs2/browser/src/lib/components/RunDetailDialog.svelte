@@ -68,9 +68,14 @@
 					</h2>
 					<p class="obs-dim mt-1 truncate font-mono text-xs" title={runDetail(clip)}>{runDetail(clip)}</p>
 				</div>
-				<button type="button" onclick={view.actions.close} class="obs-text-button shrink-0 px-2 py-1 font-mono text-xs"
-					>close</button
+				<button
+					type="button"
+					class="obs-text-button shrink-0 px-1.5 py-0.5 text-xs"
+					aria-label="Close run viewer"
+					onclick={view.actions.close}
 				>
+					x
+				</button>
 			</header>
 
 			<div class="max-h-[calc(100vh-9rem)] overflow-y-auto p-4">
