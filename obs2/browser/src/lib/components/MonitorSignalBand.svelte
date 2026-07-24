@@ -107,7 +107,7 @@
 			<span class="stop-hint">escape or space to stop</span>
 		{/if}
 		{#if monitoring && showMonitorFps && presentation.fpsText}
-			<span class:fps-warning={presentation.fpsWarning} class:fps-lagging={presentation.fpsLagging}>
+			<span class:text-amber-400={presentation.fpsWarning} class:text-(--obs-danger)={presentation.fpsLagging}>
 				{presentation.fpsText}
 			</span>
 		{/if}
@@ -332,14 +332,6 @@
 		font-size: clamp(1.35rem, 7cqw, 3rem);
 		font-weight: 500;
 		font-variant-numeric: tabular-nums;
-	}
-
-	.fps-warning {
-		color: var(--obs-warning);
-	}
-
-	.fps-lagging {
-		color: var(--obs-danger);
 	}
 
 	@keyframes signal-title-in {

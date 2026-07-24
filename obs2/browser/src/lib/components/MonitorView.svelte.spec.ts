@@ -92,15 +92,15 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 			fps: { processedFps: 29, capturedFps: 30, sourceFps: 30, droppedFrames: 1, health: 'warning' }
 		});
 		const meter = screen.getByText('29.0 / 30.0 FPS');
-		expect(meter).toHaveClass('fps-warning');
-		expect(meter).not.toHaveClass('fps-lagging');
+		expect(meter).toHaveClass('text-amber-400');
+		expect(meter).not.toHaveClass('text-(--obs-danger)');
 
 		await view.rerender({
 			...props(design, 'started', match('start')),
 			showMonitorFps: true,
 			fps: { processedFps: 25, capturedFps: 30, sourceFps: 30, droppedFrames: 3, health: 'lagging' }
 		});
-		expect(screen.getByText('25.0 / 30.0 FPS')).toHaveClass('fps-lagging');
+		expect(screen.getByText('25.0 / 30.0 FPS')).toHaveClass('text-(--obs-danger)');
 	});
 });
 
@@ -136,7 +136,7 @@ describe('debug monitor', () => {
 				}
 			],
 			showMonitorFps: true,
-			fps: { processedFps: 60, capturedFps: 60, sourceFps: 60, droppedFrames: 0, health: 'healthy' }
+			fps: { processedFps: 59, capturedFps: 60, sourceFps: 30, droppedFrames: 1, health: 'warning' }
 		});
 
 		expect(screen.getByRole('heading', { name: /^complete$/i })).toBeInTheDocument();
@@ -148,13 +148,19 @@ describe('debug monitor', () => {
 		expect(screen.getByText('trimming')).toBeInTheDocument();
 		expect(screen.getByText('#8')).toBeInTheDocument();
 		expect(screen.getByText('#7')).toBeInTheDocument();
-		expect(screen.getAllByText('60')).toHaveLength(3);
+		const fpsMonitor = screen.getByText('59.0 / 60.0 FPS');
+		expect(fpsMonitor.closest('[data-fps-health]')).toHaveAttribute('data-fps-health', 'warning');
+		expect(fpsMonitor.closest('dd')).toHaveClass('text-amber-400');
+		expect(screen.getByText('processed FPS').nextElementSibling).toHaveTextContent('59');
+		expect(screen.getByText('captured FPS').nextElementSibling).toHaveTextContent('60');
+		expect(screen.getByText('configured FPS').nextElementSibling).toHaveTextContent('30');
+		expect(screen.getByText('dropped frames').nextElementSibling).toHaveTextContent('1');
+		expect(screen.getByText('health').nextElementSibling).toHaveTextContent('warning');
 		expect(screen.getByText('[58,65,61]')).toBeInTheDocument();
 		expect(screen.getByText(/"score": 0.98/)).toBeInTheDocument();
 		expect(screen.queryByText(/show FPS setting/i)).not.toBeInTheDocument();
-		expect(view.container.querySelectorAll('.state-cell')).toHaveLength(7);
+		expect(view.container.querySelectorAll('.state-cell')).toHaveLength(8);
 		expect(view.container.querySelectorAll('[data-value-kind="true"]')).not.toHaveLength(0);
-		expect(view.container.querySelectorAll('[data-value-kind="false"]')).not.toHaveLength(0);
 		expect(view.container.querySelectorAll('[data-value-kind="null"]')).not.toHaveLength(0);
 		expect(view.container.querySelector('[class*="motion"], [class*="sweep"]')).not.toBeInTheDocument();
 	});

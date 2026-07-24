@@ -235,6 +235,12 @@
 	<section class="mt-3" aria-labelledby="fps-heading">
 		<h2 class="mb-1 {labelClass}" id="fps-heading">Frame processing</h2>
 		<dl class={gridClass}>
+			<div class="state-cell" data-fps-health={fps?.health}>
+				<dt>FPS monitor</dt>
+				<dd class:text-amber-400={presentation.fpsWarning} class:text-(--obs-danger)={presentation.fpsLagging}>
+					{@render scalar(fps, presentation.fpsText ?? 'null')}
+				</dd>
+			</div>
 			<div>
 				<dt>processed FPS</dt>
 				<dd>{@render scalar(fps?.processedFps)}</dd>
@@ -254,14 +260,6 @@
 			<div>
 				<dt>health</dt>
 				<dd>{@render scalar(fps?.health)}</dd>
-			</div>
-			<div>
-				<dt>warning</dt>
-				<dd>{@render scalar(presentation.fpsWarning)}</dd>
-			</div>
-			<div>
-				<dt>lagging</dt>
-				<dd>{@render scalar(presentation.fpsLagging)}</dd>
 			</div>
 		</dl>
 	</section>
