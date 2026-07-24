@@ -46,6 +46,14 @@ export class Backend {
 		return this.postJson('/api/v1/runs/keep', { runId });
 	}
 
+	public createManualRun(input: ManualRunInput): Promise<RunClip> {
+		return this.postJson('/api/v1/runs/manual', input);
+	}
+
+	public importTheElite(username: string): Promise<TheEliteImportResponse> {
+		return this.postJson('/api/v1/runs/import/the-elite', { username });
+	}
+
 	public deleteCatalogRun(runId: string, keepHistory: boolean): Promise<RunClip | null> {
 		return this.postJson('/api/v1/runs/delete', { runId, keepHistory });
 	}
@@ -405,6 +413,29 @@ export interface RunClip {
 	metadata: ClipMetadata;
 	retentionState: RunRetentionState;
 	retentionReason: string | null;
+	youtube?: RunYouTubeVideo | null;
+}
+
+export interface RunYouTubeVideo {
+	videoId: string;
+	videoUrl: string;
+	uploadedAt: string;
+	title: string;
+}
+
+export interface ManualRunInput {
+	date: string;
+	level: string;
+	difficulty: string;
+	time: string;
+	romLanguage: string;
+	youtubeUrl?: string;
+}
+
+export interface TheEliteImportResponse {
+	imported: number;
+	alreadyImported: number;
+	videos: number;
 }
 
 export type RunRetentionState = 'pending' | 'kept' | 'expired';

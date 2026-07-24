@@ -88,6 +88,81 @@ fn normalize_time_rejects_bad_values() {
 }
 
 #[test]
+fn manual_history_run_keeps_origin_and_youtube_metadata_without_a_clip() {
+    let dir = TestDir::new("manual-history");
+    let catalog = test_catalog(&dir);
+    let run = create_manual_run(
+        &catalog,
+        ManualRunRequest {
+            date: "2025-04-03".to_owned(),
+            level: "Facility".to_owned(),
+            difficulty: "00 Agent".to_owned(),
+            time: "1:23".to_owned(),
+            rom_language: "en".to_owned(),
+            youtube_url: Some("https://youtu.be/abc_123".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert!(run.path.is_empty());
+    assert_eq!(run.metadata.time.as_deref(), Some("01:23"));
+    assert_eq!(run.metadata.time_seconds, Some(83));
+    assert_eq!(run.retention_reason.as_deref(), Some("manualEntry"));
+    assert_eq!(run.youtube.as_ref().map(|video| video.video_id.as_str()), Some("abc_123"));
+    let stored = catalog.get_run(&run.run_id).unwrap().unwrap();
+    assert_eq!(stored.youtube, run.youtube);
+}
+
+#[test]
+fn elite_history_import_is_idempotent_and_preserves_source_metadata() {
+    let dir = TestDir::new("elite-history");
+    let catalog = test_catalog(&dir);
+    let elite = crate::the_elite::EliteRun {
+        time_id: "309706".to_owned(),
+        timestamp: "2026-07-24T12:00:00Z".to_owned(),
+        level: "Frigate".to_owned(),
+        difficulty: "Agent".to_owned(),
+        time: "0:33".to_owned(),
+        time_seconds: 33,
+        system: "NTSC-J".to_owned(),
+        current_personal_best: true,
+        proof_available: true,
+        video_id: Some("bgddOpQBKk4".to_owned()),
+    };
+
+    let first = import_elite_runs(&catalog, "acheronfail", vec![elite.clone()]).unwrap();
+    let second = import_elite_runs(&catalog, "acheronfail", vec![elite]).unwrap();
+
+    assert_eq!((first.imported, first.already_imported, first.videos), (1, 0, 1));
+    assert_eq!((second.imported, second.already_imported, second.videos), (0, 1, 0));
+    let run = catalog.get_run("the-elite-309706").unwrap().unwrap();
+    assert_eq!(run.retention_reason.as_deref(), Some("theElite"));
+    assert_eq!(run.metadata.source_name, "The Elite (NTSC-J)");
+    assert!(run.metadata.comment.contains("current personal best"));
+    assert_eq!(run.youtube.as_ref().map(|video| video.video_id.as_str()), Some("bgddOpQBKk4"));
+}
+
+#[test]
+fn missing_elite_users_map_to_not_found_without_masking_other_upstream_errors() {
+    let missing = anyhow::Error::new(crate::the_elite::UserNotFound::new("missing-runner"));
+    assert_eq!(elite_fetch_error_status(&missing), StatusCode::NOT_FOUND);
+    assert_eq!(missing.to_string(), "The Elite user ~missing-runner was not found");
+
+    let upstream = anyhow::anyhow!("The Elite returned 503 Service Unavailable");
+    assert_eq!(elite_fetch_error_status(&upstream), StatusCode::BAD_GATEWAY);
+}
+
+#[test]
+fn manual_youtube_links_accept_only_video_urls() {
+    assert_eq!(
+        youtube_metadata("https://www.youtube.com/watch?v=abc-123", "2026-01-01T00:00:00Z", "title").unwrap().video_id,
+        "abc-123"
+    );
+    assert!(youtube_metadata("https://example.com/watch?v=abc-123", "2026-01-01T00:00:00Z", "title").is_err());
+    assert!(youtube_metadata("https://youtube.com/channel/abc-123", "2026-01-01T00:00:00Z", "title").is_err());
+}
+
+#[test]
 fn normalized_run_file_name_preserves_extension_when_missing() {
     let path = Path::new("/runs/original.mov");
     assert_eq!(normalized_run_file_name(path, "renamed").unwrap(), "renamed.mov");

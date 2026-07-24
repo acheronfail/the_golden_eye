@@ -454,14 +454,14 @@
 }
 
 @utility obs-menu-link-danger {
-	@apply mt-1 border-t border-[color-mix(in_srgb,var(--obs-danger),var(--obs-border)_45%)] text-[#ffb3b3];
+	@apply mt-1 border-t border-[color-mix(in_srgb,var(--obs-danger),var(--obs-border)_45%)] text-[#ffb3b3]!;
 
 	&:hover {
-		@apply bg-(--obs-danger-surface) text-white;
+		@apply bg-(--obs-danger-surface) text-white!;
 	}
 
 	&:active {
-		@apply bg-[color-mix(in_srgb,var(--obs-danger),#111318_30%)] text-white;
+		@apply bg-[color-mix(in_srgb,var(--obs-danger),#111318_30%)] text-white!;
 	}
 }
 

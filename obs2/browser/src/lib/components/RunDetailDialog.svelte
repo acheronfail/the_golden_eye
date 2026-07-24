@@ -127,12 +127,33 @@
 					{/if}
 				</div>
 				{#if clip.path}
+					<div class="mb-2 flex items-center justify-between gap-2">
+						<span class="rounded border border-(--obs-border-soft) px-2 py-1 font-mono text-[10px] obs-dim">
+							Local clip
+						</span>
+						<span class="truncate font-mono text-[10px] obs-dim" title={clip.path}>{clip.fileName}</span>
+					</div>
 					<!-- svelte-ignore a11y_media_has_caption -->
 					<video src={backend.runVideoUrl(clip.path)} controls class="aspect-video w-full obs-preview"></video>
 					<RunYouTubeSection {clip} />
+				{:else if clip.youtube}
+					<div class="mb-2">
+						<span class="rounded border border-(--obs-border-soft) px-2 py-1 font-mono text-[10px] obs-dim">
+							YouTube video
+						</span>
+					</div>
+					<iframe
+						src={`https://www.youtube.com/embed/${clip.youtube.videoId}`}
+						title={clip.youtube.title || `${clip.metadata.level} run on YouTube`}
+						class="aspect-video w-full obs-preview"
+						allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+						allowfullscreen
+					></iframe>
 				{:else}
 					<p class="rounded obs-empty-state px-4 py-6 text-center text-sm">
-						The video has been removed. Run history is still available.
+						{clip.retentionReason === 'manualEntry' || clip.retentionReason === 'theElite'
+							? 'No video was linked when this historical time was added.'
+							: 'The video has been removed. Run history is still available.'}
 					</p>
 				{/if}
 

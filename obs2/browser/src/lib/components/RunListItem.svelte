@@ -41,7 +41,17 @@
 	const personalBest = $derived(clip.retentionReason === 'personalBest');
 	const pending = $derived(Boolean(clip.path && clip.retentionState === 'pending'));
 	const levelName = $derived(clip.metadata.level || 'unknown');
-	const retentionLabel = $derived(!clip.path ? 'history only' : clip.retentionState === 'pending' ? 'pending' : 'kept');
+	const retentionLabel = $derived(
+		!clip.path
+			? clip.retentionReason === 'manualEntry'
+				? 'manual'
+				: clip.retentionReason === 'theElite'
+					? 'the elite'
+					: 'history only'
+			: clip.retentionState === 'pending'
+				? 'pending'
+				: 'kept'
+	);
 	const itemLabel = $derived(clip.fileName ? `Open ${clip.fileName}` : `Open ${levelName} run history only`);
 	const timestampLabel = $derived(formatRunListDate(clip.metadata.timestamp, showDate));
 	const timestampTitle = $derived(formatDate(clip.metadata.timestamp));

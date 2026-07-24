@@ -7,7 +7,8 @@ SELECT
     size_bytes,
     modified_unix,
     duration_secs,
-    metadata_json
+    metadata_json,
+    youtube_json
 FROM runs
 ORDER BY
     time_seconds IS NULL,

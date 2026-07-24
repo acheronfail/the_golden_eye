@@ -425,6 +425,10 @@ export function retentionReasonLabel(reason?: string | null): string {
 			return 'Kept manually';
 		case 'imported':
 			return 'Imported clip';
+		case 'manualEntry':
+			return 'Added manually';
+		case 'theElite':
+			return 'Imported from The Elite';
 		case 'historyLimit':
 			return 'Recent-history limit';
 		case 'deleted':

@@ -68,6 +68,31 @@ pub struct RunMetadataUpdateRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ManualRunRequest {
+    date: String,
+    level: String,
+    difficulty: String,
+    time: String,
+    rom_language: String,
+    youtube_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EliteImportRequest {
+    username: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EliteImportResponse {
+    imported: usize,
+    already_imported: usize,
+    videos: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EditableRunMetadata {
     rom_language: String,
     status: String,
@@ -111,6 +136,7 @@ pub struct RunClip {
     metadata: ClipMetadata,
     retention_state: RunRetentionState,
     retention_reason: Option<String>,
+    youtube: Option<crate::youtube::YoutubeMetadata>,
 }
 
 #[derive(Debug, Clone)]
@@ -312,6 +338,48 @@ pub async fn handle_update_metadata(
         .send(crate::http::AppEvent::RunCatalogChanged { run_id: Some(clip.run_id.clone()), save_id: None });
 
     Ok((StatusCode::OK, Json(clip)))
+}
+
+#[axum::debug_handler]
+pub async fn handle_create_manual(
+    State(state): State<AppState>,
+    Json(req): Json<ManualRunRequest>,
+) -> Result<impl IntoResponse> {
+    let catalog = state.run_catalog.clone();
+    let run = tokio::task::spawn_blocking(move || create_manual_run(&catalog, req))
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?
+        .map_err(RunPathError::into_response)?;
+    let _ = state
+        .event_tx
+        .send(crate::http::AppEvent::RunCatalogChanged { run_id: Some(run.run_id.clone()), save_id: None });
+    Ok((StatusCode::CREATED, Json(run)))
+}
+
+#[axum::debug_handler]
+pub async fn handle_import_elite(
+    State(state): State<AppState>,
+    Json(req): Json<EliteImportRequest>,
+) -> Result<impl IntoResponse> {
+    let username = req.username.trim().trim_start_matches('~').to_owned();
+    let elite_runs = crate::the_elite::fetch_history(&req.username)
+        .await
+        .map_err(|err| (elite_fetch_error_status(&err), err.to_string()).into_response())?;
+    let catalog = state.run_catalog.clone();
+    let result = tokio::task::spawn_blocking(move || import_elite_runs(&catalog, &username, elite_runs))
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?
+        .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()).into_response())?;
+    let _ = state.event_tx.send(crate::http::AppEvent::RunCatalogChanged { run_id: None, save_id: None });
+    Ok(Json(result))
+}
+
+fn elite_fetch_error_status(error: &anyhow::Error) -> StatusCode {
+    if error.downcast_ref::<crate::the_elite::UserNotFound>().is_some() {
+        StatusCode::NOT_FOUND
+    } else {
+        StatusCode::BAD_GATEWAY
+    }
 }
 
 pub fn list_configured_runs(settings: &AppSettings, catalog: &RunCatalog, sort: RunSort) -> RunsResponse {
@@ -517,6 +585,140 @@ fn normalize_time(value: &str) -> std::result::Result<Option<(i32, String)>, Run
     Ok(Some((total, format!("{minutes:02}:{seconds:02}"))))
 }
 
+fn create_manual_run(catalog: &RunCatalog, req: ManualRunRequest) -> std::result::Result<RunClip, RunPathError> {
+    let level = level_option(&req.level).ok_or(RunPathError::BadRequest("select a valid level"))?;
+    if crate::ge::difficulty_number(&req.difficulty).is_none() {
+        return Err(RunPathError::BadRequest("select a valid difficulty"));
+    }
+    if !matches!(req.rom_language.as_str(), "en" | "jp") {
+        return Err(RunPathError::BadRequest("select a valid ROM language"));
+    }
+    let (time_seconds, time) = normalize_time(&req.time)?.ok_or(RunPathError::BadRequest("time is required"))?;
+    let achieved = chrono::NaiveDate::parse_from_str(req.date.trim(), "%Y-%m-%d")
+        .map_err(|_| RunPathError::BadRequest("enter a valid date"))?;
+    let timestamp = achieved.and_hms_opt(12, 0, 0).unwrap().and_utc();
+    let youtube = req
+        .youtube_url
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(|url| {
+            youtube_metadata(url, &timestamp.to_rfc3339(), &format!("{} - {} - {time}", level.name, req.difficulty))
+        })
+        .transpose()?;
+    let metadata = ClipMetadata {
+        run_id: String::new(),
+        timestamp: timestamp.to_rfc3339(),
+        time: Some(time),
+        time_seconds: Some(time_seconds),
+        level: level.name.to_owned(),
+        level_number: Some(level.number),
+        difficulty: Some(req.difficulty),
+        status: RunStatus::Complete,
+        rom_language: req.rom_language,
+        source_name: "Manual entry".to_owned(),
+        comment: "Added manually to run history".to_owned(),
+        plugin_version: env!("GE_PLUGIN_VERSION").to_owned(),
+        retention_state: "kept".to_owned(),
+        retention_reason: Some("manualEntry".to_owned()),
+    };
+    let completed_at = std::time::SystemTime::from(timestamp);
+    let (run, _) = catalog.create_history_run(completed_at, None, metadata, youtube).map_err(RunPathError::Internal)?;
+    Ok(run_clip_from_record(run))
+}
+
+fn import_elite_runs(
+    catalog: &RunCatalog,
+    username: &str,
+    elite_runs: Vec<crate::the_elite::EliteRun>,
+) -> anyhow::Result<EliteImportResponse> {
+    let mut response = EliteImportResponse { imported: 0, already_imported: 0, videos: 0 };
+    for elite in elite_runs {
+        let level = level_option(&elite.level).context("The Elite returned an unknown GoldenEye level")?;
+        anyhow::ensure!(
+            crate::ge::difficulty_number(&elite.difficulty).is_some(),
+            "The Elite returned an unsupported difficulty"
+        );
+        let completed = chrono::DateTime::parse_from_rfc3339(&elite.timestamp)?;
+        let source_url = format!("https://rankings.the-elite.net/~{username}/time/{}", elite.time_id);
+        let youtube = elite.video_id.as_ref().map(|video_id| crate::youtube::YoutubeMetadata {
+            video_id: video_id.clone(),
+            video_url: format!("https://www.youtube.com/watch?v={video_id}"),
+            uploaded_at: elite.timestamp.clone(),
+            title: format!("{} - {} - {}", elite.level, elite.difficulty, elite.time),
+        });
+        let metadata = ClipMetadata {
+            run_id: String::new(),
+            timestamp: elite.timestamp.clone(),
+            time: Some(elite.time),
+            time_seconds: Some(elite.time_seconds),
+            level: elite.level,
+            level_number: Some(level.number),
+            difficulty: Some(elite.difficulty),
+            status: RunStatus::Complete,
+            rom_language: if elite.system == "NTSC-J" { "jp" } else { "en" }.to_owned(),
+            source_name: format!("The Elite ({})", elite.system),
+            comment: format!(
+                "Imported from {source_url}; {}",
+                if elite.current_personal_best { "current personal best" } else { "previous personal best" }
+            ),
+            plugin_version: env!("GE_PLUGIN_VERSION").to_owned(),
+            retention_state: "kept".to_owned(),
+            retention_reason: Some("theElite".to_owned()),
+        };
+        let requested_id = format!("the-elite-{}", elite.time_id);
+        let (_, created) = catalog.create_history_run(
+            std::time::SystemTime::from(completed),
+            Some(&requested_id),
+            metadata,
+            youtube.clone(),
+        )?;
+        if created {
+            response.imported += 1;
+            response.videos += usize::from(youtube.is_some());
+        } else {
+            response.already_imported += 1;
+        }
+    }
+    Ok(response)
+}
+
+fn level_option(value: &str) -> Option<LevelOption> {
+    LEVEL_OPTIONS.iter().copied().find(|option| option.name == value)
+}
+
+fn youtube_metadata(
+    raw_url: &str,
+    timestamp: &str,
+    title: &str,
+) -> std::result::Result<crate::youtube::YoutubeMetadata, RunPathError> {
+    let url = reqwest::Url::parse(raw_url.trim()).map_err(|_| RunPathError::BadRequest("enter a valid YouTube URL"))?;
+    let host = url.host_str().unwrap_or_default().trim_start_matches("www.");
+    let video_id = match host {
+        "youtu.be" => url.path_segments().and_then(|mut segments| segments.next()).map(str::to_owned),
+        "youtube.com" | "m.youtube.com" => {
+            if url.path() == "/watch" {
+                url.query_pairs().find(|(key, _)| key == "v").map(|(_, value)| value.into_owned())
+            } else {
+                url.path_segments()
+                    .and_then(|mut segments| (segments.next() == Some("embed")).then(|| segments.next()).flatten())
+                    .map(str::to_owned)
+            }
+        }
+        _ => None,
+    }
+    .filter(|value| {
+        !value.is_empty()
+            && value.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    })
+    .ok_or(RunPathError::BadRequest("enter a valid YouTube video URL"))?;
+    Ok(crate::youtube::YoutubeMetadata {
+        video_url: format!("https://www.youtube.com/watch?v={video_id}"),
+        video_id,
+        uploaded_at: timestamp.to_owned(),
+        title: title.to_owned(),
+    })
+}
+
 fn normalized_run_file_name(path: &Path, raw: &str) -> std::result::Result<String, RunPathError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -648,6 +850,7 @@ fn run_clip_from_indexed(clip: IndexedRunClip) -> RunClip {
         metadata: clip.metadata.clone(),
         retention_state: clip.retention_state,
         retention_reason: clip.retention_reason.clone(),
+        youtube: None,
         clip: Some(clip),
     };
     run_clip_from_record(record)
@@ -675,6 +878,7 @@ fn run_clip_from_record(run: RunRecord) -> RunClip {
         metadata: run.metadata,
         retention_state: run.retention_state,
         retention_reason: run.retention_reason,
+        youtube: run.youtube,
     }
 }
 

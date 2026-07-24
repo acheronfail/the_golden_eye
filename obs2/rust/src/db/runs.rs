@@ -400,6 +400,15 @@ pub fn set_youtube_history(conn: &Connection, path: &Path, youtube: &YoutubeMeta
     Ok(())
 }
 
+pub fn set_youtube_history_by_run_id(conn: &Connection, run_id: &str, youtube: &YoutubeMetadata) -> anyhow::Result<()> {
+    let updated = conn.execute(
+        "UPDATE runs SET youtube_json = ?1 WHERE run_id = ?2",
+        params![serde_json::to_string(youtube)?, run_id],
+    )?;
+    anyhow::ensure!(updated == 1, "cannot attach YouTube history to unknown run {run_id}");
+    Ok(())
+}
+
 pub fn clear_youtube_history(conn: &Connection, path: &Path) -> anyhow::Result<usize> {
     Ok(conn.execute(
         "UPDATE runs SET youtube_json = NULL WHERE clip_path = ?1 AND youtube_json IS NOT NULL",
@@ -450,6 +459,11 @@ fn row_to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRecord> {
     let size_bytes: Option<i64> = row.get(5)?;
     let modified_unix: Option<i64> = row.get(6)?;
     let duration_secs: Option<f64> = row.get(7)?;
+    let youtube = row
+        .get::<_, Option<String>>(9)?
+        .map(|json| serde_json::from_str::<YoutubeMetadata>(&json))
+        .transpose()
+        .map_err(|err| rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Text, Box::new(err)))?;
     let clip = path.map(|path| IndexedRunClip {
         run_id: run_id.clone(),
         path: PathBuf::from(path),
@@ -461,7 +475,7 @@ fn row_to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRecord> {
         retention_state,
         retention_reason: retention_reason.clone(),
     });
-    Ok(RunRecord { run_id, retention_state, retention_reason, metadata, clip })
+    Ok(RunRecord { run_id, retention_state, retention_reason, metadata, youtube, clip })
 }
 
 #[cfg(test)]

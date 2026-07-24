@@ -31,7 +31,8 @@ export const completedRun: RunClip = {
 		pluginVersion: '2.4.0'
 	},
 	retentionState: 'kept',
-	retentionReason: 'personalBest'
+	retentionReason: 'personalBest',
+	youtube: null
 };
 
 export const failedRun: RunClip = {
@@ -102,6 +103,46 @@ export const untaggedRun: RunClip = {
 };
 
 export const runClips = [pendingRun, failedRun, abortedRun, untaggedRun];
+
+export const theEliteRun: RunClip = {
+	...completedRun,
+	runId: 'the-elite-309706',
+	path: '',
+	fileName: '',
+	directory: '',
+	sizeBytes: 0,
+	modified: null,
+	durationSecs: null,
+	metadata: {
+		...completedRun.metadata,
+		timestamp: '2026-07-24T12:00:00Z',
+		time: '00:33',
+		timeSeconds: 33,
+		level: 'Frigate',
+		levelNumber: 7,
+		difficulty: 'Agent',
+		romLanguage: 'jp',
+		sourceName: 'The Elite (NTSC-J)',
+		comment: 'Imported from https://rankings.the-elite.net/~acheronfail/time/309706; current personal best'
+	},
+	retentionReason: 'theElite',
+	youtube: {
+		videoId: 'bgddOpQBKk4',
+		videoUrl: 'https://www.youtube.com/watch?v=bgddOpQBKk4',
+		uploadedAt: '2026-07-24T12:00:00Z',
+		title: 'Frigate - Agent - 00:33'
+	}
+};
+
+export const theEliteRunWithoutVideo: RunClip = {
+	...theEliteRun,
+	runId: 'the-elite-123',
+	metadata: {
+		...theEliteRun.metadata,
+		comment: 'Imported from https://rankings.the-elite.net/~runner/time/123; previous personal best'
+	},
+	youtube: null
+};
 
 export const draftForRun = (clip: RunClip): EditableRunMetadata => ({
 	romLanguage: clip.metadata.romLanguage,

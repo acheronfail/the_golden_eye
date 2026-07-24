@@ -13,6 +13,7 @@ mod recording;
 mod settings;
 mod stream_notifier;
 mod template_tokens;
+mod the_elite;
 mod timer;
 mod update_apply;
 mod updates;

@@ -106,6 +106,8 @@ pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state
         .route("/api/v1/youtube/upload", post(routes::youtube::handle_upload))
         .route("/api/v1/runs", get(routes::runs::handle_list).patch(routes::runs::handle_update_metadata))
         .route("/api/v1/runs/recent", get(routes::runs::handle_recent))
+        .route("/api/v1/runs/manual", post(routes::runs::handle_create_manual))
+        .route("/api/v1/runs/import/the-elite", post(routes::runs::handle_import_elite))
         .route("/api/v1/runs/keep", post(routes::runs::handle_keep))
         .route("/api/v1/runs/delete", post(routes::runs::handle_delete_run))
         .route("/api/v1/runs/rename", post(routes::runs::handle_rename))
