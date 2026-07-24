@@ -73,16 +73,19 @@ def obs_plugin_paths() -> tuple[Path, Path]:
         arch_dir = "64bit" if sys.maxsize > 2**32 else "32bit"
         return (
             PLUGIN_BUILD_DIR / "%module%" / "bin" / arch_dir,
-            PLUGIN_BUILD_DIR / "%module%" / "data",
+            PLUGIN_BUILD_DIR / "obs-run-data",
         )
+
+    if sys.platform == "win32":
+        return PLUGIN_BUILD_DIR, PLUGIN_BUILD_DIR / "obs-run-data"
 
     return PLUGIN_BUILD_DIR, PLUGIN_BUILD_DIR
 
 
 def core_runtime_dir() -> Path:
     """Directory the built core library actually lives in -- the real
-    on-disk path, unlike obs_plugin_paths()'s `%module%` placeholder (which
-    OBS itself substitutes when scanning, not something to resolve here)."""
+    on-disk path, unlike obs_plugin_paths()'s binary `%module%` placeholder
+    (which OBS substitutes when scanning, not something to resolve here)."""
     if sys.platform == "darwin":
         return PLUGIN_BUILD_DIR / f"{PLUGIN_NAME}.plugin" / "Contents" / "MacOS"
 
@@ -389,7 +392,10 @@ def run_dev(*, frontend: bool, backend: bool, obs: bool) -> int:
                 manager.run(["just", "_dev-build"])
             else:
                 manager.run(["just", "configure-dev"])
-                manager.run(["cmake", "--build", "obs2/build"])
+                build_command = ["cmake", "--build", "obs2/build"]
+                if sys.platform == "win32":
+                    build_command.extend(["--target", "stage-obs-run-data"])
+                manager.run(build_command)
 
             if not obs:
                 set_backend_status("ready")
