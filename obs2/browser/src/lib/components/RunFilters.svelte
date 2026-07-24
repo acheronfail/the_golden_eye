@@ -88,7 +88,7 @@
 	</div>
 
 	{#if !collapsed}
-		<div id="runs-filter-controls" class="obs-panel grid grid-cols-2 gap-2 rounded p-3 sm:grid-cols-3">
+		<div id="runs-filter-controls" class="grid grid-cols-2 gap-2 rounded obs-panel p-3 sm:grid-cols-3">
 			<label class="grid gap-1 font-mono text-[10px] text-(--obs-text-dim)" for="runs-level">
 				Level
 				<Select

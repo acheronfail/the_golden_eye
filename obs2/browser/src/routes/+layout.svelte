@@ -148,7 +148,7 @@
 		bind:menuOpen
 	/>
 
-	<div bind:this={contentScroller} class="obs-content-scroller min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+	<div bind:this={contentScroller} class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto obs-content-scroller">
 		{@render children()}
 	</div>
 

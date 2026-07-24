@@ -18,11 +18,11 @@
 </script>
 
 {#if run}
-	<div class="obs-overlay fixed inset-0 z-[70] flex items-center justify-center p-4">
+	<div class="fixed inset-0 z-[70] flex items-center justify-center obs-overlay p-4">
 		<button class="absolute inset-0" aria-label="Cancel deletion" onclick={onCancel}></button>
-		<dialog open class="obs-dialog relative z-10 m-0 grid w-full max-w-md gap-4 rounded p-5">
-			<h2 class="obs-heading text-lg font-semibold">Delete {run.metadata.level} run?</h2>
-			<p class="obs-dim text-sm">Choose whether to preserve this run’s metadata for history and future statistics.</p>
+		<dialog open class="relative z-10 m-0 grid w-full max-w-md gap-4 rounded obs-dialog p-5">
+			<h2 class="text-lg font-semibold obs-heading">Delete {run.metadata.level} run?</h2>
+			<p class="text-sm obs-dim">Choose whether to preserve this run’s metadata for history and future statistics.</p>
 			{#if error}<p class="text-sm text-(--obs-danger)">{error}</p>{/if}
 			<div class="grid gap-2">
 				{#if run.path}

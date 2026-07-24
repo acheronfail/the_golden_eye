@@ -38,7 +38,7 @@
 	>
 		{#each notifications.flags as flag (flag.id)}
 			<div
-				class="obs-notification pointer-events-auto relative w-full overflow-hidden px-4 py-3 text-left font-mono {toneClass(
+				class="pointer-events-auto relative w-full overflow-hidden obs-notification px-4 py-3 text-left font-mono {toneClass(
 					flag.tone
 				)} {flag.href || flag.action ? 'obs-notification-actionable' : ''}"
 				role="status"
@@ -52,26 +52,26 @@
 						>
 							<p class="text-xs tracking-widest uppercase">{flag.title}</p>
 							{#if flag.detail}
-								<p class="obs-muted mt-1 text-xs break-all">{flag.detail}</p>
+								<p class="mt-1 text-xs break-all obs-muted">{flag.detail}</p>
 							{/if}
 							{#if flag.pills?.length}
 								<MetaPills chips={flag.pills} containerClass="mt-1" />
 							{/if}
 							{#if flag.meta}
-								<p class="obs-dim mt-1 text-xs">{flag.meta}</p>
+								<p class="mt-1 text-xs obs-dim">{flag.meta}</p>
 							{/if}
 						</button>
 					{:else}
 						<div class="min-w-0 flex-1">
 							<p class="text-xs tracking-widest uppercase">{flag.title}</p>
 							{#if flag.detail}
-								<p class="obs-muted mt-1 text-xs break-all">{flag.detail}</p>
+								<p class="mt-1 text-xs break-all obs-muted">{flag.detail}</p>
 							{/if}
 							{#if flag.pills?.length}
 								<MetaPills chips={flag.pills} containerClass="mt-1" />
 							{/if}
 							{#if flag.meta}
-								<p class="obs-dim mt-1 text-xs">{flag.meta}</p>
+								<p class="mt-1 text-xs obs-dim">{flag.meta}</p>
 							{/if}
 						</div>
 					{/if}
@@ -86,8 +86,8 @@
 				</div>
 				{#if flag.timeoutMs !== undefined}
 					<div
-						class="obs-notification-timeout-bar"
-						style={`animation-duration: ${flag.timeoutMs}ms;`}
+						class="obs-notification-timeout-bar [animation-duration:var(--notification-timeout)]"
+						style:--notification-timeout={`${flag.timeoutMs}ms`}
 						aria-hidden="true"
 					></div>
 				{/if}

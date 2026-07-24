@@ -55,25 +55,25 @@
 </script>
 
 {#if loading && clips.length === 0}
-	<p class="obs-dim font-mono text-sm">
+	<p class="font-mono text-sm obs-dim">
 		{scannedDirectoryCount === 0 ? 'Searching run folders...' : 'Probing clips...'}
 	</p>
 {:else if directoryCount === 0}
-	<div class="obs-empty-state rounded px-4 py-6 text-center">
-		<p class="obs-muted text-sm">No run folders configured.</p>
-		<p class="obs-dim mt-1 font-mono text-xs">Set completed and failed output folders in Options.</p>
+	<div class="rounded obs-empty-state px-4 py-6 text-center">
+		<p class="text-sm obs-muted">No run folders configured.</p>
+		<p class="mt-1 font-mono text-xs obs-dim">Set completed and failed output folders in Options.</p>
 	</div>
 {:else if clips.length === 0}
-	<div class="obs-empty-state rounded px-4 py-6 text-center">
-		<p class="obs-muted text-sm">No tagged clips found.</p>
-		<p class="obs-dim mt-1 font-mono text-xs">New clips saved by this plugin will appear here.</p>
+	<div class="rounded obs-empty-state px-4 py-6 text-center">
+		<p class="text-sm obs-muted">No tagged clips found.</p>
+		<p class="mt-1 font-mono text-xs obs-dim">New clips saved by this plugin will appear here.</p>
 	</div>
 {:else if visibleClips.length === 0}
-	<div class="obs-empty-state rounded px-4 py-6 text-center">
-		<p class="obs-muted text-sm">No runs match the current filters.</p>
+	<div class="rounded obs-empty-state px-4 py-6 text-center">
+		<p class="text-sm obs-muted">No runs match the current filters.</p>
 		<button
 			type="button"
-			class="obs-text-button mt-3 px-2 py-1 font-mono text-xs"
+			class="mt-3 obs-text-button px-2 py-1 font-mono text-xs"
 			disabled={!hasActiveFilters}
 			onclick={clearFilters}
 		>
@@ -82,7 +82,7 @@
 	</div>
 {:else}
 	{#if loading}
-		<p class="obs-dim mb-3 font-mono text-xs">Search still running...</p>
+		<p class="mb-3 font-mono text-xs obs-dim">Search still running...</p>
 	{/if}
 	<div class="flex items-center justify-between border-b-2 border-(--obs-border-muted) pb-1">
 		<p class="font-mono text-xs"><strong>{visibleClips.length}</strong> {visibleClips.length === 1 ? 'run' : 'runs'}</p>

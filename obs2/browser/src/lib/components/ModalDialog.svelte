@@ -16,16 +16,16 @@
 	} = $props();
 </script>
 
-<div class="obs-overlay fixed inset-0 z-50 flex items-center justify-center p-4" role="presentation">
+<div class="fixed inset-0 z-50 flex items-center justify-center obs-overlay p-4" role="presentation">
 	<div
-		class="obs-dialog w-full max-w-md overflow-hidden rounded"
+		class="w-full max-w-md overflow-hidden rounded obs-dialog"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby={`${id}-title`}
 		aria-describedby={`${id}-body`}
 	>
 		<div class="obs-dialog-header px-4 py-3">
-			<h2 id={`${id}-title`} class="obs-heading text-lg font-semibold">{title}</h2>
+			<h2 id={`${id}-title`} class="text-lg font-semibold obs-heading">{title}</h2>
 		</div>
 		<div id={`${id}-body`} class={bodyClass}>
 			{@render children()}

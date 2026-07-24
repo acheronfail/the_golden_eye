@@ -78,8 +78,8 @@
 		/>
 	</div>
 
-	<footer class="obs-panel flex shrink-0 flex-wrap items-center justify-center gap-2 px-3 py-3 font-mono text-xs">
-		<span class="obs-panel rounded px-2 py-1">{stepIndex + 1}/{steps.length} · {step.label}</span>
+	<footer class="flex shrink-0 flex-wrap items-center justify-center gap-2 obs-panel px-3 py-3 font-mono text-xs">
+		<span class="rounded obs-panel px-2 py-1">{stepIndex + 1}/{steps.length} · {step.label}</span>
 		<button type="button" class="obs-button obs-button-xs" onclick={() => (paused = !paused)}>
 			{paused ? 'resume' : 'pause'}
 		</button>

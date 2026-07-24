@@ -504,9 +504,9 @@
 </script>
 
 <div class="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4">
-	<h1 class="obs-heading mb-4 text-2xl font-bold">Developer Utilities</h1>
+	<h1 class="mb-4 text-2xl font-bold obs-heading">Developer Utilities</h1>
 
-	<div class="obs-panel flex flex-col gap-3 rounded px-4 py-3">
+	<div class="flex flex-col gap-3 rounded obs-panel px-4 py-3">
 		<h2 class="text-xl font-semibold">Visual Effects</h2>
 		<div class="flex flex-wrap gap-2">
 			<button class="obs-button obs-button-danger px-3 py-1.5 text-sm" onclick={triggerKiaDeathOverlay}>
@@ -515,7 +515,7 @@
 		</div>
 	</div>
 
-	<fieldset class="obs-panel rounded px-4 py-3" aria-labelledby="developer-language-heading">
+	<fieldset class="rounded obs-panel px-4 py-3" aria-labelledby="developer-language-heading">
 		<h2 id="developer-language-heading" class="mb-2 font-semibold">Language</h2>
 		<div class="flex flex-col gap-1 pl-4">
 			<label class="flex items-center gap-2">
@@ -529,7 +529,7 @@
 		</div>
 	</fieldset>
 
-	<fieldset class="obs-panel rounded px-4 py-3" aria-labelledby="developer-annotation-heading">
+	<fieldset class="rounded obs-panel px-4 py-3" aria-labelledby="developer-annotation-heading">
 		<h2 id="developer-annotation-heading" class="mb-2 font-semibold">Annotation Mode</h2>
 		<label class="flex items-center gap-2 pl-4">
 			<input class="obs-checkbox" type="checkbox" bind:checked={annotationMode} />
@@ -537,9 +537,9 @@
 		</label>
 	</fieldset>
 
-	<div class="obs-panel flex flex-col gap-2 rounded px-4 py-3">
+	<div class="flex flex-col gap-2 rounded obs-panel px-4 py-3">
 		<h2 class="text-xl font-semibold">Match a frame from disk</h2>
-		<p class="obs-muted text-sm">
+		<p class="text-sm obs-muted">
 			Drop or select a dumped frame (png/bmp) to match it with annotations. The <code>Time digits</code>
 			set shows where each digit was read from — a detection box offset from its colon-anchored slot is a misalignment.
 		</p>
@@ -558,7 +558,7 @@
 			onclick={() => fileInput?.click()}
 		>
 			<span class="font-semibold">{matchLoading ? 'matching…' : 'Click to select, or drop an image here'}</span>
-			<span class="obs-dim text-xs">png / bmp — matched with {screenshotLang} templates</span>
+			<span class="text-xs obs-dim">png / bmp — matched with {screenshotLang} templates</span>
 		</button>
 		<input
 			bind:this={fileInput}
@@ -569,7 +569,7 @@
 		/>
 	</div>
 
-	<div class="obs-panel flex flex-col gap-4 rounded px-4 py-3">
+	<div class="flex flex-col gap-4 rounded obs-panel px-4 py-3">
 		<div class="flex flex-row gap-2">
 			<h2 class="text-xl font-semibold">Source</h2>
 			<button class="obs-button obs-button-gold px-2 py-1 text-sm" disabled={sourcesLoading} onclick={getSources}
@@ -583,9 +583,9 @@
 		{#if selectedSource}
 			<div class="flex flex-col gap-3">
 				<div>
-					<p class="obs-muted text-sm">Selected source</p>
+					<p class="text-sm obs-muted">Selected source</p>
 					<p class="font-mono text-lg">{selectedSource.name}</p>
-					<p class="obs-dim font-mono text-xs">{selectedSource.id}</p>
+					<p class="font-mono text-xs obs-dim">{selectedSource.id}</p>
 				</div>
 
 				{#if knownVideoSourceIds.includes(selectedSource.id)}
@@ -624,7 +624,7 @@
 						{/if}
 					</div>
 				{:else}
-					<p class="obs-dim font-mono">(not a video source)</p>
+					<p class="font-mono obs-dim">(not a video source)</p>
 				{/if}
 			</div>
 		{:else if sources.length == 0}
@@ -633,13 +633,13 @@
 			<ul class="grid grid-cols-[max-content_1fr] items-center gap-x-4 gap-y-3">
 				{#each sources as source}
 					<li class="contents">
-						<span class="obs-muted text-right font-mono">{source.name}: </span>
+						<span class="text-right font-mono obs-muted">{source.name}: </span>
 
 						<div class="flex flex-wrap gap-2">
 							{#if knownVideoSourceIds.includes(source.id)}
 								<button class="obs-button px-2 py-1 text-sm" onclick={() => selectSource(source)}>choose source</button>
 							{:else}
-								<span class="obs-dim font-mono">(not a video source)</span>
+								<span class="font-mono obs-dim">(not a video source)</span>
 							{/if}
 						</div>
 					</li>
@@ -649,15 +649,15 @@
 	</div>
 
 	{#if screenshotError}
-		<p class="obs-alert-error rounded px-4 py-3 font-mono text-sm">{screenshotError}</p>
+		<p class="rounded obs-alert-error px-4 py-3 font-mono text-sm">{screenshotError}</p>
 	{/if}
 
 	{#if matchError}
-		<p class="obs-alert-error rounded px-4 py-3 font-mono text-sm">{matchError}</p>
+		<p class="rounded obs-alert-error px-4 py-3 font-mono text-sm">{matchError}</p>
 	{/if}
 
 	{#if matchResult}
-		<div class="obs-panel flex w-full flex-col gap-4 rounded p-4">
+		<div class="flex w-full flex-col gap-4 rounded obs-panel p-4">
 			<div class="flex flex-row items-center gap-2">
 				<h2 class="text-xl font-semibold">Level Match</h2>
 				<button class="obs-button obs-button-danger px-2 py-1 font-mono text-sm" onclick={clearMatchResult}
@@ -680,7 +680,7 @@
 						<div class="grid gap-2 text-sm">
 							<div class="flex items-center justify-between gap-3">
 								<span class="obs-muted">Visible annotations</span>
-								<span class="obs-dim font-mono text-xs">{visibleAnnotationItems.length}/{annotationItems.length}</span>
+								<span class="font-mono text-xs obs-dim">{visibleAnnotationItems.length}/{annotationItems.length}</span>
 							</div>
 							<div class="grid max-h-36 gap-1 overflow-auto pr-1 sm:grid-cols-2">
 								{#each annotationItems as item}
@@ -692,15 +692,16 @@
 											onchange={() => toggleAnnotation(item.id)}
 										/>
 										<span
-											class="h-3 w-3 shrink-0 rounded-sm border"
-											style={`border-color:${item.color};background:${item.fill}`}
+											class="h-3 w-3 shrink-0 rounded-sm border border-(--annotation-color) bg-(--annotation-fill)"
+											style:--annotation-color={item.color}
+											style:--annotation-fill={item.fill}
 										></span>
 										<span class="truncate font-mono text-xs" title={item.label}>{item.label}</span>
 									</label>
 								{/each}
 							</div>
 						</div>
-						<div class="obs-preview relative max-w-full overflow-hidden rounded">
+						<div class="relative max-w-full overflow-hidden rounded obs-preview">
 							<img src={imageData} alt="OBS match source" class="block w-full" />
 							<svg
 								class="pointer-events-none absolute inset-0 h-full w-full"
@@ -826,7 +827,7 @@
 	{/if}
 
 	{#if imageData}
-		<div class="obs-panel flex w-full flex-col gap-4 rounded p-4">
+		<div class="flex w-full flex-col gap-4 rounded obs-panel p-4">
 			<div class="flex flex-row items-center gap-2">
 				<h2 class="text-xl font-semibold">Screenshot:</h2>
 				{#if !screenshottingSource}
@@ -889,7 +890,7 @@
 				>
 			</div>
 
-			<img src={imageData} alt="OBS Screenshot" class="obs-preview max-w-full rounded" />
+			<img src={imageData} alt="OBS Screenshot" class="max-w-full rounded obs-preview" />
 		</div>
 	{/if}
 </div>

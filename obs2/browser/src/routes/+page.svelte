@@ -112,11 +112,11 @@
 
 <WizardFrame title="Choose your capture source" subtitle="Pick the OBS source attached to your N64's video output.">
 	{#if replayBuffer.status && !replayBuffer.status.available}
-		<div class="obs-alert-warning mb-4 rounded px-4 py-3">
-			<p class="obs-alert-warning-title text-sm font-semibold">
+		<div class="mb-4 rounded obs-alert-warning px-4 py-3">
+			<p class="text-sm font-semibold obs-alert-warning-title">
 				{replayBuffer.status.enabled ? 'Replay buffer is unavailable' : 'Replay buffer is disabled'}
 			</p>
-			<p class="obs-alert-warning-body mt-1 font-mono text-xs">
+			<p class="mt-1 font-mono text-xs obs-alert-warning-body">
 				{#if replayBuffer.status.enabled}
 					OBS has Replay Buffer enabled, but the current Output settings do not expose a usable replay buffer. Lossless
 					recording quality is one OBS setting that disables it. Change the Output settings, then reopen this page if
@@ -130,9 +130,9 @@
 	{/if}
 
 	{#if replayBufferTooShort}
-		<div class="obs-alert-warning mb-4 rounded px-4 py-3">
-			<p class="obs-alert-warning-title text-sm font-semibold">Replay buffer time is short</p>
-			<p class="obs-alert-warning-body mt-1 font-mono text-xs">
+		<div class="mb-4 rounded obs-alert-warning px-4 py-3">
+			<p class="text-sm font-semibold obs-alert-warning-title">Replay buffer time is short</p>
+			<p class="mt-1 font-mono text-xs obs-alert-warning-body">
 				OBS is configured for {replayBuffer.status?.maxSeconds} seconds. GoldenEye's in-game timer can reach 1023 seconds,
 				and this tool recommends extra room for starting and ending cutscenes plus the mission report and stats screens. Set
 				Maximum Replay Time to {RECOMMENDED_REPLAY_BUFFER_SECONDS} seconds for near-maximum-length runs.
@@ -141,11 +141,11 @@
 	{/if}
 
 	{#if sources === null}
-		<p class="obs-dim font-mono text-sm">Loading sources…</p>
+		<p class="font-mono text-sm obs-dim">Loading sources…</p>
 	{:else if sources.length === 0}
-		<div class="obs-empty-state rounded px-4 py-6 text-center">
-			<p class="obs-muted text-sm">No OBS sources found.</p>
-			<p class="obs-dim mt-1 font-mono text-xs">Add a video capture source in OBS.</p>
+		<div class="rounded obs-empty-state px-4 py-6 text-center">
+			<p class="text-sm obs-muted">No OBS sources found.</p>
+			<p class="mt-1 font-mono text-xs obs-dim">Add a video capture source in OBS.</p>
 		</div>
 	{:else}
 		<div class="mb-2 flex justify-end">

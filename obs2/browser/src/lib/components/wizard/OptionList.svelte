@@ -81,7 +81,7 @@
 				{disabled}
 				onclick={() => onSelect(option, i)}
 				onkeydown={(e) => onkeydown(e, i)}
-				class="obs-list-button group flex w-full flex-col items-stretch gap-3 rounded px-4 py-3 text-left transition-colors sm:flex-row sm:items-center sm:gap-4"
+				class="group obs-list-button flex w-full flex-col items-stretch gap-3 rounded px-4 py-3 text-left transition-colors sm:flex-row sm:items-center sm:gap-4"
 				class:obs-list-button-success={option.tone === 'success'}
 			>
 				{#if leading}
@@ -89,17 +89,17 @@
 				{/if}
 				<span class="flex min-w-0 items-center gap-3">
 					<span class="flex min-w-0 flex-1 flex-col">
-						<span class="obs-list-title block min-w-0 font-medium wrap-break-word sm:truncate">
+						<span class="block min-w-0 font-medium wrap-break-word obs-list-title sm:truncate">
 							{option.title}
 						</span>
 						{#if option.detail}
-							<span class="obs-list-detail block min-w-0 font-mono text-xs wrap-break-word sm:truncate">
+							<span class="block min-w-0 font-mono text-xs wrap-break-word obs-list-detail sm:truncate">
 								{option.detail}
 							</span>
 						{/if}
 					</span>
 					<span
-						class="obs-list-arrow ml-auto shrink-0 translate-x-0 font-mono transition-transform group-hover:translate-x-1"
+						class="ml-auto shrink-0 translate-x-0 font-mono obs-list-arrow transition-transform group-hover:translate-x-1"
 						aria-hidden="true"
 					>
 						→

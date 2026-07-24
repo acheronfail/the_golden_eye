@@ -10,7 +10,7 @@
 
 {#snippet actions()}
 	{#if withAction}
-		<button type="button" class="obs-text-button obs-button-xs cursor-pointer rounded-full" aria-label="Section help">
+		<button type="button" class="obs-text-button cursor-pointer rounded-full obs-button-xs" aria-label="Section help">
 			?
 		</button>
 	{/if}
@@ -18,5 +18,5 @@
 
 <main class="mx-auto w-full max-w-2xl px-6 py-8">
 	<SectionTitle {title} {detail} {actions} />
-	<div class="obs-panel mt-3 h-24 rounded"></div>
+	<div class="mt-3 h-24 rounded obs-panel"></div>
 </main>

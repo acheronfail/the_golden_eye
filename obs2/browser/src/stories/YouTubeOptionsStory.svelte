@@ -28,8 +28,8 @@
 
 <main class="mx-auto grid w-full max-w-2xl gap-4 px-4 py-8 sm:px-6">
 	<div>
-		<h1 class="obs-heading text-2xl font-semibold">Options</h1>
-		<p class="obs-subtitle mt-1 text-sm">YouTube connection and upload defaults.</p>
+		<h1 class="text-2xl font-semibold obs-heading">Options</h1>
+		<p class="mt-1 text-sm obs-subtitle">YouTube connection and upload defaults.</p>
 	</div>
 	<OptionsYouTube />
 </main>

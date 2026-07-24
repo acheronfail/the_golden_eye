@@ -76,7 +76,7 @@
 
 <svelte:window onclick={onWindowClick} onkeydown={onWindowKeydown} />
 
-<header class="obs-app-header relative flex shrink-0 items-center">
+<header class="relative flex shrink-0 items-center obs-app-header">
 	<a href="/" aria-label="The Golden Eye home" class="block min-w-0 shrink overflow-hidden">
 		<pre class="{bannerClass} {activeMonitorStyle.heading}">{bannerText}</pre>
 	</a>
@@ -98,7 +98,7 @@
 					</li>
 				{/each}
 			</ul>
-			<div class="obs-menu-footer mt-2 px-3 pt-2 pb-1 text-right text-xs">
+			<div class="mt-2 obs-menu-footer px-3 pt-2 pb-1 text-right text-xs">
 				v{pluginVersion}
 			</div>
 		</nav>
@@ -108,7 +108,7 @@
 		{#if activeMonitorHref}
 			<a
 				href={activeMonitorHref}
-				class="obs-button obs-phase-button inline-flex items-center gap-2 px-2 py-1 {activeMonitorStyle.button}"
+				class="obs-button inline-flex items-center gap-2 obs-phase-button px-2 py-1 {activeMonitorStyle.button}"
 				aria-label="Return to monitoring screen"
 			>
 				<span class="obs-phase-dot h-2 w-2 rounded-full {activeMonitorStyle.dot}" aria-hidden="true"></span>

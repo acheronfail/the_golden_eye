@@ -129,7 +129,7 @@
 	{#if isUploaded}
 		<button
 			type="button"
-			class="obs-text-button obs-button-xs cursor-pointer rounded-full"
+			class="obs-text-button cursor-pointer rounded-full obs-button-xs"
 			aria-expanded={helpOpen}
 			aria-label="Explain YouTube upload history"
 			onclick={() => (helpOpen = !helpOpen)}>?</button
@@ -152,8 +152,8 @@
 					<button
 						type="button"
 						class={forgetArmed
-							? 'obs-button obs-button-danger obs-button-xs cursor-pointer'
-							: 'obs-button obs-button-xs cursor-pointer'}
+							? 'obs-button cursor-pointer obs-button-danger obs-button-xs'
+							: 'obs-button cursor-pointer obs-button-xs'}
 						onclick={armOrForgetUpload}
 					>
 						{forgetArmed ? 'Click again to forget' : 'Forget upload'}
@@ -165,13 +165,13 @@
 			{#if isUploaded}
 				<div class="mb-1 w-full text-left">
 					<p class="font-mono text-xs text-(--obs-text)">Already uploaded to YouTube.</p>
-					<p class="obs-dim mt-1 text-xs">Use the link below to copy or open the uploaded video.</p>
+					<p class="mt-1 text-xs obs-dim">Use the link below to copy or open the uploaded video.</p>
 				</div>
 			{/if}
 			{#if !isUploaded && youtube.connected}
 				<div class="mb-1 grid w-full gap-3 text-left">
 					<div class="flex flex-wrap items-center justify-between gap-2">
-						<p class="obs-dim font-mono text-[11px] tracking-[0.18em] uppercase">Preview</p>
+						<p class="font-mono text-[11px] tracking-[0.18em] obs-dim uppercase">Preview</p>
 						<div class="flex items-center gap-2">
 							<a class="obs-text-button obs-button-xs" href="/options?tab=youtube">Edit templates</a>
 							<button
@@ -185,17 +185,17 @@
 						</div>
 					</div>
 					<dl class="grid gap-2.5 text-xs sm:grid-cols-[5.5rem_minmax(0,1fr)]">
-						<dt class="obs-dim pt-1 font-mono">Title</dt>
+						<dt class="pt-1 font-mono obs-dim">Title</dt>
 						<dd class="obs-input px-3 py-2 font-mono text-[11px] leading-relaxed wrap-break-word text-(--obs-text)">
 							{preview.title}
 						</dd>
-						<dt class="obs-dim pt-1 font-mono">Description</dt>
+						<dt class="pt-1 font-mono obs-dim">Description</dt>
 						<dd
 							class="obs-input px-3 py-2 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap text-(--obs-text)"
 						>
 							{preview.description || 'No description'}
 						</dd>
-						<dt class="obs-dim font-mono">Visibility</dt>
+						<dt class="font-mono obs-dim">Visibility</dt>
 						<dd>
 							<span
 								class="inline-flex rounded border border-(--obs-border-soft) bg-(--obs-control) px-2 py-0.5 font-mono text-[11px] text-(--obs-text-muted) shadow-[inset_0_1px_0_var(--obs-border-soft)]"
@@ -206,7 +206,7 @@
 					</dl>
 				</div>
 			{:else if !isUploaded}
-				<p class="obs-dim text-xs leading-relaxed">Connect YouTube to upload videos.</p>
+				<p class="text-xs leading-relaxed obs-dim">Connect YouTube to upload videos.</p>
 				{#if youtube.loaded}
 					<YouTubeConnectButton class="mt-1 px-3 py-1.5 font-mono text-sm" />
 				{/if}
@@ -214,14 +214,14 @@
 			{#if openUrl}
 				<div class="flex w-full items-center justify-center gap-2 px-2 sm:px-8">
 					<input
-						class="obs-input min-w-0 flex-1 truncate border-(--obs-border-strong) px-3 py-1.5 text-center font-mono text-xs shadow-[inset_0_1px_0_var(--obs-border-soft)]"
+						class="obs-input min-w-0 flex-1 truncate border-(--obs-border-soft) px-3 py-1.5 text-center font-mono text-xs shadow-[inset_0_1px_0_var(--obs-border-soft)]"
 						readonly
 						value={openUrl}
 						aria-label="YouTube video URL"
 						onclick={selectUrl}
 						onfocus={selectUrl}
 					/>
-					<button type="button" class="obs-button obs-button-xs w-17" onclick={copyUrl}
+					<button type="button" class="obs-button w-17 obs-button-xs" onclick={copyUrl}
 						>{copied ? 'Copied' : 'Copy'}</button
 					>
 					<button type="button" class="obs-button obs-button-xs" onclick={openVideo}>Open</button>
@@ -230,24 +230,24 @@
 			{#if upload?.state === 'uploading' && upload.progressRatio !== null}
 				<div class="h-2 w-full max-w-sm overflow-hidden rounded bg-black/30">
 					<div
-						class="h-full bg-(--obs-gold)"
-						style={`width: ${Math.max(0, Math.min(100, displayProgress.current * 100))}%`}
+						class="h-full w-(--upload-progress) bg-(--obs-gold)"
+						style:--upload-progress={`${Math.max(0, Math.min(100, displayProgress.current * 100))}%`}
 					></div>
 				</div>
 			{/if}
 			{#if visibleUploadError}
-				<div class="obs-alert-error mt-1 w-full rounded px-3 py-2 text-left">
+				<div class="mt-1 w-full rounded obs-alert-error px-3 py-2 text-left">
 					<div class="flex items-start justify-between gap-3">
-						<p class="obs-alert-error-title text-xs font-semibold">YouTube upload failed</p>
+						<p class="text-xs font-semibold obs-alert-error-title">YouTube upload failed</p>
 						<button
 							type="button"
-							class="obs-text-button obs-button-xs cursor-pointer"
+							class="obs-text-button cursor-pointer obs-button-xs"
 							aria-label="Dismiss YouTube upload error"
 							onclick={() => (dismissedUploadErrorId = upload?.id ?? null)}>×</button
 						>
 					</div>
 					<p
-						class="obs-alert-error-body mt-1 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap"
+						class="mt-1 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap obs-alert-error-body"
 					>
 						{visibleUploadError}
 					</p>
@@ -256,18 +256,18 @@
 				<p class="text-xs text-(--obs-danger)">YouTube OAuth is not configured in this build.</p>
 			{/if}
 			{#if visibleStoreError}
-				<div class="obs-alert-error mt-1 w-full rounded px-3 py-2 text-left">
+				<div class="mt-1 w-full rounded obs-alert-error px-3 py-2 text-left">
 					<div class="flex items-start justify-between gap-3">
-						<p class="obs-alert-error-title text-xs font-semibold">YouTube error</p>
+						<p class="text-xs font-semibold obs-alert-error-title">YouTube error</p>
 						<button
 							type="button"
-							class="obs-text-button obs-button-xs cursor-pointer"
+							class="obs-text-button cursor-pointer obs-button-xs"
 							aria-label="Dismiss YouTube error"
 							onclick={() => (dismissedStoreError = youtube.error)}>×</button
 						>
 					</div>
 					<p
-						class="obs-alert-error-body mt-1 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap"
+						class="mt-1 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap obs-alert-error-body"
 					>
 						{visibleStoreError}
 					</p>

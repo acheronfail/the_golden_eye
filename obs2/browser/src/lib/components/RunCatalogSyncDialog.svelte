@@ -30,6 +30,6 @@
 	</p>
 
 	{#snippet actions()}
-		<p class="obs-dim mr-auto font-mono text-xs">Please keep OBS open</p>
+		<p class="mr-auto font-mono text-xs obs-dim">Please keep OBS open</p>
 	{/snippet}
 </ModalDialog>

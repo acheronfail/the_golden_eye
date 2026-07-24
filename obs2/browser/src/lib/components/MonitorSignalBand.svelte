@@ -24,40 +24,61 @@
 </script>
 
 <main
-	class="monitor-signal-band"
+	class="@container [container-type:size] relative isolate flex h-full min-h-0 overflow-hidden bg-(--obs-bg) text-(--obs-text) transition-colors duration-240 [--monitor-accent:var(--obs-monitor-waiting)] [--monitor-surface:var(--obs-monitor-waiting-surface)] data-[phase=complete]:[--monitor-accent:var(--obs-gold-hover)] data-[phase=complete]:[--monitor-surface:var(--obs-gold-surface)] data-[phase=danger]:[--monitor-accent:var(--obs-danger)] data-[phase=danger]:[--monitor-surface:var(--obs-danger-surface)] data-[phase=neutral]:[--monitor-accent:var(--obs-text-muted)] data-[phase=neutral]:[--monitor-surface:rgb(182_186_196_/_11%)] data-[phase=recording]:[--monitor-accent:var(--obs-success)] data-[phase=recording]:[--monitor-surface:var(--obs-success-surface)] motion-reduce:duration-[1ms] motion-reduce:[&_*]:duration-[1ms]"
 	data-phase={presentation.phase}
 	aria-busy={presentation.waitingForObs || !verified}
 	aria-live="polite"
 >
-	<div class="signal-atmosphere" aria-hidden="true"></div>
-	<div class="signal-rail" aria-hidden="true"><span></span></div>
+	<div
+		class="absolute inset-0 -z-3 bg-[linear-gradient(115deg,var(--monitor-surface),transparent_44%),radial-gradient(circle_at_22%_54%,var(--monitor-surface),transparent_45%)] [transition:background_240ms_ease] after:absolute after:inset-0 after:bg-[linear-gradient(rgb(255_255_255_/_2%)_1px,transparent_1px)] after:[mask-image:linear-gradient(to_bottom,transparent,#000_30%,#000_70%,transparent)] after:bg-[size:100%_4px] after:content-['']"
+		aria-hidden="true"
+	></div>
+	<div
+		class="absolute top-4 bottom-4 left-4 -z-1 w-[0.3rem] overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--monitor-accent)_22%,var(--obs-border))] shadow-[0_0_2rem_var(--monitor-surface)] transition-[background-color,box-shadow] duration-240 [&>span]:block [&>span]:h-[42%] [&>span]:w-full [&>span]:bg-(--monitor-accent) [&>span]:shadow-[0_0_1.1rem_var(--monitor-accent)] [&>span]:transition-[background-color,box-shadow] [&>span]:duration-240"
+		aria-hidden="true"
+	>
+		<span></span>
+	</div>
 
-	<header class="monitor-topbar">
-		<span class="monitor-brand">
-			<span class="brand-light" aria-hidden="true"></span>
-			<span class="brand-full">GOLDENEYE MONITOR</span>
-			<span class="brand-short">GE MONITOR</span>
+	<header
+		class="absolute top-6 right-6 left-8 z-4 flex items-center justify-between gap-4 font-mono text-[0.7rem] tracking-[0.12em] uppercase @max-[520px]:right-8 @max-[520px]:left-8"
+	>
+		<span class="whitespace-nowrap">
+			<span
+				class="mr-[0.3rem] inline-block h-[0.55rem] w-[0.55rem] rounded-full bg-(--monitor-accent) align-[-0.02rem] shadow-[0_0_0.9rem_var(--monitor-accent)] transition-[background-color,box-shadow] duration-240"
+				aria-hidden="true"
+			></span>
+			<span class="@max-[520px]:hidden">GOLDENEYE MONITOR</span>
+			<span class="hidden @max-[520px]:inline">GE MONITOR</span>
 		</span>
 		<button
 			type="button"
-			class="obs-button obs-button-danger min-h-10 px-4 py-2 text-xs shadow-lg shadow-black/25"
+			class="obs-button min-h-10 obs-button-danger px-4 py-2 text-xs shadow-lg shadow-black/25"
 			disabled={!monitoring || transition === 'stopping'}
 			aria-label="Stop monitoring"
 			onclick={onStop}
 		>
-			<span class="stop-square" aria-hidden="true"></span>
+			<span class="mr-[0.45rem] h-2 w-2 rounded-[1px] bg-current" aria-hidden="true"></span>
 			{transition === 'stopping' ? 'stopping' : 'stop'}
 		</button>
 	</header>
 
 	{#key presentation.animationKey}
-		<div class="signal-sweep" aria-hidden="true"></div>
+		<div
+			class="pointer-events-none absolute inset-0 -z-2 animate-signal-wipe bg-[linear-gradient(90deg,transparent,var(--monitor-surface),transparent)] motion-reduce:[animation-delay:0ms] motion-reduce:[animation-duration:1ms]"
+			aria-hidden="true"
+		></div>
 	{/key}
 
-	<div class="signal-layout">
-		<div class="signal-primary">
+	<div
+		class="signal-layout absolute top-20 right-[clamp(1.75rem,7cqw,5rem)] bottom-15 left-[clamp(2.5rem,9cqw,7rem)] grid grid-cols-[minmax(0,1.35fr)_minmax(15rem,0.65fr)] items-center gap-[clamp(1.5rem,5cqw,4rem)] @max-[760px]:grid-cols-[minmax(0,1fr)] @max-[760px]:grid-rows-[minmax(0,1fr)_auto] @max-[760px]:items-end @max-[760px]:gap-3 [@container(max-height:42rem)]:top-18 [@container(max-height:42rem)]:bottom-13 [@container(max-height:42rem)]:gap-[0.6rem]"
+	>
+		<div class="min-w-0">
 			{#if match?.times && !presentation.waitingForObs}
-				<div class="signal-metrics" aria-label="Run times">
+				<div
+					class="mb-[clamp(1.25rem,4cqh,2.5rem)] grid animate-signal-metrics grid-cols-3 gap-[clamp(0.75rem,4cqw,2.5rem)] font-mono motion-reduce:[animation-delay:0ms] motion-reduce:[animation-duration:1ms] @max-[520px]:mb-4 [&_small]:text-[0.65rem] [&_small]:tracking-[0.14em] [&_small]:text-(--obs-text-dim) [&_small]:uppercase [&_strong]:text-[clamp(1.35rem,7cqw,3rem)] [&_strong]:font-medium [&_strong]:[font-variant-numeric:tabular-nums] [&>span]:grid [&>span]:min-w-0 [&>span]:gap-1 [@container(max-height:42rem)]:mb-[0.7rem] [@container(max-height:42rem)]:gap-[clamp(0.6rem,2.5cqw,1.5rem)] [@container(max-height:42rem)]:[&_small]:text-[0.58rem] [@container(max-height:42rem)]:[&_strong]:text-[clamp(1.1rem,4.5cqw,2rem)]"
+					aria-label="Run times"
+				>
 					<span>
 						<small>time</small>
 						<strong>{formatMonitorTime(match.times.time)}</strong>
@@ -78,11 +99,21 @@
 			{/if}
 
 			{#key presentation.animationKey}
-				<section class="signal-content">
-					<p class="signal-kicker">{verified ? presentation.statusLabel : 'Verifying source'} / ACTIVE</p>
-					<h1>{verified ? presentation.title : 'checking source'}</h1>
+				<section
+					class="signal-content animate-signal-title motion-reduce:[animation-delay:0ms] motion-reduce:[animation-duration:1ms]"
+				>
 					<p
-						class="signal-detail"
+						class="font-mono text-[clamp(0.65rem,2.8cqw,0.82rem)] tracking-[0.15em] text-(--monitor-accent) uppercase transition-colors duration-240 [@container(max-height:42rem)]:text-[clamp(0.58rem,2cqw,0.72rem)]"
+					>
+						{verified ? presentation.statusLabel : 'Verifying source'} / ACTIVE
+					</p>
+					<h1
+						class="mt-2 mb-[0.65rem] max-w-full text-[clamp(2.4rem,11cqw,5.25rem)] leading-[0.9] font-semibold tracking-[-0.065em] [overflow-wrap:anywhere] text-[color-mix(in_srgb,var(--monitor-accent)_12%,var(--obs-text))] transition-colors duration-240 [@container(max-height:42rem)]:mt-[0.3rem] [@container(max-height:42rem)]:mb-[0.4rem] [@container(max-height:42rem)]:text-[clamp(2rem,8cqw,3.5rem)]"
+					>
+						{verified ? presentation.title : 'checking source'}
+					</h1>
+					<p
+						class="signal-detail font-mono text-[clamp(0.65rem,2.8cqw,0.82rem)] tracking-[0.15em] text-(--obs-text-dim) uppercase [@container(max-height:42rem)]:text-[clamp(0.58rem,2cqw,0.72rem)]"
 						class:invisible={!presentation.showDetail || !verified}
 						aria-hidden={!presentation.showDetail || !verified}
 					>
@@ -101,10 +132,12 @@
 		/>
 	</div>
 
-	<footer class="monitor-footer">
+	<footer
+		class="absolute right-6 bottom-6 left-8 z-4 flex items-center justify-between gap-4 font-mono text-[0.7rem] tracking-[0.12em] text-(--obs-text-dim) uppercase @max-[520px]:right-4 @max-[520px]:left-7"
+	>
 		<span>{presentation.phase}</span>
 		{#if monitoring}
-			<span class="stop-hint">escape or space to stop</span>
+			<span class="@max-[520px]:hidden">escape or space to stop</span>
 		{/if}
 		{#if monitoring && showMonitorFps && presentation.fpsText}
 			<span class:text-amber-400={presentation.fpsWarning} class:text-(--obs-danger)={presentation.fpsLagging}>
@@ -113,334 +146,3 @@
 		{/if}
 	</footer>
 </main>
-
-<style>
-	.monitor-signal-band {
-		--monitor-accent: var(--obs-monitor-waiting);
-		--monitor-surface: var(--obs-monitor-waiting-surface);
-		position: relative;
-		isolation: isolate;
-		display: flex;
-		height: 100%;
-		min-height: 0;
-		container-type: size;
-		overflow: hidden;
-		background: var(--obs-bg);
-		color: var(--obs-text);
-		transition: background-color 240ms ease;
-	}
-
-	.monitor-signal-band[data-phase='recording'] {
-		--monitor-accent: var(--obs-success);
-		--monitor-surface: var(--obs-success-surface);
-	}
-
-	.monitor-signal-band[data-phase='complete'] {
-		--monitor-accent: var(--obs-gold-hover);
-		--monitor-surface: var(--obs-gold-surface);
-	}
-
-	.monitor-signal-band[data-phase='danger'] {
-		--monitor-accent: var(--obs-danger);
-		--monitor-surface: var(--obs-danger-surface);
-	}
-
-	.monitor-signal-band[data-phase='neutral'] {
-		--monitor-accent: var(--obs-text-muted);
-		--monitor-surface: rgb(182 186 196 / 11%);
-	}
-
-	.signal-atmosphere {
-		position: absolute;
-		inset: 0;
-		z-index: -3;
-		background:
-			linear-gradient(115deg, var(--monitor-surface), transparent 44%),
-			radial-gradient(circle at 22% 54%, var(--monitor-surface), transparent 45%);
-		transition: background 240ms ease;
-	}
-
-	.signal-atmosphere::after {
-		position: absolute;
-		inset: 0;
-		background-image: linear-gradient(rgb(255 255 255 / 2%) 1px, transparent 1px);
-		background-size: 100% 4px;
-		content: '';
-		mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
-	}
-
-	.signal-rail {
-		position: absolute;
-		top: 1rem;
-		bottom: 1rem;
-		left: 1rem;
-		z-index: -1;
-		width: 0.3rem;
-		overflow: hidden;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--monitor-accent) 22%, var(--obs-border));
-		box-shadow: 0 0 2rem var(--monitor-surface);
-		transition:
-			background-color 240ms ease,
-			box-shadow 240ms ease;
-	}
-
-	.signal-rail span {
-		display: block;
-		width: 100%;
-		height: 42%;
-		background: var(--monitor-accent);
-		box-shadow: 0 0 1.1rem var(--monitor-accent);
-		transition:
-			background-color 240ms ease,
-			box-shadow 240ms ease;
-	}
-
-	.monitor-topbar,
-	.monitor-footer {
-		position: absolute;
-		right: 1.5rem;
-		left: 2rem;
-		z-index: 4;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-		font-family: var(--font-mono, ui-monospace, monospace);
-		font-size: 0.7rem;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-	}
-
-	.monitor-topbar {
-		top: 1.5rem;
-	}
-	.monitor-footer {
-		bottom: 1.5rem;
-		color: var(--obs-text-dim);
-	}
-
-	.monitor-brand {
-		white-space: nowrap;
-	}
-
-	.brand-short {
-		display: none;
-	}
-
-	.brand-light {
-		display: inline-block;
-		width: 0.55rem;
-		height: 0.55rem;
-		margin-right: 0.3rem;
-		border-radius: 50%;
-		background: var(--monitor-accent);
-		box-shadow: 0 0 0.9rem var(--monitor-accent);
-		vertical-align: -0.02rem;
-		transition:
-			background-color 240ms ease,
-			box-shadow 240ms ease;
-	}
-
-	.stop-square {
-		width: 0.5rem;
-		height: 0.5rem;
-		margin-right: 0.45rem;
-		border-radius: 1px;
-		background: currentColor;
-	}
-
-	.signal-layout {
-		position: absolute;
-		top: 5rem;
-		right: clamp(1.75rem, 7cqw, 5rem);
-		bottom: 3.75rem;
-		left: clamp(2.5rem, 9cqw, 7rem);
-		display: grid;
-		grid-template-columns: minmax(0, 1.35fr) minmax(15rem, 0.65fr);
-		align-items: center;
-		gap: clamp(1.5rem, 5cqw, 4rem);
-	}
-
-	.signal-primary {
-		min-width: 0;
-	}
-
-	.signal-content {
-		animation: signal-title-in 460ms cubic-bezier(0.2, 0.82, 0.2, 1) both;
-	}
-
-	.signal-kicker,
-	.signal-detail {
-		font-family: var(--font-mono, ui-monospace, monospace);
-		font-size: clamp(0.65rem, 2.8cqw, 0.82rem);
-		letter-spacing: 0.15em;
-		text-transform: uppercase;
-	}
-
-	.signal-kicker {
-		color: var(--monitor-accent);
-		transition: color 240ms ease;
-	}
-
-	h1 {
-		max-width: 100%;
-		margin: 0.5rem 0 0.65rem;
-		color: color-mix(in srgb, var(--monitor-accent) 12%, var(--obs-text));
-		font-size: clamp(2.4rem, 11cqw, 5.25rem);
-		font-weight: 600;
-		line-height: 0.9;
-		letter-spacing: -0.065em;
-		overflow-wrap: anywhere;
-		transition: color 240ms ease;
-	}
-
-	.signal-detail {
-		color: var(--obs-text-dim);
-	}
-
-	.signal-sweep {
-		position: absolute;
-		inset: 0;
-		z-index: -2;
-		background: linear-gradient(90deg, transparent, var(--monitor-surface), transparent);
-		animation: signal-wipe 520ms ease-out both;
-		pointer-events: none;
-	}
-
-	.signal-metrics {
-		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: clamp(0.75rem, 4cqw, 2.5rem);
-		margin-bottom: clamp(1.25rem, 4cqh, 2.5rem);
-		animation: metrics-in 400ms 80ms ease-out both;
-		font-family: var(--font-mono, ui-monospace, monospace);
-	}
-
-	.signal-metrics span {
-		display: grid;
-		gap: 0.25rem;
-		min-width: 0;
-	}
-	.signal-metrics small {
-		color: var(--obs-text-dim);
-		font-size: 0.65rem;
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-	}
-	.signal-metrics strong {
-		font-size: clamp(1.35rem, 7cqw, 3rem);
-		font-weight: 500;
-		font-variant-numeric: tabular-nums;
-	}
-
-	@keyframes signal-title-in {
-		from {
-			opacity: 0;
-			transform: translateX(-1.5rem);
-		}
-		to {
-			opacity: 1;
-			transform: none;
-		}
-	}
-
-	@keyframes signal-wipe {
-		from {
-			opacity: 0;
-			transform: translateX(-100%);
-		}
-		45% {
-			opacity: 1;
-		}
-		to {
-			opacity: 0;
-			transform: translateX(100%);
-		}
-	}
-
-	@keyframes metrics-in {
-		from {
-			opacity: 0;
-			transform: translateY(0.75rem);
-		}
-		to {
-			opacity: 1;
-			transform: none;
-		}
-	}
-
-	@container (max-width: 760px) {
-		.signal-layout {
-			grid-template-columns: minmax(0, 1fr);
-			grid-template-rows: minmax(0, 1fr) auto;
-			align-items: end;
-			gap: 0.75rem;
-		}
-	}
-
-	@container (max-height: 42rem) {
-		.signal-layout {
-			top: 4.5rem;
-			bottom: 3.25rem;
-			gap: 0.6rem;
-		}
-		.signal-kicker,
-		.signal-detail {
-			font-size: clamp(0.58rem, 2cqw, 0.72rem);
-		}
-		h1 {
-			margin: 0.3rem 0 0.4rem;
-			font-size: clamp(2rem, 8cqw, 3.5rem);
-		}
-		.signal-metrics {
-			gap: clamp(0.6rem, 2.5cqw, 1.5rem);
-			margin-bottom: 0.7rem;
-		}
-		.signal-metrics small {
-			font-size: 0.58rem;
-		}
-		.signal-metrics strong {
-			font-size: clamp(1.1rem, 4.5cqw, 2rem);
-		}
-	}
-
-	@container (max-width: 520px) {
-		.monitor-topbar {
-			right: 2rem;
-			left: 2rem;
-		}
-		.monitor-footer {
-			right: 1rem;
-			left: 1.75rem;
-		}
-		.brand-full {
-			display: none;
-		}
-		.brand-short {
-			display: inline;
-		}
-		.signal-content {
-			position: static;
-		}
-		.signal-metrics {
-			margin-bottom: 1rem;
-		}
-		.stop-hint {
-			display: none;
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.signal-content,
-		.signal-sweep,
-		.signal-metrics {
-			animation-duration: 1ms;
-			animation-delay: 0ms;
-		}
-		.monitor-signal-band,
-		.monitor-signal-band * {
-			transition-duration: 1ms;
-		}
-	}
-</style>
