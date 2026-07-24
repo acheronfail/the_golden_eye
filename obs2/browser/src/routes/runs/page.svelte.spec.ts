@@ -324,8 +324,10 @@ describe('/runs', () => {
 		window.history.replaceState({}, '', '/runs?runId=deleted-run');
 		render(RunsPage);
 
-		expect(await screen.findByRole('dialog', { name: 'Run video' })).toBeInTheDocument();
+		const dialog = await screen.findByRole('dialog', { name: 'Run video' });
+		expect(dialog).toBeInTheDocument();
 		expect(screen.getByRole('heading', { name: 'Archives run history' })).toBeInTheDocument();
+		expect(within(dialog).getByRole('button', { name: 'close' }).closest('header')).not.toBeNull();
 	});
 
 	it('keeps the list and modal in sync after renaming by run ID', async () => {
