@@ -21,3 +21,5 @@
 <Story name="Reset settings" args={{ kind: 'reset' }} />
 <Story name="Resetting settings" args={{ kind: 'reset', busy: true }} />
 <Story name="Reset settings error" args={{ kind: 'reset', error: 'The settings file could not be removed.' }} />
+<Story name="Building runs library" args={{ kind: 'catalog-initial' }} />
+<Story name="Resyncing runs library" args={{ kind: 'catalog-manual' }} />

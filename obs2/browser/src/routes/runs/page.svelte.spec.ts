@@ -324,8 +324,10 @@ describe('/runs', () => {
 		window.history.replaceState({}, '', '/runs?runId=deleted-run');
 		render(RunsPage);
 
-		expect(await screen.findByRole('dialog', { name: 'Run video' })).toBeInTheDocument();
+		const dialog = await screen.findByRole('dialog', { name: 'Run video' });
+		expect(dialog).toBeInTheDocument();
 		expect(screen.getByRole('heading', { name: 'Archives run history' })).toBeInTheDocument();
+		expect(within(dialog).getByRole('button', { name: 'Close run viewer' }).closest('header')).not.toBeNull();
 	});
 
 	it('keeps the list and modal in sync after renaming by run ID', async () => {
@@ -403,7 +405,9 @@ describe('/runs', () => {
 
 		await user.clear(time);
 		await user.type(time, '01:01');
-		await user.click(within(screen.getByRole('dialog', { name: 'Run video' })).getByRole('button', { name: 'close' }));
+		await user.click(
+			within(screen.getByRole('dialog', { name: 'Run video' })).getByRole('button', { name: 'Close run viewer' })
+		);
 		resolveFirst({ ...original, metadata: { ...original.metadata, time: '01:00', timeSeconds: 60 } });
 
 		await waitFor(() => expect(mocks.updateRunMetadata).toHaveBeenCalledTimes(2));

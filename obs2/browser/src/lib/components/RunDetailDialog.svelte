@@ -61,11 +61,21 @@
 			aria-label="Run video"
 			class="obs-dialog relative z-10 m-0 max-h-full w-full max-w-5xl overflow-hidden rounded p-0"
 		>
-			<header class="obs-dialog-header px-4 py-3">
-				<h2 class="obs-heading truncate text-lg font-semibold" title={clip.fileName || `${clip.metadata.level} run`}>
-					{clip.fileName || `${clip.metadata.level} run history`}
-				</h2>
-				<p class="obs-dim mt-1 truncate font-mono text-xs" title={runDetail(clip)}>{runDetail(clip)}</p>
+			<header class="obs-dialog-header flex items-start gap-3 px-4 py-3">
+				<div class="min-w-0 flex-1">
+					<h2 class="obs-heading truncate text-lg font-semibold" title={clip.fileName || `${clip.metadata.level} run`}>
+						{clip.fileName || `${clip.metadata.level} run history`}
+					</h2>
+					<p class="obs-dim mt-1 truncate font-mono text-xs" title={runDetail(clip)}>{runDetail(clip)}</p>
+				</div>
+				<button
+					type="button"
+					class="obs-text-button shrink-0 px-1.5 py-0.5 text-xs"
+					aria-label="Close run viewer"
+					onclick={view.actions.close}
+				>
+					x
+				</button>
 			</header>
 
 			<div class="max-h-[calc(100vh-9rem)] overflow-y-auto p-4">
@@ -115,9 +125,6 @@
 							class="obs-text-button px-2 py-1 font-mono text-xs">rename</button
 						>
 					{/if}
-					<button type="button" onclick={view.actions.close} class="obs-text-button px-2 py-1 font-mono text-xs"
-						>close</button
-					>
 				</div>
 				{#if clip.path}
 					<!-- svelte-ignore a11y_media_has_caption -->

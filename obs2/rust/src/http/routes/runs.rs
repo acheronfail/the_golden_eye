@@ -177,15 +177,18 @@ const LEVEL_OPTIONS: [LevelOption; 20] = [
     LevelOption { name: "Egypt", number: 20 },
 ];
 
-pub(crate) fn seed_catalog_if_needed(state: &AppState, settings: &AppSettings) {
+pub(crate) fn seed_catalog_if_needed(state: &AppState, settings: &AppSettings) -> bool {
     let mut needs_seed = state.run_catalog_needs_seed.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if !*needs_seed {
-        return;
+        return false;
     }
+    state.snapshot.set_run_catalog_sync(Some(crate::http::RunCatalogSync::Initial));
     match seed_catalog_from_settings(&state.run_catalog, settings) {
         Ok(()) => *needs_seed = false,
         Err(error) => tracing::warn!("failed to seed run catalog: {error:#}"),
     }
+    state.snapshot.set_run_catalog_sync(None);
+    !*needs_seed
 }
 
 #[axum::debug_handler]
@@ -194,9 +197,12 @@ pub async fn handle_list(State(state): State<AppState>, Query(params): Query<Run
     let refresh = params.refresh;
     let sort = params.sort;
     let response = tokio::task::spawn_blocking(move || {
-        seed_catalog_if_needed(&state, &settings);
-        if refresh {
-            refresh_catalog_from_settings(&state.run_catalog, &settings)?;
+        let seeded = seed_catalog_if_needed(&state, &settings);
+        if refresh && !seeded {
+            state.snapshot.set_run_catalog_sync(Some(crate::http::RunCatalogSync::Manual));
+            let result = refresh_catalog_from_settings(&state.run_catalog, &settings);
+            state.snapshot.set_run_catalog_sync(None);
+            result?;
         }
         Ok::<_, anyhow::Error>(list_configured_runs(&settings, &state.run_catalog, sort))
     })

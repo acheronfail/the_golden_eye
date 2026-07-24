@@ -592,6 +592,7 @@ export interface MonitorSnapshot {
 export interface AppSnapshot {
 	monitor: MonitorSnapshot;
 	match: LevelMatch | null;
+	runCatalogSync: RunCatalogSync | null;
 	recordingState: RecordingStatus | null;
 	replaySaves: ReplaySaveStatus[];
 	sources: ObsSource[];
@@ -599,6 +600,8 @@ export interface AppSnapshot {
 	settingsStatus: SettingsStatus;
 	update: UpdateStatus;
 }
+
+export type RunCatalogSync = 'initial' | 'manual';
 
 export type ReplaySaveStage =
 	| 'scheduled'

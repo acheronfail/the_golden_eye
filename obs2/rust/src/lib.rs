@@ -259,6 +259,7 @@ pub extern "C" fn ge_rust_start() -> bool {
     let snapshot = SharedStateStore::new(AppSnapshot {
         monitor: MonitorSnapshot { enabled: false, source_name: None, cv_language: None },
         level_match: None,
+        run_catalog_sync: None,
         recording_state: None,
         replay_saves: Vec::new(),
         sources: Vec::new(),
