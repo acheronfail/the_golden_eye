@@ -21,7 +21,7 @@ const clip: RunClip = {
 		levelNumber: 2,
 		difficulty: '00 Agent',
 		status: 'complete',
-		romLanguage: 'en',
+		gameLanguage: 'en',
 		sourceName: 'Nintendo 64',
 		comment: '',
 		pluginVersion: '2.4.0'

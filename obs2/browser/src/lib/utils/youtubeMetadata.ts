@@ -1,5 +1,6 @@
 import type { RunClip } from '$lib/api';
 import type { YoutubeVisibility } from '$lib/stores/settings.svelte';
+import { romVersionLabel } from './runsView';
 
 export interface YouTubeUploadPreviewOptions {
 	titleTemplate: string;
@@ -69,6 +70,7 @@ const renderTemplate = (template: string, clip: RunClip, datetimeLocal: string):
 		.replaceAll('{levelNumber}', metadata.levelNumber?.toString() ?? '')
 		.replaceAll('{time}', metadata.time ?? '')
 		.replaceAll('{status}', metadata.status)
+		.replaceAll('{rom}', romVersionLabel(metadata.romVersion) ?? '')
 		.replaceAll('{timestamp}', metadata.timestamp)
 		.replaceAll('{timestamp_local}', formatIsoLocal(metadata.timestamp))
 		.replaceAll('{datetime_local}', datetimeLocal)

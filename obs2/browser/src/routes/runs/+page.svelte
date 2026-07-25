@@ -24,6 +24,7 @@
 		EMPTY_RUN_FILTERS,
 		LANGUAGE_OPTIONS,
 		LEVEL_OPTIONS,
+		ROM_VERSION_OPTIONS,
 		STATUS_OPTIONS,
 		hasActiveRunFilters,
 		activeRunFilters,
@@ -173,7 +174,7 @@
 		if (selected && event.key === 'Escape') void close();
 	};
 
-	function hasValue(options: { value: string }[], value: string | undefined | null): value is string {
+	function hasValue<T extends string>(options: readonly { value: T }[], value: string | undefined | null): value is T {
 		return Boolean(value && options.some((option) => option.value === value));
 	}
 
@@ -183,7 +184,8 @@
 
 	function draftFromClip(clip: RunClip): EditableRunMetadata {
 		return {
-			romLanguage: hasValue(LANGUAGE_OPTIONS, clip.metadata.romLanguage) ? clip.metadata.romLanguage : '',
+			gameLanguage: hasValue(LANGUAGE_OPTIONS, clip.metadata.gameLanguage) ? clip.metadata.gameLanguage : '',
+			romVersion: hasValue(ROM_VERSION_OPTIONS, clip.metadata.romVersion) ? clip.metadata.romVersion : '',
 			status: hasValue(STATUS_OPTIONS, clip.metadata.status) ? clip.metadata.status : '',
 			difficulty: hasValue(DIFFICULTY_OPTIONS, clip.metadata.difficulty) ? clip.metadata.difficulty : '',
 			time: clip.metadata.time ?? '',
@@ -193,7 +195,8 @@
 
 	function sameMetadataDraft(a: EditableRunMetadata, b: EditableRunMetadata): boolean {
 		return (
-			a.romLanguage === b.romLanguage &&
+			a.gameLanguage === b.gameLanguage &&
+			a.romVersion === b.romVersion &&
 			a.status === b.status &&
 			a.difficulty === b.difficulty &&
 			a.time === b.time &&

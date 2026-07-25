@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { RunClip } from '$lib/api';
 	import ActionMenu, { type ActionMenuItem } from '$lib/components/ActionMenu.svelte';
-	import { formatDate, formatRunListDate, isCompleted, romLanguageLabel, statusLabel } from '$lib/utils/runsView';
+	import { formatDate, formatRunListDate, isCompleted, gameLanguageLabel, statusLabel } from '$lib/utils/runsView';
 
 	let {
 		clip,
@@ -72,7 +72,7 @@
 		<span class="flex min-w-0 flex-col">
 			<strong class="truncate text-sm font-medium">{levelName}</strong>
 			<span class="truncate font-mono text-[10px] text-(--obs-text-dim)" title={timestampTitle}>
-				{#if romLanguageLabel(clip.metadata.romLanguage)}{romLanguageLabel(clip.metadata.romLanguage)} ·
+				{#if gameLanguageLabel(clip.metadata.gameLanguage)}{gameLanguageLabel(clip.metadata.gameLanguage)} ·
 				{/if}{timestampLabel}
 			</span>
 		</span>

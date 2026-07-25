@@ -16,7 +16,7 @@ use crate::db::run_catalog::{IndexedRunClip, RunCatalog, RunCatalogRoot, RunReco
 use crate::db::runs;
 use crate::ffmpeg::{self, ClipMetadata};
 use crate::http::AppState;
-use crate::models::clip_metadata::RunStatus;
+use crate::models::clip_metadata::{RomVersion, RunStatus};
 use crate::settings::AppSettings;
 
 #[derive(Debug, Deserialize)]
@@ -73,7 +73,8 @@ pub struct ManualRunRequest {
     level: String,
     difficulty: String,
     time: String,
-    rom_language: String,
+    game_language: String,
+    rom_version: Option<RomVersion>,
     youtube_url: Option<String>,
 }
 
@@ -94,7 +95,8 @@ pub struct EliteImportResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditableRunMetadata {
-    rom_language: String,
+    game_language: String,
+    rom_version: Option<RomVersion>,
     status: String,
     difficulty: String,
     time: String,
@@ -515,7 +517,8 @@ fn apply_metadata_update(
     let level = normalize_level(&update.level)?;
     let time = normalize_time(&update.time)?;
 
-    metadata.rom_language = normalize_rom_language(&update.rom_language)?.to_owned();
+    metadata.game_language = normalize_game_language(&update.game_language)?.to_owned();
+    metadata.rom_version = update.rom_version;
     metadata.status = normalize_status(&update.status)?;
     metadata.difficulty = Some(normalize_difficulty(&update.difficulty)?.to_owned());
     metadata.level = level.name.to_owned();
@@ -526,11 +529,11 @@ fn apply_metadata_update(
     Ok(())
 }
 
-fn normalize_rom_language(value: &str) -> std::result::Result<&'static str, RunPathError> {
+fn normalize_game_language(value: &str) -> std::result::Result<&'static str, RunPathError> {
     match value.trim().to_ascii_lowercase().as_str() {
         "en" => Ok("en"),
         "jp" => Ok("jp"),
-        _ => Err(RunPathError::BadRequest("rom language must be en or jp")),
+        _ => Err(RunPathError::BadRequest("game language must be en or jp")),
     }
 }
 
@@ -590,8 +593,8 @@ fn create_manual_run(catalog: &RunCatalog, req: ManualRunRequest) -> std::result
     if crate::ge::difficulty_number(&req.difficulty).is_none() {
         return Err(RunPathError::BadRequest("select a valid difficulty"));
     }
-    if !matches!(req.rom_language.as_str(), "en" | "jp") {
-        return Err(RunPathError::BadRequest("select a valid ROM language"));
+    if !matches!(req.game_language.as_str(), "en" | "jp") {
+        return Err(RunPathError::BadRequest("select a valid game language"));
     }
     let (time_seconds, time) = normalize_time(&req.time)?.ok_or(RunPathError::BadRequest("time is required"))?;
     let achieved = chrono::NaiveDate::parse_from_str(req.date.trim(), "%Y-%m-%d")
@@ -614,7 +617,8 @@ fn create_manual_run(catalog: &RunCatalog, req: ManualRunRequest) -> std::result
         level_number: Some(level.number),
         difficulty: Some(req.difficulty),
         status: RunStatus::Complete,
-        rom_language: req.rom_language,
+        game_language: req.game_language,
+        rom_version: req.rom_version,
         source_name: "Manual entry".to_owned(),
         comment: "Added manually to run history".to_owned(),
         plugin_version: env!("GE_PLUGIN_VERSION").to_owned(),
@@ -646,6 +650,7 @@ fn import_elite_runs(
             uploaded_at: elite.timestamp.clone(),
             title: format!("{} - {} - {}", elite.level, elite.difficulty, elite.time),
         });
+        let rom_version = elite_rom_version(&elite.system);
         let metadata = ClipMetadata {
             run_id: String::new(),
             timestamp: elite.timestamp.clone(),
@@ -655,7 +660,13 @@ fn import_elite_runs(
             level_number: Some(level.number),
             difficulty: Some(elite.difficulty),
             status: RunStatus::Complete,
-            rom_language: if elite.system == "NTSC-J" { "jp" } else { "en" }.to_owned(),
+            game_language: match rom_version {
+                Some(RomVersion::NtscJ) => "jp",
+                Some(RomVersion::NtscU | RomVersion::Pal) => "en",
+                None => "",
+            }
+            .to_owned(),
+            rom_version,
             source_name: format!("The Elite ({})", elite.system),
             comment: format!(
                 "Imported from {source_url}; {}",
@@ -680,6 +691,15 @@ fn import_elite_runs(
         }
     }
     Ok(response)
+}
+
+fn elite_rom_version(system: &str) -> Option<RomVersion> {
+    match system.trim().to_ascii_uppercase().as_str() {
+        "NTSC" | "NTSC-U" => Some(RomVersion::NtscU),
+        "NTSC-J" => Some(RomVersion::NtscJ),
+        "PAL" => Some(RomVersion::Pal),
+        _ => None,
+    }
 }
 
 fn level_option(value: &str) -> Option<LevelOption> {

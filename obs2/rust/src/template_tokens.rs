@@ -13,6 +13,7 @@ pub const SUPPORTED_TOKENS: &[&str] = &[
     "{time}",
     "{difficulty}",
     "{status}",
+    "{rom}",
     "{timestamp}",
     "{timestamp_local}",
     "{plugin_version}",
@@ -28,6 +29,7 @@ pub struct RunTemplateTokens {
     pub time: String,
     pub difficulty: String,
     pub status: String,
+    pub rom: String,
     pub timestamp: String,
     pub timestamp_local: String,
     pub plugin_version: String,
@@ -54,6 +56,7 @@ impl RunTemplateTokens {
             time,
             difficulty,
             status: status.parse().expect("valid run status"),
+            rom: String::new(),
             timestamp: format_iso_utc(completed_at),
             timestamp_local: format_iso_local(completed_at),
             plugin_version: crate::PLUGIN_VERSION.to_owned(),
@@ -70,6 +73,7 @@ impl RunTemplateTokens {
             time: metadata.time.clone().unwrap_or_default(),
             difficulty: metadata.difficulty.clone().unwrap_or_default(),
             status: metadata.status.as_str().to_owned(),
+            rom: metadata.rom_version.map(|version| version.as_str().to_owned()).unwrap_or_default(),
             timestamp_local: format_metadata_timestamp_local(&metadata.timestamp),
             timestamp: metadata.timestamp.clone(),
             plugin_version: crate::PLUGIN_VERSION.to_owned(),
@@ -86,6 +90,7 @@ impl RunTemplateTokens {
             .replace("{levelNumber}", &self.level_number)
             .replace("{time}", &self.time)
             .replace("{status}", &self.status)
+            .replace("{rom}", &self.rom)
             .replace("{timestamp}", &self.timestamp)
             .replace("{timestamp_local}", &self.timestamp_local)
             .replace("{plugin_version}", &self.plugin_version)
@@ -131,6 +136,7 @@ mod tests {
             time: "01:23".to_owned(),
             difficulty: "Agent".to_owned(),
             status: "complete".to_owned(),
+            rom: "NTSC-U".to_owned(),
             timestamp: "2024-01-01T00:00:00Z".to_owned(),
             timestamp_local: "2024-01-01T00:00:00+0000".to_owned(),
             plugin_version: "1.2.3".to_owned(),
@@ -151,7 +157,8 @@ mod tests {
             level_number: Some(1),
             difficulty: Some("Agent".to_owned()),
             status: RunStatus::Complete,
-            rom_language: "en".to_owned(),
+            game_language: "en".to_owned(),
+            rom_version: Some(crate::models::clip_metadata::RomVersion::NtscU),
             source_name: "N64 Capture".to_owned(),
             comment: "test".to_owned(),
             plugin_version: "test".to_owned(),
@@ -168,6 +175,7 @@ mod tests {
 
         assert_eq!(tokens.timestamp, timestamp);
         assert_eq!(tokens.timestamp_local, expected_local);
+        assert_eq!(tokens.rom, "NTSC-U");
         assert_ne!(tokens.timestamp_local, timestamp);
     }
 
@@ -183,7 +191,8 @@ mod tests {
             level_number: None,
             difficulty: None,
             status: RunStatus::Failed,
-            rom_language: "en".to_owned(),
+            game_language: "en".to_owned(),
+            rom_version: None,
             source_name: "N64 Capture".to_owned(),
             comment: "test".to_owned(),
             plugin_version: "test".to_owned(),
@@ -209,6 +218,7 @@ mod tests {
             time: "01:23".to_owned(),
             difficulty: "Agent".to_owned(),
             status: "complete".to_owned(),
+            rom: "PAL".to_owned(),
             timestamp: "utc".to_owned(),
             timestamp_local: "local".to_owned(),
             plugin_version: "1.2.3".to_owned(),

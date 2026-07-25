@@ -7,6 +7,7 @@
 	import {
 		DIFFICULTY_OPTIONS,
 		LANGUAGE_OPTIONS,
+		OPTIONAL_ROM_VERSION_OPTIONS,
 		STATUS_OPTIONS,
 		fileRows,
 		runDetail,
@@ -179,12 +180,22 @@
 								/>
 							</label>
 							<label class="flex min-w-0 flex-col gap-1">
-								<span class="font-mono text-xs obs-dim">ROM language</span>
+								<span class="font-mono text-xs obs-dim">Game language</span>
 								<Select
 									class="w-full"
 									placeholder="select language"
-									bind:value={metadataDraft.romLanguage}
+									bind:value={metadataDraft.gameLanguage}
 									options={LANGUAGE_OPTIONS}
+									onChange={() => scheduleMetadataSave()}
+								/>
+							</label>
+							<label class="flex min-w-0 flex-col gap-1">
+								<span class="font-mono text-xs obs-dim">ROM version</span>
+								<Select
+									class="w-full"
+									placeholder="not set"
+									bind:value={metadataDraft.romVersion}
+									options={OPTIONAL_ROM_VERSION_OPTIONS}
 									onChange={() => scheduleMetadataSave()}
 								/>
 							</label>

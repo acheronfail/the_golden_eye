@@ -474,8 +474,8 @@ struct PendingSave {
     status: RunStatus,
     /// Wall-clock time when the run ending was detected.
     completed_at: SystemTime,
-    /// ROM/template language active when this save was scheduled.
-    rom_language: String,
+    /// Game/template language active when this save was scheduled.
+    game_language: String,
     /// The stats-screen match, kept for naming the output clip. Its `times` are
     /// overwritten with the per-field vote winners as stats frames arrive.
     stats: Option<LevelMatch>,
@@ -599,13 +599,13 @@ fn save_pending_event(pending: &PendingSave, options: &RecordingOptions, now: In
 /// Metadata shared by runs finalized during one monitoring session.
 pub struct RecordingSessionContext {
     source_name: String,
-    rom_language: String,
+    game_language: String,
     monitor_session_id: Option<String>,
 }
 
 impl RecordingSessionContext {
-    pub fn new(source_name: String, rom_language: String, monitor_session_id: Option<String>) -> Self {
-        Self { source_name, rom_language, monitor_session_id }
+    pub fn new(source_name: String, game_language: String, monitor_session_id: Option<String>) -> Self {
+        Self { source_name, game_language, monitor_session_id }
     }
 }
 
@@ -643,8 +643,8 @@ pub struct RecordingState {
     options: RecordingOptions,
     /// OBS source this monitor session records from, stored in clip metadata.
     source_name: String,
-    /// ROM/template language this monitor session matches, stored in clip metadata.
-    rom_language: String,
+    /// Game/template language this monitor session matches, stored in clip metadata.
+    game_language: String,
     /// Index of saved run clips, updated after successful trims.
     run_catalog: Arc<RunCatalog>,
     /// Durable monitoring session associated with finalized runs from this worker.
@@ -672,7 +672,7 @@ impl RecordingState {
             replay_saves,
             options,
             source_name: session.source_name,
-            rom_language: session.rom_language,
+            game_language: session.game_language,
             run_catalog,
             monitor_session_id: session.monitor_session_id,
         }
@@ -691,13 +691,13 @@ impl RecordingState {
         }
     }
 
-    /// Update the ROM/template language attached to future clip metadata. Used
-    /// when monitor language auto-correction detects the other ROM language.
-    pub fn set_rom_language(&mut self, rom_language: String) {
-        if self.rom_language != rom_language {
-            tracing::info!(from = %self.rom_language, to = %rom_language, "recording ROM language changed");
+    /// Update the game/template language attached to future clip metadata. Used
+    /// when monitor language auto-correction detects the other game language.
+    pub fn set_game_language(&mut self, game_language: String) {
+        if self.game_language != game_language {
+            tracing::info!(from = %self.game_language, to = %game_language, "recording game language changed");
         }
-        self.rom_language = rom_language;
+        self.game_language = game_language;
     }
 
     fn canonicalize_match(&self, mut m: LevelMatch) -> LevelMatch {
@@ -729,7 +729,7 @@ impl RecordingState {
             finish_at: now,
             status,
             completed_at: SystemTime::now(),
-            rom_language: self.rom_language.clone(),
+            game_language: self.game_language.clone(),
             stats,
             time_vote: FieldVote::default(),
             target_vote: FieldVote::default(),
@@ -780,7 +780,7 @@ impl RecordingState {
             pending.completed_at,
             pending.stats.as_ref(),
             &self.source_name,
-            &pending.rom_language,
+            &pending.game_language,
         );
         let (finalized, tracked) = match self.run_catalog.create_finalized_run_in_session(
             pending.completed_at,
@@ -1317,7 +1317,7 @@ fn clip_metadata(
     completed_at: SystemTime,
     stats: Option<&LevelMatch>,
     source_name: &str,
-    rom_language: &str,
+    game_language: &str,
 ) -> ffmpeg::ClipMetadata {
     let level_info = stats.and_then(|m| ge::level_info(m.mission, m.part));
     let time_seconds = stats.and_then(|m| m.times.map(|times| times.time.max(0)));
@@ -1331,7 +1331,8 @@ fn clip_metadata(
         level_number: level_info.map(|info| info.number),
         difficulty: stats.and_then(|m| ge::difficulty_name(m.difficulty)).map(str::to_owned),
         status,
-        rom_language: rom_language.to_owned(),
+        game_language: game_language.to_owned(),
+        rom_version: None,
         source_name: source_name.to_owned(),
         comment: format!("Created by The Golden Eye OBS plugin v{}", crate::PLUGIN_VERSION),
         plugin_version: crate::PLUGIN_VERSION.to_owned(),

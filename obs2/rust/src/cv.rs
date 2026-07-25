@@ -118,7 +118,7 @@ const SCREEN_BANNER_REGION: (f64, f64, f64, f64) = (0.04, 0.39, 0.56, 0.11);
 const SCREEN_STATUS_REGION: (f64, f64, f64, f64) = (0.18, 0.47, 0.48, 0.10);
 // Language detection uses the side tab on the level-start briefing: short,
 // static, and distinct between the English and Japanese ROMs, so it rejects a
-// wrong ROM/template language before a same-shaped banner is misclassified.
+// wrong game/template language before a same-shaped banner is misclassified.
 const LANGUAGE_START_THRESHOLD: f64 = 0.82;
 const LANGUAGE_START_MARGIN: f64 = 0.12;
 // The language marker is the vertical START tab on the right of the level-start
@@ -493,7 +493,7 @@ pub struct LevelMatch {
     pub mission: i32,
     pub part: i32,
     pub difficulty: i32,
-    /// ROM language detected from language-specific static UI, when a strong
+    /// Game language detected from language-specific static UI, when a strong
     /// signal is visible. Currently emitted on level-start briefing screens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detected_lang: Option<String>,

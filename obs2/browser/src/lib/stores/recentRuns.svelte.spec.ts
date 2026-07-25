@@ -43,7 +43,7 @@ const finalized: RunClip = {
 		levelNumber: 2,
 		difficulty: '00 Agent',
 		status: 'complete',
-		romLanguage: 'en',
+		gameLanguage: 'en',
 		sourceName: 'N64 Capture',
 		comment: '',
 		pluginVersion: 'test'

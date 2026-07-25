@@ -351,7 +351,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                         Ok(MonitorSession::from_env(lang)?.with_diagnostics(diagnostics_enabled))
                     }) {
                         snapshot.set_monitor_language(active_lang.clone());
-                        recording.set_rom_language(active_lang.clone());
+                        recording.set_game_language(active_lang.clone());
                         last = None;
                     }
 

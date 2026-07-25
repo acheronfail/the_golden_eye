@@ -107,7 +107,10 @@ export class Backend {
 	}
 
 	public updateRunMetadata(runId: string, metadata: EditableRunMetadata): Promise<RunClip> {
-		return this.patchJson('/api/v1/runs', { runId, metadata });
+		return this.patchJson('/api/v1/runs', {
+			runId,
+			metadata: { ...metadata, romVersion: metadata.romVersion || null }
+		});
 	}
 
 	/** Fetch whether OBS's replay buffer is enabled/available (and running). */
@@ -387,13 +390,16 @@ export interface ClipMetadata {
 	levelNumber?: number;
 	difficulty?: string;
 	status: string;
-	romLanguage: string;
+	gameLanguage: string;
+	romVersion?: RomVersion | null;
 	sourceName: string;
 	comment: string;
 	pluginVersion: string;
 	retentionState?: RunRetentionState;
 	retentionReason?: string;
 }
+
+export type RomVersion = 'ntsc-u' | 'ntsc-j' | 'pal';
 
 export interface RunDirectoryScan {
 	kind: 'completed';
@@ -428,7 +434,8 @@ export interface ManualRunInput {
 	level: string;
 	difficulty: string;
 	time: string;
-	romLanguage: string;
+	gameLanguage: string;
+	romVersion?: RomVersion;
 	youtubeUrl?: string;
 }
 
@@ -543,7 +550,8 @@ export interface MonitoringSessionDetail extends MonitoringSessionSummary {
 }
 
 export interface EditableRunMetadata {
-	romLanguage: string;
+	gameLanguage: string;
+	romVersion: RomVersion | '';
 	status: string;
 	difficulty: string;
 	time: string;

@@ -73,7 +73,7 @@ const clip = (overrides: {
 		levelNumber: overrides.levelNumber,
 		difficulty: overrides.difficulty,
 		status: overrides.status,
-		romLanguage: 'en',
+		gameLanguage: 'en',
 		sourceName: 'GoldenEye',
 		comment: 'The Golden Eye',
 		pluginVersion: '1.0.0'

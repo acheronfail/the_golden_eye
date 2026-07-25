@@ -22,6 +22,8 @@ describe('RunImportDialog', () => {
 		await user.click(screen.getByRole('option', { name: 'Facility' }));
 		await user.click(screen.getByRole('combobox', { name: 'Difficulty' }));
 		await user.click(screen.getByRole('option', { name: '00 agent' }));
+		await user.click(screen.getByRole('combobox', { name: /ROM version/ }));
+		await user.click(screen.getByRole('option', { name: 'PAL' }));
 		await user.type(screen.getByLabelText(/YouTube link/), 'https://youtu.be/abc_123');
 		await user.click(screen.getByRole('button', { name: 'add time' }));
 
@@ -30,7 +32,8 @@ describe('RunImportDialog', () => {
 				level: 'Facility',
 				difficulty: '00 Agent',
 				time: '1:23',
-				romLanguage: 'en',
+				gameLanguage: 'en',
+				romVersion: 'pal',
 				youtubeUrl: 'https://youtu.be/abc_123'
 			})
 		);

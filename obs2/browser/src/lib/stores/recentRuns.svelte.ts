@@ -35,7 +35,7 @@ export class RecentRunsStore {
 				levelNumber: pending.levelNumber,
 				difficulty: pending.difficulty,
 				status: 'pending',
-				romLanguage: '',
+				gameLanguage: '',
 				sourceName: '',
 				comment: '',
 				pluginVersion: ''

@@ -1,8 +1,13 @@
 <script lang="ts">
-	import type { ManualRunInput, TheEliteImportResponse } from '$lib/api';
+	import type { ManualRunInput, RomVersion, TheEliteImportResponse } from '$lib/api';
 	import SegmentedControl from '$lib/components/SegmentedControl.svelte';
 	import Select from '$lib/components/Select.svelte';
-	import { DIFFICULTY_OPTIONS, LANGUAGE_OPTIONS, LEVEL_OPTIONS } from '$lib/utils/runsView';
+	import {
+		DIFFICULTY_OPTIONS,
+		LANGUAGE_OPTIONS,
+		LEVEL_OPTIONS,
+		OPTIONAL_ROM_VERSION_OPTIONS
+	} from '$lib/utils/runsView';
 
 	let {
 		open,
@@ -29,10 +34,11 @@
 	let level = $state('');
 	let difficulty = $state('');
 	let time = $state('');
-	let romLanguage = $state('en');
+	let gameLanguage = $state('en');
+	let romVersion = $state<RomVersion | ''>('');
 	let youtubeUrl = $state('');
 	let username = $state('');
-	let manualValid = $derived(Boolean(date && level && difficulty && time && romLanguage));
+	let manualValid = $derived(Boolean(date && level && difficulty && time && gameLanguage));
 
 	$effect(() => {
 		if (open) mode = initialMode;
@@ -40,7 +46,15 @@
 
 	const submitManual = (event: SubmitEvent) => {
 		event.preventDefault();
-		void onManual({ date, level, difficulty, time, romLanguage, youtubeUrl: youtubeUrl.trim() || undefined });
+		void onManual({
+			date,
+			level,
+			difficulty,
+			time,
+			gameLanguage,
+			romVersion: romVersion || undefined,
+			youtubeUrl: youtubeUrl.trim() || undefined
+		});
 	};
 	const submitElite = (event: SubmitEvent) => {
 		event.preventDefault();
@@ -118,8 +132,17 @@
 							/>
 						</label>
 						<label class="flex flex-col gap-1">
-							<span class="font-mono text-xs obs-dim">ROM language</span>
-							<Select class="w-full" bind:value={romLanguage} options={LANGUAGE_OPTIONS} />
+							<span class="font-mono text-xs obs-dim">Game language</span>
+							<Select class="w-full" bind:value={gameLanguage} options={LANGUAGE_OPTIONS} />
+						</label>
+						<label class="flex flex-col gap-1">
+							<span class="font-mono text-xs obs-dim">ROM version <span class="normal-case">(optional)</span></span>
+							<Select
+								class="w-full"
+								placeholder="not set"
+								bind:value={romVersion}
+								options={OPTIONAL_ROM_VERSION_OPTIONS}
+							/>
 						</label>
 						<label class="flex flex-col gap-1 sm:col-span-2">
 							<span class="font-mono text-xs obs-dim">YouTube link <span class="normal-case">(optional)</span></span>

@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use super::*;
 use crate::db::run_catalog::RunCatalog;
 use crate::ffmpeg;
-use crate::models::clip_metadata::RunStatus;
+use crate::models::clip_metadata::{RomVersion, RunStatus};
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 const CREATE_SCHEMA_V2_FIXTURE: &str = include_str!("sql/runs/create_schema_v2_fixture.sql");
@@ -55,7 +55,8 @@ fn metadata(status: &str, timestamp: &str) -> ClipMetadata {
         level_number: Some(8),
         difficulty: Some("00 Agent".to_owned()),
         status: status.parse().expect("valid run status"),
-        rom_language: "en".to_owned(),
+        game_language: "en".to_owned(),
+        rom_version: None,
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin test".to_owned(),
         plugin_version: "test".to_owned(),
@@ -567,7 +568,8 @@ fn sqlite_metadata_document_round_trips_complete_metadata() {
             level_number: Some(8),
             difficulty: Some("00 Agent".to_owned()),
             status: RunStatus::Complete,
-            rom_language: "en".to_owned(),
+            game_language: "en".to_owned(),
+            rom_version: None,
             source_name: "N64 Capture".to_owned(),
             comment: "Created by The Golden Eye OBS plugin test".to_owned(),
             plugin_version: "test".to_owned(),
@@ -576,10 +578,15 @@ fn sqlite_metadata_document_round_trips_complete_metadata() {
         }
     );
 
+    let mut updated = clips[0].metadata.clone();
+    updated.rom_version = Some(RomVersion::Pal);
+    catalog.update_metadata(&clips[0].run_id, updated.clone()).unwrap();
+    assert_eq!(catalog.get_run(&clips[0].run_id).unwrap().unwrap().metadata, updated);
+
     drop(catalog);
     let conn = rusqlite::Connection::open(dir.join("runs.sqlite")).unwrap();
     let stored_json: String = conn.query_row("SELECT metadata_json FROM runs", [], |row| row.get(0)).unwrap();
-    assert_eq!(serde_json::from_str::<ClipMetadata>(&stored_json).unwrap(), clips[0].metadata);
+    assert_eq!(serde_json::from_str::<ClipMetadata>(&stored_json).unwrap(), updated);
 
     let mut statement = conn.prepare("PRAGMA table_info(runs)").unwrap();
     let columns =

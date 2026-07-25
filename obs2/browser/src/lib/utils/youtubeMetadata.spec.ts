@@ -18,7 +18,8 @@ const clip = (timestamp = '2026-07-18T10:30:45Z'): RunClip => ({
 		levelNumber: 1,
 		difficulty: 'Agent',
 		status: 'complete',
-		romLanguage: 'en',
+		gameLanguage: 'en',
+		romVersion: 'ntsc-u',
 		sourceName: 'N64 Capture',
 		comment: 'Created by test',
 		pluginVersion: '1.2.3'
@@ -44,7 +45,7 @@ describe('YouTube datetime local helper', () => {
 describe('YouTube upload preview rendering', () => {
 	it('renders upload title, description, and visibility from the configured templates', () => {
 		const preview = renderYouTubeUploadPreview(clip(), {
-			titleTemplate: '{level} - {difficulty} - {time}',
+			titleTemplate: '{level} - {difficulty} - {time} - {rom}',
 			descriptionTemplate:
 				'{obs_replay_name}\n#{levelNumber}\n{status}\n{timestamp}\n{datetime_local}\n{plugin_version}',
 			visibility: 'unlisted',
@@ -52,7 +53,7 @@ describe('YouTube upload preview rendering', () => {
 		});
 
 		expect(preview).toEqual({
-			title: 'Dam - Agent - 01:23',
+			title: 'Dam - Agent - 01:23 - NTSC-U',
 			description: 'dam\n#1\ncomplete\n2026-07-18T10:30:45Z\nJuly 18, 2026 at 10:30 AM\n1.2.3',
 			visibility: 'unlisted',
 			visibilityLabel: 'Unlisted'

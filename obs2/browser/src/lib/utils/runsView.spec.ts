@@ -23,7 +23,8 @@ const clip = (overrides: {
 	levelNumber?: number;
 	difficulty?: string;
 	status: string;
-	romLanguage?: string;
+	gameLanguage?: string;
+	romVersion?: 'ntsc-u' | 'ntsc-j' | 'pal';
 	time?: string;
 	timeSeconds?: number;
 	modified?: string;
@@ -43,7 +44,8 @@ const clip = (overrides: {
 		levelNumber: overrides.levelNumber,
 		difficulty: overrides.difficulty,
 		status: overrides.status,
-		romLanguage: overrides.romLanguage ?? 'en',
+		gameLanguage: overrides.gameLanguage ?? 'en',
+		romVersion: overrides.romVersion,
 		sourceName: 'GoldenEye',
 		comment: 'The Golden Eye',
 		pluginVersion: '1.0.0'
@@ -60,7 +62,7 @@ const clips = [
 		levelNumber: 2,
 		difficulty: '00 Agent',
 		status: 'complete',
-		romLanguage: 'en',
+		gameLanguage: 'en',
 		time: '00:58',
 		timeSeconds: 58
 	}),
@@ -71,7 +73,8 @@ const clips = [
 		levelNumber: 1,
 		difficulty: 'Agent',
 		status: 'failed',
-		romLanguage: 'jp',
+		gameLanguage: 'jp',
+		romVersion: 'ntsc-j',
 		time: '01:12',
 		timeSeconds: 72
 	}),
@@ -82,7 +85,7 @@ const clips = [
 		levelNumber: 11,
 		difficulty: 'Secret Agent',
 		status: 'completed',
-		romLanguage: 'en',
+		gameLanguage: 'en',
 		time: '00:42',
 		timeSeconds: 42
 	})
@@ -123,6 +126,9 @@ describe('runs view behaviour', () => {
 	it('filters by search text across filename and metadata', () => {
 		expect(visibleRunClips(clips, filters({ search: 'facility 00 agent' })).map((run) => run.fileName)).toEqual([
 			'facility-0058.mov'
+		]);
+		expect(visibleRunClips(clips, filters({ search: 'NTSC-J' })).map((run) => run.fileName)).toEqual([
+			'dam-failed.mov'
 		]);
 	});
 

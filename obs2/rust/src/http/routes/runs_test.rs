@@ -53,7 +53,8 @@ fn test_clip_metadata(status: &str, timestamp: &str) -> ClipMetadata {
         level_number: Some(8),
         difficulty: Some("00 Agent".to_owned()),
         status: status.parse().expect("valid run status"),
-        rom_language: "en".to_owned(),
+        game_language: "en".to_owned(),
+        rom_version: None,
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin test".to_owned(),
         plugin_version: "test".to_owned(),
@@ -98,7 +99,8 @@ fn manual_history_run_keeps_origin_and_youtube_metadata_without_a_clip() {
             level: "Facility".to_owned(),
             difficulty: "00 Agent".to_owned(),
             time: "1:23".to_owned(),
-            rom_language: "en".to_owned(),
+            game_language: "en".to_owned(),
+            rom_version: Some(RomVersion::Pal),
             youtube_url: Some("https://youtu.be/abc_123".to_owned()),
         },
     )
@@ -107,6 +109,7 @@ fn manual_history_run_keeps_origin_and_youtube_metadata_without_a_clip() {
     assert!(run.path.is_empty());
     assert_eq!(run.metadata.time.as_deref(), Some("01:23"));
     assert_eq!(run.metadata.time_seconds, Some(83));
+    assert_eq!(run.metadata.rom_version, Some(RomVersion::Pal));
     assert_eq!(run.retention_reason.as_deref(), Some("manualEntry"));
     assert_eq!(run.youtube.as_ref().map(|video| video.video_id.as_str()), Some("abc_123"));
     let stored = catalog.get_run(&run.run_id).unwrap().unwrap();
@@ -138,8 +141,19 @@ fn elite_history_import_is_idempotent_and_preserves_source_metadata() {
     let run = catalog.get_run("the-elite-309706").unwrap().unwrap();
     assert_eq!(run.retention_reason.as_deref(), Some("theElite"));
     assert_eq!(run.metadata.source_name, "The Elite (NTSC-J)");
+    assert_eq!(run.metadata.game_language, "jp");
+    assert_eq!(run.metadata.rom_version, Some(RomVersion::NtscJ));
     assert!(run.metadata.comment.contains("current personal best"));
     assert_eq!(run.youtube.as_ref().map(|video| video.video_id.as_str()), Some("bgddOpQBKk4"));
+}
+
+#[test]
+fn elite_rom_versions_map_known_systems_and_leave_unknown_unset() {
+    assert_eq!(elite_rom_version("NTSC"), Some(RomVersion::NtscU));
+    assert_eq!(elite_rom_version("NTSC-U"), Some(RomVersion::NtscU));
+    assert_eq!(elite_rom_version("ntsc-j"), Some(RomVersion::NtscJ));
+    assert_eq!(elite_rom_version("PAL"), Some(RomVersion::Pal));
+    assert_eq!(elite_rom_version("Unknown"), None);
 }
 
 #[test]
@@ -293,7 +307,8 @@ fn metadata_updates_persist_for_runs_without_video() {
         RunMetadataUpdateRequest {
             run_id: run.run_id.clone(),
             metadata: EditableRunMetadata {
-                rom_language: "jp".to_owned(),
+                game_language: "jp".to_owned(),
+                rom_version: Some(RomVersion::NtscJ),
                 status: "failed".to_owned(),
                 difficulty: "Agent".to_owned(),
                 time: "01:02".to_owned(),
@@ -312,6 +327,7 @@ fn metadata_updates_persist_for_runs_without_video() {
 
     let persisted = catalog.get_run(&updated.run_id).unwrap().expect("persisted run");
     assert!(persisted.clip.is_none());
-    assert_eq!(persisted.metadata.rom_language, "jp");
+    assert_eq!(persisted.metadata.game_language, "jp");
+    assert_eq!(persisted.metadata.rom_version, Some(RomVersion::NtscJ));
     assert_eq!(persisted.metadata.difficulty.as_deref(), Some("Agent"));
 }

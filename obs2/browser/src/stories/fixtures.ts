@@ -25,7 +25,8 @@ export const completedRun: RunClip = {
 		levelNumber: 2,
 		difficulty: '00 Agent',
 		status: 'complete',
-		romLanguage: 'en',
+		gameLanguage: 'en',
+		romVersion: null,
 		sourceName: 'Nintendo 64',
 		comment: '',
 		pluginVersion: '2.4.0'
@@ -52,7 +53,8 @@ export const failedRun: RunClip = {
 		levelNumber: 17,
 		difficulty: 'Agent',
 		status: 'kia',
-		romLanguage: 'jp'
+		gameLanguage: 'jp',
+		romVersion: null
 	}
 };
 
@@ -98,7 +100,8 @@ export const untaggedRun: RunClip = {
 		levelNumber: undefined,
 		difficulty: '',
 		status: '',
-		romLanguage: ''
+		gameLanguage: '',
+		romVersion: null
 	}
 };
 
@@ -121,7 +124,8 @@ export const theEliteRun: RunClip = {
 		level: 'Frigate',
 		levelNumber: 7,
 		difficulty: 'Agent',
-		romLanguage: 'jp',
+		gameLanguage: 'jp',
+		romVersion: 'ntsc-j',
 		sourceName: 'The Elite (NTSC-J)',
 		comment: 'Imported from https://rankings.the-elite.net/~acheronfail/time/309706; current personal best'
 	},
@@ -145,7 +149,8 @@ export const theEliteRunWithoutVideo: RunClip = {
 };
 
 export const draftForRun = (clip: RunClip): EditableRunMetadata => ({
-	romLanguage: clip.metadata.romLanguage,
+	gameLanguage: clip.metadata.gameLanguage,
+	romVersion: clip.metadata.romVersion ?? '',
 	status: clip.metadata.status,
 	difficulty: clip.metadata.difficulty ?? '',
 	time: clip.metadata.time ?? '',
