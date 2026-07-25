@@ -190,7 +190,7 @@ impl AppSettings {
             last_used_source_name: non_empty_string_field_option(object.get("lastUsedSourceName")),
             welcome_modal_shown: bool_field(object.get("welcomeModalShown"), default.welcome_modal_shown),
             completed_output_path: string_field(object.get("completedOutputPath"), &default.completed_output_path),
-            recent_run_limit: non_negative_usize(object.get("recentRunLimit"), default.recent_run_limit).clamp(1, 20),
+            recent_run_limit: non_negative_usize(object.get("recentRunLimit"), default.recent_run_limit).clamp(1, 100),
             clip_filename_template: clip_filename_template(object.get("clipFilenameTemplate")),
             pre_run_padding_secs: non_negative_f64(object.get("preRunPaddingSecs"), default.pre_run_padding_secs),
             post_run_padding_secs: non_negative_f64(object.get("postRunPaddingSecs"), default.post_run_padding_secs),
@@ -227,7 +227,7 @@ impl AppSettings {
     pub fn recording_options(&self) -> RecordingOptions {
         RecordingOptions {
             completed_output_path: self.completed_output_path.trim().to_owned(),
-            recent_run_limit: self.recent_run_limit.clamp(1, 20),
+            recent_run_limit: self.recent_run_limit.clamp(1, 100),
             clip_filename_template: self.clip_filename_template.trim().to_owned(),
             pre_run_padding_secs: self.pre_run_padding_secs,
             post_run_padding_secs: self.post_run_padding_secs,

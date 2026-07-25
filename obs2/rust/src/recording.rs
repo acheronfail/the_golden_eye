@@ -33,7 +33,7 @@ use crate::{ffmpeg, ge};
 pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level} - {difficulty} - {time} - {timestamp_local}";
 pub const DEFAULT_PRE_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
-pub const DEFAULT_RECENT_RUN_LIMIT: usize = 5;
+pub const DEFAULT_RECENT_RUN_LIMIT: usize = 10;
 /// Internal safety margin added to both the pre- and post-run padding, on top of
 /// the user's configured values and hidden from them, so a single-frame timing
 /// window can't drop the level-start briefing or stats overlay (e.g. padding 0).
