@@ -22,6 +22,13 @@ on:
 permissions:
   contents: read
 
+# We set these here for the entire run rather than just for the build package step
+# If they change it triggers rebuilds, which can be lengthy in CI
+env:
+  GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
+  GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+  GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
+
 jobs:
   linux:
     name: Linux x86_64
@@ -102,20 +109,12 @@ jobs:
 
       - name: Build Release
         run: just make-release
-        env:
-          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
-          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
-          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Run shim reload tests
         run: just test-shim
 
       - name: Run frame regression tests
         run: just test-cv
-        env:
-          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
-          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
-          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Upload frame regression test results
         if: ${{ always() }}
@@ -127,10 +126,6 @@ jobs:
 
       - name: Build Linux package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
-        env:
-          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
-          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
-          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Check Linux package contract
         run: just test-package-contract obs2/build-flatpak
@@ -224,17 +219,9 @@ jobs:
 
       - name: Run frame regression tests
         run: just test-cv
-        env:
-          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
-          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
-          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
-        env:
-          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
-          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
-          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Check macOS package contract
         run: just test-package-contract obs2/build
@@ -411,18 +398,10 @@ jobs:
       - name: Run frame regression tests
         shell: bash
         run: just test-cv
-        env:
-          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
-          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
-          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Build Windows package
         shell: bash
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
-        env:
-          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
-          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
-          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Check Windows package contract
         shell: bash
