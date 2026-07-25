@@ -25,13 +25,16 @@ export const completedRun: RunClip = {
 		levelNumber: 2,
 		difficulty: '00 Agent',
 		status: 'complete',
-		romLanguage: 'en',
+		wasPersonalBest: true,
+		gameLanguage: 'en',
+		romVersion: null,
 		sourceName: 'Nintendo 64',
 		comment: '',
 		pluginVersion: '2.4.0'
 	},
 	retentionState: 'kept',
-	retentionReason: 'personalBest'
+	retentionReason: 'personalBest',
+	youtube: null
 };
 
 export const failedRun: RunClip = {
@@ -51,7 +54,9 @@ export const failedRun: RunClip = {
 		levelNumber: 17,
 		difficulty: 'Agent',
 		status: 'kia',
-		romLanguage: 'jp'
+		wasPersonalBest: false,
+		gameLanguage: 'jp',
+		romVersion: null
 	}
 };
 
@@ -60,7 +65,7 @@ export const pendingRun: RunClip = {
 	runId: 'pending-facility-run',
 	retentionState: 'pending',
 	retentionReason: 'recent',
-	metadata: { ...completedRun.metadata }
+	metadata: { ...completedRun.metadata, wasPersonalBest: false }
 };
 
 export const abortedRun: RunClip = {
@@ -97,14 +102,73 @@ export const untaggedRun: RunClip = {
 		levelNumber: undefined,
 		difficulty: '',
 		status: '',
-		romLanguage: ''
+		gameLanguage: '',
+		romVersion: null
 	}
 };
 
 export const runClips = [pendingRun, failedRun, abortedRun, untaggedRun];
 
+export const theEliteRun: RunClip = {
+	...completedRun,
+	runId: 'the-elite-309706',
+	path: '',
+	fileName: '',
+	directory: '',
+	sizeBytes: 0,
+	modified: null,
+	durationSecs: null,
+	metadata: {
+		...completedRun.metadata,
+		timestamp: '2026-07-24T12:00:00Z',
+		time: '00:33',
+		timeSeconds: 33,
+		level: 'Frigate',
+		levelNumber: 7,
+		difficulty: 'Agent',
+		gameLanguage: 'jp',
+		wasPersonalBest: true,
+		romVersion: 'ntsc-j',
+		sourceName: 'The Elite (NTSC-J)',
+		comment: 'Imported from https://rankings.the-elite.net/~acheronfail/time/309706; current personal best'
+	},
+	retentionReason: 'theElite',
+	youtube: {
+		videoId: 'bgddOpQBKk4',
+		videoUrl: 'https://www.youtube.com/watch?v=bgddOpQBKk4',
+		title: 'Frigate - Agent - 00:33',
+		source: 'theElite'
+	}
+};
+
+export const theEliteRunWithoutVideo: RunClip = {
+	...theEliteRun,
+	runId: 'the-elite-123',
+	metadata: {
+		...theEliteRun.metadata,
+		comment: 'Imported from https://rankings.the-elite.net/~runner/time/123; previous personal best'
+	},
+	youtube: null
+};
+
+export const manuallyLinkedYouTubeRun: RunClip = {
+	...theEliteRun,
+	runId: 'manual-youtube-1',
+	metadata: {
+		...theEliteRun.metadata,
+		sourceName: 'Manual entry',
+		comment: 'Added manually to run history'
+	},
+	retentionReason: 'manualEntry',
+	youtube: {
+		...theEliteRun.youtube!,
+		source: 'manualLink'
+	}
+};
+
 export const draftForRun = (clip: RunClip): EditableRunMetadata => ({
-	romLanguage: clip.metadata.romLanguage,
+	gameLanguage: clip.metadata.gameLanguage,
+	romVersion: clip.metadata.romVersion ?? '',
 	status: clip.metadata.status,
 	difficulty: clip.metadata.difficulty ?? '',
 	time: clip.metadata.time ?? '',
@@ -162,7 +226,8 @@ export const uploadedHistory: YouTubeUploadHistoryEntry = {
 	videoId: 'dQw4w9WgXcQ',
 	videoUrl: 'https://youtu.be/dQw4w9WgXcQ',
 	uploadedAt: '2026-07-21T12:49:12Z',
-	title: 'Facility - 00 Agent - 00:58'
+	title: 'Facility - 00 Agent - 00:58',
+	source: 'pluginUpload'
 };
 
 export const notificationFixtures: NotificationFlag[] = [

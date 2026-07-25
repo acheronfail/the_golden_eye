@@ -46,6 +46,20 @@ describe('ActionMenu', () => {
 		expect(actions.at(-1)).toHaveClass('obs-menu-link-danger');
 	});
 
+	it('supports custom trigger glyphs and disabled menu actions', async () => {
+		const user = userEvent.setup();
+		render(ActionMenu, {
+			items: [{ label: 'Read clips', action: () => {}, disabled: true }],
+			triggerGlyph: '▾'
+		});
+
+		const trigger = screen.getByRole('button', { name: 'More actions' });
+		expect(trigger).toHaveTextContent('▾');
+		await user.click(trigger);
+
+		expect(screen.getByRole('menuitem', { name: 'Read clips' })).toBeDisabled();
+	});
+
 	it('keeps the trigger highlighted while its menu is open', async () => {
 		const user = userEvent.setup();
 		render(ActionMenu, { items: [{ label: 'Open', action: () => {} }] });

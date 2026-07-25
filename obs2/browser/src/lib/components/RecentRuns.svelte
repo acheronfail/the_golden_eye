@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import type { RunClip } from '$lib/api';
+	import { wasPersonalBest } from '$lib/utils/runsView';
 	import { formatMonitorTime } from './monitorView';
 
 	let {
@@ -78,9 +79,8 @@
 						>
 							<span>{run.metadata.difficulty ?? 'Unknown'}</span>
 							<span aria-hidden="true">-</span>
-							<span
-								class:personal-best={run.retentionReason === 'personalBest'}
-								class:text-(--obs-gold)={run.retentionReason === 'personalBest'}>{runTime(run)}</span
+							<span class:personal-best={wasPersonalBest(run)} class:text-(--obs-gold)={wasPersonalBest(run)}
+								>{runTime(run)}</span
 							>
 							<span aria-hidden="true">-</span>
 							<span
@@ -108,7 +108,7 @@
 							class:bg-[color-mix(in_srgb,var(--obs-success)_10%,transparent)]={run.retentionState === 'kept'}
 							class:text-(--obs-success)={run.retentionState === 'kept'}
 						>
-							{run.retentionReason === 'personalBest'
+							{wasPersonalBest(run)
 								? 'PB'
 								: run.retentionState === 'pending' && !run.path
 									? 'Saving…'

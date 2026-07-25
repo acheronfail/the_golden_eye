@@ -153,7 +153,7 @@ pub(super) fn switch_detected_language(
     tracing::info!(
         active_lang = %active_lang,
         detected_lang,
-        "detected ROM language; switching monitor templates"
+        "detected game language; switching monitor templates"
     );
     match make_session(&detected_lang) {
         Ok(next_session) => {

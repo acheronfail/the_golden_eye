@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ModalDialog from '$lib/components/ModalDialog.svelte';
+	import ReadClipsDialog from '$lib/components/ReadClipsDialog.svelte';
 	import ReplayBufferStopDialog from '$lib/components/ReplayBufferStopDialog.svelte';
 	import ResetSettingsDialog from '$lib/components/ResetSettingsDialog.svelte';
 	import RunCatalogSyncDialog from '$lib/components/RunCatalogSyncDialog.svelte';
@@ -10,7 +11,7 @@
 		busy = false,
 		error = null
 	}: {
-		kind: 'modal-dialog' | 'replay-buffer' | 'welcome' | 'reset' | 'catalog-initial' | 'catalog-manual';
+		kind: 'modal-dialog' | 'read-clips' | 'replay-buffer' | 'welcome' | 'reset' | 'catalog-initial' | 'catalog-manual';
 		busy?: boolean;
 		error?: string | null;
 	} = $props();
@@ -29,6 +30,8 @@
 	</ModalDialog>
 {:else if kind === 'replay-buffer'}
 	<ReplayBufferStopDialog {busy} {error} choose={noop} />
+{:else if kind === 'read-clips'}
+	<ReadClipsDialog cancel={noop} read={noop} />
 {:else if kind === 'welcome'}
 	<WelcomeDialog dismiss={noop} />
 {:else if kind === 'reset'}

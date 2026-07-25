@@ -84,6 +84,7 @@ pub struct RunRecord {
     pub metadata: ClipMetadata,
     pub retention_state: RunRetentionState,
     pub retention_reason: Option<String>,
+    pub youtube: Option<YoutubeMetadata>,
     pub clip: Option<IndexedRunClip>,
 }
 
@@ -205,6 +206,7 @@ impl RunCatalog {
                 )?;
                 best.is_none_or(|best| metadata.time_seconds.unwrap() < best)
             };
+        metadata.was_personal_best = is_pb;
         metadata.retention_state = if is_pb { "kept" } else { "pending" }.to_owned();
         metadata.retention_reason = is_pb.then(|| "personalBest".to_owned());
 
@@ -226,6 +228,7 @@ impl RunCatalog {
             run_id,
             retention_state: RunRetentionState::parse(&metadata.retention_state),
             retention_reason: metadata.retention_reason.clone(),
+            youtube: None,
             metadata,
             clip: None,
         })
@@ -243,9 +246,63 @@ impl RunCatalog {
             run_id: metadata.run_id.clone(),
             retention_state: RunRetentionState::Pending,
             retention_reason: None,
+            youtube: None,
             metadata,
             clip: None,
         }
+    }
+
+    pub fn create_history_run(
+        &self,
+        completed_at: SystemTime,
+        requested_id: Option<&str>,
+        mut metadata: ClipMetadata,
+        youtube: Option<YoutubeMetadata>,
+    ) -> anyhow::Result<(RunRecord, bool)> {
+        let completed_unix_micros = unix_micros(completed_at);
+        let mut conn = self.lock();
+        if let Some(run_id) = requested_id
+            && let Some(mut existing) = runs::get_run(&conn, run_id)?
+        {
+            if metadata.was_personal_best && !existing.metadata.was_personal_best {
+                existing.metadata.was_personal_best = true;
+                runs::update_metadata(&conn, run_id, &existing.metadata)?;
+            }
+            if existing.youtube.is_none()
+                && let Some(youtube) = youtube
+            {
+                runs::set_youtube_history_by_run_id(&conn, run_id, &youtube)?;
+                existing.youtube = Some(youtube);
+            }
+            return Ok((existing, false));
+        }
+        let base = requested_id.map(str::to_owned).unwrap_or_else(|| {
+            run_id_base(completed_unix_micros, metadata.level_number, metadata.difficulty.as_deref())
+        });
+        let mut run_id = base.clone();
+        let mut suffix = 2;
+        while runs::get_run(&conn, &run_id)?.is_some() {
+            run_id = format!("{base}-{suffix}");
+            suffix += 1;
+        }
+        metadata.run_id = run_id.clone();
+        let tx = conn.transaction()?;
+        runs::insert_finalized(&tx, &run_id, completed_unix_micros, &metadata)?;
+        if let Some(youtube) = &youtube {
+            runs::set_youtube_history_by_run_id(&tx, &run_id, youtube)?;
+        }
+        tx.commit()?;
+        Ok((
+            RunRecord {
+                run_id,
+                retention_state: RunRetentionState::parse(&metadata.retention_state),
+                retention_reason: metadata.retention_reason.clone(),
+                metadata,
+                youtube,
+                clip: None,
+            },
+            true,
+        ))
     }
 
     #[cfg(test)]

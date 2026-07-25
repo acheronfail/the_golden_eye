@@ -852,7 +852,8 @@ fn shutdown_before_pending_save_fires_waits_and_preserves_save_job() {
     assert_eq!(job.options.pre_run_padding_secs, 1.0);
     assert_eq!(job.options.post_run_padding_secs, 5.0);
     assert_eq!(job.metadata.source_name, "N64 Capture");
-    assert_eq!(job.metadata.rom_language, "en");
+    assert_eq!(job.metadata.game_language, "en");
+    assert_eq!(job.metadata.rom_version, None);
     assert_eq!(job.event_tx.receiver_count(), 1);
     assert_eq!(job.recording_state.current(), None);
     assert!((job.start_before_save_secs - 17.0).abs() < f64::EPSILON);

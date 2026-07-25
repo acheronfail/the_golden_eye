@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use super::*;
 use crate::db::run_catalog::RunCatalog;
 use crate::ffmpeg;
-use crate::models::clip_metadata::RunStatus;
+use crate::models::clip_metadata::{RomVersion, RunStatus};
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 const CREATE_SCHEMA_V2_FIXTURE: &str = include_str!("sql/runs/create_schema_v2_fixture.sql");
@@ -55,7 +55,9 @@ fn metadata(status: &str, timestamp: &str) -> ClipMetadata {
         level_number: Some(8),
         difficulty: Some("00 Agent".to_owned()),
         status: status.parse().expect("valid run status"),
-        rom_language: "en".to_owned(),
+        was_personal_best: false,
+        game_language: "en".to_owned(),
+        rom_version: None,
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin test".to_owned(),
         plugin_version: "test".to_owned(),
@@ -118,6 +120,7 @@ fn catalog_personal_bests_are_computed_from_prior_catalog_runs() {
         catalog.create_finalized_run(base, finalized_metadata(RunStatus::Complete, Some(100), "00 Agent")).unwrap();
     assert_eq!(first.retention_state, RunRetentionState::Kept);
     assert_eq!(first.retention_reason.as_deref(), Some("personalBest"));
+    assert!(first.metadata.was_personal_best);
     assert!(first.run_id.contains("-l08-"));
 
     let slower = catalog
@@ -127,6 +130,7 @@ fn catalog_personal_bests_are_computed_from_prior_catalog_runs() {
         )
         .unwrap();
     assert_eq!(slower.retention_state, RunRetentionState::Pending);
+    assert!(!slower.metadata.was_personal_best);
 
     let equal = catalog
         .create_finalized_run(
@@ -143,6 +147,7 @@ fn catalog_personal_bests_are_computed_from_prior_catalog_runs() {
         .unwrap();
     assert_eq!(faster.retention_state, RunRetentionState::Kept);
     assert_eq!(faster.retention_reason.as_deref(), Some("personalBest"));
+    assert!(faster.metadata.was_personal_best);
     let failed = catalog
         .create_finalized_run(
             base + Duration::from_secs(4),
@@ -512,8 +517,9 @@ fn youtube_metadata(video_id: &str) -> crate::youtube::YoutubeMetadata {
     crate::youtube::YoutubeMetadata {
         video_id: video_id.to_owned(),
         video_url: format!("https://youtu.be/{video_id}"),
-        uploaded_at: format!("2026-01-0{}T00:00:00Z", if video_id.ends_with('1') { 1 } else { 2 }),
+        uploaded_at: Some(format!("2026-01-0{}T00:00:00Z", if video_id.ends_with('1') { 1 } else { 2 })),
         title: format!("Video {video_id}"),
+        source: crate::youtube::YoutubeAssociationSource::PluginUpload,
     }
 }
 
@@ -567,7 +573,9 @@ fn sqlite_metadata_document_round_trips_complete_metadata() {
             level_number: Some(8),
             difficulty: Some("00 Agent".to_owned()),
             status: RunStatus::Complete,
-            rom_language: "en".to_owned(),
+            was_personal_best: false,
+            game_language: "en".to_owned(),
+            rom_version: None,
             source_name: "N64 Capture".to_owned(),
             comment: "Created by The Golden Eye OBS plugin test".to_owned(),
             plugin_version: "test".to_owned(),
@@ -576,10 +584,15 @@ fn sqlite_metadata_document_round_trips_complete_metadata() {
         }
     );
 
+    let mut updated = clips[0].metadata.clone();
+    updated.rom_version = Some(RomVersion::Pal);
+    catalog.update_metadata(&clips[0].run_id, updated.clone()).unwrap();
+    assert_eq!(catalog.get_run(&clips[0].run_id).unwrap().unwrap().metadata, updated);
+
     drop(catalog);
     let conn = rusqlite::Connection::open(dir.join("runs.sqlite")).unwrap();
     let stored_json: String = conn.query_row("SELECT metadata_json FROM runs", [], |row| row.get(0)).unwrap();
-    assert_eq!(serde_json::from_str::<ClipMetadata>(&stored_json).unwrap(), clips[0].metadata);
+    assert_eq!(serde_json::from_str::<ClipMetadata>(&stored_json).unwrap(), updated);
 
     let mut statement = conn.prepare("PRAGMA table_info(runs)").unwrap();
     let columns =

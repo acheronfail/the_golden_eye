@@ -4,12 +4,14 @@ import {
 	EMPTY_RUN_FILTERS,
 	clipTimeSeconds,
 	formatBytes,
+	gameLanguageForRomVersion,
 	groupRunClips,
 	hasActiveRunFilters,
 	parseRunTimeSeconds,
 	retentionReasonLabel,
 	retentionStateLabel,
 	visibleRunClips,
+	wasPersonalBest,
 	type RunFilters
 } from './runsView';
 
@@ -23,7 +25,8 @@ const clip = (overrides: {
 	levelNumber?: number;
 	difficulty?: string;
 	status: string;
-	romLanguage?: string;
+	gameLanguage?: string;
+	romVersion?: 'ntsc-u' | 'ntsc-j' | 'pal';
 	time?: string;
 	timeSeconds?: number;
 	modified?: string;
@@ -43,7 +46,8 @@ const clip = (overrides: {
 		levelNumber: overrides.levelNumber,
 		difficulty: overrides.difficulty,
 		status: overrides.status,
-		romLanguage: overrides.romLanguage ?? 'en',
+		gameLanguage: overrides.gameLanguage ?? 'en',
+		romVersion: overrides.romVersion,
 		sourceName: 'GoldenEye',
 		comment: 'The Golden Eye',
 		pluginVersion: '1.0.0'
@@ -60,7 +64,7 @@ const clips = [
 		levelNumber: 2,
 		difficulty: '00 Agent',
 		status: 'complete',
-		romLanguage: 'en',
+		gameLanguage: 'en',
 		time: '00:58',
 		timeSeconds: 58
 	}),
@@ -71,7 +75,8 @@ const clips = [
 		levelNumber: 1,
 		difficulty: 'Agent',
 		status: 'failed',
-		romLanguage: 'jp',
+		gameLanguage: 'jp',
+		romVersion: 'ntsc-j',
 		time: '01:12',
 		timeSeconds: 72
 	}),
@@ -82,13 +87,27 @@ const clips = [
 		levelNumber: 11,
 		difficulty: 'Secret Agent',
 		status: 'completed',
-		romLanguage: 'en',
+		gameLanguage: 'en',
 		time: '00:42',
 		timeSeconds: 42
 	})
 ];
 
 describe('runs view behaviour', () => {
+	it('recognises durable and legacy personal-best markers', () => {
+		const run = clips[0];
+		expect(wasPersonalBest({ ...run, metadata: { ...run.metadata, wasPersonalBest: true } })).toBe(true);
+		expect(wasPersonalBest({ ...run, retentionReason: 'personalBest' })).toBe(true);
+		expect(wasPersonalBest(run)).toBe(false);
+	});
+
+	it('derives game language from known ROM versions', () => {
+		expect(gameLanguageForRomVersion('ntsc-u')).toBe('en');
+		expect(gameLanguageForRomVersion('pal')).toBe('en');
+		expect(gameLanguageForRomVersion('ntsc-j')).toBe('jp');
+		expect(gameLanguageForRomVersion('')).toBeNull();
+	});
+
 	it('sorts visible runs newest first by timestamp', () => {
 		expect(visibleRunClips(clips, filters()).map((run) => run.fileName)).toEqual([
 			'dam-failed.mov',
@@ -123,6 +142,9 @@ describe('runs view behaviour', () => {
 	it('filters by search text across filename and metadata', () => {
 		expect(visibleRunClips(clips, filters({ search: 'facility 00 agent' })).map((run) => run.fileName)).toEqual([
 			'facility-0058.mov'
+		]);
+		expect(visibleRunClips(clips, filters({ search: 'NTSC-J' })).map((run) => run.fileName)).toEqual([
+			'dam-failed.mov'
 		]);
 	});
 

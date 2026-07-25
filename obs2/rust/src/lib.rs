@@ -13,6 +13,7 @@ mod recording;
 mod settings;
 mod stream_notifier;
 mod template_tokens;
+mod the_elite;
 mod timer;
 mod update_apply;
 mod updates;
@@ -101,7 +102,9 @@ pub fn ge_test_write_tagged_clip(input: &Path, output: &Path, status: &str, time
         level_number: Some(8),
         difficulty: Some("00 Agent".to_owned()),
         status: status.parse().expect("valid run status"),
-        rom_language: "en".to_owned(),
+        was_personal_best: false,
+        game_language: "en".to_owned(),
+        rom_version: None,
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin test".to_owned(),
         plugin_version: "test".to_owned(),

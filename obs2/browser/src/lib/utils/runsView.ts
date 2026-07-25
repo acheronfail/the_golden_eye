@@ -1,4 +1,4 @@
-import type { LevelMatch, RunClip, RunSort } from '$lib/api';
+import type { LevelMatch, RomVersion, RunClip, RunSort } from '$lib/api';
 import type { MetaPill } from './metaPills';
 import type { SelectOption } from '$lib/components/Select.svelte';
 
@@ -48,6 +48,25 @@ export const LANGUAGE_OPTIONS = [
 	{ value: 'en', label: 'en' },
 	{ value: 'jp', label: 'jp' }
 ];
+
+export const ROM_VERSION_OPTIONS = [
+	{ value: 'ntsc-u', label: 'NTSC-U' },
+	{ value: 'ntsc-j', label: 'NTSC-J' },
+	{ value: 'pal', label: 'PAL' }
+];
+export const OPTIONAL_ROM_VERSION_OPTIONS = [{ value: '', label: 'not set' }, ...ROM_VERSION_OPTIONS];
+
+export function gameLanguageForRomVersion(version?: RomVersion | '' | null): 'en' | 'jp' | null {
+	switch (version) {
+		case 'ntsc-j':
+			return 'jp';
+		case 'ntsc-u':
+		case 'pal':
+			return 'en';
+		default:
+			return null;
+	}
+}
 
 export const STATUS_OPTIONS = [
 	{ value: 'failed', label: 'failed' },
@@ -105,7 +124,7 @@ export function visibleRunClips(clips: RunClip[], filters: RunFilters, sort: Run
 			(!filters.level || clip.metadata.level === filters.level) &&
 			(!filters.difficulty || clip.metadata.difficulty === filters.difficulty) &&
 			(!filters.status || normalizeStatus(clip.metadata.status) === filters.status) &&
-			(!filters.language || clip.metadata.romLanguage === filters.language) &&
+			(!filters.language || clip.metadata.gameLanguage === filters.language) &&
 			(minTime === null || (time !== null && time >= minTime)) &&
 			(maxTime === null || (time !== null && time <= maxTime))
 		);
@@ -152,6 +171,10 @@ export function isCompleted(clip: RunClip): boolean {
 	return clip.metadata.status === 'complete' || clip.metadata.status === 'completed';
 }
 
+export function wasPersonalBest(clip: RunClip): boolean {
+	return Boolean(clip.metadata.wasPersonalBest || clip.retentionReason === 'personalBest');
+}
+
 export function normalizeStatus(status: string): string {
 	return status === 'completed' ? 'complete' : status;
 }
@@ -161,7 +184,7 @@ export function levelLabel(clip: RunClip): string {
 	return clip.metadata.levelNumber ? `${clip.metadata.levelNumber}. ${level}` : level;
 }
 
-export function romLanguageLabel(lang: string): string | null {
+export function gameLanguageLabel(lang: string): string | null {
 	switch (lang) {
 		case 'en':
 			return 'EN';
@@ -172,6 +195,10 @@ export function romLanguageLabel(lang: string): string | null {
 		default:
 			return `${lang.toUpperCase()}`;
 	}
+}
+
+export function romVersionLabel(version?: string | null): string | null {
+	return ROM_VERSION_OPTIONS.find((option) => option.value === version)?.label ?? null;
 }
 
 export function statusLabel(status: string): string {
@@ -219,7 +246,8 @@ function searchableRunText(clip: RunClip): string {
 		clip.metadata.time,
 		clip.metadata.difficulty,
 		statusLabel(clip.metadata.status),
-		clip.metadata.romLanguage,
+		clip.metadata.gameLanguage,
+		romVersionLabel(clip.metadata.romVersion),
 		clip.metadata.timestamp
 	]
 		.filter(Boolean)
@@ -249,7 +277,8 @@ function compareNewest(a: RunClip, b: RunClip): number {
 export function runDetail(clip: RunClip): string {
 	const parts = [
 		levelLabel(clip),
-		romLanguageLabel(clip.metadata.romLanguage),
+		gameLanguageLabel(clip.metadata.gameLanguage),
+		romVersionLabel(clip.metadata.romVersion),
 		clip.metadata.time,
 		clip.metadata.difficulty,
 		statusLabel(clip.metadata.status),
@@ -308,7 +337,8 @@ export function runMetaChips(clip: RunClip): MetaPill[] {
 		{ label: levelLabel(clip), class: 'obs-token' },
 		{ label: clip.metadata.time ?? '', class: 'obs-token' },
 		{ label: clip.metadata.difficulty ?? '', class: 'obs-token' },
-		{ label: romLanguageLabel(clip.metadata.romLanguage) ?? '', class: 'obs-token' },
+		{ label: gameLanguageLabel(clip.metadata.gameLanguage) ?? '', class: 'obs-token' },
+		{ label: romVersionLabel(clip.metadata.romVersion) ?? '', class: 'obs-token' },
 		{ label: statusLabel(clip.metadata.status), class: statusTone(clip.metadata.status) }
 	].filter((chip) => Boolean(chip.label));
 }
@@ -336,7 +366,7 @@ export function levelMatchMetaChips(
 		{ label: levelMatchLabel(match), class: 'obs-token' },
 		{ label: time === undefined ? '' : (formatDuration(time) ?? ''), class: 'obs-token' },
 		{ label: difficultyLabel(match.difficulty) ?? '', class: 'obs-token' },
-		{ label: romLanguageLabel(match.detected_lang ?? '') ?? '', class: 'obs-token' },
+		{ label: gameLanguageLabel(match.detected_lang ?? '') ?? '', class: 'obs-token' },
 		{ label: statusLabel(status), class: statusTone(status) }
 	].filter((chip) => Boolean(chip.label));
 }
@@ -354,7 +384,7 @@ export function activeRunFilters(filters: RunFilters): { key: RunFilterKey; labe
 			{ key: 'status', label: filters.status ? `status: ${statusLabel(filters.status)}` : '' },
 			{
 				key: 'language',
-				label: filters.language ? `language: ${romLanguageLabel(filters.language) ?? filters.language}` : ''
+				label: filters.language ? `game language: ${gameLanguageLabel(filters.language) ?? filters.language}` : ''
 			},
 			{ key: 'minTime', label: filters.minTime ? `min: ${filters.minTime}` : '' },
 			{ key: 'maxTime', label: filters.maxTime ? `max: ${filters.maxTime}` : '' }
@@ -425,6 +455,10 @@ export function retentionReasonLabel(reason?: string | null): string {
 			return 'Kept manually';
 		case 'imported':
 			return 'Imported clip';
+		case 'manualEntry':
+			return 'Added manually';
+		case 'theElite':
+			return 'Imported from The Elite';
 		case 'historyLimit':
 			return 'Recent-history limit';
 		case 'deleted':

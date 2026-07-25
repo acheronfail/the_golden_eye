@@ -53,7 +53,9 @@ fn test_clip_metadata(status: &str, timestamp: &str) -> ClipMetadata {
         level_number: Some(8),
         difficulty: Some("00 Agent".to_owned()),
         status: status.parse().expect("valid run status"),
-        rom_language: "en".to_owned(),
+        was_personal_best: false,
+        game_language: "en".to_owned(),
+        rom_version: None,
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin test".to_owned(),
         plugin_version: "test".to_owned(),
@@ -85,6 +87,134 @@ fn normalize_time_rejects_bad_values() {
     assert!(matches!(normalize_time("1"), Err(RunPathError::BadRequest(_))));
     assert!(matches!(normalize_time("1:2"), Err(RunPathError::BadRequest(_))));
     assert!(matches!(normalize_time("1:60"), Err(RunPathError::BadRequest(_))));
+}
+
+#[test]
+fn manual_history_run_keeps_origin_and_youtube_metadata_without_a_clip() {
+    let dir = TestDir::new("manual-history");
+    let catalog = test_catalog(&dir);
+    let run = create_manual_run(
+        &catalog,
+        ManualRunRequest {
+            date: "2025-04-03".to_owned(),
+            level: "Facility".to_owned(),
+            difficulty: "00 Agent".to_owned(),
+            time: "1:23".to_owned(),
+            game_language: "jp".to_owned(),
+            rom_version: Some(RomVersion::Pal),
+            youtube_url: Some("https://youtu.be/abc_123".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert!(run.path.is_empty());
+    assert_eq!(run.metadata.time.as_deref(), Some("01:23"));
+    assert_eq!(run.metadata.time_seconds, Some(83));
+    assert_eq!(run.metadata.game_language, "en");
+    assert_eq!(run.metadata.rom_version, Some(RomVersion::Pal));
+    assert_eq!(run.retention_reason.as_deref(), Some("manualEntry"));
+    assert_eq!(run.youtube.as_ref().map(|video| video.video_id.as_str()), Some("abc_123"));
+    assert_eq!(run.youtube.as_ref().and_then(|video| video.uploaded_at.as_deref()), None);
+    assert_eq!(
+        run.youtube.as_ref().map(|video| video.source),
+        Some(crate::youtube::YoutubeAssociationSource::ManualLink)
+    );
+    let stored = catalog.get_run(&run.run_id).unwrap().unwrap();
+    assert_eq!(stored.youtube, run.youtube);
+}
+
+#[test]
+fn elite_history_import_is_idempotent_and_preserves_source_metadata() {
+    let dir = TestDir::new("elite-history");
+    let catalog = test_catalog(&dir);
+    let elite = crate::the_elite::EliteRun {
+        time_id: "309706".to_owned(),
+        timestamp: "2026-07-24T12:00:00Z".to_owned(),
+        level: "Frigate".to_owned(),
+        difficulty: "Agent".to_owned(),
+        time: "0:33".to_owned(),
+        time_seconds: 33,
+        system: "NTSC-J".to_owned(),
+        current_personal_best: true,
+        proof_available: true,
+        video_id: Some("bgddOpQBKk4".to_owned()),
+    };
+
+    let first = import_elite_runs(&catalog, "acheronfail", vec![elite.clone()]).unwrap();
+    let second = import_elite_runs(&catalog, "acheronfail", vec![elite]).unwrap();
+
+    assert_eq!((first.imported, first.already_imported, first.videos), (1, 0, 1));
+    assert_eq!((second.imported, second.already_imported, second.videos), (0, 1, 0));
+    let run = catalog.get_run("the-elite-309706").unwrap().unwrap();
+    assert_eq!(run.retention_reason.as_deref(), Some("theElite"));
+    assert_eq!(run.metadata.source_name, "The Elite (NTSC-J)");
+    assert_eq!(run.metadata.game_language, "jp");
+    assert_eq!(run.metadata.rom_version, Some(RomVersion::NtscJ));
+    assert!(run.metadata.was_personal_best);
+    assert!(run.metadata.comment.contains("current personal best"));
+    assert_eq!(run.youtube.as_ref().map(|video| video.video_id.as_str()), Some("bgddOpQBKk4"));
+    assert_eq!(run.youtube.as_ref().and_then(|video| video.uploaded_at.as_deref()), None);
+    assert_eq!(
+        run.youtube.as_ref().map(|video| video.source),
+        Some(crate::youtube::YoutubeAssociationSource::TheElite)
+    );
+}
+
+#[test]
+fn elite_reimport_promotes_personal_best_without_clearing_it() {
+    let dir = TestDir::new("elite-personal-best");
+    let catalog = test_catalog(&dir);
+    let mut elite = crate::the_elite::EliteRun {
+        time_id: "123".to_owned(),
+        timestamp: "2026-07-24T12:00:00Z".to_owned(),
+        level: "Dam".to_owned(),
+        difficulty: "Agent".to_owned(),
+        time: "0:53".to_owned(),
+        time_seconds: 53,
+        system: "NTSC".to_owned(),
+        current_personal_best: false,
+        proof_available: false,
+        video_id: None,
+    };
+
+    import_elite_runs(&catalog, "runner", vec![elite.clone()]).unwrap();
+    assert!(!catalog.get_run("the-elite-123").unwrap().unwrap().metadata.was_personal_best);
+
+    elite.current_personal_best = true;
+    import_elite_runs(&catalog, "runner", vec![elite.clone()]).unwrap();
+    let promoted = catalog.get_run("the-elite-123").unwrap().unwrap();
+    assert!(promoted.metadata.was_personal_best);
+    assert_eq!(promoted.retention_reason.as_deref(), Some("theElite"));
+
+    elite.current_personal_best = false;
+    import_elite_runs(&catalog, "runner", vec![elite]).unwrap();
+    assert!(catalog.get_run("the-elite-123").unwrap().unwrap().metadata.was_personal_best);
+}
+
+#[test]
+fn elite_rom_versions_map_known_systems_and_leave_unknown_unset() {
+    assert_eq!(elite_rom_version("NTSC"), Some(RomVersion::NtscU));
+    assert_eq!(elite_rom_version("NTSC-U"), Some(RomVersion::NtscU));
+    assert_eq!(elite_rom_version("ntsc-j"), Some(RomVersion::NtscJ));
+    assert_eq!(elite_rom_version("PAL"), Some(RomVersion::Pal));
+    assert_eq!(elite_rom_version("Unknown"), None);
+}
+
+#[test]
+fn missing_elite_users_map_to_not_found_without_masking_other_upstream_errors() {
+    let missing = anyhow::Error::new(crate::the_elite::UserNotFound::new("missing-runner"));
+    assert_eq!(elite_fetch_error_status(&missing), StatusCode::NOT_FOUND);
+    assert_eq!(missing.to_string(), "The Elite user ~missing-runner was not found");
+
+    let upstream = anyhow::anyhow!("The Elite returned 503 Service Unavailable");
+    assert_eq!(elite_fetch_error_status(&upstream), StatusCode::BAD_GATEWAY);
+}
+
+#[test]
+fn manual_youtube_links_accept_only_video_urls() {
+    assert_eq!(youtube_metadata("https://www.youtube.com/watch?v=abc-123", "title").unwrap().video_id, "abc-123");
+    assert!(youtube_metadata("https://example.com/watch?v=abc-123", "title").is_err());
+    assert!(youtube_metadata("https://youtube.com/channel/abc-123", "title").is_err());
 }
 
 #[test]
@@ -218,7 +348,8 @@ fn metadata_updates_persist_for_runs_without_video() {
         RunMetadataUpdateRequest {
             run_id: run.run_id.clone(),
             metadata: EditableRunMetadata {
-                rom_language: "jp".to_owned(),
+                game_language: "en".to_owned(),
+                rom_version: Some(RomVersion::NtscJ),
                 status: "failed".to_owned(),
                 difficulty: "Agent".to_owned(),
                 time: "01:02".to_owned(),
@@ -237,6 +368,7 @@ fn metadata_updates_persist_for_runs_without_video() {
 
     let persisted = catalog.get_run(&updated.run_id).unwrap().expect("persisted run");
     assert!(persisted.clip.is_none());
-    assert_eq!(persisted.metadata.rom_language, "jp");
+    assert_eq!(persisted.metadata.game_language, "jp");
+    assert_eq!(persisted.metadata.rom_version, Some(RomVersion::NtscJ));
     assert_eq!(persisted.metadata.difficulty.as_deref(), Some("Agent"));
 }

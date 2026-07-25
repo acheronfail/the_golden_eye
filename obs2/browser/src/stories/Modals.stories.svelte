@@ -11,6 +11,7 @@
 </script>
 
 <Story name="Shared modal dialog" />
+<Story name="Read clips confirmation" args={{ kind: 'read-clips' }} />
 <Story name="Replay buffer preference" args={{ kind: 'replay-buffer' }} />
 <Story name="Saving replay buffer preference" args={{ kind: 'replay-buffer', busy: true }} />
 <Story

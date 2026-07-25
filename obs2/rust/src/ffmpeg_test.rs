@@ -1,5 +1,5 @@
 use super::*;
-use crate::models::clip_metadata::RunStatus;
+use crate::models::clip_metadata::{RomVersion, RunStatus};
 
 fn sample_clip() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/clips/sample_clip.mov")
@@ -47,7 +47,9 @@ fn trims_with_metadata_and_reads_it_back() {
         level_number: Some(8),
         difficulty: Some("00 Agent".to_owned()),
         status: RunStatus::Complete,
-        rom_language: "en".to_owned(),
+        was_personal_best: true,
+        game_language: "en".to_owned(),
+        rom_version: Some(RomVersion::Pal),
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin v0.0.0".to_owned(),
         plugin_version: "0.0.0".to_owned(),
@@ -79,7 +81,9 @@ fn rewrites_metadata_in_place_and_drops_old_optional_tags() {
         level_number: Some(8),
         difficulty: Some("00 Agent".to_owned()),
         status: RunStatus::Complete,
-        rom_language: "en".to_owned(),
+        was_personal_best: false,
+        game_language: "en".to_owned(),
+        rom_version: Some(RomVersion::NtscU),
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin v0.0.0".to_owned(),
         plugin_version: "0.0.0".to_owned(),
@@ -97,7 +101,9 @@ fn rewrites_metadata_in_place_and_drops_old_optional_tags() {
         level_number: Some(1),
         difficulty: None,
         status: RunStatus::Failed,
-        rom_language: "jp".to_owned(),
+        was_personal_best: false,
+        game_language: "jp".to_owned(),
+        rom_version: Some(RomVersion::NtscJ),
         source_name: "N64 Capture".to_owned(),
         comment: "Created by The Golden Eye OBS plugin v0.0.0".to_owned(),
         plugin_version: "0.0.0".to_owned(),

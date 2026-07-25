@@ -40,6 +40,17 @@ describe('statistics chart data', () => {
 		]);
 	});
 
+	it('shows dates without placeholder times in improvement tooltips', () => {
+		const data = runTimeData(statisticsFixture);
+		const expectedLabels = new Set(
+			statisticsFixture.selectedCohort!.runTimes.map((run) => new Date(run.completedAt).toLocaleDateString())
+		);
+
+		for (const point of data.series.flatMap((series) => series.points)) {
+			expect(expectedLabels).toContain(point.label);
+		}
+	});
+
 	it('formats combined durations without wrapping at 24 hours', () => {
 		expect(formatDuration(30 * 60 * 60 + 61)).toBe('30:01:01');
 	});

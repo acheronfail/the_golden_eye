@@ -322,8 +322,20 @@ pub struct UploadHistoryEntry {
 pub struct YoutubeMetadata {
     pub video_id: String,
     pub video_url: String,
-    pub uploaded_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uploaded_at: Option<String>,
     pub title: String,
+    #[serde(default)]
+    pub source: YoutubeAssociationSource,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum YoutubeAssociationSource {
+    #[default]
+    PluginUpload,
+    ManualLink,
+    TheElite,
 }
 
 #[derive(Clone)]
@@ -705,7 +717,16 @@ pub async fn upload_video(
                 status.video_url = Some(video_url.clone());
                 status.error = None;
             });
-            let _ = store.set_history(&path, YoutubeMetadata { video_id, video_url, uploaded_at: now_iso(), title });
+            let _ = store.set_history(
+                &path,
+                YoutubeMetadata {
+                    video_id,
+                    video_url,
+                    uploaded_at: Some(now_iso()),
+                    title,
+                    source: YoutubeAssociationSource::PluginUpload,
+                },
+            );
             if let Some(status) = status {
                 let _ = event_tx.send(crate::http::AppEvent::YoutubeUploadChanged { upload: status });
             }
@@ -932,6 +953,37 @@ mod tests {
     use crate::models::clip_metadata::RunStatus;
 
     #[test]
+    fn legacy_youtube_metadata_defaults_to_plugin_upload_source() {
+        let metadata: YoutubeMetadata = serde_json::from_str(
+            r#"{
+                "videoId": "legacy-id",
+                "videoUrl": "https://youtu.be/legacy-id",
+                "uploadedAt": "2026-01-01T00:00:00Z",
+                "title": "Legacy upload"
+            }"#,
+        )
+        .expect("deserialize legacy metadata");
+
+        assert_eq!(metadata.source, YoutubeAssociationSource::PluginUpload);
+        assert_eq!(metadata.uploaded_at.as_deref(), Some("2026-01-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn external_youtube_metadata_omits_unknown_upload_time() {
+        let metadata = YoutubeMetadata {
+            video_id: "external-id".to_owned(),
+            video_url: "https://youtu.be/external-id".to_owned(),
+            uploaded_at: None,
+            title: "External video".to_owned(),
+            source: YoutubeAssociationSource::ManualLink,
+        };
+
+        let json = serde_json::to_value(metadata).expect("serialize external metadata");
+        assert_eq!(json["source"], "manualLink");
+        assert!(json.get("uploadedAt").is_none());
+    }
+
+    #[test]
     fn keyring_store_round_trips_tokens() {
         let suffix = format!("{}-{}", std::process::id(), unix_secs(SystemTime::now()));
         let store = KeyringYoutubeCredentialStore::test_account(&suffix);
@@ -1010,7 +1062,9 @@ mod tests {
             level_number: Some(1),
             difficulty: Some("Agent".to_owned()),
             status: RunStatus::Complete,
-            rom_language: "en".to_owned(),
+            was_personal_best: false,
+            game_language: "en".to_owned(),
+            rom_version: None,
             source_name: "N64 Capture".to_owned(),
             comment: "test".to_owned(),
             plugin_version: "test".to_owned(),

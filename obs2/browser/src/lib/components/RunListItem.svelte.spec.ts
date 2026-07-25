@@ -21,7 +21,7 @@ const clip: RunClip = {
 		levelNumber: 2,
 		difficulty: '00 Agent',
 		status: 'complete',
-		romLanguage: 'en',
+		gameLanguage: 'en',
 		sourceName: 'Nintendo 64',
 		comment: '',
 		pluginVersion: '2.4.0'
@@ -61,7 +61,7 @@ describe('RunListItem', () => {
 
 	it('uses a gold time and compact PB status for personal-best runs', () => {
 		render(RunListItem, {
-			clip: { ...clip, retentionReason: 'personalBest' },
+			clip: { ...clip, metadata: { ...clip.metadata, wasPersonalBest: true }, retentionReason: 'theElite' },
 			fileBrowserLabel: 'Show in Finder',
 			open: () => {},
 			rename: () => {},

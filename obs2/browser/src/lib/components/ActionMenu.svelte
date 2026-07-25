@@ -3,6 +3,7 @@
 		label: string;
 		action: () => void | Promise<void>;
 		tone?: 'default' | 'danger';
+		disabled?: boolean;
 	};
 </script>
 
@@ -16,7 +17,8 @@
 		busy = false,
 		open = $bindable(false),
 		onOpenChange,
-		triggerClass = ''
+		triggerClass = '',
+		triggerGlyph = '⋯'
 	}: {
 		items: ActionMenuItem[];
 		label?: string;
@@ -25,6 +27,7 @@
 		open?: boolean;
 		onOpenChange?: (open: boolean) => void;
 		triggerClass?: string;
+		triggerGlyph?: string;
 	} = $props();
 
 	let triggerElement = $state<HTMLButtonElement>();
@@ -55,6 +58,7 @@
 	}
 
 	function runAction(item: ActionMenuItem) {
+		if (item.disabled) return;
 		setOpen(false);
 		void item.action();
 	}
@@ -84,7 +88,7 @@
 	disabled={busy}
 	onclick={toggle}
 >
-	<span aria-hidden="true">⋯</span>
+	<span aria-hidden="true">{triggerGlyph}</span>
 </button>
 
 {#if open}
@@ -103,8 +107,9 @@
 			<button
 				type="button"
 				role="menuitem"
-				class="cursor-pointer rounded obs-menu-link px-3 py-2 text-left font-mono text-xs"
+				class="cursor-pointer rounded obs-menu-link px-3 py-2 text-left font-mono text-xs disabled:cursor-not-allowed disabled:opacity-50"
 				class:obs-menu-link-danger={item.tone === 'danger'}
+				disabled={item.disabled}
 				onclick={() => runAction(item)}>{item.label}</button
 			>
 		{/each}

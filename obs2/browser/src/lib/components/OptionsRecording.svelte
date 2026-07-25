@@ -17,6 +17,7 @@
 		{ value: '{time}', description: 'Run time as mm:ss when the stats screen was read.' },
 		{ value: '{difficulty}', description: 'Difficulty name: Agent, Secret Agent, 00 Agent, or 007.' },
 		{ value: '{status}', description: 'Run result: complete, failed, abort, or kia.' },
+		{ value: '{rom}', description: 'ROM version: NTSC-U, NTSC-J, PAL, or unknown.' },
 		{ value: '{timestamp}', description: 'ISO timestamp in UTC for when the run completed.' },
 		{ value: '{timestamp_local}', description: 'ISO timestamp in local time for when the run completed.' }
 	];

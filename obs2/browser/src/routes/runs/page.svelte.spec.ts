@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
 	renameRun: vi.fn(),
 	deleteCatalogRun: vi.fn(),
 	updateRunMetadata: vi.fn(),
+	createManualRun: vi.fn(),
+	importTheElite: vi.fn(),
 	goto: vi.fn(),
 	runVideoUrl: vi.fn((path: string) => `/api/v1/runs/video?path=${encodeURIComponent(path)}`),
 	pageUrl: new URL('http://localhost/runs')
@@ -40,7 +42,9 @@ vi.mock('$lib/api', async (importOriginal) => {
 			getRuns: mocks.getRuns,
 			renameRun: mocks.renameRun,
 			deleteCatalogRun: mocks.deleteCatalogRun,
-			updateRunMetadata: mocks.updateRunMetadata
+			updateRunMetadata: mocks.updateRunMetadata,
+			createManualRun: mocks.createManualRun,
+			importTheElite: mocks.importTheElite
 		}
 	};
 });
@@ -69,7 +73,7 @@ const clip = (overrides: {
 		levelNumber: overrides.levelNumber,
 		difficulty: overrides.difficulty,
 		status: overrides.status,
-		romLanguage: 'en',
+		gameLanguage: 'en',
 		sourceName: 'GoldenEye',
 		comment: 'The Golden Eye',
 		pluginVersion: '1.0.0'
@@ -144,6 +148,8 @@ beforeEach(() => {
 		return { ...run, path: `/runs/${fileName}`, fileName };
 	});
 	mocks.deleteCatalogRun.mockResolvedValue(null);
+	mocks.createManualRun.mockResolvedValue(runsResponse.clips[0]);
+	mocks.importTheElite.mockResolvedValue({ imported: 84, alreadyImported: 0, videos: 73 });
 	mocks.updateRunMetadata.mockImplementation(async (runId: string, metadata) => {
 		const run = runsResponse.clips.find((candidate) => candidate.runId === runId);
 		if (!run) throw new Error('run not found');
@@ -161,15 +167,48 @@ beforeEach(() => {
 });
 
 describe('/runs', () => {
-	it('passes refresh=true when the user reloads runs', async () => {
+	it('opens the add-times dialog and shows progress until an Elite import completes', async () => {
+		const user = userEvent.setup();
+		let finishImport!: (value: { imported: number; alreadyImported: number; videos: number }) => void;
+		mocks.importTheElite.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					finishImport = resolve;
+				})
+		);
+		render(RunsPage);
+
+		const addTimes = await screen.findByRole('button', { name: '+ add times' });
+		expect(addTimes).toHaveClass('obs-button-gold', 'h-8', 'px-3');
+		expect(addTimes.parentElement).toHaveClass('z-30');
+		await user.click(addTimes);
+		await user.click(screen.getByRole('radio', { name: 'Import from The Elite' }));
+		await user.type(screen.getByRole('textbox', { name: 'The Elite username' }), 'acheronfail');
+		await user.click(screen.getByRole('button', { name: 'import all times' }));
+
+		expect(mocks.importTheElite).toHaveBeenCalledWith('acheronfail');
+		expect(screen.getByRole('button', { name: /importing all times/i })).toBeDisabled();
+		finishImport({ imported: 84, alreadyImported: 0, videos: 73 });
+		expect(await screen.findByRole('status')).toHaveTextContent('Imported 84 times with 73 YouTube videos.');
+		await waitFor(() => expect(mocks.getRuns).toHaveBeenCalledTimes(2));
+	});
+
+	it('confirms what read clips does before rescanning', async () => {
 		const user = userEvent.setup();
 		render(RunsPage);
 
-		const reload = await screen.findByRole('button', { name: /reload/i });
 		await waitFor(() => expect(mocks.getRuns).toHaveBeenCalledTimes(1));
 		expect(mocks.getRuns.mock.calls[0][0]).toMatchObject({ refresh: false, sort: 'newest' });
 
-		await user.click(reload);
+		const moreActions = await screen.findByRole('button', { name: 'More run actions' });
+		expect(moreActions).toHaveTextContent('▾');
+		await user.click(moreActions);
+		expect(screen.queryByRole('menuitem', { name: /add times/i })).not.toBeInTheDocument();
+		await user.click(screen.getByRole('menuitem', { name: 'read clips' }));
+		expect(screen.getByRole('dialog', { name: 'Read clips?' })).toHaveTextContent(/will not delete any video files/i);
+		expect(mocks.getRuns).toHaveBeenCalledTimes(1);
+
+		await user.click(screen.getByRole('button', { name: 'Read clips' }));
 		await waitFor(() => expect(mocks.getRuns).toHaveBeenCalledTimes(2));
 		expect(mocks.getRuns.mock.calls[1][0]).toMatchObject({ refresh: true, sort: 'newest' });
 	});
@@ -231,7 +270,8 @@ describe('/runs', () => {
 		const user = userEvent.setup();
 		render(RunsPage);
 
-		const showFolder = await screen.findByRole('button', { name: /show clips/i });
+		await user.click(await screen.findByRole('button', { name: 'More run actions' }));
+		const showFolder = screen.getByRole('menuitem', { name: /show clips/i });
 		await user.click(showFolder);
 
 		expect(screen.queryByRole('dialog', { name: /Choose clips folder/i })).not.toBeInTheDocument();
@@ -286,6 +326,54 @@ describe('/runs', () => {
 		expect(screen.queryByText('Size')).not.toBeInTheDocument();
 		expect(screen.getByText('History only')).toBeInTheDocument();
 		expect(screen.getByText('Video deleted')).toBeInTheDocument();
+	});
+
+	it('clearly identifies and embeds a remote YouTube video instead of a local clip', async () => {
+		const user = userEvent.setup();
+		const remote = {
+			...runsResponse.clips[2],
+			runId: 'the-elite-309706',
+			retentionState: 'kept' as const,
+			retentionReason: 'theElite',
+			youtube: {
+				videoId: 'bgddOpQBKk4',
+				videoUrl: 'https://www.youtube.com/watch?v=bgddOpQBKk4',
+				title: 'Frigate - Agent - 00:33',
+				source: 'theElite' as const
+			}
+		};
+		mocks.getRuns.mockResolvedValue({ directories: runsResponse.directories, clips: [remote] });
+		render(RunsPage);
+
+		await user.click(await screen.findByRole('button', { name: /run history only/i }));
+
+		expect(screen.getByText('The Elite video')).toBeInTheDocument();
+		expect(screen.getByTitle('Frigate - Agent - 00:33')).toHaveAttribute(
+			'src',
+			'https://www.youtube.com/embed/bgddOpQBKk4'
+		);
+		expect(screen.queryByText('Local clip')).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /open on youtube/i })).not.toBeInTheDocument();
+		expect(screen.getByText('Imported from The Elite')).toBeInTheDocument();
+	});
+
+	it('keeps The Elite times without proof as history-only runs', async () => {
+		const user = userEvent.setup();
+		const withoutProof = {
+			...runsResponse.clips[2],
+			runId: 'the-elite-123',
+			retentionState: 'kept' as const,
+			retentionReason: 'theElite',
+			youtube: null
+		};
+		mocks.getRuns.mockResolvedValue({ directories: runsResponse.directories, clips: [withoutProof] });
+		render(RunsPage);
+
+		await user.click(await screen.findByRole('button', { name: /run history only/i }));
+
+		expect(screen.getByText('No video was linked when this historical time was added.')).toBeInTheDocument();
+		expect(screen.queryByText('YouTube video')).not.toBeInTheDocument();
+		expect(screen.getByText('Imported from The Elite')).toBeInTheDocument();
 	});
 
 	it('explains pending cleanup in the modal and lets the user keep the video', async () => {

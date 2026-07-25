@@ -19,7 +19,7 @@ const run = (overrides: Partial<RunClip>): RunClip => ({
 		levelNumber: 2,
 		difficulty: '00 Agent',
 		status: 'complete',
-		romLanguage: 'en',
+		gameLanguage: 'en',
 		sourceName: 'Nintendo 64',
 		comment: '',
 		pluginVersion: '2.4.0'
@@ -45,8 +45,8 @@ describe('RecentRuns', () => {
 			runs: [
 				run({
 					retentionState: 'kept',
-					retentionReason: 'personalBest',
-					metadata: { ...run({}).metadata, status: 'failed' }
+					retentionReason: 'theElite',
+					metadata: { ...run({}).metadata, status: 'failed', wasPersonalBest: true }
 				})
 			],
 			onKeep: vi.fn()

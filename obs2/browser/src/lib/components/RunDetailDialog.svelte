@@ -6,7 +6,9 @@
 	import Select from '$lib/components/Select.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
+		gameLanguageForRomVersion,
 		LANGUAGE_OPTIONS,
+		OPTIONAL_ROM_VERSION_OPTIONS,
 		STATUS_OPTIONS,
 		fileRows,
 		runDetail,
@@ -42,6 +44,22 @@
 	const normalizeAndSaveMetadataNow = () => {
 		view.actions.normalizeDraftTime();
 		saveMetadataNow();
+	};
+	const changeRomVersion = (value: string) => {
+		if (!metadataDraft) return;
+		metadataDraft.romVersion = value as EditableRunMetadata['romVersion'];
+		metadataDraft.gameLanguage = gameLanguageForRomVersion(metadataDraft.romVersion) ?? metadataDraft.gameLanguage;
+		scheduleMetadataSave();
+	};
+	const youtubeSourceLabel = (source: NonNullable<RunClip['youtube']>['source']) => {
+		switch (source) {
+			case 'theElite':
+				return 'The Elite video';
+			case 'manualLink':
+				return 'Manually linked YouTube video';
+			default:
+				return 'Plugin YouTube upload';
+		}
 	};
 	onDestroy(() => {
 		if (metadataSaveTimer) clearTimeout(metadataSaveTimer);
@@ -127,12 +145,33 @@
 					{/if}
 				</div>
 				{#if clip.path}
+					<div class="mb-2 flex items-center justify-between gap-2">
+						<span class="rounded border border-(--obs-border-soft) px-2 py-1 font-mono text-[10px] obs-dim">
+							Local clip
+						</span>
+						<span class="truncate font-mono text-[10px] obs-dim" title={clip.path}>{clip.fileName}</span>
+					</div>
 					<!-- svelte-ignore a11y_media_has_caption -->
 					<video src={backend.runVideoUrl(clip.path)} controls class="aspect-video w-full obs-preview"></video>
 					<RunYouTubeSection {clip} />
+				{:else if clip.youtube}
+					<div class="mb-2">
+						<span class="rounded border border-(--obs-border-soft) px-2 py-1 font-mono text-[10px] obs-dim">
+							{youtubeSourceLabel(clip.youtube.source)}
+						</span>
+					</div>
+					<iframe
+						src={`https://www.youtube.com/embed/${clip.youtube.videoId}`}
+						title={clip.youtube.title || `${clip.metadata.level} run on YouTube`}
+						class="aspect-video w-full obs-preview"
+						allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+						allowfullscreen
+					></iframe>
 				{:else}
 					<p class="rounded obs-empty-state px-4 py-6 text-center text-sm">
-						The video has been removed. Run history is still available.
+						{clip.retentionReason === 'manualEntry' || clip.retentionReason === 'theElite'
+							? 'No video was linked when this historical time was added.'
+							: 'The video has been removed. Run history is still available.'}
 					</p>
 				{/if}
 
@@ -158,16 +197,6 @@
 								/>
 							</label>
 							<label class="flex min-w-0 flex-col gap-1">
-								<span class="font-mono text-xs obs-dim">ROM language</span>
-								<Select
-									class="w-full"
-									placeholder="select language"
-									bind:value={metadataDraft.romLanguage}
-									options={LANGUAGE_OPTIONS}
-									onChange={() => scheduleMetadataSave()}
-								/>
-							</label>
-							<label class="flex min-w-0 flex-col gap-1">
 								<span class="font-mono text-xs obs-dim">Time</span>
 								<input
 									class="obs-input px-3 py-2 font-mono"
@@ -179,6 +208,29 @@
 									placeholder="mm:ss"
 								/>
 							</label>
+							<div class="grid grid-cols-2 gap-3 sm:col-span-2 sm:grid-cols-2">
+								<label class="flex min-w-0 flex-col gap-1">
+									<span class="font-mono text-xs obs-dim">ROM version</span>
+									<Select
+										class="w-full"
+										placeholder="not set"
+										bind:value={metadataDraft.romVersion}
+										options={OPTIONAL_ROM_VERSION_OPTIONS}
+										onChange={changeRomVersion}
+									/>
+								</label>
+								<label class="flex min-w-0 flex-col gap-1">
+									<span class="font-mono text-xs obs-dim">Game language</span>
+									<Select
+										class="w-full"
+										placeholder="select language"
+										bind:value={metadataDraft.gameLanguage}
+										options={LANGUAGE_OPTIONS}
+										disabled={Boolean(metadataDraft.romVersion)}
+										onChange={() => scheduleMetadataSave()}
+									/>
+								</label>
+							</div>
 							<label class="flex min-w-0 flex-col gap-1">
 								<span class="font-mono text-xs obs-dim">Difficulty</span>
 								<Select

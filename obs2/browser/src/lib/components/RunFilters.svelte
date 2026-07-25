@@ -126,12 +126,12 @@
 			</label>
 
 			<label class="grid gap-1 font-mono text-[10px] text-(--obs-text-dim)" for="runs-language">
-				Language
+				Game language
 				<Select
 					id="runs-language"
 					class="w-full text-xs text-(--obs-text)"
 					bind:value={filters.language}
-					options={[{ value: '', label: 'all languages' }, ...LANGUAGE_OPTIONS]}
+					options={[{ value: '', label: 'all game languages' }, ...LANGUAGE_OPTIONS]}
 				/>
 			</label>
 

@@ -117,7 +117,7 @@ export function runTimeData(response: StatisticsResponse): ChartData {
 				.map((run) => ({
 					x: new Date(run.completedAt).getTime(),
 					y: run.timeSeconds,
-					label: new Date(run.completedAt).toLocaleString(),
+					label: new Date(run.completedAt).toLocaleDateString(),
 					detail: `${levelLabel(cohort.levelNumber)} · ${difficultyLabel(cohort.difficultyNumber)}`
 				}))
 		),
@@ -133,7 +133,7 @@ export function runTimeData(response: StatisticsResponse): ChartData {
 				{
 					x: new Date(run.completedAt).getTime(),
 					y: best,
-					label: new Date(run.completedAt).toLocaleString(),
+					label: new Date(run.completedAt).toLocaleDateString(),
 					detail: `${levelLabel(cohort.levelNumber)} · ${difficultyLabel(cohort.difficultyNumber)}`
 				}
 			];

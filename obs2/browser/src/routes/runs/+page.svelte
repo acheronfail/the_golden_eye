@@ -4,21 +4,27 @@
 	import {
 		backend,
 		type EditableRunMetadata,
+		type ManualRunInput,
 		type RunClip,
 		type RunDirectoryScan,
 		type RunsResponse,
-		type RunSort
+		type RunSort,
+		type TheEliteImportResponse
 	} from '$lib/api';
+	import ActionMenu, { type ActionMenuItem } from '$lib/components/ActionMenu.svelte';
+	import ReadClipsDialog from '$lib/components/ReadClipsDialog.svelte';
 	import RunDetailDialog from '$lib/components/RunDetailDialog.svelte';
 	import RunDeleteDialog from '$lib/components/RunDeleteDialog.svelte';
 	import RunFiltersForm from '$lib/components/RunFilters.svelte';
 	import RunList from '$lib/components/RunList.svelte';
+	import RunImportDialog from '$lib/components/RunImportDialog.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
 		EMPTY_RUN_FILTERS,
 		LANGUAGE_OPTIONS,
 		LEVEL_OPTIONS,
+		ROM_VERSION_OPTIONS,
 		STATUS_OPTIONS,
 		hasActiveRunFilters,
 		activeRunFilters,
@@ -53,6 +59,11 @@
 	let deleteBusy = $state(false);
 	let deleteError = $state<string | null>(null);
 	let handledRequestedRunId: string | null = null;
+	let importOpen = $state(false);
+	let importBusy = $state<'manual' | 'elite' | null>(null);
+	let importError = $state<string | null>(null);
+	let importResult = $state<TheEliteImportResponse | null>(null);
+	let readClipsOpen = $state(false);
 
 	const runKey = (run: RunClip): string => run.runId;
 	const requestedRunId = $derived(page.url.searchParams.get('runId'));
@@ -163,7 +174,7 @@
 		if (selected && event.key === 'Escape') void close();
 	};
 
-	function hasValue(options: { value: string }[], value: string | undefined | null): value is string {
+	function hasValue<T extends string>(options: readonly { value: T }[], value: string | undefined | null): value is T {
 		return Boolean(value && options.some((option) => option.value === value));
 	}
 
@@ -173,7 +184,8 @@
 
 	function draftFromClip(clip: RunClip): EditableRunMetadata {
 		return {
-			romLanguage: hasValue(LANGUAGE_OPTIONS, clip.metadata.romLanguage) ? clip.metadata.romLanguage : '',
+			gameLanguage: hasValue(LANGUAGE_OPTIONS, clip.metadata.gameLanguage) ? clip.metadata.gameLanguage : '',
+			romVersion: hasValue(ROM_VERSION_OPTIONS, clip.metadata.romVersion) ? clip.metadata.romVersion : '',
 			status: hasValue(STATUS_OPTIONS, clip.metadata.status) ? clip.metadata.status : '',
 			difficulty: hasValue(DIFFICULTY_OPTIONS, clip.metadata.difficulty) ? clip.metadata.difficulty : '',
 			time: clip.metadata.time ?? '',
@@ -183,7 +195,8 @@
 
 	function sameMetadataDraft(a: EditableRunMetadata, b: EditableRunMetadata): boolean {
 		return (
-			a.romLanguage === b.romLanguage &&
+			a.gameLanguage === b.gameLanguage &&
+			a.romVersion === b.romVersion &&
 			a.status === b.status &&
 			a.difficulty === b.difficulty &&
 			a.time === b.time &&
@@ -402,6 +415,35 @@
 		}
 	}
 
+	async function createManualRun(input: ManualRunInput) {
+		importBusy = 'manual';
+		importError = null;
+		try {
+			const created = await backend.createManualRun(input);
+			if (runs) runs = { ...runs, clips: [created, ...runs.clips] };
+			importOpen = false;
+			select(created);
+		} catch (err) {
+			importError = err instanceof Error ? err.message : String(err);
+		} finally {
+			importBusy = null;
+		}
+	}
+
+	async function importTheElite(username: string) {
+		importBusy = 'elite';
+		importError = null;
+		importResult = null;
+		try {
+			importResult = await backend.importTheElite(username);
+			await reload();
+		} catch (err) {
+			importError = err instanceof Error ? err.message : String(err);
+		} finally {
+			importBusy = null;
+		}
+	}
+
 	function normalizeDraftTime() {
 		if (!metadataDraft) return;
 		metadataDraft.time = normalizeTimeInput(metadataDraft.time);
@@ -432,6 +474,26 @@
 		if (platform.includes('win')) return 'show clips in explorer';
 		return 'show clips folder';
 	}
+
+	function openImport() {
+		importOpen = true;
+		importError = null;
+		importResult = null;
+	}
+
+	function confirmReadClips() {
+		readClipsOpen = false;
+		void reload(true);
+	}
+
+	const runActions = $derived<ActionMenuItem[]>([
+		{
+			label: folderRevealBusy ? 'opening...' : folderBrowserLabel,
+			action: openFolderChooser,
+			disabled: folderRevealBusy || revealableDirectories.length === 0
+		},
+		{ label: 'read clips', action: () => (readClipsOpen = true), disabled: loading }
+	]);
 
 	let detailView = $derived<RunDetailView>({
 		modal: {
@@ -465,23 +527,23 @@
 		<div class="min-w-0">
 			<h1 class="text-2xl font-semibold obs-heading">Runs</h1>
 		</div>
-		<button
-			type="button"
-			onclick={openFolderChooser}
-			disabled={folderRevealBusy || revealableDirectories.length === 0}
-			class="ml-auto obs-text-button shrink-0 px-2 py-1 font-mono text-xs underline-offset-2"
-			title={revealableDirectories.length > 0 ? 'Choose a clips folder to open' : 'Set a clips folder in Options first'}
-		>
-			{folderRevealBusy ? 'opening...' : folderBrowserLabel}
-		</button>
-		<button
-			type="button"
-			onclick={() => reload(true)}
-			disabled={loading}
-			class="obs-text-button shrink-0 px-2 py-1 font-mono text-xs underline-offset-2"
-		>
-			{loading ? 'loading...' : 'reload'}
-		</button>
+		<div class="relative z-30 ml-auto flex">
+			<button
+				type="button"
+				onclick={openImport}
+				class="obs-button h-8 rounded-r-none border-r-0 obs-button-gold px-3 font-mono text-xs"
+			>
+				+ add times
+			</button>
+			<ActionMenu
+				items={runActions}
+				label="More run actions"
+				title="More run actions"
+				busy={folderRevealBusy}
+				triggerClass="h-8 w-8 shrink-0 rounded-l-none px-2 font-mono text-sm"
+				triggerGlyph="▾"
+			/>
+		</div>
 	</div>
 
 	<RunFiltersForm
@@ -540,6 +602,18 @@
 </main>
 
 <RunDetailDialog clip={selected} bind:metadataDraft view={detailView} />
+<RunImportDialog
+	open={importOpen}
+	busy={importBusy}
+	error={importError}
+	result={importResult}
+	onClose={() => importBusy === null && (importOpen = false)}
+	onManual={createManualRun}
+	onElite={importTheElite}
+/>
+{#if readClipsOpen}
+	<ReadClipsDialog cancel={() => (readClipsOpen = false)} read={confirmReadClips} />
+{/if}
 <RunDeleteDialog
 	run={deleteTarget}
 	busy={deleteBusy}

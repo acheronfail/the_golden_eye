@@ -1,7 +1,14 @@
 <script lang="ts">
 	import type { RunClip } from '$lib/api';
 	import ActionMenu, { type ActionMenuItem } from '$lib/components/ActionMenu.svelte';
-	import { formatDate, formatRunListDate, isCompleted, romLanguageLabel, statusLabel } from '$lib/utils/runsView';
+	import {
+		formatDate,
+		formatRunListDate,
+		isCompleted,
+		gameLanguageLabel,
+		statusLabel,
+		wasPersonalBest
+	} from '$lib/utils/runsView';
 
 	let {
 		clip,
@@ -38,10 +45,20 @@
 	]);
 	const completed = $derived(isCompleted(clip));
 	const failed = $derived(['failed', 'abort', 'kia'].includes(clip.metadata.status));
-	const personalBest = $derived(clip.retentionReason === 'personalBest');
+	const personalBest = $derived(wasPersonalBest(clip));
 	const pending = $derived(Boolean(clip.path && clip.retentionState === 'pending'));
 	const levelName = $derived(clip.metadata.level || 'unknown');
-	const retentionLabel = $derived(!clip.path ? 'history only' : clip.retentionState === 'pending' ? 'pending' : 'kept');
+	const retentionLabel = $derived(
+		!clip.path
+			? clip.retentionReason === 'manualEntry'
+				? 'manual'
+				: clip.retentionReason === 'theElite'
+					? 'the elite'
+					: 'history only'
+			: clip.retentionState === 'pending'
+				? 'pending'
+				: 'kept'
+	);
 	const itemLabel = $derived(clip.fileName ? `Open ${clip.fileName}` : `Open ${levelName} run history only`);
 	const timestampLabel = $derived(formatRunListDate(clip.metadata.timestamp, showDate));
 	const timestampTitle = $derived(formatDate(clip.metadata.timestamp));
@@ -62,7 +79,7 @@
 		<span class="flex min-w-0 flex-col">
 			<strong class="truncate text-sm font-medium">{levelName}</strong>
 			<span class="truncate font-mono text-[10px] text-(--obs-text-dim)" title={timestampTitle}>
-				{#if romLanguageLabel(clip.metadata.romLanguage)}{romLanguageLabel(clip.metadata.romLanguage)} ·
+				{#if gameLanguageLabel(clip.metadata.gameLanguage)}{gameLanguageLabel(clip.metadata.gameLanguage)} ·
 				{/if}{timestampLabel}
 			</span>
 		</span>

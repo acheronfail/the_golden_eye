@@ -14,7 +14,7 @@ type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
-async fn monitor_detects_rom_language_and_switches_matchers_back_and_forth() {
+async fn monitor_detects_game_language_and_switches_matchers_back_and_forth() {
     let harness = Harness::start(Duration::ZERO).await;
     harness.start_monitor().await.error_for_status().unwrap();
     let (mut ws, _) = connect_async(event_ws_url()).await.unwrap();

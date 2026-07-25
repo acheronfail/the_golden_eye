@@ -88,7 +88,7 @@ async fn rt4k_completed_run_records_the_correct_stats_time() {
     harness.start_monitor().await.error_for_status().unwrap();
 
     // Real capture-card frames, English overlay. The clip leads with a start
-    // screen so the monitor auto-detects the ROM language, then runs complete ->
+    // screen so the monitor auto-detects the game language, then runs complete ->
     // stats -> select, scheduling a completed save off the stats screen; pace
     // renders so the capacity-1 mailbox keeps up.
     let frames = decode_bgra_frames(&harness.root.join("test/clips/rt4kce-completed.mp4"));

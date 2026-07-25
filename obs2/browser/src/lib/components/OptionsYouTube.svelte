@@ -24,6 +24,7 @@
 		'{time}',
 		'{difficulty}',
 		'{status}',
+		'{rom}',
 		'{timestamp}',
 		'{timestamp_local}',
 		'{datetime_local}',
