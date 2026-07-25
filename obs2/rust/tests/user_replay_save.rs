@@ -1,10 +1,8 @@
-mod support;
-
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-use support::harness::{Harness, probe_duration, recording_settings, wait_for_clip};
+use crate::support::harness::{Harness, probe_duration, recording_settings, wait_for_clip};
 
 /// Count `.mp4` clips written into `dir` (absent dir counts as zero).
 fn clip_count(dir: &Path) -> usize {

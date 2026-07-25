@@ -1,5 +1,3 @@
-mod support;
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -10,10 +8,11 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use futures_util::StreamExt;
 use serde_json::{Value, json};
-use support::harness::{API, Harness, event_ws_url};
 use tokio::sync::oneshot;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
+
+use crate::support::harness::{API, Harness, event_ws_url};
 
 const LATEST_VERSION: &str = "v999.0.0";
 const RELEASE_URL: &str = "https://github.com/acheronfail/the_golden_eye/releases/tag/v999.0.0";

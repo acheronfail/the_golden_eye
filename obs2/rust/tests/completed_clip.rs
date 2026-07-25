@@ -1,9 +1,16 @@
-mod support;
-
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use support::harness::{API, Harness, SOURCE_NAME, probe_duration, recording_settings, visual_second, wait_for_clip};
+
+use crate::support::harness::{
+    API,
+    Harness,
+    SOURCE_NAME,
+    probe_duration,
+    recording_settings,
+    visual_second,
+    wait_for_clip,
+};
 
 unsafe extern "C" fn queued_test_task(param: *mut std::ffi::c_void) {
     // SAFETY: the test passes a valid mutable bool for the synchronous callback.
@@ -85,11 +92,11 @@ async fn obs_apis_and_completed_run_save_the_correct_replay_window() {
     assert_eq!(last_visual_second, 59, "trim should end at the replay save point");
 
     harness.stop_monitor().await.error_for_status().unwrap();
-    support::test_obs::obs_frontend_replay_buffer_stop();
+    crate::support::test_obs::obs_frontend_replay_buffer_stop();
 
     let mut queued = false;
     // SAFETY: the test host runs the callback synchronously and queued lives through the call.
-    unsafe { support::test_obs::obs_queue_task(0, queued_test_task, (&mut queued as *mut bool).cast(), false) };
+    unsafe { crate::support::test_obs::obs_queue_task(0, queued_test_task, (&mut queued as *mut bool).cast(), false) };
     assert!(queued);
 
     let calls = harness.obs.calls();

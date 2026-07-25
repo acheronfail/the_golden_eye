@@ -1,10 +1,9 @@
-mod support;
-
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::Value;
-use support::harness::{API, Harness, recording_settings, run_catalog_path};
+
+use crate::support::harness::{API, Harness, recording_settings, run_catalog_path};
 
 fn sample_clip(root: &Path) -> PathBuf {
     root.join("test/clips/sample_clip.mov")

@@ -1,14 +1,13 @@
-mod support;
-
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde_json::Value;
-use support::harness::{Harness, event_ws_url};
-use support::test_obs::Frame;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
+
+use crate::support::harness::{Harness, event_ws_url};
+use crate::support::test_obs::Frame;
 
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 

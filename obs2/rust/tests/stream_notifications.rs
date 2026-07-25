@@ -1,5 +1,3 @@
-mod support;
-
 use std::ffi::CString;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -9,8 +7,9 @@ use axum::http::{StatusCode, Uri};
 use axum::routing::{patch, post};
 use axum::{Json, Router};
 use serde_json::{Value, json};
-use support::harness::{Harness, recording_settings};
 use tokio::sync::oneshot;
+
+use crate::support::harness::{Harness, recording_settings};
 
 #[derive(Clone, Debug)]
 struct WebhookCall {
