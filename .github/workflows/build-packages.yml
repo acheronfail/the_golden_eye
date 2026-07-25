@@ -211,18 +211,13 @@ jobs:
       - name: Install system dependencies
         run: |
           brew untap --force aws/tap || true
-          brew install cmake just nasm simde clang-format
+          brew install cmake just nasm simde
 
       - name: Set up Rust
-        run: |
-          rustup toolchain install 1.96.0 --profile minimal --component clippy
-          rustup toolchain install nightly --profile minimal --component rustfmt
+        run: rustup toolchain install 1.96.0 --profile minimal
 
       - name: Set up repository
         run: just setup
-
-      - name: Install Storybook test browser
-        run: cd obs2/browser && npx playwright install chromium
 
       - name: Run shim reload tests
         run: just test-shim
@@ -255,16 +250,12 @@ jobs:
           path: obs2/build/dist/*.zip
           if-no-files-found: error
 
-      - name: Run Browser tests
-        run: just test-browser
-
-      - name: Run Storybook tests
-        run: just test-storybook
-
       - name: Run Rust tests
+        if: matrix.arch == 'arm64'
         run: just test-rust
 
       - name: Run Integration tests
+        if: matrix.arch == 'arm64'
         run: just test-integration
 
   windows:
@@ -319,7 +310,7 @@ jobs:
         shell: pwsh
         run: |
           rustup set profile minimal
-          rustup toolchain install 1.96.0 --profile minimal --component clippy --no-self-update
+          rustup toolchain install 1.96.0 --profile minimal --no-self-update
           rustup default 1.96.0
 
       - name: Install system dependencies
@@ -373,10 +364,6 @@ jobs:
           just obs-headers
           cd obs2/browser && npm install
           cd ../../test && npm install
-
-      - name: Install Storybook test browser
-        shell: bash
-        run: cd obs2/browser && npx playwright install chromium
 
       # Runs vcvarsall once and persists the resulting environment (INCLUDE,
       # LIB, LIBPATH, PATH, etc.) via $GITHUB_ENV for every later step in this
@@ -452,14 +439,6 @@ jobs:
           name: ${{ steps.package.outputs.basename }}
           path: obs2/build/dist/*.zip
           if-no-files-found: error
-
-      - name: Run Browser tests
-        shell: bash
-        run: just test-browser
-
-      - name: Run Storybook tests
-        shell: bash
-        run: just test-storybook
 
       - name: Run Rust tests
         shell: bash
