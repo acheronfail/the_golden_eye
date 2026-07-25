@@ -187,27 +187,6 @@
 								/>
 							</label>
 							<label class="flex min-w-0 flex-col gap-1">
-								<span class="font-mono text-xs obs-dim">Game language</span>
-								<Select
-									class="w-full"
-									placeholder="select language"
-									bind:value={metadataDraft.gameLanguage}
-									options={LANGUAGE_OPTIONS}
-									disabled={Boolean(metadataDraft.romVersion)}
-									onChange={() => scheduleMetadataSave()}
-								/>
-							</label>
-							<label class="flex min-w-0 flex-col gap-1">
-								<span class="font-mono text-xs obs-dim">ROM version</span>
-								<Select
-									class="w-full"
-									placeholder="not set"
-									bind:value={metadataDraft.romVersion}
-									options={OPTIONAL_ROM_VERSION_OPTIONS}
-									onChange={changeRomVersion}
-								/>
-							</label>
-							<label class="flex min-w-0 flex-col gap-1">
 								<span class="font-mono text-xs obs-dim">Time</span>
 								<input
 									class="obs-input px-3 py-2 font-mono"
@@ -219,6 +198,29 @@
 									placeholder="mm:ss"
 								/>
 							</label>
+							<div class="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2">
+								<label class="flex min-w-0 flex-col gap-1">
+									<span class="font-mono text-xs obs-dim">ROM version</span>
+									<Select
+										class="w-full"
+										placeholder="not set"
+										bind:value={metadataDraft.romVersion}
+										options={OPTIONAL_ROM_VERSION_OPTIONS}
+										onChange={changeRomVersion}
+									/>
+								</label>
+								<label class="flex min-w-0 flex-col gap-1">
+									<span class="font-mono text-xs obs-dim">Game language</span>
+									<Select
+										class="w-full"
+										placeholder="select language"
+										bind:value={metadataDraft.gameLanguage}
+										options={LANGUAGE_OPTIONS}
+										disabled={Boolean(metadataDraft.romVersion)}
+										onChange={() => scheduleMetadataSave()}
+									/>
+								</label>
+							</div>
 							<label class="flex min-w-0 flex-col gap-1">
 								<span class="font-mono text-xs obs-dim">Difficulty</span>
 								<Select

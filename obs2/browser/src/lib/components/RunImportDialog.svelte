@@ -136,25 +136,27 @@
 								options={DIFFICULTY_OPTIONS}
 							/>
 						</label>
-						<label class="flex flex-col gap-1">
-							<span class="font-mono text-xs obs-dim">Game language</span>
-							<Select
-								class="w-full"
-								bind:value={gameLanguage}
-								options={LANGUAGE_OPTIONS}
-								disabled={Boolean(romVersion)}
-							/>
-						</label>
-						<label class="flex flex-col gap-1">
-							<span class="font-mono text-xs obs-dim">ROM version <span class="normal-case">(optional)</span></span>
-							<Select
-								class="w-full"
-								placeholder="not set"
-								bind:value={romVersion}
-								options={OPTIONAL_ROM_VERSION_OPTIONS}
-								onChange={changeRomVersion}
-							/>
-						</label>
+						<div class="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2">
+							<label class="flex flex-col gap-1">
+								<span class="font-mono text-xs obs-dim">ROM version <span class="normal-case">(optional)</span></span>
+								<Select
+									class="w-full"
+									placeholder="not set"
+									bind:value={romVersion}
+									options={OPTIONAL_ROM_VERSION_OPTIONS}
+									onChange={changeRomVersion}
+								/>
+							</label>
+							<label class="flex flex-col gap-1">
+								<span class="font-mono text-xs obs-dim">Game language</span>
+								<Select
+									class="w-full"
+									bind:value={gameLanguage}
+									options={LANGUAGE_OPTIONS}
+									disabled={Boolean(romVersion)}
+								/>
+							</label>
+						</div>
 						<label class="flex flex-col gap-1 sm:col-span-2">
 							<span class="font-mono text-xs obs-dim">YouTube link <span class="normal-case">(optional)</span></span>
 							<input

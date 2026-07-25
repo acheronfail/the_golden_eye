@@ -383,6 +383,13 @@
 	&:focus {
 		@apply border-(--obs-gold) outline-2 outline-offset-2 outline-(--obs-gold-hover);
 	}
+
+	&:disabled,
+	&:disabled:hover,
+	&:disabled:active {
+		@apply border-(--obs-border-soft) bg-(--obs-bg-elevated) text-(--obs-text-dim);
+		background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 6 8 10 12 6' stroke='%23858b99' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	}
 }
 
 @utility obs-select-placeholder {
