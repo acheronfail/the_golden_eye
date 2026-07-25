@@ -23,7 +23,7 @@
 <Story name="Pending cleanup" args={{ clip: pendingRun }} />
 <Story name="Failed run" args={{ clip: failedRun }} />
 <Story name="Missing metadata" args={{ clip: untaggedRun }} />
-<Story name="The Elite YouTube run" args={{ clip: theEliteRun }} />
+<Story name="The Elite NTSC-J YouTube run" args={{ clip: theEliteRun }} />
 <Story name="The Elite run without video" args={{ clip: theEliteRunWithoutVideo }} />
 <Story name="Saving metadata" args={{ modalBusy: 'metadata' }} />
 <Story name="Deleting" args={{ modalBusy: 'delete' }} />

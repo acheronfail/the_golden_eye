@@ -4,6 +4,7 @@
 	import Select from '$lib/components/Select.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
+		gameLanguageForRomVersion,
 		LANGUAGE_OPTIONS,
 		LEVEL_OPTIONS,
 		OPTIONAL_ROM_VERSION_OPTIONS
@@ -59,6 +60,10 @@
 	const submitElite = (event: SubmitEvent) => {
 		event.preventDefault();
 		void onElite(username.trim());
+	};
+	const changeRomVersion = (value: string) => {
+		romVersion = value as RomVersion | '';
+		gameLanguage = gameLanguageForRomVersion(romVersion) ?? gameLanguage;
 	};
 </script>
 
@@ -133,7 +138,12 @@
 						</label>
 						<label class="flex flex-col gap-1">
 							<span class="font-mono text-xs obs-dim">Game language</span>
-							<Select class="w-full" bind:value={gameLanguage} options={LANGUAGE_OPTIONS} />
+							<Select
+								class="w-full"
+								bind:value={gameLanguage}
+								options={LANGUAGE_OPTIONS}
+								disabled={Boolean(romVersion)}
+							/>
 						</label>
 						<label class="flex flex-col gap-1">
 							<span class="font-mono text-xs obs-dim">ROM version <span class="normal-case">(optional)</span></span>
@@ -142,6 +152,7 @@
 								placeholder="not set"
 								bind:value={romVersion}
 								options={OPTIONAL_ROM_VERSION_OPTIONS}
+								onChange={changeRomVersion}
 							/>
 						</label>
 						<label class="flex flex-col gap-1 sm:col-span-2">

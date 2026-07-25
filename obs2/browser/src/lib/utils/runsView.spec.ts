@@ -4,6 +4,7 @@ import {
 	EMPTY_RUN_FILTERS,
 	clipTimeSeconds,
 	formatBytes,
+	gameLanguageForRomVersion,
 	groupRunClips,
 	hasActiveRunFilters,
 	parseRunTimeSeconds,
@@ -92,6 +93,13 @@ const clips = [
 ];
 
 describe('runs view behaviour', () => {
+	it('derives game language from known ROM versions', () => {
+		expect(gameLanguageForRomVersion('ntsc-u')).toBe('en');
+		expect(gameLanguageForRomVersion('pal')).toBe('en');
+		expect(gameLanguageForRomVersion('ntsc-j')).toBe('jp');
+		expect(gameLanguageForRomVersion('')).toBeNull();
+	});
+
 	it('sorts visible runs newest first by timestamp', () => {
 		expect(visibleRunClips(clips, filters()).map((run) => run.fileName)).toEqual([
 			'dam-failed.mov',

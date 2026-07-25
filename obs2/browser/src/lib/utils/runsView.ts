@@ -1,4 +1,4 @@
-import type { LevelMatch, RunClip, RunSort } from '$lib/api';
+import type { LevelMatch, RomVersion, RunClip, RunSort } from '$lib/api';
 import type { MetaPill } from './metaPills';
 import type { SelectOption } from '$lib/components/Select.svelte';
 
@@ -55,6 +55,18 @@ export const ROM_VERSION_OPTIONS = [
 	{ value: 'pal', label: 'PAL' }
 ];
 export const OPTIONAL_ROM_VERSION_OPTIONS = [{ value: '', label: 'not set' }, ...ROM_VERSION_OPTIONS];
+
+export function gameLanguageForRomVersion(version?: RomVersion | '' | null): 'en' | 'jp' | null {
+	switch (version) {
+		case 'ntsc-j':
+			return 'jp';
+		case 'ntsc-u':
+		case 'pal':
+			return 'en';
+		default:
+			return null;
+	}
+}
 
 export const STATUS_OPTIONS = [
 	{ value: 'failed', label: 'failed' },

@@ -6,6 +6,7 @@
 	import Select from '$lib/components/Select.svelte';
 	import {
 		DIFFICULTY_OPTIONS,
+		gameLanguageForRomVersion,
 		LANGUAGE_OPTIONS,
 		OPTIONAL_ROM_VERSION_OPTIONS,
 		STATUS_OPTIONS,
@@ -43,6 +44,12 @@
 	const normalizeAndSaveMetadataNow = () => {
 		view.actions.normalizeDraftTime();
 		saveMetadataNow();
+	};
+	const changeRomVersion = (value: string) => {
+		if (!metadataDraft) return;
+		metadataDraft.romVersion = value as EditableRunMetadata['romVersion'];
+		metadataDraft.gameLanguage = gameLanguageForRomVersion(metadataDraft.romVersion) ?? metadataDraft.gameLanguage;
+		scheduleMetadataSave();
 	};
 	onDestroy(() => {
 		if (metadataSaveTimer) clearTimeout(metadataSaveTimer);
@@ -186,6 +193,7 @@
 									placeholder="select language"
 									bind:value={metadataDraft.gameLanguage}
 									options={LANGUAGE_OPTIONS}
+									disabled={Boolean(metadataDraft.romVersion)}
 									onChange={() => scheduleMetadataSave()}
 								/>
 							</label>
@@ -196,7 +204,7 @@
 									placeholder="not set"
 									bind:value={metadataDraft.romVersion}
 									options={OPTIONAL_ROM_VERSION_OPTIONS}
-									onChange={() => scheduleMetadataSave()}
+									onChange={changeRomVersion}
 								/>
 							</label>
 							<label class="flex min-w-0 flex-col gap-1">

@@ -99,7 +99,7 @@ fn manual_history_run_keeps_origin_and_youtube_metadata_without_a_clip() {
             level: "Facility".to_owned(),
             difficulty: "00 Agent".to_owned(),
             time: "1:23".to_owned(),
-            game_language: "en".to_owned(),
+            game_language: "jp".to_owned(),
             rom_version: Some(RomVersion::Pal),
             youtube_url: Some("https://youtu.be/abc_123".to_owned()),
         },
@@ -109,6 +109,7 @@ fn manual_history_run_keeps_origin_and_youtube_metadata_without_a_clip() {
     assert!(run.path.is_empty());
     assert_eq!(run.metadata.time.as_deref(), Some("01:23"));
     assert_eq!(run.metadata.time_seconds, Some(83));
+    assert_eq!(run.metadata.game_language, "en");
     assert_eq!(run.metadata.rom_version, Some(RomVersion::Pal));
     assert_eq!(run.retention_reason.as_deref(), Some("manualEntry"));
     assert_eq!(run.youtube.as_ref().map(|video| video.video_id.as_str()), Some("abc_123"));
@@ -307,7 +308,7 @@ fn metadata_updates_persist_for_runs_without_video() {
         RunMetadataUpdateRequest {
             run_id: run.run_id.clone(),
             metadata: EditableRunMetadata {
-                game_language: "jp".to_owned(),
+                game_language: "en".to_owned(),
                 rom_version: Some(RomVersion::NtscJ),
                 status: "failed".to_owned(),
                 difficulty: "Agent".to_owned(),

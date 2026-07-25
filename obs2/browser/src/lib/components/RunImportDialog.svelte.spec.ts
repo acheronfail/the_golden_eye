@@ -22,8 +22,11 @@ describe('RunImportDialog', () => {
 		await user.click(screen.getByRole('option', { name: 'Facility' }));
 		await user.click(screen.getByRole('combobox', { name: 'Difficulty' }));
 		await user.click(screen.getByRole('option', { name: '00 agent' }));
+		const language = screen.getByRole('combobox', { name: 'Game language' });
 		await user.click(screen.getByRole('combobox', { name: /ROM version/ }));
-		await user.click(screen.getByRole('option', { name: 'PAL' }));
+		await user.click(screen.getByRole('option', { name: 'NTSC-J' }));
+		expect(language).toBeDisabled();
+		expect(language).toHaveTextContent('jp');
 		await user.type(screen.getByLabelText(/YouTube link/), 'https://youtu.be/abc_123');
 		await user.click(screen.getByRole('button', { name: 'add time' }));
 
@@ -32,11 +35,27 @@ describe('RunImportDialog', () => {
 				level: 'Facility',
 				difficulty: '00 Agent',
 				time: '1:23',
-				gameLanguage: 'en',
-				romVersion: 'pal',
+				gameLanguage: 'jp',
+				romVersion: 'ntsc-j',
 				youtubeUrl: 'https://youtu.be/abc_123'
 			})
 		);
+	});
+
+	it('re-enables game language when the ROM version is cleared', async () => {
+		const user = userEvent.setup();
+		render(RunImportDialog, props());
+
+		const language = screen.getByRole('combobox', { name: 'Game language' });
+		const romVersion = screen.getByRole('combobox', { name: /ROM version/ });
+		await user.click(romVersion);
+		await user.click(screen.getByRole('option', { name: 'PAL' }));
+		expect(language).toBeDisabled();
+		expect(language).toHaveTextContent('en');
+
+		await user.click(romVersion);
+		await user.click(screen.getByRole('option', { name: 'not set' }));
+		expect(language).toBeEnabled();
 	});
 
 	it('keeps a visible loading indicator throughout an Elite import', () => {

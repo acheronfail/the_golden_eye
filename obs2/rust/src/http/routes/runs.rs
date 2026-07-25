@@ -517,7 +517,11 @@ fn apply_metadata_update(
     let level = normalize_level(&update.level)?;
     let time = normalize_time(&update.time)?;
 
-    metadata.game_language = normalize_game_language(&update.game_language)?.to_owned();
+    metadata.game_language = if let Some(rom_version) = update.rom_version {
+        rom_version.game_language().to_owned()
+    } else {
+        normalize_game_language(&update.game_language)?.to_owned()
+    };
     metadata.rom_version = update.rom_version;
     metadata.status = normalize_status(&update.status)?;
     metadata.difficulty = Some(normalize_difficulty(&update.difficulty)?.to_owned());
@@ -593,9 +597,11 @@ fn create_manual_run(catalog: &RunCatalog, req: ManualRunRequest) -> std::result
     if crate::ge::difficulty_number(&req.difficulty).is_none() {
         return Err(RunPathError::BadRequest("select a valid difficulty"));
     }
-    if !matches!(req.game_language.as_str(), "en" | "jp") {
-        return Err(RunPathError::BadRequest("select a valid game language"));
-    }
+    let game_language = if let Some(rom_version) = req.rom_version {
+        rom_version.game_language().to_owned()
+    } else {
+        normalize_game_language(&req.game_language)?.to_owned()
+    };
     let (time_seconds, time) = normalize_time(&req.time)?.ok_or(RunPathError::BadRequest("time is required"))?;
     let achieved = chrono::NaiveDate::parse_from_str(req.date.trim(), "%Y-%m-%d")
         .map_err(|_| RunPathError::BadRequest("enter a valid date"))?;
@@ -617,7 +623,7 @@ fn create_manual_run(catalog: &RunCatalog, req: ManualRunRequest) -> std::result
         level_number: Some(level.number),
         difficulty: Some(req.difficulty),
         status: RunStatus::Complete,
-        game_language: req.game_language,
+        game_language,
         rom_version: req.rom_version,
         source_name: "Manual entry".to_owned(),
         comment: "Added manually to run history".to_owned(),
@@ -660,12 +666,7 @@ fn import_elite_runs(
             level_number: Some(level.number),
             difficulty: Some(elite.difficulty),
             status: RunStatus::Complete,
-            game_language: match rom_version {
-                Some(RomVersion::NtscJ) => "jp",
-                Some(RomVersion::NtscU | RomVersion::Pal) => "en",
-                None => "",
-            }
-            .to_owned(),
+            game_language: rom_version.map(RomVersion::game_language).unwrap_or("").to_owned(),
             rom_version,
             source_name: format!("The Elite ({})", elite.system),
             comment: format!(

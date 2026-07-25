@@ -97,6 +97,13 @@ impl RomVersion {
             RomVersion::Pal => "PAL",
         }
     }
+
+    pub fn game_language(self) -> &'static str {
+        match self {
+            RomVersion::NtscJ => "jp",
+            RomVersion::NtscU | RomVersion::Pal => "en",
+        }
+    }
 }
 
 impl FromStr for RomVersion {
