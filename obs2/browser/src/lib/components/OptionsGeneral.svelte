@@ -80,7 +80,7 @@
 			<button type="button" class={styles.pathButton} disabled={updates.pending} onclick={() => updates.download()}
 				>{updates.buttonPhase === 'downloading' ? 'Downloading…' : 'Download now'}</button
 			>
-		{:else}
+		{:else if updates.buttonPhase === 'check' || updates.buttonPhase === 'checking'}
 			<button type="button" class={styles.pathButton} disabled={updates.pending} onclick={() => updates.check()}
 				>{updates.buttonPhase === 'checking' ? 'Checking…' : 'Check now'}</button
 			>

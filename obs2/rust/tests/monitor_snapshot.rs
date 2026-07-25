@@ -1,11 +1,10 @@
-mod support;
-
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde_json::Value;
-use support::harness::{Harness, SOURCE_NAME, next_app_snapshot, snapshot_from_message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+
+use crate::support::harness::{Harness, SOURCE_NAME, next_app_snapshot, snapshot_from_message};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
@@ -60,7 +59,7 @@ async fn wait_for_snapshot(
 async fn render_until_snapshot(
     harness: &Harness,
     ws: &mut WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
-    frame: &support::test_obs::Frame,
+    frame: &crate::support::test_obs::Frame,
     label: &str,
     predicate: impl Fn(&Value) -> bool,
 ) -> Value {

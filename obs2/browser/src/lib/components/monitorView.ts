@@ -36,6 +36,17 @@ export interface MonitorPresentation {
 	fpsLagging: boolean;
 }
 
+const TRANSITION_COPY: Record<Exclude<MonitorTransition, null>, { status: string; detail: string }> = {
+	starting: {
+		status: 'Starting monitor',
+		detail: 'replay buffer is stopping or starting'
+	},
+	stopping: {
+		status: 'Stopping monitor',
+		detail: 'stopping monitor'
+	}
+};
+
 export const monitorPresentation = ({
 	verified,
 	transition = null,
@@ -44,23 +55,20 @@ export const monitorPresentation = ({
 	fps = null
 }: MonitorViewProps): MonitorPresentation => {
 	const waitingForObs = transition !== null;
+	const transitionCopy = transition === null ? null : TRANSITION_COPY[transition];
 	const title = waitingForObs ? 'waiting for OBS' : monitorPhaseStyle(recordingState).title;
-	const detail =
-		transition === 'starting'
-			? 'replay buffer is stopping or starting'
-			: transition === 'stopping'
-				? 'stopping monitor'
-				: (match?.screen ?? '...');
-	const fpsText = fps
-		? fps.capturedFps > 0
-			? `${fps.processedFps.toFixed(1)} / ${fps.capturedFps.toFixed(1)} FPS`
-			: `${fps.processedFps.toFixed(1)} FPS`
-		: null;
+	const detail = transitionCopy?.detail ?? match?.screen ?? '...';
+	let fpsText: string | null = null;
+	if (fps) {
+		fpsText =
+			fps.capturedFps > 0
+				? `${fps.processedFps.toFixed(1)} / ${fps.capturedFps.toFixed(1)} FPS`
+				: `${fps.processedFps.toFixed(1)} FPS`;
+	}
 
 	return {
 		waitingForObs,
-		statusLabel:
-			transition === 'starting' ? 'Starting monitor' : transition === 'stopping' ? 'Stopping monitor' : 'Monitoring',
+		statusLabel: transitionCopy?.status ?? 'Monitoring',
 		title,
 		detail,
 		showDetail: waitingForObs || detail.trim().toLowerCase() !== 'unknown',

@@ -22,6 +22,13 @@ on:
 permissions:
   contents: read
 
+# We set these here for the entire run rather than just for the build package step
+# If they change it triggers rebuilds, which can be lengthy in CI
+env:
+  GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
+  GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+  GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
+
 jobs:
   linux:
     name: Linux x86_64
@@ -96,7 +103,6 @@ jobs:
         run: cd obs2/browser && npx playwright install --with-deps chromium
 
       - name: Check formatting
-        if: matrix.arch == 'x86_64'
         run: |
           just fmt
           git diff --exit-code
@@ -118,24 +124,8 @@ jobs:
           path: test/test_results.json
           if-no-files-found: ignore
 
-      - name: Run Browser tests
-        run: just test-browser
-
-      - name: Run Storybook tests
-        run: just test-storybook
-
-      - name: Run Rust tests
-        run: just test-rust
-
-      - name: Run Integration tests
-        run: just test-integration
-
       - name: Build Linux package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
-        env:
-          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
-          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
-          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Check Linux package contract
         run: just test-package-contract obs2/build-flatpak
@@ -150,6 +140,18 @@ jobs:
           name: ${{ steps.package.outputs.basename }}
           path: obs2/build-flatpak/dist/*.zip
           if-no-files-found: error
+
+      - name: Run Browser tests
+        run: just test-browser
+
+      - name: Run Storybook tests
+        run: just test-storybook
+
+      - name: Run Rust tests
+        run: just test-rust
+
+      - name: Run Integration tests
+        run: just test-integration
 
   macos:
     name: macOS ${{ matrix.arch }}
@@ -204,18 +206,13 @@ jobs:
       - name: Install system dependencies
         run: |
           brew untap --force aws/tap || true
-          brew install cmake just nasm simde clang-format
+          brew install cmake just nasm simde
 
       - name: Set up Rust
-        run: |
-          rustup toolchain install 1.96.0 --profile minimal --component clippy
-          rustup toolchain install nightly --profile minimal --component rustfmt
+        run: rustup toolchain install 1.96.0 --profile minimal
 
       - name: Set up repository
         run: just setup
-
-      - name: Install Storybook test browser
-        run: cd obs2/browser && npx playwright install chromium
 
       - name: Run shim reload tests
         run: just test-shim
@@ -223,24 +220,8 @@ jobs:
       - name: Run frame regression tests
         run: just test-cv
 
-      - name: Run Browser tests
-        run: just test-browser
-
-      - name: Run Storybook tests
-        run: just test-storybook
-
-      - name: Run Rust tests
-        run: just test-rust
-
-      - name: Run Integration tests
-        run: just test-integration
-
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
-        env:
-          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
-          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
-          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Check macOS package contract
         run: just test-package-contract obs2/build
@@ -255,6 +236,14 @@ jobs:
           name: ${{ steps.package.outputs.basename }}
           path: obs2/build/dist/*.zip
           if-no-files-found: error
+
+      - name: Run Rust tests
+        if: matrix.arch == 'arm64'
+        run: just test-rust
+
+      - name: Run Integration tests
+        if: matrix.arch == 'arm64'
+        run: just test-integration
 
   windows:
     name: Windows
@@ -308,7 +297,7 @@ jobs:
         shell: pwsh
         run: |
           rustup set profile minimal
-          rustup toolchain install 1.96.0 --profile minimal --component clippy --no-self-update
+          rustup toolchain install 1.96.0 --profile minimal --no-self-update
           rustup default 1.96.0
 
       - name: Install system dependencies
@@ -363,10 +352,6 @@ jobs:
           cd obs2/browser && npm install
           cd ../../test && npm install
 
-      - name: Install Storybook test browser
-        shell: bash
-        run: cd obs2/browser && npx playwright install chromium
-
       # Runs vcvarsall once and persists the resulting environment (INCLUDE,
       # LIB, LIBPATH, PATH, etc.) via $GITHUB_ENV for every later step in this
       # job -- `set`'s own "NAME=value" per-line output format happens to be
@@ -414,29 +399,9 @@ jobs:
         shell: bash
         run: just test-cv
 
-      - name: Run Browser tests
-        shell: bash
-        run: just test-browser
-
-      - name: Run Storybook tests
-        shell: bash
-        run: just test-storybook
-
-      - name: Run Rust tests
-        shell: bash
-        run: just test-rust
-
-      - name: Run Integration tests
-        shell: bash
-        run: just test-integration
-
       - name: Build Windows package
         shell: bash
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
-        env:
-          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
-          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
-          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Check Windows package contract
         shell: bash
@@ -453,3 +418,11 @@ jobs:
           name: ${{ steps.package.outputs.basename }}
           path: obs2/build/dist/*.zip
           if-no-files-found: error
+
+      - name: Run Rust tests
+        shell: bash
+        run: just test-rust
+
+      - name: Run Integration tests
+        shell: bash
+        run: just test-integration

@@ -4,6 +4,7 @@ version = "0.1.0"
 build = "build.rs"
 edition = "2024"
 publish = false
+autotests = false
 
 [lib]
 # Produce a C-compatible static archive that CMake can link into the plugin.
@@ -12,10 +13,16 @@ crate-type = ["staticlib", "rlib"]
 [[bin]]
 name = "test_match"
 path = "src/bin/test_match.rs"
+test = false
 
 [[bin]]
 name = "annotate_match"
 path = "src/bin/annotate_match.rs"
+test = false
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
 
 [features]
 # Enabled by the CMake build when BROWSER_DEV=ON. Turns on permissive CORS so

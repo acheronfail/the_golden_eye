@@ -17,6 +17,7 @@ impl MonitorTimingMode {
         match GE_MONITOR_TIMING.string() {
             Some(value) if matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "slow") => Self::Slow,
             Some(value) if value.eq_ignore_ascii_case("verbose") => Self::Verbose,
+            Some(value) if matches!(value.to_ascii_lowercase().as_str(), "0" | "false" | "off") => Self::Off,
             _ => Self::Off,
         }
     }

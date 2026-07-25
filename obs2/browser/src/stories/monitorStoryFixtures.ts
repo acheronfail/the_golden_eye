@@ -26,10 +26,30 @@ const recentRunSeeds = [
 	['Aztec', '00 Agent', 183, 'complete']
 ] as const;
 
+const retentionStateForIndex = (index: number): RunClip['retentionState'] => {
+	switch (index % 4) {
+		case 0:
+			return 'pending';
+		case 1:
+		case 3:
+			return 'kept';
+		case 2:
+			return 'expired';
+		default:
+			throw new Error('Modulo produced an unexpected retention-state index');
+	}
+};
+
+const retentionReasonForIndex = (index: number, state: RunClip['retentionState']): string => {
+	if (index % 4 === 3) return 'personalBest';
+	if (state === 'kept') return 'manual';
+	return 'recent';
+};
+
 export const longMonitorRecentRuns: RunClip[] = recentRunSeeds.map(
 	([level, difficulty, timeSeconds, status], index) => {
-		const retentionState = index % 4 === 0 ? 'pending' : index % 4 === 2 ? 'expired' : 'kept';
-		const retentionReason = index % 4 === 3 ? 'personalBest' : retentionState === 'kept' ? 'manual' : 'recent';
+		const retentionState = retentionStateForIndex(index);
+		const retentionReason = retentionReasonForIndex(index, retentionState);
 		const time = `${Math.floor(timeSeconds / 60)
 			.toString()
 			.padStart(2, '0')}:${(timeSeconds % 60).toString().padStart(2, '0')}`;

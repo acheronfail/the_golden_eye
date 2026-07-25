@@ -20,13 +20,28 @@
 
 	const runTime = (run: RunClip): string =>
 		run.metadata.time ?? (run.metadata.timeSeconds == null ? '—' : formatMonitorTime(run.metadata.timeSeconds));
-	const variantClass = $derived(
-		variant === 'mission-glass'
-			? 'rounded-xl border border-[color-mix(in_srgb,var(--monitor-accent)_30%,var(--obs-border-soft))] bg-[rgb(37_41_52/90%)] shadow-[inset_0_1px_0_rgb(255_255_255/8%),0_0_2rem_var(--monitor-surface)]'
-			: variant === 'signal-band'
-				? 'border-y border-[color-mix(in_srgb,var(--monitor-accent)_35%,var(--obs-border))] bg-[color-mix(in_srgb,var(--monitor-surface)_35%,var(--obs-bg-elevated))] shadow-[0_0_2rem_var(--monitor-surface)]'
-				: 'border-t border-l border-(--obs-border-muted) bg-(--obs-bg-elevated)'
-	);
+	const VARIANT_CLASSES: Record<NonNullable<typeof variant>, string> = {
+		'mission-glass':
+			'rounded-xl border border-[color-mix(in_srgb,var(--monitor-accent)_30%,var(--obs-border-soft))] bg-[rgb(37_41_52/90%)] shadow-[inset_0_1px_0_rgb(255_255_255/8%),0_0_2rem_var(--monitor-surface)]',
+		'signal-band':
+			'border-y border-[color-mix(in_srgb,var(--monitor-accent)_35%,var(--obs-border))] bg-[color-mix(in_srgb,var(--monitor-surface)_35%,var(--obs-bg-elevated))] shadow-[0_0_2rem_var(--monitor-surface)]',
+		debug: 'border-t border-l border-(--obs-border-muted) bg-(--obs-bg-elevated)'
+	};
+	const variantClass = $derived(VARIANT_CLASSES[variant]);
+
+	const retentionStateLabel = (run: RunClip): string => {
+		if (wasPersonalBest(run)) return 'PB';
+		if (run.retentionState === 'pending' && !run.path) return 'Saving…';
+
+		switch (run.retentionState) {
+			case 'pending':
+				return 'pending';
+			case 'kept':
+				return 'kept';
+			case 'expired':
+				return 'expired';
+		}
+	};
 
 	let runScroll = $state<HTMLDivElement | null>(null);
 	let firstRunKey: string | null = null;
@@ -108,11 +123,7 @@
 							class:bg-[color-mix(in_srgb,var(--obs-success)_10%,transparent)]={run.retentionState === 'kept'}
 							class:text-(--obs-success)={run.retentionState === 'kept'}
 						>
-							{wasPersonalBest(run)
-								? 'PB'
-								: run.retentionState === 'pending' && !run.path
-									? 'Saving…'
-									: run.retentionState}
+							{retentionStateLabel(run)}
 						</span>
 					{/if}
 				</article>

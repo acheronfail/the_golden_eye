@@ -27,10 +27,18 @@ export const updates = new (class {
 
 	buttonPhase: UpdateButtonPhase = $derived.by(() => {
 		const phase = this.pendingAction ?? this.status.phase;
-		if (phase === 'checking' || phase === 'downloading' || phase === 'applying') return phase;
-		if (phase === 'staged') return 'apply';
-		if (phase === 'available') return 'download';
-		return 'check';
+		switch (phase) {
+			case 'checking':
+			case 'downloading':
+			case 'applying':
+				return phase;
+			case 'staged':
+				return 'apply';
+			case 'available':
+				return 'download';
+			case 'idle':
+				return 'check';
+		}
 	});
 
 	pending = $derived(
@@ -178,36 +186,43 @@ export const updates = new (class {
 
 	private syncProgressNotification(): void {
 		const version = this.status.available?.latestVersion;
-		if (this.status.phase === 'downloading') {
-			this.replaceProgress({
-				key: 'plugin-update-installing',
-				title: 'Downloading update',
-				detail: version ? `Downloading and verifying ${version}...` : 'Downloading and verifying the update...',
-				tone: 'info',
-				sticky: true
-			});
-		} else if (this.status.phase === 'staged') {
-			this.replaceProgress({
-				key: 'plugin-update-installing',
-				title: 'Update ready',
-				detail: 'The verified update is ready to apply.',
-				tone: 'success',
-				sticky: true,
-				meta: 'Click here to apply the update.',
-				action: async () => {
-					await this.apply();
-				}
-			});
-		} else if (this.status.phase === 'applying') {
-			this.replaceProgress({
-				key: 'plugin-update-installing',
-				title: 'Applying update',
-				detail: 'The plugin will briefly reconnect while the update is installed.',
-				tone: 'success',
-				sticky: true
-			});
-		} else {
-			this.removeProgressNotification();
+		switch (this.status.phase) {
+			case 'downloading':
+				this.replaceProgress({
+					key: 'plugin-update-installing',
+					title: 'Downloading update',
+					detail: version ? `Downloading and verifying ${version}...` : 'Downloading and verifying the update...',
+					tone: 'info',
+					sticky: true
+				});
+				break;
+			case 'staged':
+				this.replaceProgress({
+					key: 'plugin-update-installing',
+					title: 'Update ready',
+					detail: 'The verified update is ready to apply.',
+					tone: 'success',
+					sticky: true,
+					meta: 'Click here to apply the update.',
+					action: async () => {
+						await this.apply();
+					}
+				});
+				break;
+			case 'applying':
+				this.replaceProgress({
+					key: 'plugin-update-installing',
+					title: 'Applying update',
+					detail: 'The plugin will briefly reconnect while the update is installed.',
+					tone: 'success',
+					sticky: true
+				});
+				break;
+			case 'idle':
+			case 'checking':
+			case 'available':
+				this.removeProgressNotification();
+				break;
 		}
 	}
 

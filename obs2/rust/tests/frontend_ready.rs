@@ -1,8 +1,6 @@
-mod support;
-
 use std::time::Duration;
 
-use support::harness::{API, Harness, SOURCE_NAME};
+use crate::support::harness::{API, Harness, SOURCE_NAME};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]

@@ -1,12 +1,11 @@
-mod support;
-
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde_json::{Value, json};
-use support::harness::{API, Harness, SOURCE_NAME, event_ws_url, next_app_snapshot};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
+
+use crate::support::harness::{API, Harness, SOURCE_NAME, event_ws_url, next_app_snapshot};
 
 const RELEASE_URL: &str = "https://github.com/acheronfail/the_golden_eye/releases/tag/v999.0.0";
 

@@ -1,9 +1,8 @@
-mod support;
-
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use support::harness::{API, Harness, decode_bgra_frames, wait_for_clip};
+
+use crate::support::harness::{API, Harness, decode_bgra_frames, wait_for_clip};
 
 /// Replaying `test/clips/kia.mp4` through the monitor must record the run's real
 /// time (14s), not the `6:14` misread the stats overlay shows on its first frame.

@@ -1,5 +1,3 @@
-mod support;
-
 use std::io::Write as _;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -11,10 +9,11 @@ use axum::extract::State;
 use axum::routing::get;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use support::harness::{API, Harness};
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+
+use crate::support::harness::{API, Harness};
 
 const LATEST_VERSION: &str = "v999.0.0";
 const RELEASE_URL: &str = "https://github.com/acheronfail/the_golden_eye/releases/tag/v999.0.0";
@@ -333,7 +332,8 @@ async fn wait_for_update_phase(
 ) -> Value {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let snapshot = support::harness::next_app_snapshot(ws, &format!("{expected} update state in {tab}")).await;
+        let snapshot =
+            crate::support::harness::next_app_snapshot(ws, &format!("{expected} update state in {tab}")).await;
         if snapshot["state"]["update"]["phase"] == expected {
             return snapshot["state"]["update"].clone();
         }
@@ -416,8 +416,8 @@ async fn manual_update_lifecycle_is_broadcast_to_every_tab() {
     let harness = Harness::start(Duration::ZERO).await;
     let mut first_tab = harness.connect_event_stream().await;
     let mut second_tab = harness.connect_event_stream().await;
-    let first_initial = support::harness::next_app_snapshot(&mut first_tab, "first tab initial state").await;
-    let second_initial = support::harness::next_app_snapshot(&mut second_tab, "second tab initial state").await;
+    let first_initial = crate::support::harness::next_app_snapshot(&mut first_tab, "first tab initial state").await;
+    let second_initial = crate::support::harness::next_app_snapshot(&mut second_tab, "second tab initial state").await;
     assert_eq!(first_initial["state"]["update"]["phase"], "idle");
     assert_eq!(second_initial["state"]["update"]["phase"], "idle");
 
@@ -543,7 +543,7 @@ async fn auto_update_stays_staged_while_monitoring() {
 
     let harness = Harness::start_with_settings(Duration::ZERO, json!({ "autoUpdateEnabled": true })).await;
     let mut tab = harness.connect_event_stream().await;
-    support::harness::next_app_snapshot(&mut tab, "initial auto-update state").await;
+    crate::support::harness::next_app_snapshot(&mut tab, "initial auto-update state").await;
     harness.start_monitor().await.error_for_status().unwrap();
 
     let check = harness.client.post(format!("{API}/api/v1/updates/check")).send().await.unwrap();

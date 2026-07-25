@@ -142,7 +142,7 @@ pub fn aggregate(
     let overall_buckets = bucket_counts(&facts, query.from, query.to, query.bucket);
     let selected_dimensions = match (query.level_number, query.difficulty_number) {
         (Some(level), Some(difficulty)) => Some((level, difficulty)),
-        _ => {
+        (Some(_), None) | (None, Some(_)) | (None, None) => {
             let mut cohorts = BTreeMap::<(i32, i32), usize>::new();
             for fact in &facts {
                 if let (Some(level), Some(difficulty)) = (fact.level_number, fact.difficulty_number) {

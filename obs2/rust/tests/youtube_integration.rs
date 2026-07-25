@@ -1,5 +1,3 @@
-mod support;
-
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -12,8 +10,9 @@ use axum::{Json, Router};
 use futures_util::StreamExt;
 use ge_rust::models::clip_metadata::RunStatus;
 use serde_json::{Value, json};
-use support::harness::{API, Harness, recording_settings};
 use tokio::sync::oneshot;
+
+use crate::support::harness::{API, Harness, recording_settings};
 
 #[derive(Default)]
 struct YoutubeMockState {

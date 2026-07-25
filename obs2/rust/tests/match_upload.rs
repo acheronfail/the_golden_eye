@@ -1,9 +1,8 @@
-mod support;
-
 use std::time::Duration;
 
 use serde_json::Value;
-use support::harness::{API, Harness};
+
+use crate::support::harness::{API, Harness};
 
 /// The developer "match a frame from disk" endpoint decodes an uploaded image and
 /// returns the match plus the digit-slot diagnostics. Uses a committed flicker

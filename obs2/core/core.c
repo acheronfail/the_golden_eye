@@ -80,7 +80,8 @@ static void ge_disconnect_source_signals(void) {
 static void ge_on_frontend_event(enum obs_frontend_event event, void *private_data) {
   (void)private_data;
 
-  if (event == OBS_FRONTEND_EVENT_STREAMING_STARTED) {
+  switch (event) {
+  case OBS_FRONTEND_EVENT_STREAMING_STARTED: {
     obs_service_t *service = obs_frontend_get_streaming_service();
     if (service) {
       obs_data_t *settings = obs_service_get_settings(service);
@@ -93,17 +94,24 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
         obs_data_release(settings);
       }
     }
-  } else if (event == OBS_FRONTEND_EVENT_STREAMING_STOPPED) {
+    break;
+  }
+  case OBS_FRONTEND_EVENT_STREAMING_STOPPED:
     ge_stream_notifier_stop();
-  } else if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTING) {
+    break;
+  case OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTING:
     ge_replay_buffer_starting();
-  } else if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTED) {
+    break;
+  case OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTED:
     ge_replay_buffer_started();
-  } else if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPING) {
+    break;
+  case OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPING:
     ge_replay_buffer_stopping();
-  } else if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPED) {
+    break;
+  case OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPED:
     ge_replay_buffer_stopped();
-  } else if (event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED) {
+    break;
+  case OBS_FRONTEND_EVENT_REPLAY_BUFFER_SAVED: {
     // The replay buffer finished writing a file: hand its path to Rust, which
     // wakes whichever save is waiting on it (no polling). obs_frontend_get_last_replay
     // returns a bstr we own and must bfree.
@@ -112,11 +120,17 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
     if (path) {
       bfree(path);
     }
-  } else if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING) {
+    break;
+  }
+  case OBS_FRONTEND_EVENT_FINISHED_LOADING:
     ge_frontend_finished_loading();
     ge_sources_changed();
-  } else if (event == OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED) {
+    break;
+  case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED:
     ge_sources_changed();
+    break;
+  default:
+    break;
   }
 }
 

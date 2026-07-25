@@ -1,9 +1,8 @@
-mod support;
-
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use support::harness::{API, Harness, recording_settings, wait_for_clip};
+
+use crate::support::harness::{API, Harness, recording_settings, wait_for_clip};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
