@@ -51,6 +51,16 @@
 		metadataDraft.gameLanguage = gameLanguageForRomVersion(metadataDraft.romVersion) ?? metadataDraft.gameLanguage;
 		scheduleMetadataSave();
 	};
+	const youtubeSourceLabel = (source: NonNullable<RunClip['youtube']>['source']) => {
+		switch (source) {
+			case 'theElite':
+				return 'The Elite video';
+			case 'manualLink':
+				return 'Manually linked YouTube video';
+			default:
+				return 'Plugin YouTube upload';
+		}
+	};
 	onDestroy(() => {
 		if (metadataSaveTimer) clearTimeout(metadataSaveTimer);
 	});
@@ -147,7 +157,7 @@
 				{:else if clip.youtube}
 					<div class="mb-2">
 						<span class="rounded border border-(--obs-border-soft) px-2 py-1 font-mono text-[10px] obs-dim">
-							YouTube video
+							{youtubeSourceLabel(clip.youtube.source)}
 						</span>
 					</div>
 					<iframe

@@ -113,6 +113,11 @@ fn manual_history_run_keeps_origin_and_youtube_metadata_without_a_clip() {
     assert_eq!(run.metadata.rom_version, Some(RomVersion::Pal));
     assert_eq!(run.retention_reason.as_deref(), Some("manualEntry"));
     assert_eq!(run.youtube.as_ref().map(|video| video.video_id.as_str()), Some("abc_123"));
+    assert_eq!(run.youtube.as_ref().and_then(|video| video.uploaded_at.as_deref()), None);
+    assert_eq!(
+        run.youtube.as_ref().map(|video| video.source),
+        Some(crate::youtube::YoutubeAssociationSource::ManualLink)
+    );
     let stored = catalog.get_run(&run.run_id).unwrap().unwrap();
     assert_eq!(stored.youtube, run.youtube);
 }
@@ -146,6 +151,11 @@ fn elite_history_import_is_idempotent_and_preserves_source_metadata() {
     assert_eq!(run.metadata.rom_version, Some(RomVersion::NtscJ));
     assert!(run.metadata.comment.contains("current personal best"));
     assert_eq!(run.youtube.as_ref().map(|video| video.video_id.as_str()), Some("bgddOpQBKk4"));
+    assert_eq!(run.youtube.as_ref().and_then(|video| video.uploaded_at.as_deref()), None);
+    assert_eq!(
+        run.youtube.as_ref().map(|video| video.source),
+        Some(crate::youtube::YoutubeAssociationSource::TheElite)
+    );
 }
 
 #[test]
@@ -169,12 +179,9 @@ fn missing_elite_users_map_to_not_found_without_masking_other_upstream_errors() 
 
 #[test]
 fn manual_youtube_links_accept_only_video_urls() {
-    assert_eq!(
-        youtube_metadata("https://www.youtube.com/watch?v=abc-123", "2026-01-01T00:00:00Z", "title").unwrap().video_id,
-        "abc-123"
-    );
-    assert!(youtube_metadata("https://example.com/watch?v=abc-123", "2026-01-01T00:00:00Z", "title").is_err());
-    assert!(youtube_metadata("https://youtube.com/channel/abc-123", "2026-01-01T00:00:00Z", "title").is_err());
+    assert_eq!(youtube_metadata("https://www.youtube.com/watch?v=abc-123", "title").unwrap().video_id, "abc-123");
+    assert!(youtube_metadata("https://example.com/watch?v=abc-123", "title").is_err());
+    assert!(youtube_metadata("https://youtube.com/channel/abc-123", "title").is_err());
 }
 
 #[test]

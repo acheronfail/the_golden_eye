@@ -338,8 +338,8 @@ describe('/runs', () => {
 			youtube: {
 				videoId: 'bgddOpQBKk4',
 				videoUrl: 'https://www.youtube.com/watch?v=bgddOpQBKk4',
-				uploadedAt: '2026-07-24T12:00:00Z',
-				title: 'Frigate - Agent - 00:33'
+				title: 'Frigate - Agent - 00:33',
+				source: 'theElite' as const
 			}
 		};
 		mocks.getRuns.mockResolvedValue({ directories: runsResponse.directories, clips: [remote] });
@@ -347,7 +347,7 @@ describe('/runs', () => {
 
 		await user.click(await screen.findByRole('button', { name: /run history only/i }));
 
-		expect(screen.getByText('YouTube video')).toBeInTheDocument();
+		expect(screen.getByText('The Elite video')).toBeInTheDocument();
 		expect(screen.getByTitle('Frigate - Agent - 00:33')).toHaveAttribute(
 			'src',
 			'https://www.youtube.com/embed/bgddOpQBKk4'

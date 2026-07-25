@@ -425,9 +425,12 @@ export interface RunClip {
 export interface RunYouTubeVideo {
 	videoId: string;
 	videoUrl: string;
-	uploadedAt: string;
+	uploadedAt?: string;
 	title: string;
+	source: YouTubeAssociationSource;
 }
+
+export type YouTubeAssociationSource = 'pluginUpload' | 'manualLink' | 'theElite';
 
 export interface ManualRunInput {
 	date: string;
@@ -581,8 +584,9 @@ export interface YouTubeUploadHistoryEntry {
 	path: string;
 	videoId: string;
 	videoUrl: string;
-	uploadedAt: string;
+	uploadedAt?: string;
 	title: string;
+	source: YouTubeAssociationSource;
 }
 
 export interface YouTubeAccount {

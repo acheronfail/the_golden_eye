@@ -133,8 +133,8 @@ export const theEliteRun: RunClip = {
 	youtube: {
 		videoId: 'bgddOpQBKk4',
 		videoUrl: 'https://www.youtube.com/watch?v=bgddOpQBKk4',
-		uploadedAt: '2026-07-24T12:00:00Z',
-		title: 'Frigate - Agent - 00:33'
+		title: 'Frigate - Agent - 00:33',
+		source: 'theElite'
 	}
 };
 
@@ -146,6 +146,21 @@ export const theEliteRunWithoutVideo: RunClip = {
 		comment: 'Imported from https://rankings.the-elite.net/~runner/time/123; previous personal best'
 	},
 	youtube: null
+};
+
+export const manuallyLinkedYouTubeRun: RunClip = {
+	...theEliteRun,
+	runId: 'manual-youtube-1',
+	metadata: {
+		...theEliteRun.metadata,
+		sourceName: 'Manual entry',
+		comment: 'Added manually to run history'
+	},
+	retentionReason: 'manualEntry',
+	youtube: {
+		...theEliteRun.youtube!,
+		source: 'manualLink'
+	}
 };
 
 export const draftForRun = (clip: RunClip): EditableRunMetadata => ({
@@ -208,7 +223,8 @@ export const uploadedHistory: YouTubeUploadHistoryEntry = {
 	videoId: 'dQw4w9WgXcQ',
 	videoUrl: 'https://youtu.be/dQw4w9WgXcQ',
 	uploadedAt: '2026-07-21T12:49:12Z',
-	title: 'Facility - 00 Agent - 00:58'
+	title: 'Facility - 00 Agent - 00:58',
+	source: 'pluginUpload'
 };
 
 export const notificationFixtures: NotificationFlag[] = [

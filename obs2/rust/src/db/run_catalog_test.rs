@@ -513,8 +513,9 @@ fn youtube_metadata(video_id: &str) -> crate::youtube::YoutubeMetadata {
     crate::youtube::YoutubeMetadata {
         video_id: video_id.to_owned(),
         video_url: format!("https://youtu.be/{video_id}"),
-        uploaded_at: format!("2026-01-0{}T00:00:00Z", if video_id.ends_with('1') { 1 } else { 2 }),
+        uploaded_at: Some(format!("2026-01-0{}T00:00:00Z", if video_id.ends_with('1') { 1 } else { 2 })),
         title: format!("Video {video_id}"),
+        source: crate::youtube::YoutubeAssociationSource::PluginUpload,
     }
 }
 

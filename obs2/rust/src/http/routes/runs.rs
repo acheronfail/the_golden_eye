@@ -610,9 +610,7 @@ fn create_manual_run(catalog: &RunCatalog, req: ManualRunRequest) -> std::result
         .youtube_url
         .as_deref()
         .filter(|value| !value.trim().is_empty())
-        .map(|url| {
-            youtube_metadata(url, &timestamp.to_rfc3339(), &format!("{} - {} - {time}", level.name, req.difficulty))
-        })
+        .map(|url| youtube_metadata(url, &format!("{} - {} - {time}", level.name, req.difficulty)))
         .transpose()?;
     let metadata = ClipMetadata {
         run_id: String::new(),
@@ -653,8 +651,9 @@ fn import_elite_runs(
         let youtube = elite.video_id.as_ref().map(|video_id| crate::youtube::YoutubeMetadata {
             video_id: video_id.clone(),
             video_url: format!("https://www.youtube.com/watch?v={video_id}"),
-            uploaded_at: elite.timestamp.clone(),
+            uploaded_at: None,
             title: format!("{} - {} - {}", elite.level, elite.difficulty, elite.time),
+            source: crate::youtube::YoutubeAssociationSource::TheElite,
         });
         let rom_version = elite_rom_version(&elite.system);
         let metadata = ClipMetadata {
@@ -707,11 +706,7 @@ fn level_option(value: &str) -> Option<LevelOption> {
     LEVEL_OPTIONS.iter().copied().find(|option| option.name == value)
 }
 
-fn youtube_metadata(
-    raw_url: &str,
-    timestamp: &str,
-    title: &str,
-) -> std::result::Result<crate::youtube::YoutubeMetadata, RunPathError> {
+fn youtube_metadata(raw_url: &str, title: &str) -> std::result::Result<crate::youtube::YoutubeMetadata, RunPathError> {
     let url = reqwest::Url::parse(raw_url.trim()).map_err(|_| RunPathError::BadRequest("enter a valid YouTube URL"))?;
     let host = url.host_str().unwrap_or_default().trim_start_matches("www.");
     let video_id = match host {
@@ -735,8 +730,9 @@ fn youtube_metadata(
     Ok(crate::youtube::YoutubeMetadata {
         video_url: format!("https://www.youtube.com/watch?v={video_id}"),
         video_id,
-        uploaded_at: timestamp.to_owned(),
+        uploaded_at: None,
         title: title.to_owned(),
+        source: crate::youtube::YoutubeAssociationSource::ManualLink,
     })
 }
 
