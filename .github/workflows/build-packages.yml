@@ -102,12 +102,20 @@ jobs:
 
       - name: Build Release
         run: just make-release
+        env:
+          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
+          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Run shim reload tests
         run: just test-shim
 
       - name: Run frame regression tests
         run: just test-cv
+        env:
+          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
+          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Upload frame regression test results
         if: ${{ always() }}
@@ -221,6 +229,10 @@ jobs:
 
       - name: Run frame regression tests
         run: just test-cv
+        env:
+          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
+          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
@@ -412,6 +424,10 @@ jobs:
       - name: Run frame regression tests
         shell: bash
         run: just test-cv
+        env:
+          GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
+          GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
+          GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
       - name: Build Windows package
         shell: bash
