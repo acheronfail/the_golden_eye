@@ -117,18 +117,6 @@ jobs:
           path: test/test_results.json
           if-no-files-found: ignore
 
-      - name: Run Browser tests
-        run: just test-browser
-
-      - name: Run Storybook tests
-        run: just test-storybook
-
-      - name: Run Rust tests
-        run: just test-rust
-
-      - name: Run Integration tests
-        run: just test-integration
-
       - name: Build Linux package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
         env:
@@ -149,6 +137,18 @@ jobs:
           name: ${{ steps.package.outputs.basename }}
           path: obs2/build-flatpak/dist/*.zip
           if-no-files-found: error
+
+      - name: Run Browser tests
+        run: just test-browser
+
+      - name: Run Storybook tests
+        run: just test-storybook
+
+      - name: Run Rust tests
+        run: just test-rust
+
+      - name: Run Integration tests
+        run: just test-integration
 
   macos:
     name: macOS ${{ matrix.arch }}
@@ -222,18 +222,6 @@ jobs:
       - name: Run frame regression tests
         run: just test-cv
 
-      - name: Run Browser tests
-        run: just test-browser
-
-      - name: Run Storybook tests
-        run: just test-storybook
-
-      - name: Run Rust tests
-        run: just test-rust
-
-      - name: Run Integration tests
-        run: just test-integration
-
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
         env:
@@ -254,6 +242,18 @@ jobs:
           name: ${{ steps.package.outputs.basename }}
           path: obs2/build/dist/*.zip
           if-no-files-found: error
+
+      - name: Run Browser tests
+        run: just test-browser
+
+      - name: Run Storybook tests
+        run: just test-storybook
+
+      - name: Run Rust tests
+        run: just test-rust
+
+      - name: Run Integration tests
+        run: just test-integration
 
   windows:
     name: Windows
@@ -413,22 +413,6 @@ jobs:
         shell: bash
         run: just test-cv
 
-      - name: Run Browser tests
-        shell: bash
-        run: just test-browser
-
-      - name: Run Storybook tests
-        shell: bash
-        run: just test-storybook
-
-      - name: Run Rust tests
-        shell: bash
-        run: just test-rust
-
-      - name: Run Integration tests
-        shell: bash
-        run: just test-integration
-
       - name: Build Windows package
         shell: bash
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
@@ -452,3 +436,19 @@ jobs:
           name: ${{ steps.package.outputs.basename }}
           path: obs2/build/dist/*.zip
           if-no-files-found: error
+
+      - name: Run Browser tests
+        shell: bash
+        run: just test-browser
+
+      - name: Run Storybook tests
+        shell: bash
+        run: just test-storybook
+
+      - name: Run Rust tests
+        shell: bash
+        run: just test-rust
+
+      - name: Run Integration tests
+        shell: bash
+        run: just test-integration
