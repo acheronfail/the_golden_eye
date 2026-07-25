@@ -96,7 +96,6 @@ jobs:
         run: cd obs2/browser && npx playwright install --with-deps chromium
 
       - name: Check formatting
-        if: matrix.arch == 'x86_64'
         run: |
           just fmt
           git diff --exit-code
