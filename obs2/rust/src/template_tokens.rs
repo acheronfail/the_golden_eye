@@ -56,7 +56,7 @@ impl RunTemplateTokens {
             time,
             difficulty,
             status: status.parse().expect("valid run status"),
-            rom: String::new(),
+            rom: "unknown".to_owned(),
             timestamp: format_iso_utc(completed_at),
             timestamp_local: format_iso_local(completed_at),
             plugin_version: crate::PLUGIN_VERSION.to_owned(),
@@ -73,7 +73,10 @@ impl RunTemplateTokens {
             time: metadata.time.clone().unwrap_or_default(),
             difficulty: metadata.difficulty.clone().unwrap_or_default(),
             status: metadata.status.as_str().to_owned(),
-            rom: metadata.rom_version.map(|version| version.as_str().to_owned()).unwrap_or_default(),
+            rom: metadata
+                .rom_version
+                .map(|version| version.as_str().to_owned())
+                .unwrap_or_else(|| "unknown".to_owned()),
             timestamp_local: format_metadata_timestamp_local(&metadata.timestamp),
             timestamp: metadata.timestamp.clone(),
             plugin_version: crate::PLUGIN_VERSION.to_owned(),
@@ -146,6 +149,13 @@ mod tests {
     }
 
     #[test]
+    fn live_run_tokens_render_unknown_rom_version() {
+        let tokens = RunTemplateTokens::from_match("replay", "complete", SystemTime::UNIX_EPOCH, None);
+
+        assert_eq!(tokens.render("{rom}"), "unknown");
+    }
+
+    #[test]
     fn metadata_tokens_convert_utc_timestamp_to_local() {
         let timestamp = "2026-07-18T10:30:45Z";
         let metadata = ffmpeg::ClipMetadata {
@@ -204,6 +214,7 @@ mod tests {
 
         assert_eq!(tokens.timestamp, timestamp);
         assert_eq!(tokens.timestamp_local, timestamp);
+        assert_eq!(tokens.rom, "unknown");
     }
 
     #[test]

@@ -70,4 +70,18 @@ describe('YouTube upload preview rendering', () => {
 		expect(preview.title).toBe('dam');
 		expect(preview.visibilityLabel).toBe('Private');
 	});
+
+	it('renders an unknown ROM version explicitly', () => {
+		const run = clip();
+		run.metadata.romVersion = null;
+
+		const preview = renderYouTubeUploadPreview(run, {
+			titleTemplate: '{level} - {rom}',
+			descriptionTemplate: 'ROM: {rom}',
+			visibility: 'unlisted'
+		});
+
+		expect(preview.title).toBe('Dam - unknown');
+		expect(preview.description).toBe('ROM: unknown');
+	});
 });
