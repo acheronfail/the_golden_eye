@@ -1,7 +1,14 @@
 <script lang="ts">
 	import type { RunClip } from '$lib/api';
 	import ActionMenu, { type ActionMenuItem } from '$lib/components/ActionMenu.svelte';
-	import { formatDate, formatRunListDate, isCompleted, gameLanguageLabel, statusLabel } from '$lib/utils/runsView';
+	import {
+		formatDate,
+		formatRunListDate,
+		isCompleted,
+		gameLanguageLabel,
+		statusLabel,
+		wasPersonalBest
+	} from '$lib/utils/runsView';
 
 	let {
 		clip,
@@ -38,7 +45,7 @@
 	]);
 	const completed = $derived(isCompleted(clip));
 	const failed = $derived(['failed', 'abort', 'kia'].includes(clip.metadata.status));
-	const personalBest = $derived(clip.retentionReason === 'personalBest');
+	const personalBest = $derived(wasPersonalBest(clip));
 	const pending = $derived(Boolean(clip.path && clip.retentionState === 'pending'));
 	const levelName = $derived(clip.metadata.level || 'unknown');
 	const retentionLabel = $derived(

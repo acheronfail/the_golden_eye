@@ -171,6 +171,10 @@ export function isCompleted(clip: RunClip): boolean {
 	return clip.metadata.status === 'complete' || clip.metadata.status === 'completed';
 }
 
+export function wasPersonalBest(clip: RunClip): boolean {
+	return Boolean(clip.metadata.wasPersonalBest || clip.retentionReason === 'personalBest');
+}
+
 export function normalizeStatus(status: string): string {
 	return status === 'completed' ? 'complete' : status;
 }

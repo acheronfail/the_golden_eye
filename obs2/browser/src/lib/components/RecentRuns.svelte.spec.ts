@@ -45,8 +45,8 @@ describe('RecentRuns', () => {
 			runs: [
 				run({
 					retentionState: 'kept',
-					retentionReason: 'personalBest',
-					metadata: { ...run({}).metadata, status: 'failed' }
+					retentionReason: 'theElite',
+					metadata: { ...run({}).metadata, status: 'failed', wasPersonalBest: true }
 				})
 			],
 			onKeep: vi.fn()

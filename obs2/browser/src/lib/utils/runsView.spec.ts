@@ -11,6 +11,7 @@ import {
 	retentionReasonLabel,
 	retentionStateLabel,
 	visibleRunClips,
+	wasPersonalBest,
 	type RunFilters
 } from './runsView';
 
@@ -93,6 +94,13 @@ const clips = [
 ];
 
 describe('runs view behaviour', () => {
+	it('recognises durable and legacy personal-best markers', () => {
+		const run = clips[0];
+		expect(wasPersonalBest({ ...run, metadata: { ...run.metadata, wasPersonalBest: true } })).toBe(true);
+		expect(wasPersonalBest({ ...run, retentionReason: 'personalBest' })).toBe(true);
+		expect(wasPersonalBest(run)).toBe(false);
+	});
+
 	it('derives game language from known ROM versions', () => {
 		expect(gameLanguageForRomVersion('ntsc-u')).toBe('en');
 		expect(gameLanguageForRomVersion('pal')).toBe('en');

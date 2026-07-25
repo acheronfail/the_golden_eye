@@ -102,6 +102,7 @@ pub fn ge_test_write_tagged_clip(input: &Path, output: &Path, status: &str, time
         level_number: Some(8),
         difficulty: Some("00 Agent".to_owned()),
         status: status.parse().expect("valid run status"),
+        was_personal_best: false,
         game_language: "en".to_owned(),
         rom_version: None,
         source_name: "N64 Capture".to_owned(),

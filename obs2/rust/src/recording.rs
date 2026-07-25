@@ -1331,6 +1331,7 @@ fn clip_metadata(
         level_number: level_info.map(|info| info.number),
         difficulty: stats.and_then(|m| ge::difficulty_name(m.difficulty)).map(str::to_owned),
         status,
+        was_personal_best: false,
         game_language: game_language.to_owned(),
         rom_version: None,
         source_name: source_name.to_owned(),

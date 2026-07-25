@@ -206,6 +206,7 @@ impl RunCatalog {
                 )?;
                 best.is_none_or(|best| metadata.time_seconds.unwrap() < best)
             };
+        metadata.was_personal_best = is_pb;
         metadata.retention_state = if is_pb { "kept" } else { "pending" }.to_owned();
         metadata.retention_reason = is_pb.then(|| "personalBest".to_owned());
 
@@ -263,6 +264,10 @@ impl RunCatalog {
         if let Some(run_id) = requested_id
             && let Some(mut existing) = runs::get_run(&conn, run_id)?
         {
+            if metadata.was_personal_best && !existing.metadata.was_personal_best {
+                existing.metadata.was_personal_best = true;
+                runs::update_metadata(&conn, run_id, &existing.metadata)?;
+            }
             if existing.youtube.is_none()
                 && let Some(youtube) = youtube
             {

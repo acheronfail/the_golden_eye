@@ -390,6 +390,7 @@ export interface ClipMetadata {
 	levelNumber?: number;
 	difficulty?: string;
 	status: string;
+	wasPersonalBest?: boolean;
 	gameLanguage: string;
 	romVersion?: RomVersion | null;
 	sourceName: string;

@@ -1062,6 +1062,7 @@ mod tests {
             level_number: Some(1),
             difficulty: Some("Agent".to_owned()),
             status: RunStatus::Complete,
+            was_personal_best: false,
             game_language: "en".to_owned(),
             rom_version: None,
             source_name: "N64 Capture".to_owned(),

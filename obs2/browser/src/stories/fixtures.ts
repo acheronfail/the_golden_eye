@@ -25,6 +25,7 @@ export const completedRun: RunClip = {
 		levelNumber: 2,
 		difficulty: '00 Agent',
 		status: 'complete',
+		wasPersonalBest: true,
 		gameLanguage: 'en',
 		romVersion: null,
 		sourceName: 'Nintendo 64',
@@ -53,6 +54,7 @@ export const failedRun: RunClip = {
 		levelNumber: 17,
 		difficulty: 'Agent',
 		status: 'kia',
+		wasPersonalBest: false,
 		gameLanguage: 'jp',
 		romVersion: null
 	}
@@ -63,7 +65,7 @@ export const pendingRun: RunClip = {
 	runId: 'pending-facility-run',
 	retentionState: 'pending',
 	retentionReason: 'recent',
-	metadata: { ...completedRun.metadata }
+	metadata: { ...completedRun.metadata, wasPersonalBest: false }
 };
 
 export const abortedRun: RunClip = {
@@ -125,6 +127,7 @@ export const theEliteRun: RunClip = {
 		levelNumber: 7,
 		difficulty: 'Agent',
 		gameLanguage: 'jp',
+		wasPersonalBest: true,
 		romVersion: 'ntsc-j',
 		sourceName: 'The Elite (NTSC-J)',
 		comment: 'Imported from https://rankings.the-elite.net/~acheronfail/time/309706; current personal best'

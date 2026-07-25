@@ -55,6 +55,7 @@ fn metadata(status: &str, timestamp: &str) -> ClipMetadata {
         level_number: Some(8),
         difficulty: Some("00 Agent".to_owned()),
         status: status.parse().expect("valid run status"),
+        was_personal_best: false,
         game_language: "en".to_owned(),
         rom_version: None,
         source_name: "N64 Capture".to_owned(),
@@ -119,6 +120,7 @@ fn catalog_personal_bests_are_computed_from_prior_catalog_runs() {
         catalog.create_finalized_run(base, finalized_metadata(RunStatus::Complete, Some(100), "00 Agent")).unwrap();
     assert_eq!(first.retention_state, RunRetentionState::Kept);
     assert_eq!(first.retention_reason.as_deref(), Some("personalBest"));
+    assert!(first.metadata.was_personal_best);
     assert!(first.run_id.contains("-l08-"));
 
     let slower = catalog
@@ -128,6 +130,7 @@ fn catalog_personal_bests_are_computed_from_prior_catalog_runs() {
         )
         .unwrap();
     assert_eq!(slower.retention_state, RunRetentionState::Pending);
+    assert!(!slower.metadata.was_personal_best);
 
     let equal = catalog
         .create_finalized_run(
@@ -144,6 +147,7 @@ fn catalog_personal_bests_are_computed_from_prior_catalog_runs() {
         .unwrap();
     assert_eq!(faster.retention_state, RunRetentionState::Kept);
     assert_eq!(faster.retention_reason.as_deref(), Some("personalBest"));
+    assert!(faster.metadata.was_personal_best);
     let failed = catalog
         .create_finalized_run(
             base + Duration::from_secs(4),
@@ -569,6 +573,7 @@ fn sqlite_metadata_document_round_trips_complete_metadata() {
             level_number: Some(8),
             difficulty: Some("00 Agent".to_owned()),
             status: RunStatus::Complete,
+            was_personal_best: false,
             game_language: "en".to_owned(),
             rom_version: None,
             source_name: "N64 Capture".to_owned(),

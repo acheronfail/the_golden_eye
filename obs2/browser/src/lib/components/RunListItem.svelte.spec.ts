@@ -61,7 +61,7 @@ describe('RunListItem', () => {
 
 	it('uses a gold time and compact PB status for personal-best runs', () => {
 		render(RunListItem, {
-			clip: { ...clip, retentionReason: 'personalBest' },
+			clip: { ...clip, metadata: { ...clip.metadata, wasPersonalBest: true }, retentionReason: 'theElite' },
 			fileBrowserLabel: 'Show in Finder',
 			open: () => {},
 			rename: () => {},

@@ -15,6 +15,7 @@ const TAG_LEVEL: &str = "fail.acheron.thegoldeneye.level";
 const TAG_LEVEL_NUMBER: &str = "fail.acheron.thegoldeneye.level_number";
 const TAG_DIFFICULTY: &str = "fail.acheron.thegoldeneye.difficulty";
 const TAG_STATUS: &str = "fail.acheron.thegoldeneye.status";
+const TAG_WAS_PERSONAL_BEST: &str = "fail.acheron.thegoldeneye.was_personal_best";
 const TAG_GAME_LANGUAGE: &str = "fail.acheron.thegoldeneye.game_language";
 const TAG_LEGACY_ROM_LANGUAGE: &str = "fail.acheron.thegoldeneye.rom_language";
 const TAG_ROM_VERSION: &str = "fail.acheron.thegoldeneye.rom_version";
@@ -135,6 +136,8 @@ pub struct ClipMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub difficulty: Option<String>,
     pub status: RunStatus,
+    #[serde(default)]
+    pub was_personal_best: bool,
     #[serde(alias = "romLanguage")]
     pub game_language: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -164,6 +167,7 @@ pub fn is_ffmpeg_plugin_tag(key: &str) -> bool {
         TAG_LEVEL_NUMBER,
         TAG_DIFFICULTY,
         TAG_STATUS,
+        TAG_WAS_PERSONAL_BEST,
         TAG_GAME_LANGUAGE,
         TAG_LEGACY_ROM_LANGUAGE,
         TAG_ROM_VERSION,
@@ -189,6 +193,7 @@ impl ClipMetadata {
         set_optional_metadata(metadata, TAG_LEVEL_NUMBER, self.level_number.map(|n| n.to_string()).as_deref());
         set_optional_metadata(metadata, TAG_DIFFICULTY, self.difficulty.as_deref());
         metadata.set(TAG_STATUS, self.status.as_str());
+        metadata.set(TAG_WAS_PERSONAL_BEST, if self.was_personal_best { "true" } else { "false" });
         metadata.set(TAG_GAME_LANGUAGE, &clean_metadata_value(&self.game_language));
         set_optional_metadata(metadata, TAG_ROM_VERSION, self.rom_version.map(RomVersion::as_str));
         metadata.set(TAG_SOURCE_NAME, &clean_metadata_value(&self.source_name));
@@ -208,6 +213,8 @@ impl ClipMetadata {
 
         let timestamp = get_metadata(metadata, TAG_RUN_TIMESTAMP)?;
         let status = get_metadata(metadata, TAG_STATUS).and_then(|value| RunStatus::from_str(&value).ok())?;
+        let was_personal_best =
+            get_metadata(metadata, TAG_WAS_PERSONAL_BEST).is_some_and(|value| matches!(value.as_str(), "true" | "1"));
         let level = get_metadata(metadata, TAG_LEVEL).unwrap_or_else(|| "unknown".to_owned());
         let comment = get_metadata(metadata, "comment").unwrap_or_default();
         let plugin_version = get_metadata(metadata, TAG_PLUGIN_VERSION).unwrap_or_default();
@@ -233,6 +240,7 @@ impl ClipMetadata {
             level_number,
             difficulty,
             status,
+            was_personal_best,
             game_language,
             rom_version,
             source_name,
@@ -285,6 +293,7 @@ mod tests {
 
         assert_eq!(metadata.game_language, "jp");
         assert_eq!(metadata.rom_version, None);
+        assert!(!metadata.was_personal_best);
     }
 
     #[test]
@@ -299,5 +308,6 @@ mod tests {
         let metadata = ClipMetadata::from_ffmpeg_tags(&tags).unwrap();
         assert_eq!(metadata.game_language, "jp");
         assert_eq!(metadata.rom_version, None);
+        assert!(!metadata.was_personal_best);
     }
 }

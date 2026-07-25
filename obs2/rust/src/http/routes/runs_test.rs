@@ -53,6 +53,7 @@ fn test_clip_metadata(status: &str, timestamp: &str) -> ClipMetadata {
         level_number: Some(8),
         difficulty: Some("00 Agent".to_owned()),
         status: status.parse().expect("valid run status"),
+        was_personal_best: false,
         game_language: "en".to_owned(),
         rom_version: None,
         source_name: "N64 Capture".to_owned(),
@@ -149,6 +150,7 @@ fn elite_history_import_is_idempotent_and_preserves_source_metadata() {
     assert_eq!(run.metadata.source_name, "The Elite (NTSC-J)");
     assert_eq!(run.metadata.game_language, "jp");
     assert_eq!(run.metadata.rom_version, Some(RomVersion::NtscJ));
+    assert!(run.metadata.was_personal_best);
     assert!(run.metadata.comment.contains("current personal best"));
     assert_eq!(run.youtube.as_ref().map(|video| video.video_id.as_str()), Some("bgddOpQBKk4"));
     assert_eq!(run.youtube.as_ref().and_then(|video| video.uploaded_at.as_deref()), None);
@@ -156,6 +158,37 @@ fn elite_history_import_is_idempotent_and_preserves_source_metadata() {
         run.youtube.as_ref().map(|video| video.source),
         Some(crate::youtube::YoutubeAssociationSource::TheElite)
     );
+}
+
+#[test]
+fn elite_reimport_promotes_personal_best_without_clearing_it() {
+    let dir = TestDir::new("elite-personal-best");
+    let catalog = test_catalog(&dir);
+    let mut elite = crate::the_elite::EliteRun {
+        time_id: "123".to_owned(),
+        timestamp: "2026-07-24T12:00:00Z".to_owned(),
+        level: "Dam".to_owned(),
+        difficulty: "Agent".to_owned(),
+        time: "0:53".to_owned(),
+        time_seconds: 53,
+        system: "NTSC".to_owned(),
+        current_personal_best: false,
+        proof_available: false,
+        video_id: None,
+    };
+
+    import_elite_runs(&catalog, "runner", vec![elite.clone()]).unwrap();
+    assert!(!catalog.get_run("the-elite-123").unwrap().unwrap().metadata.was_personal_best);
+
+    elite.current_personal_best = true;
+    import_elite_runs(&catalog, "runner", vec![elite.clone()]).unwrap();
+    let promoted = catalog.get_run("the-elite-123").unwrap().unwrap();
+    assert!(promoted.metadata.was_personal_best);
+    assert_eq!(promoted.retention_reason.as_deref(), Some("theElite"));
+
+    elite.current_personal_best = false;
+    import_elite_runs(&catalog, "runner", vec![elite]).unwrap();
+    assert!(catalog.get_run("the-elite-123").unwrap().unwrap().metadata.was_personal_best);
 }
 
 #[test]
