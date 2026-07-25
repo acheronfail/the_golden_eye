@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - master
+      - acheronfail/simplifications
+      - "codex/ci-*"
 
 permissions:
   contents: read
