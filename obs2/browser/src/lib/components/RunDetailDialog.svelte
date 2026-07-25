@@ -198,7 +198,7 @@
 									placeholder="mm:ss"
 								/>
 							</label>
-							<div class="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2">
+							<div class="grid grid-cols-2 gap-3 sm:col-span-2 sm:grid-cols-2">
 								<label class="flex min-w-0 flex-col gap-1">
 									<span class="font-mono text-xs obs-dim">ROM version</span>
 									<Select
