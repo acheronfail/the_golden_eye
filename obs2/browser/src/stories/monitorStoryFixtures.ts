@@ -1,5 +1,6 @@
 import type { LevelMatch, RunClip } from '$lib/api';
-import { completedRun } from './fixtures';
+import type { MonitorDesign, MonitorViewProps } from '$lib/components/monitorView';
+import { completedRun, failedRun } from './fixtures';
 
 export const monitorMatch = (screen: string, times: LevelMatch['times'] = null): LevelMatch => ({
 	screen,
@@ -10,6 +11,33 @@ export const monitorMatch = (screen: string, times: LevelMatch['times'] = null):
 	times,
 	runtime_ms: 8.4
 });
+
+export type MonitorStoryArgs = MonitorViewProps & { design?: MonitorDesign };
+
+// Shared across every monitor-state story; each state file overrides the
+// state-specific fields and renders one story per design.
+export const monitorBaseArgs: MonitorStoryArgs = {
+	sourceName: 'N64 Capture',
+	verified: true,
+	monitoring: true,
+	recordingState: null,
+	match: monitorMatch('unknown'),
+	onStop: () => {}
+};
+
+export const monitorDesignArgs = {
+	missionGlass: { design: 'mission-glass' },
+	signalBand: { design: 'signal-band' },
+	debug: { design: 'debug', cvLanguage: 'en' }
+} satisfies Record<string, Partial<MonitorStoryArgs>>;
+
+export const monitorRecentRuns: RunClip[] = [
+	{ ...failedRun, runId: 'recent-pending', retentionState: 'pending' },
+	{ ...completedRun, runId: 'recent-ready', retentionState: 'pending' },
+	{ ...completedRun, runId: 'recent-kept', retentionState: 'kept', retentionReason: 'manual' },
+	{ ...completedRun, runId: 'recent-expired', path: '', retentionState: 'expired' },
+	{ ...completedRun, runId: 'recent-pb', retentionState: 'kept', retentionReason: 'personalBest' }
+];
 
 const recentRunSeeds = [
 	['Control', 'Agent', 37, 'kia'],
