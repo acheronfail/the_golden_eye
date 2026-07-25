@@ -20,12 +20,12 @@
 
 	const runTime = (run: RunClip): string =>
 		run.metadata.time ?? (run.metadata.timeSeconds == null ? '—' : formatMonitorTime(run.metadata.timeSeconds));
+	const RECENT_RUNS_MAX_H =
+		'max-h-[clamp(4.2rem,44cqh,40rem)] [@container(max-height:42rem)]:max-h-[clamp(4.2rem,32cqh,24rem)]';
 	const VARIANT_CLASSES: Record<NonNullable<typeof variant>, string> = {
-		'mission-glass':
-			'rounded-xl border border-[color-mix(in_srgb,var(--monitor-accent)_30%,var(--obs-border-soft))] bg-[rgb(37_41_52/90%)] shadow-[inset_0_1px_0_rgb(255_255_255/8%),0_0_2rem_var(--monitor-surface)]',
-		'signal-band':
-			'border-y border-[color-mix(in_srgb,var(--monitor-accent)_35%,var(--obs-border))] bg-[color-mix(in_srgb,var(--monitor-surface)_35%,var(--obs-bg-elevated))] shadow-[0_0_2rem_var(--monitor-surface)]',
-		debug: 'border-t border-l border-(--obs-border-muted) bg-(--obs-bg-elevated)'
+		'mission-glass': `${RECENT_RUNS_MAX_H} rounded-xl border border-[color-mix(in_srgb,var(--monitor-accent)_30%,var(--obs-border-soft))] bg-[rgb(37_41_52/90%)] shadow-[inset_0_1px_0_rgb(255_255_255/8%),0_0_2rem_var(--monitor-surface)]`,
+		'signal-band': `${RECENT_RUNS_MAX_H} border-y border-[color-mix(in_srgb,var(--monitor-accent)_35%,var(--obs-border))] bg-[color-mix(in_srgb,var(--monitor-surface)_35%,var(--obs-bg-elevated))] shadow-[0_0_2rem_var(--monitor-surface)]`,
+		debug: 'max-h-[clamp(4.2rem,22cqh,24rem)] border-t border-l border-(--obs-border-muted) bg-(--obs-bg-elevated)'
 	};
 	const variantClass = $derived(VARIANT_CLASSES[variant]);
 
@@ -58,7 +58,7 @@
 </script>
 
 <section
-	class="recent-runs recent-runs--{variant} grid max-h-[clamp(4.2rem,22cqh,24rem)] min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden font-mono text-(--obs-text) {variantClass}"
+	class="recent-runs recent-runs--{variant} grid min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden font-mono text-(--obs-text) {variantClass}"
 	aria-label="Recent runs"
 >
 	<header

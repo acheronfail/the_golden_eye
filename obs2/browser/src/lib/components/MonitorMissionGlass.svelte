@@ -39,7 +39,7 @@
 	></div>
 
 	<header
-		class="absolute top-6 right-6 left-6 z-5 flex items-center justify-between gap-4 font-mono text-[0.7rem] tracking-[0.12em] uppercase @max-[520px]:right-8 @max-[520px]:left-8"
+		class="absolute top-6 right-8 left-8 z-5 flex items-center justify-between gap-4 font-mono text-[0.7rem] tracking-[0.12em] uppercase"
 	>
 		<span>
 			<span
@@ -80,20 +80,20 @@
 	>
 		{#key presentation.animationKey}
 			<section
-				class="glass-panel relative w-full animate-glass-panel rounded-[clamp(1rem,4cqw,1.6rem)] border border-[color-mix(in_srgb,var(--monitor-accent)_38%,var(--obs-border-soft))] bg-[rgb(37_41_52_/_90%)] p-[clamp(1.25rem,4.5cqw,2.5rem)] text-center shadow-[0_1.5rem_5rem_rgb(0_0_0_/_35%),0_0_4rem_var(--monitor-surface),inset_0_1px_0_rgb(255_255_255_/_11%)] transition-[border-color,box-shadow] duration-240 motion-reduce:[animation-duration:1ms] @max-[520px]:p-[1.35rem]"
+				class="glass-panel relative w-full animate-glass-panel rounded-[clamp(1rem,4cqw,1.6rem)] border border-[color-mix(in_srgb,var(--monitor-accent)_38%,var(--obs-border-soft))] bg-[rgb(37_41_52_/_90%)] p-[clamp(1.25rem,4.5cqw,2.5rem)] text-center shadow-[0_1.5rem_5rem_rgb(0_0_0_/_35%),0_0_4rem_var(--monitor-surface),inset_0_1px_0_rgb(255_255_255_/_11%)] transition-[border-color,box-shadow] duration-240 motion-reduce:[animation-duration:1ms] @max-[520px]:p-[1.35rem] [@container(max-height:42rem)]:p-[clamp(0.9rem,3cqw,1.35rem)]"
 			>
 				<p
-					class="font-mono text-[clamp(0.65rem,2.8cqw,0.82rem)] tracking-[0.15em] text-(--monitor-accent) uppercase transition-colors duration-240"
+					class="font-mono text-[clamp(0.65rem,2.8cqw,0.82rem)] tracking-[0.15em] text-(--monitor-accent) uppercase transition-colors duration-240 [@container(max-height:42rem)]:text-[clamp(0.58rem,2cqw,0.72rem)]"
 				>
 					{verified ? presentation.statusLabel : 'Verifying source'}
 				</p>
 				<h1
-					class="mt-[0.55rem] mb-[0.7rem] text-[clamp(2.25rem,11cqw,5rem)] leading-[0.92] font-semibold tracking-[-0.065em] [overflow-wrap:anywhere] text-[color-mix(in_srgb,var(--monitor-accent)_12%,var(--obs-text))] transition-colors duration-240"
+					class="mt-[0.55rem] mb-[0.7rem] text-[clamp(2.25rem,11cqw,5rem)] leading-[0.92] font-semibold tracking-[-0.065em] [overflow-wrap:anywhere] text-[color-mix(in_srgb,var(--monitor-accent)_12%,var(--obs-text))] transition-colors duration-240 [@container(max-height:42rem)]:mt-[0.3rem] [@container(max-height:42rem)]:mb-[0.4rem] [@container(max-height:42rem)]:text-[clamp(2rem,8cqw,3.5rem)]"
 				>
 					{verified ? presentation.title : 'checking source'}
 				</h1>
 				<p
-					class="glass-detail font-mono text-[clamp(0.65rem,2.8cqw,0.82rem)] tracking-[0.15em] text-(--obs-text-dim) uppercase"
+					class="glass-detail font-mono text-[clamp(0.65rem,2.8cqw,0.82rem)] tracking-[0.15em] text-(--obs-text-dim) uppercase [@container(max-height:42rem)]:text-[clamp(0.58rem,2cqw,0.72rem)]"
 					class:invisible={!presentation.showDetail || !verified}
 					aria-hidden={!presentation.showDetail || !verified}
 				>
@@ -102,7 +102,7 @@
 
 				{#if match?.times && !presentation.waitingForObs}
 					<div
-						class="mt-[clamp(1.5rem,5cqw,2.5rem)] grid grid-cols-3 gap-[clamp(0.7rem,4cqw,2rem)] border-t border-[color-mix(in_srgb,var(--monitor-accent)_25%,var(--obs-border-muted))] pt-[clamp(1.25rem,4cqw,2rem)] font-mono [&_small]:text-[0.65rem] [&_small]:tracking-[0.12em] [&_small]:text-(--obs-text-dim) [&_small]:uppercase [&_strong]:text-[clamp(1.25rem,6cqw,2.6rem)] [&_strong]:font-medium [&_strong]:[font-variant-numeric:tabular-nums] [&>span]:grid [&>span]:min-w-0 [&>span]:gap-[0.2rem]"
+						class="mt-[clamp(1.5rem,5cqw,2.5rem)] grid grid-cols-3 gap-[clamp(0.7rem,4cqw,2rem)] border-t border-[color-mix(in_srgb,var(--monitor-accent)_25%,var(--obs-border-muted))] pt-[clamp(1.25rem,4cqw,2rem)] font-mono [&_small]:text-[0.65rem] [&_small]:tracking-[0.12em] [&_small]:text-(--obs-text-dim) [&_small]:uppercase [&_strong]:text-[clamp(1.25rem,6cqw,2.6rem)] [&_strong]:font-medium [&_strong]:[font-variant-numeric:tabular-nums] [&>span]:grid [&>span]:min-w-0 [&>span]:gap-[0.2rem] [@container(max-height:42rem)]:mt-[clamp(0.8rem,3cqw,1.4rem)] [@container(max-height:42rem)]:gap-[clamp(0.6rem,2.5cqw,1.5rem)] [@container(max-height:42rem)]:pt-[clamp(0.7rem,3cqw,1.2rem)] [@container(max-height:42rem)]:[&_small]:text-[0.58rem] [@container(max-height:42rem)]:[&_strong]:text-[clamp(1.1rem,4.5cqw,2rem)]"
 						aria-label="Run times"
 					>
 						<span>

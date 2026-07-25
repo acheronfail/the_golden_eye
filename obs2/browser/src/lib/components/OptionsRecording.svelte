@@ -103,7 +103,7 @@
 		id="recent-run-limit"
 		type="number"
 		min="1"
-		max="20"
+		max="100"
 		step="1"
 		bind:value={settings.recentRunLimit}
 		onblur={view.normalize.recentRunLimit}

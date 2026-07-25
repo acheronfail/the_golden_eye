@@ -7,6 +7,40 @@ const preview: Preview = {
 	parameters: {
 		a11y: { test: 'todo' },
 		backgrounds: { default: 'OBS' },
+		// Monitor states are one file per state now; pin the lifecycle order so the
+		// sidebar doesn't fall back to alphabetical. Other sections keep their order.
+		options: {
+			storySort: {
+				order: [
+					'*',
+					'Monitor',
+					[
+						'Monitor states',
+						[
+							'Verifying source',
+							'Starting monitor',
+							'Waiting',
+							'Recording',
+							'Cancelled',
+							'Failed',
+							'Aborted',
+							'Killed in action',
+							'Complete',
+							'Skipped stats',
+							'Saving clip',
+							'Overlapping replay handling',
+							'Recent run history',
+							'Stats with long recent history',
+							'Stopping monitor',
+							'Healthy monitor FPS',
+							'Warning monitor FPS',
+							'Lagging monitor FPS'
+						],
+						'*'
+					]
+				]
+			}
+		},
 		viewport: {
 			options: {
 				obsDock: {

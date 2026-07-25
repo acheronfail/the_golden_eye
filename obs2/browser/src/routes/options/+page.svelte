@@ -84,7 +84,9 @@
 		'grid gap-3 rounded border border-(--obs-danger) bg-[color-mix(in_srgb,var(--obs-danger)_14%,transparent)] px-4 py-4';
 	const normalizeRecentRunLimit = () => {
 		const value = Number(settings.recentRunLimit);
-		settings.recentRunLimit = Number.isFinite(value) ? Math.min(20, Math.max(1, Math.trunc(value))) : 5;
+		settings.recentRunLimit = Number.isFinite(value)
+			? Math.min(100, Math.max(1, Math.trunc(value)))
+			: settings.defaults.recentRunLimit;
 	};
 
 	const normalizePreRunPadding = () => {
