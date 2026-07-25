@@ -35,6 +35,7 @@ pub enum MonitorDesign {
 impl MonitorDesign {
     pub fn from_json_value(value: Option<&Value>) -> Self {
         match value.and_then(Value::as_str) {
+            Some("signal-band") => MonitorDesign::SignalBand,
             Some("mission-glass") => MonitorDesign::MissionGlass,
             Some("debug") => MonitorDesign::Debug,
             _ => DEFAULT_MONITOR_DESIGN,
@@ -86,6 +87,7 @@ impl YoutubeVisibility {
     pub fn from_json_value(value: Option<&Value>) -> Self {
         match value.and_then(Value::as_str) {
             Some("public") => YoutubeVisibility::Public,
+            Some("unlisted") => YoutubeVisibility::Unlisted,
             Some("private") => YoutubeVisibility::Private,
             _ => DEFAULT_YOUTUBE_VISIBILITY,
         }

@@ -15,6 +15,6 @@
 	<MonitorDebug {...props} />
 {:else if design === 'mission-glass'}
 	<MonitorMissionGlass {...props} />
-{:else}
+{:else if design === 'signal-band'}
 	<MonitorSignalBand {...props} />
 {/if}

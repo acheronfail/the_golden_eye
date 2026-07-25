@@ -227,7 +227,7 @@
 				/>
 			</div>
 		</section>
-	{:else}
+	{:else if tab === 'sessions'}
 		<div class="mt-4">
 			<SessionStatistics
 				{sessions}

@@ -471,7 +471,11 @@ impl RecordingStateStore {
             RecordingStatus::SavePending | RecordingStatus::StatsSkipped => {
                 self.clear_after(generation, Self::SAVE_TIMEOUT);
             }
-            _ => {}
+            RecordingStatus::Started
+            | RecordingStatus::Failed
+            | RecordingStatus::Aborted
+            | RecordingStatus::Kia
+            | RecordingStatus::Complete => {}
         }
 
         generation

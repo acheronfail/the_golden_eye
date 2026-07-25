@@ -40,16 +40,39 @@ export const STATUS_LABELS: Record<RunStatus, string> = {
 
 export const ALL_STATUSES: RunStatus[] = ['complete', 'failed', 'abort', 'kia'];
 
+const STATUS_SERIES_STYLE: Record<RunStatus, Pick<ChartSeries, 'color' | 'surfaceColor' | 'pattern' | 'shape'>> = {
+	complete: {
+		color: 'var(--obs-success)',
+		surfaceColor: 'var(--obs-success-surface)',
+		pattern: 'plain',
+		shape: 'circle'
+	},
+	failed: {
+		color: 'var(--obs-danger)',
+		surfaceColor: 'var(--obs-danger-surface)',
+		pattern: 'plain',
+		shape: 'circle'
+	},
+	abort: {
+		color: 'var(--obs-danger)',
+		surfaceColor: 'var(--obs-danger-surface)',
+		pattern: 'diagonal',
+		shape: 'square'
+	},
+	kia: {
+		color: 'var(--obs-danger)',
+		surfaceColor: 'var(--obs-danger-surface)',
+		pattern: 'dots',
+		shape: 'triangle'
+	}
+};
+
 function statusSeries(status: RunStatus, points: ChartSeries['points']): ChartSeries {
-	const complete = status === 'complete';
 	return {
 		id: status,
 		label: STATUS_LABELS[status],
 		points,
-		color: complete ? 'var(--obs-success)' : 'var(--obs-danger)',
-		surfaceColor: complete ? 'var(--obs-success-surface)' : 'var(--obs-danger-surface)',
-		pattern: status === 'abort' ? 'diagonal' : status === 'kia' ? 'dots' : 'plain',
-		shape: status === 'abort' ? 'square' : status === 'kia' ? 'triangle' : 'circle'
+		...STATUS_SERIES_STYLE[status]
 	};
 }
 

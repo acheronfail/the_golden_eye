@@ -395,7 +395,7 @@
 										stroke={series.color}
 										stroke-width="2"
 									/>
-								{:else}
+								{:else if series.shape === 'circle' || series.shape === undefined}
 									<circle
 										cx={xPosition(point.x)}
 										cy={yPosition(point.y)}
@@ -450,7 +450,7 @@
 							{/if}
 						{/each}
 					{/each}
-				{:else}
+				{:else if data.kind === 'stackedBar' || data.kind === 'groupedBar'}
 					{#each categories as category}
 						{@const band = categoryBand() * 0.76}
 						{@const groupX = xPosition(category) - band / 2}
@@ -609,7 +609,7 @@
 									<path d="M6 2 L10 9 L2 9 Z" fill={enabled ? series.color : 'currentColor'} />
 								{:else if data.kind === 'line'}
 									<circle cx="6" cy="6" r="3" fill={enabled ? series.color : 'currentColor'} />
-								{:else}
+								{:else if data.kind === 'stackedBar' || data.kind === 'groupedBar' || data.kind === 'horizontalStackedBar'}
 									<rect
 										x="1"
 										y="1"

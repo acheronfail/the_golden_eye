@@ -36,6 +36,40 @@
 		keep?: (clip: RunClip) => void | Promise<void>;
 	} = $props();
 
+	const retentionLabelFor = (run: RunClip): string => {
+		if (!run.path) {
+			switch (run.retentionReason) {
+				case 'manualEntry':
+					return 'manual';
+				case 'theElite':
+					return 'the elite';
+				default:
+					return 'history only';
+			}
+		}
+
+		switch (run.retentionState) {
+			case 'pending':
+				return 'pending';
+			case 'kept':
+			case 'expired':
+				return 'kept';
+		}
+	};
+
+	const compactStatusLabelFor = (run: RunClip, isPersonalBest: boolean): string => {
+		if (isPersonalBest) return 'PB';
+		if (run.metadata.status === 'kia') return 'Killed';
+		return statusLabel(run.metadata.status) || 'unknown';
+	};
+
+	const statusDotClass = (isPersonalBest: boolean, isCompleted: boolean, isFailed: boolean): string => {
+		if (isPersonalBest) return 'bg-(--obs-gold)';
+		if (isCompleted) return 'bg-(--obs-success)';
+		if (isFailed) return 'bg-(--obs-danger)';
+		return 'bg-(--obs-text-dim)';
+	};
+
 	const actionItems = $derived<ActionMenuItem[]>([
 		{ label: 'Open', action: () => open(clip) },
 		...(clip.path ? [{ label: 'Rename', action: () => rename(clip) }] : []),
@@ -48,23 +82,11 @@
 	const personalBest = $derived(wasPersonalBest(clip));
 	const pending = $derived(Boolean(clip.path && clip.retentionState === 'pending'));
 	const levelName = $derived(clip.metadata.level || 'unknown');
-	const retentionLabel = $derived(
-		!clip.path
-			? clip.retentionReason === 'manualEntry'
-				? 'manual'
-				: clip.retentionReason === 'theElite'
-					? 'the elite'
-					: 'history only'
-			: clip.retentionState === 'pending'
-				? 'pending'
-				: 'kept'
-	);
+	const retentionLabel = $derived(retentionLabelFor(clip));
 	const itemLabel = $derived(clip.fileName ? `Open ${clip.fileName}` : `Open ${levelName} run history only`);
 	const timestampLabel = $derived(formatRunListDate(clip.metadata.timestamp, showDate));
 	const timestampTitle = $derived(formatDate(clip.metadata.timestamp));
-	const compactStatusLabel = $derived(
-		personalBest ? 'PB' : clip.metadata.status === 'kia' ? 'Killed' : statusLabel(clip.metadata.status) || 'unknown'
-	);
+	const compactStatusLabel = $derived(compactStatusLabelFor(clip, personalBest));
 </script>
 
 <div
@@ -91,15 +113,7 @@
 			<span class="truncate text-[10px] text-(--obs-text-dim)">{clip.metadata.difficulty || '—'}</span>
 		</span>
 		<span class="flex min-w-0 items-center gap-1.5 truncate font-mono text-[10px]">
-			<span
-				class="size-1.5 shrink-0 rounded-full {personalBest
-					? 'bg-(--obs-gold)'
-					: completed
-						? 'bg-(--obs-success)'
-						: failed
-							? 'bg-(--obs-danger)'
-							: 'bg-(--obs-text-dim)'}"
-				aria-hidden="true"
+			<span class="size-1.5 shrink-0 rounded-full {statusDotClass(personalBest, completed, failed)}" aria-hidden="true"
 			></span>
 			{compactStatusLabel}
 		</span>

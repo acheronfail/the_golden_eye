@@ -551,7 +551,13 @@ impl RunStatus {
             Screen::Failed => Some(RunStatus::Failed),
             Screen::Abort => Some(RunStatus::Abort),
             Screen::Kia => Some(RunStatus::Kia),
-            _ => None,
+            Screen::Unknown
+            | Screen::Start
+            | Screen::Stats
+            | Screen::Complete
+            | Screen::Opts007
+            | Screen::Select
+            | Screen::Levels => None,
         }
     }
 }
@@ -974,9 +980,10 @@ impl RecordingState {
                     if !self.status.is_some_and(RunStatus::is_failed) {
                         self.status = RunStatus::from_failure_screen(m.screen);
                         self.emit(match m.screen {
+                            Screen::Failed => RecordingStatus::Failed,
                             Screen::Abort => RecordingStatus::Aborted,
                             Screen::Kia => RecordingStatus::Kia,
-                            _ => RecordingStatus::Failed,
+                            _ => unreachable!("failure-screen branch received {:?}", m.screen),
                         });
                     }
                 }
@@ -1017,7 +1024,7 @@ impl RecordingState {
                     self.refine_stats_vote(now, m);
                 }
             }
-            _ => {}
+            Screen::Unknown | Screen::Select => {}
         }
 
         // Leaving the stats screen locks the vote: any later run's stats screen

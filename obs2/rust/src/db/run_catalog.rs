@@ -60,6 +60,7 @@ impl RunRetentionState {
     pub fn parse(value: &str) -> Self {
         match value {
             "pending" => Self::Pending,
+            "kept" => Self::Kept,
             "expired" => Self::Expired,
             _ => Self::Kept,
         }
@@ -153,7 +154,7 @@ impl RunCatalog {
                         self.upsert_imported_clip(updated.clone())?;
                         valid.push(updated);
                     }
-                    _ => self.detach_clip(&run.run_id, "missing")?,
+                    Ok(None) | Err(_) => self.detach_clip(&run.run_id, "missing")?,
                 },
             }
         }

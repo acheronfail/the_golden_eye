@@ -330,7 +330,7 @@
 			<OptionsRecording view={recordingOptionsView} />
 		{:else if activeTab === 'notifications'}
 			<OptionsNotifications />
-		{:else}
+		{:else if activeTab === 'youtube'}
 			<OptionsYouTube />
 		{/if}
 	</fieldset>
