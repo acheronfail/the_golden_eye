@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import type { ChartData, ChartPoint, ChartSeries, XValue } from './Chart';
+	import BarChartMarks from './BarChartMarks.svelte';
+	import HorizontalStackedBarMarks from './HorizontalStackedBarMarks.svelte';
+	import LineChartMarks from './LineChartMarks.svelte';
+	import type { BarChartSeries, ChartData, ChartPoint, ChartSeries, XValue } from './Chart';
+	import { buildChartGeometry, pointAnchor, type ChartMarkInteractions } from './chartGeometry';
 
 	let {
 		data,
@@ -36,54 +40,21 @@
 	let tooltipContent = $state<SVGGElement>();
 	let tooltipWidth = $state(120);
 	let tooltipHideTimer: number | null = null;
-	const margin = $derived(
-		data.kind === 'horizontalStackedBar'
-			? { top: 22, right: 16, bottom: 60, left: 96 }
-			: { top: 22, right: 16, bottom: 60, left: yLabel ? 58 : 40 }
-	);
-	const plotWidth = $derived(Math.max(1, width - margin.left - margin.right));
 	const legendSeries = $derived(data.series);
 	const visibleSeries = $derived(
 		legendSeries.filter(
 			(series) => !interactiveLegend || visibleSeriesIds == null || visibleSeriesIds.includes(series.id)
 		)
 	);
-	const renderSeries = $derived(
-		visibleSeries
-			.map((series, index) => ({ series, index }))
-			.sort((a, b) => (a.series.renderPriority ?? 0) - (b.series.renderPriority ?? 0) || a.index - b.index)
-			.map(({ series }) => series)
+	const geometry = $derived(
+		buildChartGeometry({
+			data,
+			visibleSeriesIds: new Set(visibleSeries.map((series) => series.id)),
+			width,
+			yLabel,
+			includeZero
+		})
 	);
-	const categories = $derived.by(() => {
-		const values: XValue[] = [];
-		for (const series of legendSeries) {
-			for (const point of series.points) {
-				if (!values.includes(point.x)) values.push(point.x);
-			}
-		}
-		return data.xType === 'time' ? values.sort((a, b) => Number(a) - Number(b)) : values;
-	});
-	const height = $derived(
-		data.kind === 'horizontalStackedBar' ? Math.max(320, categories.length * 25 + margin.top + margin.bottom) : 320
-	);
-	const plotHeight = $derived(height - margin.top - margin.bottom);
-	const allPoints = $derived(visibleSeries.flatMap((series) => series.points));
-	const rawMinValue = $derived(allPoints.length > 0 ? Math.min(...allPoints.map((point) => point.y)) : 0);
-	const rawMaxValue = $derived(allPoints.length > 0 ? Math.max(...allPoints.map((point) => point.y)) : 1);
-	const fittedPadding = $derived(Math.max(1, (rawMaxValue - rawMinValue) * 0.08));
-	const minValue = $derived(data.kind === 'line' && !includeZero ? Math.max(0, rawMinValue - fittedPadding) : 0);
-	const maxValue = $derived.by(() => {
-		if (data.kind === 'stackedBar' || data.kind === 'horizontalStackedBar') {
-			return Math.max(
-				1,
-				...categories.map((x) =>
-					visibleSeries.reduce((sum, series) => sum + (series.points.find((point) => point.x === x)?.y ?? 0), 0)
-				)
-			);
-		}
-		return data.kind === 'line' && !includeZero ? rawMaxValue + fittedPadding : Math.max(1, rawMaxValue);
-	});
-	const yTicks = $derived(Array.from({ length: 5 }, (_, index) => minValue + ((maxValue - minValue) * index) / 4));
 
 	$effect(() => {
 		const selection = selected;
@@ -91,7 +62,7 @@
 		void tick().then(() => {
 			if (selected !== selection || !tooltipContent) return;
 			const contentWidth = Math.ceil(tooltipContent.getBBox().width) + 16;
-			tooltipWidth = Math.max(64, Math.min(plotWidth + 8, contentWidth));
+			tooltipWidth = Math.max(64, Math.min(geometry.plotWidth + 8, contentWidth));
 		});
 	});
 
@@ -120,51 +91,6 @@
 		}, 120);
 	}
 
-	function xPosition(x: XValue): number {
-		if (data.xType === 'time') {
-			if (data.kind !== 'line') {
-				const index = categories.indexOf(x);
-				return margin.left + ((index + 0.5) / Math.max(1, categories.length)) * plotWidth;
-			}
-			const values = categories.map(Number);
-			const min = Math.min(...values);
-			const max = Math.max(...values);
-			if (min === max) return margin.left + plotWidth / 2;
-			const pointPadding = 6;
-			return margin.left + pointPadding + ((Number(x) - min) / (max - min)) * (plotWidth - pointPadding * 2);
-		}
-		const index = categories.indexOf(x);
-		return margin.left + ((index + 0.5) / Math.max(1, categories.length)) * plotWidth;
-	}
-
-	function yPosition(y: number): number {
-		return margin.top + plotHeight - ((y - minValue) / Math.max(1, maxValue - minValue)) * plotHeight;
-	}
-
-	function categoryBand(): number {
-		return plotWidth / Math.max(1, categories.length);
-	}
-
-	function linePath(series: ChartSeries): string {
-		const points = [...series.points].sort((a, b) => Number(a.x) - Number(b.x));
-		if (series.lineStyle === 'step') {
-			const path = points
-				.map((point, index) => {
-					if (index === 0) return `M ${xPosition(point.x)} ${yPosition(point.y)}`;
-					return `H ${xPosition(point.x)} V ${yPosition(point.y)}`;
-				})
-				.join(' ');
-			const lastCategory = categories.at(-1);
-			const lastPoint = points.at(-1);
-			return lastCategory != null && lastPoint != null && Number(lastCategory) > Number(lastPoint.x)
-				? `${path} H ${xPosition(lastCategory)}`
-				: path;
-		}
-		return points
-			.map((point, index) => `${index === 0 ? 'M' : 'L'} ${xPosition(point.x)} ${yPosition(point.y)}`)
-			.join(' ');
-	}
-
 	function toggleSeries(seriesId: string) {
 		if (!interactiveLegend || !onVisibleSeriesChange) return;
 		const current = visibleSeriesIds ?? legendSeries.map((series) => series.id);
@@ -173,10 +99,14 @@
 		);
 	}
 
-	function fillFor(series: ChartSeries): string {
+	function fillFor(series: BarChartSeries): string {
 		return series.pattern && series.pattern !== 'plain'
 			? `url(#${uid}-${series.id}-${series.pattern})`
 			: (series.surfaceColor ?? series.color);
+	}
+
+	function legendFillFor(series: ChartSeries): string {
+		return 'pattern' in series ? fillFor(series) : (series.surfaceColor ?? series.color);
 	}
 
 	function tickLabel(value: XValue): string {
@@ -185,28 +115,6 @@
 			return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(Number(value)));
 		}
 		return String(value);
-	}
-
-	function xTickCategories(): XValue[] {
-		if (data.kind === 'horizontalStackedBar') return [];
-		if (data.xType !== 'time' || data.kind !== 'line') {
-			const step = Math.max(1, Math.ceil(categories.length / Math.max(1, Math.floor(plotWidth / 70))));
-			return categories.filter((_, index) => index % step === 0);
-		}
-
-		const minimumGap = 72;
-		const ticks: XValue[] = [];
-		for (const category of categories) {
-			if (ticks.length === 0 || xPosition(category) - xPosition(ticks[ticks.length - 1]) >= minimumGap) {
-				ticks.push(category);
-			}
-		}
-		const last = categories[categories.length - 1];
-		if (last !== undefined && ticks[ticks.length - 1] !== last) {
-			if (ticks.length > 1 && xPosition(last) - xPosition(ticks[ticks.length - 1]) < minimumGap) ticks.pop();
-			ticks.push(last);
-		}
-		return ticks;
 	}
 
 	function pointKeydown(event: KeyboardEvent, series: ChartSeries, point: ChartPoint) {
@@ -232,37 +140,8 @@
 
 	function showTooltipAtPoint(series: ChartSeries, point: ChartPoint) {
 		keepTooltipOpen();
-		const categoryIndex = categories.indexOf(point.x);
-		const seriesIndex = visibleSeries.indexOf(series);
-		if (data.kind === 'horizontalStackedBar') {
-			const rowHeight = plotHeight / Math.max(1, categories.length);
-			const offset = visibleSeries
-				.slice(0, seriesIndex)
-				.reduce((sum, candidate) => sum + (candidate.points.find((item) => item.x === point.x)?.y ?? 0), 0);
-			selected = {
-				series,
-				point,
-				x: margin.left + ((offset + point.y / 2) / maxValue) * plotWidth,
-				y: margin.top + (categoryIndex + 0.5) * rowHeight
-			};
-			return;
-		}
-		if (data.kind === 'stackedBar' || data.kind === 'groupedBar') {
-			const band = categoryBand() * 0.76;
-			const stacked = data.kind === 'stackedBar';
-			const offset = visibleSeries
-				.slice(0, seriesIndex)
-				.reduce((sum, candidate) => sum + (candidate.points.find((item) => item.x === point.x)?.y ?? 0), 0);
-			const barWidth = stacked ? band : band / visibleSeries.length;
-			selected = {
-				series,
-				point,
-				x: xPosition(point.x) - band / 2 + (stacked ? 0 : seriesIndex * barWidth) + barWidth / 2,
-				y: stacked ? yPosition(offset + point.y) : yPosition(point.y)
-			};
-			return;
-		}
-		selected = { series, point, x: xPosition(point.x), y: yPosition(point.y) };
+		const anchor = pointAnchor(geometry, series, point);
+		if (anchor) selected = anchor;
 	}
 
 	function showTooltipAtPointer(event: PointerEvent, series: ChartSeries, point: ChartPoint) {
@@ -273,14 +152,22 @@
 			series,
 			point,
 			x: ((event.clientX - bounds.left) / bounds.width) * width,
-			y: ((event.clientY - bounds.top) / bounds.height) * height
+			y: ((event.clientY - bounds.top) / bounds.height) * geometry.height
 		};
 	}
+
+	const interactions: ChartMarkInteractions = {
+		focus: showTooltipAtPoint,
+		blur: () => (selected = null),
+		pointer: showTooltipAtPointer,
+		pointerLeave: scheduleTooltipClose,
+		keydown: pointKeydown
+	};
 </script>
 
 <figure class="m-0 min-w-0" aria-label={title}>
 	<div bind:this={container} class="w-full min-w-0 overflow-hidden rounded-sm">
-		{#if categories.length === 0}
+		{#if geometry.categories.length === 0}
 			<div class="obs-preview-missing min-h-52 rounded-sm px-4">
 				<span class="font-mono text-xs leading-snug">No data in this range</span>
 			</div>
@@ -288,7 +175,7 @@
 			<svg
 				bind:this={svg}
 				class="block h-auto w-full overflow-hidden"
-				viewBox={`0 0 ${width} ${height}`}
+				viewBox={`0 0 ${width} ${geometry.height}`}
 				role="img"
 				aria-label={title}
 				aria-describedby={`${uid}-desc`}
@@ -310,42 +197,42 @@
 					x="0.5"
 					y="0.5"
 					width={width - 1}
-					height={height - 1}
+					height={geometry.height - 1}
 					rx="3"
 					fill="var(--obs-bg)"
 					stroke="var(--obs-border-soft)"
 					stroke-width="1"
 				/>
 
-				{#each yTicks as tick}
+				{#each geometry.yTicks as tick}
 					{#if data.kind === 'horizontalStackedBar'}
 						<line
-							x1={margin.left + (tick / maxValue) * plotWidth}
-							x2={margin.left + (tick / maxValue) * plotWidth}
-							y1={margin.top}
-							y2={margin.top + plotHeight}
+							x1={geometry.margin.left + (tick / geometry.maxValue) * geometry.plotWidth}
+							x2={geometry.margin.left + (tick / geometry.maxValue) * geometry.plotWidth}
+							y1={geometry.margin.top}
+							y2={geometry.margin.top + geometry.plotHeight}
 							stroke="var(--obs-border-muted)"
 							stroke-width="1"
 						/>
 						<text
-							x={margin.left + (tick / maxValue) * plotWidth}
-							y={height - margin.bottom + 20}
+							x={geometry.margin.left + (tick / geometry.maxValue) * geometry.plotWidth}
+							y={geometry.height - geometry.margin.bottom + 20}
 							text-anchor="middle"
 							fill="var(--obs-text-dim)"
 							font-size="11">{formatValue(tick)}</text
 						>
 					{:else}
 						<line
-							x1={margin.left}
-							x2={width - margin.right}
-							y1={yPosition(tick)}
-							y2={yPosition(tick)}
+							x1={geometry.margin.left}
+							x2={width - geometry.margin.right}
+							y1={geometry.yPosition(tick)}
+							y2={geometry.yPosition(tick)}
 							stroke="var(--obs-border-muted)"
 							stroke-width="1"
 						/>
 						<text
-							x={margin.left - 10}
-							y={yPosition(tick) + 4}
+							x={geometry.margin.left - 10}
+							y={geometry.yPosition(tick) + 4}
 							text-anchor="end"
 							fill="var(--obs-text-dim)"
 							font-size="11">{formatValue(tick)}</text
@@ -354,150 +241,27 @@
 				{/each}
 
 				{#if data.kind === 'line'}
-					{#each renderSeries as series}
-						{#if series.lineStyle !== 'none' && series.points.length > 1}
-							<path
-								data-chart-series={series.id}
-								d={linePath(series)}
-								fill="none"
-								stroke={series.color}
-								stroke-width="2"
-								stroke-linejoin="round"
-							/>
-						{/if}
-						{#each series.points as point}
-							<g
-								data-chart-series={series.id}
-								tabindex="0"
-								role="button"
-								aria-label={`${series.label}: ${point.label ?? tickLabel(point.x)}, ${formatValue(point.y)}`}
-								onfocus={() => showTooltipAtPoint(series, point)}
-								onblur={() => (selected = null)}
-								onpointerenter={(event) => showTooltipAtPointer(event, series, point)}
-								onpointermove={(event) => showTooltipAtPointer(event, series, point)}
-								onpointerleave={scheduleTooltipClose}
-								onkeydown={(event) => pointKeydown(event, series, point)}
-							>
-								{#if series.shape === 'square'}
-									<rect
-										x={xPosition(point.x) - 4}
-										y={yPosition(point.y) - 4}
-										width="8"
-										height="8"
-										fill={series.surfaceColor ?? 'var(--obs-panel)'}
-										stroke={series.color}
-										stroke-width="2"
-									/>
-								{:else if series.shape === 'triangle'}
-									<path
-										d={`M ${xPosition(point.x)} ${yPosition(point.y) - 5} L ${xPosition(point.x) + 5} ${yPosition(point.y) + 4} L ${xPosition(point.x) - 5} ${yPosition(point.y) + 4} Z`}
-										fill={series.surfaceColor ?? 'var(--obs-panel)'}
-										stroke={series.color}
-										stroke-width="2"
-									/>
-								{:else if series.shape === 'circle' || series.shape === undefined}
-									<circle
-										cx={xPosition(point.x)}
-										cy={yPosition(point.y)}
-										r="4"
-										fill={series.surfaceColor ?? 'var(--obs-panel)'}
-										stroke={series.color}
-										stroke-width="2"
-									/>
-								{/if}
-							</g>
-						{/each}
-					{/each}
+					<LineChartMarks seriesGeometry={geometry.lineSeries} {interactions} {tickLabel} {formatValue} />
 				{:else if data.kind === 'horizontalStackedBar'}
-					{#each categories as category, categoryIndex}
-						{@const rowHeight = plotHeight / Math.max(1, categories.length)}
-						{@const usableWidth = plotWidth}
-						{@const baseY = margin.top + categoryIndex * rowHeight + rowHeight * 0.18}
-						{@const barHeight = rowHeight * 0.64}
-						{@const offsets = visibleSeries.map((_, index) =>
-							visibleSeries
-								.slice(0, index)
-								.reduce((sum, series) => sum + (series.points.find((point) => point.x === category)?.y ?? 0), 0)
-						)}
-						<text
-							x={margin.left - 8}
-							y={baseY + barHeight / 2 + 4}
-							text-anchor="end"
-							fill="var(--obs-text-muted)"
-							font-size="11">{category}</text
-						>
-						{#each visibleSeries as series, seriesIndex}
-							{@const point = series.points.find((candidate) => candidate.x === category)}
-							{#if point && point.y > 0}
-								<rect
-									x={margin.left + (offsets[seriesIndex] / maxValue) * usableWidth}
-									y={baseY}
-									width={(point.y / maxValue) * usableWidth}
-									height={barHeight}
-									fill={fillFor(series)}
-									stroke={series.color}
-									stroke-width="1.5"
-									tabindex="0"
-									role="button"
-									aria-label={`${category}, ${series.label}: ${formatValue(point.y)}`}
-									onfocus={() => showTooltipAtPoint(series, point)}
-									onblur={() => (selected = null)}
-									onpointerenter={(event) => showTooltipAtPointer(event, series, point)}
-									onpointermove={(event) => showTooltipAtPointer(event, series, point)}
-									onpointerleave={scheduleTooltipClose}
-									onkeydown={(event) => pointKeydown(event, series, point)}
-								/>
-							{/if}
-						{/each}
-					{/each}
+					<HorizontalStackedBarMarks
+						marks={geometry.bars}
+						categoryLabels={geometry.categoryLabels}
+						{interactions}
+						{formatValue}
+						{fillFor}
+					/>
 				{:else if data.kind === 'stackedBar' || data.kind === 'groupedBar'}
-					{#each categories as category}
-						{@const band = categoryBand() * 0.76}
-						{@const groupX = xPosition(category) - band / 2}
-						{@const stacked = data.kind === 'stackedBar'}
-						{@const offsets = visibleSeries.map((_, index) =>
-							visibleSeries
-								.slice(0, index)
-								.reduce((sum, series) => sum + (series.points.find((point) => point.x === category)?.y ?? 0), 0)
-						)}
-						{#each visibleSeries as series, seriesIndex}
-							{@const point = series.points.find((candidate) => candidate.x === category)}
-							{#if point}
-								{@const barWidth = stacked ? band : band / visibleSeries.length}
-								{@const barX = stacked ? groupX : groupX + seriesIndex * barWidth}
-								{@const top = stacked ? yPosition(offsets[seriesIndex] + point.y) : yPosition(point.y)}
-								{@const bottom = stacked ? yPosition(offsets[seriesIndex]) : yPosition(0)}
-								<rect
-									x={barX}
-									y={top}
-									width={Math.max(1, barWidth - 2)}
-									height={Math.max(0, bottom - top)}
-									fill={fillFor(series)}
-									stroke={series.color}
-									stroke-width="1.5"
-									tabindex="0"
-									role="button"
-									aria-label={`${tickLabel(category)}, ${series.label}: ${formatValue(point.y)}`}
-									onfocus={() => showTooltipAtPoint(series, point)}
-									onblur={() => (selected = null)}
-									onpointerenter={(event) => showTooltipAtPointer(event, series, point)}
-									onpointermove={(event) => showTooltipAtPointer(event, series, point)}
-									onpointerleave={scheduleTooltipClose}
-									onkeydown={(event) => pointKeydown(event, series, point)}
-								/>
-							{/if}
-						{/each}
-					{/each}
+					<BarChartMarks marks={geometry.bars} {interactions} {tickLabel} {formatValue} {fillFor} />
 				{/if}
 
 				{#each data.referenceLines ?? [] as reference}
 					{#if reference.seriesId == null || visibleSeries.some((series) => series.id === reference.seriesId)}
 						<line
 							data-chart-reference-line={reference.id}
-							x1={margin.left}
-							x2={width - margin.right}
-							y1={yPosition(reference.value)}
-							y2={yPosition(reference.value)}
+							x1={geometry.margin.left}
+							x2={width - geometry.margin.right}
+							y1={geometry.yPosition(reference.value)}
+							y2={geometry.yPosition(reference.value)}
 							stroke={reference.color}
 							stroke-width="1"
 							stroke-dasharray="0.5 2.5"
@@ -509,10 +273,10 @@
 				{/each}
 
 				{#if data.kind !== 'horizontalStackedBar'}
-					{#each xTickCategories() as category}
+					{#each geometry.xTicks as category}
 						<text
-							x={xPosition(category)}
-							y={height - margin.bottom + 20}
+							x={geometry.xPosition(category)}
+							y={geometry.height - geometry.margin.bottom + 20}
 							text-anchor="middle"
 							fill="var(--obs-text-dim)"
 							font-size="11">{tickLabel(category)}</text
@@ -520,29 +284,29 @@
 					{/each}
 				{/if}
 				<text
-					x={margin.left + plotWidth / 2}
-					y={height - 10}
+					x={geometry.margin.left + geometry.plotWidth / 2}
+					y={geometry.height - 10}
 					text-anchor="middle"
 					fill="var(--obs-text-muted)"
 					font-size="12">{xLabel}</text
 				>
 				<text
 					x="16"
-					y={margin.top + plotHeight / 2}
+					y={geometry.margin.top + geometry.plotHeight / 2}
 					text-anchor="middle"
 					fill="var(--obs-text-muted)"
 					font-size="12"
-					transform={`rotate(-90 16 ${margin.top + plotHeight / 2})`}>{yLabel}</text
+					transform={`rotate(-90 16 ${geometry.margin.top + geometry.plotHeight / 2})`}>{yLabel}</text
 				>
 				{#if selected}
 					{@const tooltipHeight = selected.point.detail ? 66 : 52}
 					{@const tooltipX = Math.max(
-						margin.left - 4,
-						Math.min(width - margin.right - tooltipWidth + 4, selected.x + 10)
+						geometry.margin.left - 4,
+						Math.min(width - geometry.margin.right - tooltipWidth + 4, selected.x + 10)
 					)}
 					{@const tooltipY = Math.max(
-						margin.top - 4,
-						Math.min(height - margin.bottom - tooltipHeight + 4, selected.y - tooltipHeight - 10)
+						geometry.margin.top - 4,
+						Math.min(geometry.height - geometry.margin.bottom - tooltipHeight + 4, selected.y - tooltipHeight - 10)
 					)}
 					<g
 						data-chart-tooltip
@@ -596,16 +360,16 @@
 							onclick={() => toggleSeries(series.id)}
 						>
 							<svg class="h-4 w-4 overflow-visible" viewBox="0 0 12 12" aria-hidden="true">
-								{#if data.kind === 'line' && series.lineStyle === 'step'}
+								{#if data.kind === 'line' && 'lineStyle' in series && series.lineStyle === 'step'}
 									<path
 										d="M1 9 H6 V3 H11"
 										fill="none"
 										stroke={enabled ? series.color : 'currentColor'}
 										stroke-width="2"
 									/>
-								{:else if data.kind === 'line' && series.shape === 'square'}
+								{:else if data.kind === 'line' && 'shape' in series && series.shape === 'square'}
 									<rect x="3" y="3" width="6" height="6" fill={enabled ? series.color : 'currentColor'} />
-								{:else if data.kind === 'line' && series.shape === 'triangle'}
+								{:else if data.kind === 'line' && 'shape' in series && series.shape === 'triangle'}
 									<path d="M6 2 L10 9 L2 9 Z" fill={enabled ? series.color : 'currentColor'} />
 								{:else if data.kind === 'line'}
 									<circle cx="6" cy="6" r="3" fill={enabled ? series.color : 'currentColor'} />
@@ -616,7 +380,7 @@
 										width="10"
 										height="10"
 										rx="1"
-										fill={enabled ? fillFor(series) : 'currentColor'}
+										fill={enabled ? legendFillFor(series) : 'currentColor'}
 										stroke={enabled ? series.color : 'currentColor'}
 										stroke-width="1"
 									/>
@@ -633,7 +397,7 @@
 									width="10"
 									height="10"
 									rx="1"
-									fill={fillFor(series)}
+									fill={legendFillFor(series)}
 									stroke={series.color}
 									stroke-width="1"
 								/>

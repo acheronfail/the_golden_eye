@@ -6,7 +6,14 @@ import {
 	type RunStatus,
 	type StatisticsResponse
 } from '$lib/api';
-import type { ChartData, ChartSeries } from '$lib/components/Chart';
+import type {
+	BaseChartSeries,
+	ChartPattern,
+	HorizontalStackedBarChartData,
+	LineChartData,
+	LineChartSeries,
+	VerticalBarChartData
+} from '$lib/components/Chart';
 
 export const LEVEL_NAMES = [
 	'Dam',
@@ -40,7 +47,19 @@ export const STATUS_LABELS: Record<RunStatus, string> = {
 
 export const ALL_STATUSES: RunStatus[] = ['complete', 'failed', 'abort', 'kia'];
 
-const STATUS_SERIES_STYLE: Record<RunStatus, Pick<ChartSeries, 'color' | 'surfaceColor' | 'pattern' | 'shape'>> = {
+interface StatusSeriesStyle {
+	color: string;
+	surfaceColor: string;
+	pattern: ChartPattern;
+	shape: NonNullable<LineChartSeries['shape']>;
+}
+
+type StatusChartSeries = BaseChartSeries & StatusSeriesStyle;
+type StatusHorizontalBarChartData = Omit<HorizontalStackedBarChartData, 'series'> & {
+	series: StatusChartSeries[];
+};
+
+const STATUS_SERIES_STYLE: Record<RunStatus, StatusSeriesStyle> = {
 	complete: {
 		color: 'var(--obs-success)',
 		surfaceColor: 'var(--obs-success-surface)',
@@ -67,7 +86,7 @@ const STATUS_SERIES_STYLE: Record<RunStatus, Pick<ChartSeries, 'color' | 'surfac
 	}
 };
 
-function statusSeries(status: RunStatus, points: ChartSeries['points']): ChartSeries {
+function statusSeries(status: RunStatus, points: StatusChartSeries['points']): StatusChartSeries {
 	return {
 		id: status,
 		label: STATUS_LABELS[status],
@@ -94,7 +113,10 @@ export function formatDuration(seconds: number): string {
 		: `${minutes}:${String(secs).padStart(2, '0')}`;
 }
 
-export function attemptsByLevelData(response: StatisticsResponse, order: 'attempts' | 'mission'): ChartData {
+export function attemptsByLevelData(
+	response: StatisticsResponse,
+	order: 'attempts' | 'mission'
+): StatusHorizontalBarChartData {
 	const levels = [...response.byLevel].sort((a, b) =>
 		order === 'attempts'
 			? b.counts.total - a.counts.total || (a.levelNumber ?? 99) - (b.levelNumber ?? 99)
@@ -112,7 +134,7 @@ export function attemptsByLevelData(response: StatisticsResponse, order: 'attemp
 	};
 }
 
-export function overallAttemptsData(buckets: BucketCounts[]): ChartData {
+export function overallAttemptsData(buckets: BucketCounts[]): VerticalBarChartData {
 	return {
 		kind: 'stackedBar',
 		xType: 'time',
@@ -129,10 +151,10 @@ export function overallAttemptsData(buckets: BucketCounts[]): ChartData {
 	};
 }
 
-export function runTimeData(response: StatisticsResponse): ChartData {
+export function runTimeData(response: StatisticsResponse): LineChartData {
 	const cohort = response.selectedCohort;
 	if (!cohort) return { kind: 'line', xType: 'time', series: [] };
-	const series: ChartSeries[] = ALL_STATUSES.map((status) => ({
+	const series: LineChartSeries[] = ALL_STATUSES.map((status) => ({
 		...statusSeries(
 			status,
 			cohort.runTimes
@@ -168,7 +190,6 @@ export function runTimeData(response: StatisticsResponse): ChartData {
 			points: bestPoints,
 			color: 'var(--obs-gold-hover)',
 			surfaceColor: 'var(--obs-gold-surface)',
-			pattern: 'plain',
 			shape: 'circle',
 			lineStyle: 'step',
 			renderPriority: 1
@@ -192,7 +213,11 @@ export function runTimeData(response: StatisticsResponse): ChartData {
 	};
 }
 
-export function outcomeData(buckets: BucketCounts[], statuses: RunStatus[], measure: 'share' | 'count'): ChartData {
+export function outcomeData(
+	buckets: BucketCounts[],
+	statuses: RunStatus[],
+	measure: 'share' | 'count'
+): VerticalBarChartData {
 	return {
 		kind: 'groupedBar',
 		xType: 'time',
@@ -214,7 +239,7 @@ export function outcomeData(buckets: BucketCounts[], statuses: RunStatus[], meas
 	};
 }
 
-export function sessionAttemptsData(session: MonitoringSessionDetail): ChartData {
+export function sessionAttemptsData(session: MonitoringSessionDetail): LineChartData {
 	return {
 		kind: 'line',
 		xType: 'time',

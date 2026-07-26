@@ -89,4 +89,50 @@ describe('Chart', () => {
 		await user.click(complete);
 		expect(onVisibleSeriesChange).toHaveBeenCalledWith(['running-best']);
 	});
+
+	it.each([
+		['groupedBar', 'Failed, Complete: 4'],
+		['stackedBar', 'Failed, Complete: 4']
+	] as const)('renders accessible marks for %s charts', (kind, accessibleName) => {
+		render(Chart, {
+			title: 'Attempts',
+			description: 'Attempts by outcome',
+			data: {
+				kind,
+				xType: 'category',
+				series: [
+					{
+						id: 'complete',
+						label: 'Complete',
+						color: 'green',
+						points: [{ x: 'Failed', y: 4 }]
+					}
+				]
+			}
+		});
+
+		expect(screen.getByRole('button', { name: accessibleName })).toBeInTheDocument();
+	});
+
+	it('renders accessible horizontal stacked-bar marks and category labels', () => {
+		render(Chart, {
+			title: 'Attempts by level',
+			description: 'Attempts split by outcome',
+			data: {
+				kind: 'horizontalStackedBar',
+				xType: 'category',
+				series: [
+					{
+						id: 'complete',
+						label: 'Complete',
+						color: 'green',
+						points: [{ x: 'Dam', y: 4 }]
+					}
+				]
+			}
+		});
+
+		expect(screen.getByRole('button', { name: 'Dam, Complete: 4' })).toBeInTheDocument();
+		expect(screen.getByText('Dam')).toBeInTheDocument();
+	});
 });

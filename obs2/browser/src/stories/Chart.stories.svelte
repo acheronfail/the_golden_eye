@@ -163,6 +163,40 @@
 	}}
 />
 <Story
+	name="Horizontal stacked bars"
+	args={{
+		xLabel: 'Attempts',
+		yLabel: '',
+		data: {
+			kind: 'horizontalStackedBar',
+			xType: 'category',
+			series: [
+				{
+					id: 'complete',
+					label: 'Complete',
+					color: 'var(--obs-success)',
+					surfaceColor: 'var(--obs-success-surface)',
+					points: [
+						{ x: 'Dam', y: 12 },
+						{ x: 'Facility', y: 8 }
+					]
+				},
+				{
+					id: 'abort',
+					label: 'Aborted',
+					color: 'var(--obs-danger)',
+					surfaceColor: 'var(--obs-danger-surface)',
+					pattern: 'diagonal',
+					points: [
+						{ x: 'Dam', y: 3 },
+						{ x: 'Facility', y: 5 }
+					]
+				}
+			]
+		}
+	}}
+/>
+<Story
 	name="Clustered time labels"
 	args={{
 		data: {
