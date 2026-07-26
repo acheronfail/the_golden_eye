@@ -28,7 +28,7 @@ describe('RunImportDialog', () => {
 		expect(language).toBeDisabled();
 		expect(language).toHaveTextContent('jp');
 		await user.type(screen.getByLabelText(/YouTube link/), 'https://youtu.be/abc_123');
-		await user.click(screen.getByRole('button', { name: 'add time' }));
+		await user.click(screen.getByRole('button', { name: 'Add time' }));
 
 		expect(callbacks.onManual).toHaveBeenCalledWith(
 			expect.objectContaining({

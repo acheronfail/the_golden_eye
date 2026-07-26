@@ -58,7 +58,7 @@
 	<div class="flex flex-row items-center gap-2">
 		<h2 class="text-xl font-semibold">Screenshot:</h2>
 		{#if !streaming}
-			<button class="obs-button obs-button-danger px-2 py-1 font-mono text-sm" onclick={close}>close</button>
+			<button class="obs-button obs-button-danger px-2 py-1 font-mono text-sm" onclick={close}>Close</button>
 		{/if}
 	</div>
 

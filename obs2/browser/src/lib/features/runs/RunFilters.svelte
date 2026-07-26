@@ -80,7 +80,7 @@
 			onclick={() => (collapsed = !collapsed)}
 		>
 			<span aria-hidden="true">⌁</span>
-			filters{activeFilters.length ? ` (${activeFilters.length})` : ''}
+			Filters{activeFilters.length ? ` (${activeFilters.length})` : ''}
 		</button>
 
 		<button
@@ -89,7 +89,7 @@
 			disabled={!hasActiveFilters}
 			onclick={clearFilters}
 		>
-			clear
+			Clear
 		</button>
 	</div>
 

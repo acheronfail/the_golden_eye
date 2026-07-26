@@ -230,7 +230,7 @@
 		<h2 class="text-xl font-semibold">Visual Effects</h2>
 		<div class="flex flex-wrap gap-2">
 			<button class="obs-button obs-button-danger px-3 py-1.5 text-sm" onclick={triggerKiaDeathOverlay}>
-				trigger KIA overlay
+				Trigger KIA overlay
 			</button>
 		</div>
 	</div>
@@ -293,10 +293,10 @@
 		<div class="flex flex-row gap-2">
 			<h2 class="text-xl font-semibold">Source</h2>
 			<button class="obs-button obs-button-gold px-2 py-1 text-sm" disabled={sourcesLoading} onclick={getSources}
-				>load sources</button
+				>Load sources</button
 			>
 			{#if selectedSource}
-				<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={closeSource}>close source</button>
+				<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={closeSource}>Close source</button>
 			{/if}
 		</div>
 
@@ -312,7 +312,7 @@
 					<div class="flex flex-wrap gap-2">
 						{#if !screenshottingSource}
 							<button class="obs-button px-2 py-1 text-sm" onclick={getScreenshot(selectedSource.name)}
-								>get screenshot</button
+								>Get screenshot</button
 							>
 							<button class="obs-button px-2 py-1 text-sm" disabled={matchLoading} onclick={runMatcher}>
 								{matchLoading ? 'matching…' : 'match screenshot'}
@@ -321,25 +321,25 @@
 
 						{#if screenshottingSource === selectedSource.name}
 							<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={stopScreenshotting}
-								>stop screenshotting</button
+								>Stop screenshotting</button
 							>
 						{:else}
 							<button
 								class="obs-button obs-button-gold px-2 py-1 text-sm"
 								disabled={!!screenshottingSource}
-								onclick={startScreenshotting(selectedSource.name)}>start screenshotting</button
+								onclick={startScreenshotting(selectedSource.name)}>Start screenshotting</button
 							>
 						{/if}
 
 						{#if frameDumpMode}
 							<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={() => (frameDumpMode = false)}
-								>stop frame dump</button
+								>Stop frame dump</button
 							>
 						{:else}
 							<button
 								class="obs-button px-2 py-1 text-sm"
 								title="Dump this source's frames to a temp folder (path logged to the OBS log), independent of the monitor. Stops on reload or when the source is closed."
-								onclick={() => (frameDumpMode = true)}>start frame dump</button
+								onclick={() => (frameDumpMode = true)}>Start frame dump</button
 							>
 						{/if}
 					</div>
@@ -348,7 +348,7 @@
 				{/if}
 			</div>
 		{:else if sources.length == 0}
-			<p class="obs-dim">No sources, click "load sources" to fetch them from OBS.</p>
+			<p class="obs-dim">No sources, click "Load sources" to fetch them from OBS.</p>
 		{:else}
 			<ul class="grid grid-cols-[max-content_1fr] items-center gap-x-4 gap-y-3">
 				{#each sources as source}
@@ -357,7 +357,7 @@
 
 						<div class="flex flex-wrap gap-2">
 							{#if knownVideoSourceIds.includes(source.id)}
-								<button class="obs-button px-2 py-1 text-sm" onclick={() => selectSource(source)}>choose source</button>
+								<button class="obs-button px-2 py-1 text-sm" onclick={() => selectSource(source)}>Choose source</button>
 							{:else}
 								<span class="font-mono obs-dim">(not a video source)</span>
 							{/if}
@@ -381,7 +381,7 @@
 			<div class="flex flex-row items-center gap-2">
 				<h2 class="text-xl font-semibold">Level Match</h2>
 				<button class="obs-button obs-button-danger px-2 py-1 font-mono text-sm" onclick={clearMatchResult}
-					>close</button
+					>Close</button
 				>
 			</div>
 

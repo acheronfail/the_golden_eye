@@ -173,7 +173,7 @@
 								disabled={busy !== null || !manualValid}
 								class="obs-button obs-button-gold px-3 py-2 font-mono text-xs disabled:opacity-50"
 							>
-								{busy === 'manual' ? 'adding...' : 'add time'}
+								{busy === 'manual' ? 'Adding...' : 'Add time'}
 							</button>
 						</div>
 					</form>
@@ -221,9 +221,9 @@
 										class="size-3 animate-spin rounded-full border-2 border-current border-r-transparent"
 										aria-hidden="true"
 									></span>
-									importing all times...
+									Importing all times...
 								{:else}
-									import all times
+									Import all times
 								{/if}
 							</button>
 						</div>

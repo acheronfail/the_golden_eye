@@ -77,7 +77,7 @@
 			disabled={!hasActiveFilters}
 			onclick={clearFilters}
 		>
-			clear filters
+			Clear filters
 		</button>
 	</div>
 {:else}

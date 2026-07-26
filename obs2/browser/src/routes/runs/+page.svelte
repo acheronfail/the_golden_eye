@@ -53,7 +53,7 @@
 				onclick={() => controller.openImport()}
 				class="obs-button h-8 rounded-r-none border-r-0 obs-button-gold px-3 font-mono text-xs"
 			>
-				+ add times
+				+ Add times
 			</button>
 			<ActionMenu
 				items={controller.runActions}
