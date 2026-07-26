@@ -77,8 +77,28 @@
 		class="signal-layout absolute top-20 right-[clamp(1.75rem,7cqw,5rem)] bottom-15 left-[clamp(2.5rem,9cqw,7rem)] grid grid-cols-[minmax(0,1.35fr)_minmax(15rem,0.65fr)] items-center gap-[clamp(1.5rem,5cqw,4rem)] @max-[760px]:grid-cols-[minmax(0,1fr)] @max-[760px]:grid-rows-[auto_minmax(0,1fr)] @max-[760px]:items-start @max-[760px]:gap-3 [@container(max-height:42rem)]:top-18 [@container(max-height:42rem)]:bottom-13 [@container(max-height:42rem)]:gap-[0.6rem]"
 	>
 		<div class="min-w-0">
-			<MonitorWallClockTimers variant="signal-band" {wallClocks} />
-			<MonitorHero variant="signal-band" {verified} {presentation} {match} />
+			<MonitorWallClockTimers
+				{wallClocks}
+				role="group"
+				containerClass="mb-[clamp(1rem,3cqh,2rem)] grid max-w-[34rem] grid-cols-2 gap-[clamp(1rem,5cqw,3rem)] font-mono [&_small]:text-[clamp(0.54rem,2cqw,0.68rem)] [&_small]:tracking-[0.14em] [&_small]:uppercase [&_strong]:text-[clamp(1.15rem,5cqw,2rem)] [&_strong]:font-medium [&_strong]:tracking-[-0.04em] [&_strong]:[font-variant-numeric:tabular-nums] [&>div]:grid [&>div]:gap-0.5 [@container(max-height:42rem)]:mb-2 [@container(max-height:42rem)]:[&_strong]:text-[clamp(1rem,4cqw,1.45rem)]"
+				inactiveTimerClass="text-(--obs-text-dim)"
+				activeLabelClass="text-(--monitor-accent)"
+				levelLabelClass="w-fit cursor-help"
+			/>
+			<MonitorHero
+				{verified}
+				{presentation}
+				{match}
+				statsPosition="before"
+				statusSuffix=" / ACTIVE"
+				panelClass="signal-content animate-signal-title motion-reduce:[animation-delay:0ms] motion-reduce:[animation-duration:1ms]"
+				statusClass="font-mono text-[clamp(0.65rem,2.8cqw,0.82rem)] tracking-[0.15em] text-(--monitor-accent) uppercase transition-colors duration-240 [@container(max-height:42rem)]:text-[clamp(0.58rem,2cqw,0.72rem)]"
+				titleClass="mt-2 mb-[0.65rem] max-w-full text-[clamp(2.4rem,11cqw,5.25rem)] leading-[0.9] font-semibold tracking-[-0.065em] [overflow-wrap:anywhere] text-[color-mix(in_srgb,var(--monitor-accent)_12%,var(--obs-text))] transition-colors duration-240 [@container(max-height:42rem)]:mt-[0.3rem] [@container(max-height:42rem)]:mb-[0.4rem] [@container(max-height:42rem)]:text-[clamp(2rem,8cqw,3.5rem)]"
+				detailClass="signal-detail font-mono text-[clamp(0.65rem,2.8cqw,0.82rem)] tracking-[0.15em] text-(--obs-text-dim) uppercase [@container(max-height:42rem)]:text-[clamp(0.58rem,2cqw,0.72rem)]"
+				hiddenDetailClass="invisible"
+				metricsClass="signal-metrics mb-[clamp(1.25rem,4cqh,2.5rem)] grid animate-signal-metrics grid-cols-3 gap-[clamp(0.75rem,4cqw,2.5rem)] font-mono motion-reduce:[animation-delay:0ms] motion-reduce:[animation-duration:1ms] @max-[520px]:mb-4 [&_small]:text-[0.65rem] [&_small]:tracking-[0.14em] [&_small]:text-(--obs-text-dim) [&_small]:uppercase [&_strong]:text-[clamp(1.35rem,7cqw,3rem)] [&_strong]:font-medium [&_strong]:[font-variant-numeric:tabular-nums] [&>span]:grid [&>span]:min-w-0 [&>span]:gap-1 [@container(max-height:42rem)]:mb-[0.7rem] [@container(max-height:42rem)]:gap-[clamp(0.6rem,2.5cqw,1.5rem)] [@container(max-height:42rem)]:[&_small]:text-[0.58rem] [@container(max-height:42rem)]:[&_strong]:text-[clamp(1.1rem,4.5cqw,2rem)]"
+				unavailableMetricClass="text-(--obs-text-dim)"
+			/>
 		</div>
 
 		<RecentRuns
