@@ -16,6 +16,7 @@ fn test_snapshot() -> AppSnapshot {
             enabled: true,
             source_name: Some("N64 Capture".to_owned()),
             cv_language: Some("en".to_owned()),
+            wall_clocks: MonitorWallClockState::default(),
         },
         level_match: None,
         run_catalog_sync: Some(RunCatalogSync::Initial),
@@ -59,6 +60,8 @@ fn snapshot_event_contains_retained_app_state() {
     assert_eq!(json["state"]["monitor"]["enabled"], true);
     assert_eq!(json["state"]["monitor"]["sourceName"], "N64 Capture");
     assert_eq!(json["state"]["monitor"]["cvLanguage"], "en");
+    assert_eq!(json["state"]["monitor"]["wallClocks"]["sessionElapsedMs"], 0);
+    assert_eq!(json["state"]["monitor"]["wallClocks"]["levelRunning"], false);
     assert!(json["state"]["match"].is_null());
     assert_eq!(json["state"]["runCatalogSync"], "initial");
     assert_eq!(json["state"]["recordingState"], "started");
@@ -68,6 +71,44 @@ fn snapshot_event_contains_retained_app_state() {
     assert_eq!(json["state"]["settingsStatus"]["configPath"], "/tmp/settings.json");
     assert_eq!(json["state"]["update"]["phase"], "available");
     assert_eq!(json["state"]["update"]["available"]["latestVersion"], "1.1.0");
+}
+
+#[test]
+fn monitor_wall_clocks_follow_backend_screen_transitions() {
+    let mut clocks = MonitorWallClockState::default();
+
+    clocks.start_session(1_000);
+    clocks.reconcile_screen(crate::cv::Screen::Start, 1_100);
+    clocks.reconcile_screen(crate::cv::Screen::Unknown, 1_250);
+    assert_eq!(clocks.level_started_at_unix_ms, Some(1_250));
+    assert!(clocks.level_running);
+
+    clocks.reconcile_screen(crate::cv::Screen::Stats, 3_750);
+    assert_eq!(clocks.level_elapsed_ms, 2_500);
+    assert!(!clocks.level_running);
+
+    clocks.reconcile_screen(crate::cv::Screen::Unknown, 4_000);
+    assert_eq!(clocks.level_elapsed_ms, 2_500);
+    assert!(!clocks.level_running);
+
+    clocks.stop_session(5_000);
+    assert_eq!(clocks.session_elapsed_ms, 4_000);
+    assert!(!clocks.session_running);
+}
+
+#[test]
+fn monitor_wall_clocks_reset_on_the_next_start_screen() {
+    let mut clocks = MonitorWallClockState::default();
+
+    clocks.start_session(1_000);
+    clocks.reconcile_screen(crate::cv::Screen::Start, 1_100);
+    clocks.reconcile_screen(crate::cv::Screen::Unknown, 1_200);
+    clocks.reconcile_screen(crate::cv::Screen::Stats, 2_200);
+    assert_eq!(clocks.level_elapsed_ms, 1_000);
+
+    clocks.reconcile_screen(crate::cv::Screen::Start, 3_000);
+    assert_eq!(clocks.level_elapsed_ms, 0);
+    assert!(!clocks.level_running);
 }
 
 #[test]

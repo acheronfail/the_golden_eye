@@ -14,6 +14,7 @@ async fn monitor_snapshot_tracks_start_match_and_stop() {
 
     let initial = next_app_snapshot(&mut ws, "initial snapshot").await;
     assert_eq!(initial["state"]["monitor"]["enabled"], false);
+    assert_eq!(initial["state"]["monitor"]["wallClocks"]["sessionRunning"], false);
     assert!(initial["state"]["match"].is_null());
     assert!(initial["state"]["recordingState"].is_null());
 
@@ -21,6 +22,8 @@ async fn monitor_snapshot_tracks_start_match_and_stop() {
     let started =
         wait_for_snapshot(&mut ws, "monitor enabled", |snapshot| snapshot["state"]["monitor"]["enabled"] == true).await;
     assert_eq!(started["state"]["monitor"]["sourceName"], SOURCE_NAME);
+    assert_eq!(started["state"]["monitor"]["wallClocks"]["sessionRunning"], true);
+    assert!(started["state"]["monitor"]["wallClocks"]["sessionStartedAtUnixMs"].is_number());
     assert!(started["state"]["match"].is_null());
 
     let frame = harness.frame("test/screenshots-av2hdmi/en - start - 03 - Agent.png");
@@ -32,6 +35,20 @@ async fn monitor_snapshot_tracks_start_match_and_stop() {
     assert_eq!(matched["state"]["match"]["mission"], 1);
     assert_eq!(matched["state"]["match"]["part"], 3);
     assert_eq!(matched["state"]["match"]["difficulty"], 0);
+    assert_eq!(matched["state"]["monitor"]["wallClocks"]["levelRunning"], false);
+    assert_eq!(matched["state"]["monitor"]["wallClocks"]["levelElapsedMs"], 0);
+
+    let gameplay = harness.frame("test/screenshots-av2hdmi/en - unknown - runway_game.png");
+    let running = render_until_snapshot(&harness, &mut ws, &gameplay, "level timer running", |snapshot| {
+        snapshot["state"]["match"]["screen"] == "Unknown"
+            && snapshot["state"]["monitor"]["wallClocks"]["levelRunning"] == true
+    })
+    .await;
+    assert!(running["state"]["monitor"]["wallClocks"]["levelStartedAtUnixMs"].is_number());
+
+    let mut reloaded_ws = harness.connect_event_stream().await;
+    let reloaded = next_app_snapshot(&mut reloaded_ws, "reloaded browser snapshot").await;
+    assert_eq!(reloaded["state"]["monitor"]["wallClocks"], running["state"]["monitor"]["wallClocks"]);
 
     harness.stop_monitor().await.error_for_status().unwrap();
     let stopped = wait_for_snapshot(&mut ws, "monitor stopped snapshot", |snapshot| {
@@ -39,6 +56,9 @@ async fn monitor_snapshot_tracks_start_match_and_stop() {
     })
     .await;
     assert!(stopped["state"]["recordingState"].is_null());
+    assert_eq!(stopped["state"]["monitor"]["wallClocks"]["sessionRunning"], false);
+    assert_eq!(stopped["state"]["monitor"]["wallClocks"]["levelRunning"], false);
+    assert!(stopped["state"]["monitor"]["wallClocks"]["sessionElapsedMs"].as_u64().unwrap() > 0);
 }
 
 async fn wait_for_snapshot(

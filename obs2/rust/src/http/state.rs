@@ -1,6 +1,6 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tokio::sync::{Mutex, broadcast, oneshot, watch};
@@ -68,6 +68,70 @@ pub struct MonitorSnapshot {
     pub source_name: Option<String>,
     #[serde(rename = "cvLanguage", skip_serializing_if = "Option::is_none")]
     pub cv_language: Option<String>,
+    pub wall_clocks: MonitorWallClockState,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorWallClockState {
+    pub session_started_at_unix_ms: Option<u64>,
+    pub session_elapsed_ms: u64,
+    pub session_running: bool,
+    pub level_started_at_unix_ms: Option<u64>,
+    pub level_elapsed_ms: u64,
+    pub level_running: bool,
+    #[serde(skip)]
+    level_armed: bool,
+}
+
+impl MonitorWallClockState {
+    fn start_session(&mut self, now_ms: u64) {
+        *self = Self { session_started_at_unix_ms: Some(now_ms), session_running: true, ..Self::default() };
+    }
+
+    fn stop_session(&mut self, now_ms: u64) {
+        self.session_elapsed_ms = elapsed_ms(self.session_started_at_unix_ms, self.session_elapsed_ms, now_ms);
+        self.session_started_at_unix_ms = None;
+        self.session_running = false;
+        self.stop_level(now_ms);
+        self.level_armed = false;
+    }
+
+    fn reconcile_screen(&mut self, screen: crate::cv::Screen, now_ms: u64) {
+        match screen {
+            crate::cv::Screen::Start => {
+                self.level_started_at_unix_ms = None;
+                self.level_elapsed_ms = 0;
+                self.level_running = false;
+                self.level_armed = true;
+            }
+            crate::cv::Screen::Unknown if self.level_armed => {
+                self.level_started_at_unix_ms = Some(now_ms);
+                self.level_elapsed_ms = 0;
+                self.level_running = true;
+                self.level_armed = false;
+            }
+            crate::cv::Screen::Unknown => {}
+            _ => {
+                self.stop_level(now_ms);
+                self.level_armed = false;
+            }
+        }
+    }
+
+    fn stop_level(&mut self, now_ms: u64) {
+        self.level_elapsed_ms = elapsed_ms(self.level_started_at_unix_ms, self.level_elapsed_ms, now_ms);
+        self.level_started_at_unix_ms = None;
+        self.level_running = false;
+    }
+}
+
+fn elapsed_ms(started_at_ms: Option<u64>, frozen_ms: u64, now_ms: u64) -> u64 {
+    started_at_ms.map_or(frozen_ms, |started_at_ms| now_ms.saturating_sub(started_at_ms))
+}
+
+fn unix_time_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis().try_into().unwrap_or(u64::MAX)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -107,10 +171,15 @@ impl SharedStateStore {
     }
 
     pub fn set_monitor_running(&self, source_name: String, cv_language: String) {
+        let now_ms = unix_time_ms();
         self.update(|state| {
             state.monitor.enabled = true;
             state.monitor.source_name = Some(source_name);
             state.monitor.cv_language.get_or_insert(cv_language);
+            state.monitor.wall_clocks.start_session(now_ms);
+            if let Some(level_match) = state.level_match.as_ref() {
+                state.monitor.wall_clocks.reconcile_screen(level_match.screen, now_ms);
+            }
         });
     }
 
@@ -119,7 +188,9 @@ impl SharedStateStore {
     }
 
     pub fn set_monitor_stopped(&self) {
+        let now_ms = unix_time_ms();
         self.update(|state| {
+            state.monitor.wall_clocks.stop_session(now_ms);
             state.monitor.enabled = false;
             state.monitor.source_name = None;
             state.monitor.cv_language = None;
@@ -129,7 +200,15 @@ impl SharedStateStore {
     }
 
     pub fn set_match(&self, level_match: Option<LevelMatch>) {
-        self.update(|state| state.level_match = level_match);
+        let now_ms = unix_time_ms();
+        self.update(|state| {
+            if state.monitor.enabled
+                && let Some(level_match) = level_match.as_ref()
+            {
+                state.monitor.wall_clocks.reconcile_screen(level_match.screen, now_ms);
+            }
+            state.level_match = level_match;
+        });
     }
 
     pub fn set_run_catalog_sync(&self, run_catalog_sync: Option<RunCatalogSync>) {

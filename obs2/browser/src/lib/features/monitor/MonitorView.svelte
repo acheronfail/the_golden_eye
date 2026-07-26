@@ -14,7 +14,11 @@
 	const wallClocks = new MonitorWallClocks();
 
 	$effect(() => {
-		wallClocks.reconcile(props.monitoring, props.match?.screen ?? null);
+		if (props.wallClockState) {
+			wallClocks.sync(props.wallClockState);
+		} else {
+			wallClocks.reconcile(props.monitoring, props.match?.screen ?? null);
+		}
 	});
 
 	onDestroy(() => wallClocks.destroy());

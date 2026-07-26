@@ -1,5 +1,8 @@
+import type { MonitorWallClockState } from '$lib/api';
+
 export interface AnimationClock {
 	now: () => number;
+	wallNow: () => number;
 	requestFrame: (callback: FrameRequestCallback) => number;
 	cancelFrame: (id: number) => void;
 }
@@ -13,6 +16,7 @@ export interface MonitorWallClockSnapshot {
 
 const browserClock: AnimationClock = {
 	now: () => performance.now(),
+	wallNow: () => Date.now(),
 	requestFrame: (callback) => requestAnimationFrame(callback),
 	cancelFrame: (id) => cancelAnimationFrame(id)
 };
@@ -57,6 +61,31 @@ export class MonitorWallClocks {
 			this.previousScreen = normalizedScreen;
 		}
 		this.previousMonitoring = monitoring;
+		this.ensureAnimation();
+	}
+
+	sync(state: MonitorWallClockState): void {
+		const now = this.clock.now();
+		const wallNow = this.clock.wallNow();
+		this.sessionElapsedMs = this.syncedElapsed(
+			state.sessionElapsedMs,
+			state.sessionRunning,
+			state.sessionStartedAtUnixMs,
+			wallNow
+		);
+		this.sessionRunning = state.sessionRunning;
+		this.sessionStartedAt = state.sessionRunning ? now - this.sessionElapsedMs : null;
+		this.levelElapsedMs = this.syncedElapsed(
+			state.levelElapsedMs,
+			state.levelRunning,
+			state.levelStartedAtUnixMs,
+			wallNow
+		);
+		this.levelRunning = state.levelRunning;
+		this.levelStartedAt = state.levelRunning ? now - this.levelElapsedMs : null;
+		this.previousMonitoring = state.sessionRunning;
+		this.previousScreen = null;
+		this.levelArmed = false;
 		this.ensureAnimation();
 	}
 
@@ -107,6 +136,11 @@ export class MonitorWallClocks {
 
 	private elapsedSince(startedAt: number | null, now: number): number {
 		return startedAt == null ? 0 : Math.max(0, Math.floor(now - startedAt));
+	}
+
+	private syncedElapsed(frozenMs: number, running: boolean, startedAtUnixMs: number | null, wallNow: number): number {
+		if (!running || startedAtUnixMs == null) return Math.max(0, Math.floor(frozenMs));
+		return Math.max(frozenMs, Math.floor(wallNow - startedAtUnixMs), 0);
 	}
 
 	private ensureAnimation(): void {

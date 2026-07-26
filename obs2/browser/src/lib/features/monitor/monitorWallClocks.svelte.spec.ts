@@ -3,9 +3,11 @@ import { formatWallClockTime, MonitorWallClocks, type AnimationClock } from './m
 
 class FakeAnimationClock implements AnimationClock {
 	time = 0;
+	wallTime = 1_800_000_000_000;
 	private callback: FrameRequestCallback | null = null;
 
 	now = (): number => this.time;
+	wallNow = (): number => this.wallTime;
 	requestFrame = (callback: FrameRequestCallback): number => {
 		this.callback = callback;
 		return 1;
@@ -16,6 +18,7 @@ class FakeAnimationClock implements AnimationClock {
 
 	advance(milliseconds: number): void {
 		this.time += milliseconds;
+		this.wallTime += milliseconds;
 		const callback = this.callback;
 		this.callback = null;
 		callback?.(this.time);
@@ -88,6 +91,48 @@ describe('MonitorWallClocks', () => {
 
 		timers.reconcile(true, 'start');
 		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 0, levelRunning: false });
+	});
+
+	it('seeds running and stopped timers from backend timestamps after a reload', () => {
+		const clock = new FakeAnimationClock();
+		const timers = new MonitorWallClocks(clock);
+
+		timers.sync({
+			sessionStartedAtUnixMs: clock.wallTime - 61_234,
+			sessionElapsedMs: 0,
+			sessionRunning: true,
+			levelStartedAtUnixMs: clock.wallTime - 2_345,
+			levelElapsedMs: 0,
+			levelRunning: true
+		});
+		expect(timers.snapshot()).toMatchObject({
+			sessionElapsedMs: 61_234,
+			sessionRunning: true,
+			levelElapsedMs: 2_345,
+			levelRunning: true
+		});
+
+		clock.advance(1_000);
+		expect(timers.snapshot()).toMatchObject({
+			sessionElapsedMs: 62_234,
+			levelElapsedMs: 3_345
+		});
+
+		timers.sync({
+			sessionStartedAtUnixMs: clock.wallTime - 62_234,
+			sessionElapsedMs: 0,
+			sessionRunning: true,
+			levelStartedAtUnixMs: null,
+			levelElapsedMs: 3_345,
+			levelRunning: false
+		});
+		clock.advance(1_000);
+		expect(timers.snapshot()).toMatchObject({
+			sessionElapsedMs: 63_234,
+			sessionRunning: true,
+			levelElapsedMs: 3_345,
+			levelRunning: false
+		});
 	});
 });
 

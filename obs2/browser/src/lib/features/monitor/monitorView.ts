@@ -1,4 +1,11 @@
-import type { LevelMatch, MonitorFps, RecordingStatus, ReplaySaveStatus, RunClip } from '$lib/api';
+import type {
+	LevelMatch,
+	MonitorFps,
+	MonitorWallClockState,
+	RecordingStatus,
+	ReplaySaveStatus,
+	RunClip
+} from '$lib/api';
 import { monitorPhaseStyle, monitorPresentationPhase, type MonitorPhase } from '$lib/stores/monitor.svelte';
 import type { MonitorWallClocks } from './monitorWallClocks.svelte';
 
@@ -17,6 +24,7 @@ export interface MonitorViewProps {
 	match?: LevelMatch | null;
 	fps?: MonitorFps | null;
 	showMonitorFps?: boolean;
+	wallClockState?: MonitorWallClockState | null;
 	recentRuns?: RunClip[];
 	recentRunsBusyId?: string | null;
 	recentRunsError?: string | null;

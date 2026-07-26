@@ -761,6 +761,16 @@ export interface MonitorSnapshot {
 	enabled: boolean;
 	sourceName?: string;
 	cvLanguage?: 'en' | 'jp';
+	wallClocks: MonitorWallClockState;
+}
+
+export interface MonitorWallClockState {
+	sessionStartedAtUnixMs: number | null;
+	sessionElapsedMs: number;
+	sessionRunning: boolean;
+	levelStartedAtUnixMs: number | null;
+	levelElapsedMs: number;
+	levelRunning: boolean;
 }
 
 export interface AppSnapshot {

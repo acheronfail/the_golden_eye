@@ -64,6 +64,7 @@ fn test_snapshot_store() -> SharedStateStore {
             enabled: true,
             source_name: Some("N64 Capture".to_owned()),
             cv_language: Some("en".to_owned()),
+            wall_clocks: crate::http::MonitorWallClockState::default(),
         },
         level_match: None,
         run_catalog_sync: None,
