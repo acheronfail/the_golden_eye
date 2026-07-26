@@ -3,190 +3,74 @@
 	import { page } from '$app/state';
 	import { backend } from '$lib/api';
 	import MonitorView, { type MonitorTransition } from '$lib/components/MonitorView.svelte';
+	import { MonitorSessionController } from '$lib/controllers/monitorSession.svelte';
 	import ReplayBufferStopDialog from '$lib/components/ReplayBufferStopDialog.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { monitor, monitorPresentationPhase } from '$lib/stores/monitor.svelte';
 	import { refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import { obsSources } from '$lib/stores/sources.svelte';
 	import { recentRuns } from '$lib/stores/recentRuns.svelte';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import type { PageProps } from './$types';
 
 	let { params }: PageProps = $props();
 
-	let monitoring = $state(false);
-	let verified = $state(false);
-	let statusChecked = $state(false);
-	let transition = $state<MonitorTransition>(null);
-	let pendingNavigation = $state<string | null>(null);
-	let showReplayBufferStopPrompt = $state(false);
-	let replayBufferStopPromptBusy = $state(false);
-	let replayBufferStopPromptError = $state<string | null>(null);
-
 	const sourcePath = $derived(`/sources/${encodeURIComponent(params.sourceName)}`);
 	const isCurrentPage = $derived(page.url.pathname === sourcePath);
 	const sourceExists = $derived((obsSources.items ?? []).some((source) => source.name === params.sourceName));
+	const session = new MonitorSessionController({
+		saveSettings: () => settings.saveNow(),
+		refreshRecentRuns: () => recentRuns.refresh(),
+		startMonitor: (sourceName) => backend.startMonitor(sourceName),
+		stopMonitor: () => backend.stopMonitor(),
+		refreshReplayBuffer: () => void refreshReplayBuffer(),
+		navigate: (href, options) => void goto(href, options),
+		reportError: (message) => alert(message),
+		stopPromptShown: () => settings.stopReplayBufferPromptShown,
+		saveStopPreference: async (stopReplayBuffer) => {
+			settings.stopReplayBufferWhenMonitorStopped = stopReplayBuffer;
+			settings.stopReplayBufferPromptShown = true;
+			await settings.saveNow();
+		}
+	});
+	const monitoring = $derived(session.monitoring);
+	const verified = $derived(session.verified);
+	const transition = $derived<MonitorTransition>(session.transition);
 
 	$effect(() => {
 		if (!isCurrentPage) return;
-		monitor.chromePhase = monitorPresentationPhase(monitor.recordingState, transition !== null, verified);
+		monitor.chromePhase = monitorPresentationPhase(
+			monitor.recordingState,
+			session.transition !== null,
+			session.verified
+		);
 	});
 
 	onDestroy(() => {
 		monitor.chromePhase = null;
 	});
 
-	const navigate = (href: string, options: { replaceState?: boolean } = {}) => {
-		if (page.url.pathname === href || pendingNavigation === href) return;
-		pendingNavigation = href;
-		void goto(href, options);
-	};
-
-	const syncMonitorStatus = () => {
-		if (!isCurrentPage || !monitor.loaded) return;
-		statusChecked = true;
-		const status = monitor.status;
-		if (!status?.enabled) return;
-		if (status.sourceName !== params.sourceName) {
-			navigate(`/sources/${encodeURIComponent(status.sourceName)}`, { replaceState: true });
-			return;
-		}
-		monitoring = true;
-	};
-
 	afterNavigate(async () => {
-		pendingNavigation = null;
+		session.navigationSettled();
 		if (!isCurrentPage) return;
 		void recentRuns.refresh();
-
-		verified = false;
-		statusChecked = false;
-		monitoring = false;
-		syncMonitorStatus();
 	});
 
 	$effect(() => {
-		monitor.loaded;
-		monitor.status;
-		syncMonitorStatus();
+		const snapshot = {
+			sourceName: params.sourceName,
+			currentPath: page.url.pathname,
+			monitorLoaded: monitor.loaded,
+			monitorStatus: monitor.status,
+			sourcesLoaded: obsSources.loaded,
+			sourceExists
+		};
+		untrack(() => session.reconcile(snapshot));
 	});
 
-	$effect(() => {
-		if (!isCurrentPage) return;
-		if (!statusChecked) return;
-		if (monitoring) {
-			verified = true;
-			return;
-		}
-		if (!obsSources.loaded) {
-			verified = false;
-			return;
-		}
-		if (sourceExists) {
-			verified = true;
-		} else {
-			navigate('/', { replaceState: true });
-		}
-	});
-
-	$effect(() => {
-		if (!isCurrentPage) return;
-		if (
-			!monitor.loaded ||
-			monitor.status?.enabled ||
-			!statusChecked ||
-			monitoring ||
-			transition ||
-			pendingNavigation ||
-			!verified
-		)
-			return;
-		void startMonitor();
-	});
-
-	$effect(() => {
-		if (!isCurrentPage) return;
-		if (!statusChecked || transition) return;
-		if (monitoring && monitor.status?.enabled === false) {
-			monitoring = false;
-			navigate('/', { replaceState: true });
-		}
-	});
-
-	$effect(() => {
-		if (!isCurrentPage) return;
-		if (!monitor.status?.enabled) return;
-		if (monitor.status.sourceName !== params.sourceName) {
-			navigate(`/sources/${encodeURIComponent(monitor.status.sourceName)}`, { replaceState: true });
-		}
-	});
-
-	const startMonitor = async () => {
-		if (monitoring || transition || pendingNavigation) return;
-		transition = 'starting';
-		try {
-			await settings.saveNow();
-			await recentRuns.refresh();
-			await backend.startMonitor(params.sourceName);
-			void refreshReplayBuffer();
-			monitoring = true;
-		} catch (err) {
-			alert(err instanceof Error ? err.message : String(err));
-			navigate('/', { replaceState: true });
-		} finally {
-			transition = null;
-		}
-	};
-
-	const performStopMonitor = async () => {
-		if (transition) return;
-		transition = 'stopping';
-		try {
-			await backend.stopMonitor();
-			void refreshReplayBuffer();
-			monitoring = false;
-			navigate('/', { replaceState: true });
-		} catch (err) {
-			alert(err instanceof Error ? err.message : String(err));
-		} finally {
-			transition = null;
-		}
-	};
-
-	const stopMonitor = () => {
-		if (transition || showReplayBufferStopPrompt) return;
-		if (!settings.stopReplayBufferPromptShown) {
-			replayBufferStopPromptError = null;
-			showReplayBufferStopPrompt = true;
-			return;
-		}
-		void performStopMonitor();
-	};
-
-	const chooseReplayBufferStop = async (stopReplayBuffer: boolean) => {
-		if (replayBufferStopPromptBusy) return;
-		replayBufferStopPromptBusy = true;
-		replayBufferStopPromptError = null;
-		settings.stopReplayBufferWhenMonitorStopped = stopReplayBuffer;
-		settings.stopReplayBufferPromptShown = true;
-		try {
-			await settings.saveNow();
-			showReplayBufferStopPrompt = false;
-			await performStopMonitor();
-		} catch (err) {
-			replayBufferStopPromptError = err instanceof Error ? err.message : String(err);
-		} finally {
-			replayBufferStopPromptBusy = false;
-		}
-	};
-
-	const onkeydown = (event: KeyboardEvent) => {
-		if (transition || showReplayBufferStopPrompt || !monitoring) return;
-		if (event.key === ' ' || event.key === 'Escape') {
-			event.preventDefault();
-			stopMonitor();
-		}
-	};
+	const stopMonitor = () => session.requestStop();
+	const chooseReplayBufferStop = (stopReplayBuffer: boolean) => session.chooseStopPreference(stopReplayBuffer);
+	const onkeydown = (event: KeyboardEvent) => session.handleKeydown(event);
 </script>
 
 <svelte:head>
@@ -214,10 +98,6 @@
 	onStop={stopMonitor}
 />
 
-{#if showReplayBufferStopPrompt}
-	<ReplayBufferStopDialog
-		busy={replayBufferStopPromptBusy}
-		error={replayBufferStopPromptError}
-		choose={chooseReplayBufferStop}
-	/>
+{#if session.promptOpen}
+	<ReplayBufferStopDialog busy={session.promptBusy} error={session.promptError} choose={chooseReplayBufferStop} />
 {/if}
