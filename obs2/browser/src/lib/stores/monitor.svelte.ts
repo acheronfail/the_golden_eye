@@ -2,6 +2,7 @@ import {
 	type AppSnapshot,
 	type LevelMatch,
 	type MonitorFps,
+	type MonitorWallClockState,
 	type MonitorStatus,
 	type MonitorStoppedReason,
 	type ReplaySaveStatus,
@@ -156,6 +157,7 @@ export const monitor = $state<{
 	recordingState: RecordingStatus | null;
 	chromePhase: MonitorPhase | null;
 	kiaEffectId: number;
+	wallClocks: MonitorWallClockState | null;
 }>({
 	status: null,
 	loaded: false,
@@ -165,7 +167,8 @@ export const monitor = $state<{
 	replaySaves: [],
 	recordingState: null,
 	chromePhase: null,
-	kiaEffectId: 0
+	kiaEffectId: 0,
+	wallClocks: null
 });
 
 export const monitorHref = (status: MonitorStatus | null = monitor.status): string | null => {
@@ -195,6 +198,7 @@ export const applyMonitorSnapshot = (snapshot: AppSnapshot): void => {
 	monitor.loaded = true;
 	monitor.match = snapshot.match;
 	monitor.cvLanguage = snapshot.monitor.cvLanguage ?? null;
+	monitor.wallClocks = snapshot.monitor.wallClocks;
 	monitor.replaySaves = snapshot.replaySaves;
 	monitor.recordingState = nextStatus.enabled ? visibleRecordingState(snapshot.recordingState) : null;
 	if (!nextStatus.enabled || previousSource !== nextSource) {

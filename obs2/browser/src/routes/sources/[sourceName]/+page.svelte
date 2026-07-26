@@ -91,6 +91,7 @@
 	match={monitor.match}
 	fps={monitor.fps}
 	showMonitorFps={settings.showMonitorFps}
+	wallClockState={monitor.wallClocks}
 	recentRuns={recentRuns.items}
 	recentRunsBusyId={recentRuns.busyRunId}
 	recentRunsError={recentRuns.error}

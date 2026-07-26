@@ -260,7 +260,12 @@ pub extern "C" fn ge_rust_start() -> bool {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
     let snapshot = SharedStateStore::new(AppSnapshot {
-        monitor: MonitorSnapshot { enabled: false, source_name: None, cv_language: None },
+        monitor: MonitorSnapshot {
+            enabled: false,
+            source_name: None,
+            cv_language: None,
+            wall_clocks: http::MonitorWallClockState::default(),
+        },
         level_match: None,
         run_catalog_sync: None,
         recording_state: None,
