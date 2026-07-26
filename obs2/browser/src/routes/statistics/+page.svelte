@@ -2,10 +2,10 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { backend } from '$lib/api';
-	import DateRangeSelect from '$lib/components/DateRangeSelect.svelte';
-	import SectionTitle from '$lib/components/SectionTitle.svelte';
-	import StatisticsDashboard from '$lib/components/StatisticsDashboard.svelte';
-	import { StatisticsPageController } from '$lib/statistics/statisticsPageController.svelte';
+	import DateRangeSelect from '$lib/features/statistics/DateRangeSelect.svelte';
+	import SectionTitle from '$lib/ui/SectionTitle.svelte';
+	import StatisticsDashboard from '$lib/features/statistics/StatisticsDashboard.svelte';
+	import { StatisticsPageController } from '$lib/features/statistics/statisticsPageController.svelte';
 	import { onDestroy, onMount } from 'svelte';
 
 	const controller = new StatisticsPageController(

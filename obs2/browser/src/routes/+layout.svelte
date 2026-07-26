@@ -9,12 +9,12 @@
 		monitorPresentationPhase
 	} from '$lib/stores/monitor.svelte';
 	import { startAppSocket, stopAppSocket } from '$lib/stores/appSocket.svelte';
-	import AppHeader from '$lib/components/AppHeader.svelte';
-	import KiaDeathOverlay from '$lib/components/KiaDeathOverlay.svelte';
-	import NotificationFlags from '$lib/components/NotificationFlags.svelte';
-	import WelcomeDialog from '$lib/components/WelcomeDialog.svelte';
-	import ManualUpdateDialog from '$lib/components/ManualUpdateDialog.svelte';
-	import RunCatalogSyncDialog from '$lib/components/RunCatalogSyncDialog.svelte';
+	import AppHeader from '$lib/app/AppHeader.svelte';
+	import KiaDeathOverlay from '$lib/features/monitor/KiaDeathOverlay/KiaDeathOverlay.svelte';
+	import NotificationFlags from '$lib/app/NotificationFlags.svelte';
+	import WelcomeDialog from '$lib/features/onboarding/WelcomeDialog.svelte';
+	import ManualUpdateDialog from '$lib/app/ManualUpdateDialog.svelte';
+	import RunCatalogSyncDialog from '$lib/features/runs/RunCatalogSyncDialog.svelte';
 	import { replayBuffer, refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import { updates } from '$lib/stores/updates.svelte';
 	import { youtube } from '$lib/stores/youtube.svelte';

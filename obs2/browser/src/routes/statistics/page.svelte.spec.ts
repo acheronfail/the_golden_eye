@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { statisticsFixture } from '../../stories/statisticsFixtures';
-import { STATISTICS_PREFERENCES_STORAGE_KEY } from '$lib/utils/statisticsPreferences';
+import { statisticsFixture } from '../../stories/features/statistics/statisticsFixtures';
+import { STATISTICS_PREFERENCES_STORAGE_KEY } from '$lib/features/statistics/statisticsPreferences';
 import StatisticsPage from './+page.svelte';
 
 const mocks = vi.hoisted(() => ({

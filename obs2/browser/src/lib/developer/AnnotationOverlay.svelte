@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { AnnotationSet } from '$lib/api';
-	import Select from '$lib/components/Select.svelte';
+	import Select from '$lib/ui/Select.svelte';
 	import {
 		annotationListItems,
 		LABEL_LINE_HEIGHT,

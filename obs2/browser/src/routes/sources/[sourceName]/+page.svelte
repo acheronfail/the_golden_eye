@@ -2,9 +2,9 @@
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { backend } from '$lib/api';
-	import MonitorView, { type MonitorTransition } from '$lib/components/MonitorView.svelte';
-	import { MonitorSessionController } from '$lib/controllers/monitorSession.svelte';
-	import ReplayBufferStopDialog from '$lib/components/ReplayBufferStopDialog.svelte';
+	import MonitorView, { type MonitorTransition } from '$lib/features/monitor/MonitorView.svelte';
+	import { MonitorSessionController } from '$lib/features/monitor/monitorSession.svelte';
+	import ReplayBufferStopDialog from '$lib/features/monitor/ReplayBufferStopDialog.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { monitor, monitorPresentationPhase } from '$lib/stores/monitor.svelte';
 	import { refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';

@@ -2,15 +2,15 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { backend } from '$lib/api';
-	import ActionMenu from '$lib/components/ActionMenu.svelte';
-	import ReadClipsDialog from '$lib/components/ReadClipsDialog.svelte';
-	import RunDeleteDialog from '$lib/components/RunDeleteDialog.svelte';
-	import RunDetailDialog from '$lib/components/RunDetailDialog.svelte';
-	import RunFiltersForm from '$lib/components/RunFilters.svelte';
-	import RunImportDialog from '$lib/components/RunImportDialog.svelte';
-	import RunList from '$lib/components/RunList.svelte';
-	import { RunsPageController } from '$lib/runs/runsPageController.svelte';
-	import { LEVEL_OPTIONS } from '$lib/utils/runsView';
+	import ActionMenu from '$lib/ui/ActionMenu.svelte';
+	import ReadClipsDialog from '$lib/features/runs/ReadClipsDialog.svelte';
+	import RunDeleteDialog from '$lib/features/runs/RunDeleteDialog.svelte';
+	import RunDetailDialog from '$lib/features/runs/RunDetailDialog.svelte';
+	import RunFiltersForm from '$lib/features/runs/RunFilters.svelte';
+	import RunImportDialog from '$lib/features/runs/RunImportDialog.svelte';
+	import RunList from '$lib/features/runs/RunList.svelte';
+	import { RunsPageController } from '$lib/features/runs/runsPageController.svelte';
+	import { LEVEL_OPTIONS } from '$lib/features/runs/runsView';
 	import { onDestroy, onMount, untrack } from 'svelte';
 
 	const levelSelectOptions = LEVEL_OPTIONS.map((level) => ({ value: level, label: level }));
