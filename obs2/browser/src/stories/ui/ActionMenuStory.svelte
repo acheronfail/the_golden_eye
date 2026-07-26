@@ -11,8 +11,8 @@
 		{ label: 'Delete', action: noop, tone: 'danger' }
 	];
 	const pageItems: ActionMenuItem[] = [
-		{ label: 'show clips in finder', action: noop },
-		{ label: 'read clips', action: noop }
+		{ label: 'Show in Finder', action: noop },
+		{ label: 'Read clips', action: noop }
 	];
 </script>
 

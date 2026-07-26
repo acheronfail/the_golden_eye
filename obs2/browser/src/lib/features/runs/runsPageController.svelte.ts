@@ -20,7 +20,7 @@ import {
 	type RunFilterKey,
 	type RunFilters
 } from '$lib/features/runs/runsView';
-import { metadataDraftFromClip, normalizeRunTimeInput, runBrowserLabels, sameMetadataDraft } from './runMetadata';
+import { metadataDraftFromClip, normalizeRunTimeInput, runBrowserLabel, sameMetadataDraft } from './runMetadata';
 
 type RunsBackend = Pick<
 	Backend,
@@ -57,8 +57,7 @@ export class RunsPageController {
 	modalBusy = $state<string | null>(null);
 	listActionError = $state<string | null>(null);
 	listActionBusyId = $state<string | null>(null);
-	fileBrowserLabel = $state('Show in file browser');
-	folderBrowserLabel = $state('show clips folder');
+	browserLabel = $state('Show in file browser');
 	folderRevealBusy = $state(false);
 	filters = $state<RunFilters>({ ...EMPTY_RUN_FILTERS });
 	filtersCollapsed = $state(true);
@@ -126,18 +125,18 @@ export class RunsPageController {
 	get runActions(): ActionMenuItem[] {
 		return [
 			{
-				label: this.folderRevealBusy ? 'opening...' : this.folderBrowserLabel,
+				label: this.folderRevealBusy ? 'Opening...' : this.browserLabel,
 				action: () => this.openFolder(),
 				disabled: this.folderRevealBusy || this.revealableDirectories.length === 0
 			},
-			{ label: 'read clips', action: () => (this.readClipsOpen = true), disabled: this.loading }
+			{ label: 'Read clips', action: () => (this.readClipsOpen = true), disabled: this.loading }
 		];
 	}
 
 	get detailView(): RunDetailView {
 		return {
 			modal: { error: this.modalError, busy: this.modalBusy },
-			display: { fileBrowserLabel: this.fileBrowserLabel, levelOptions: levelSelectOptions },
+			display: { fileBrowserLabel: this.browserLabel, levelOptions: levelSelectOptions },
 			actions: {
 				close: () => this.close(),
 				delete: () => this.requestDelete(this.selected),
@@ -151,9 +150,7 @@ export class RunsPageController {
 	}
 
 	initialize(platform: string): void {
-		const labels = runBrowserLabels(platform);
-		this.fileBrowserLabel = labels.file;
-		this.folderBrowserLabel = labels.folder;
+		this.browserLabel = runBrowserLabel(platform);
 		void this.reload();
 	}
 

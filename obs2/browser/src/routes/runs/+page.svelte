@@ -111,7 +111,7 @@
 		clearFilters={() => controller.clearFilters()}
 		sort={controller.sort}
 		onSortChange={(sort) => controller.changeSort(sort)}
-		fileBrowserLabel={controller.fileBrowserLabel}
+		fileBrowserLabel={controller.browserLabel}
 		busyPath={controller.listActionBusyId}
 		open={(clip) => controller.select(clip)}
 		rename={(clip) => controller.renameFromList(clip)}

@@ -204,7 +204,7 @@ describe('/runs', () => {
 		expect(moreActions).toHaveTextContent('▾');
 		await user.click(moreActions);
 		expect(screen.queryByRole('menuitem', { name: /add times/i })).not.toBeInTheDocument();
-		await user.click(screen.getByRole('menuitem', { name: 'read clips' }));
+		await user.click(screen.getByRole('menuitem', { name: 'Read clips' }));
 		expect(screen.getByRole('dialog', { name: 'Read clips?' })).toHaveTextContent(/will not delete any video files/i);
 		expect(mocks.getRuns).toHaveBeenCalledTimes(1);
 
@@ -271,7 +271,7 @@ describe('/runs', () => {
 		render(RunsPage);
 
 		await user.click(await screen.findByRole('button', { name: 'More run actions' }));
-		const showFolder = screen.getByRole('menuitem', { name: /show clips/i });
+		const showFolder = screen.getByRole('menuitem', { name: 'Show in file browser' });
 		await user.click(showFolder);
 
 		expect(screen.queryByRole('dialog', { name: /Choose clips folder/i })).not.toBeInTheDocument();
