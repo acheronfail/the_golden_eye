@@ -6,14 +6,14 @@
 	import { backend, type FolderValidation } from '$lib/api';
 	import { dismissNotificationFlagsByKey } from '$lib/stores/notifications.svelte';
 	import { replayBuffer } from '$lib/stores/replayBuffer.svelte';
-	import Select from '$lib/components/Select.svelte';
+	import Select from '$lib/ui/Select.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
-	import OptionsGeneral from '$lib/components/OptionsGeneral.svelte';
-	import OptionsNotifications from '$lib/components/OptionsNotifications.svelte';
-	import OptionsRecording from '$lib/components/OptionsRecording.svelte';
-	import OptionsYouTube from '$lib/components/OptionsYouTube.svelte';
-	import ResetSettingsDialog from '$lib/components/ResetSettingsDialog.svelte';
-	import { optionsClasses, type RecordingOptionsView } from '$lib/utils/optionsView';
+	import OptionsGeneral from '$lib/features/options/OptionsGeneral.svelte';
+	import OptionsNotifications from '$lib/features/options/OptionsNotifications.svelte';
+	import OptionsRecording from '$lib/features/options/OptionsRecording.svelte';
+	import OptionsYouTube from '$lib/features/options/OptionsYouTube.svelte';
+	import ResetSettingsDialog from '$lib/features/options/ResetSettingsDialog.svelte';
+	import { optionsClasses, type RecordingOptionsView } from '$lib/features/options/optionsView';
 	import { youtube } from '$lib/stores/youtube.svelte';
 
 	type OptionsTab = 'general' | 'recording' | 'notifications' | 'youtube';

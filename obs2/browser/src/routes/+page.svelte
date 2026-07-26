@@ -4,9 +4,9 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { refreshReplayBuffer, replayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import { obsSources } from '$lib/stores/sources.svelte';
-	import WizardFrame from '$lib/components/wizard/WizardFrame.svelte';
-	import OptionList, { type Option } from '$lib/components/wizard/OptionList.svelte';
-	import SourcePreview from '$lib/components/SourcePreview.svelte';
+	import WizardFrame from '$lib/features/onboarding/WizardFrame.svelte';
+	import OptionList, { type Option } from '$lib/features/onboarding/OptionList.svelte';
+	import SourcePreview from '$lib/features/onboarding/SourcePreview.svelte';
 	import { onMount } from 'svelte';
 
 	let missingPreviewBySource = $state<Record<string, boolean>>({});

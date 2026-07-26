@@ -1,7 +1,7 @@
 import { browser } from '$app/environment';
 import { z } from 'zod';
 import { backend, type SettingsStatus } from '$lib/api';
-import type { MonitorDesign } from '$lib/components/monitorView';
+import type { MonitorDesign } from '$lib/features/monitor/monitorView';
 
 const UpdateCheckIntervalSchema = z.enum(['monthly', 'weekly', 'daily', 'never']);
 export type UpdateCheckInterval = z.infer<typeof UpdateCheckIntervalSchema>;

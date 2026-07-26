@@ -206,10 +206,6 @@ export const applyMonitorFps = (fps: MonitorFps): void => {
 	monitor.fps = fps;
 };
 
-export const triggerKiaDeathOverlay = (): void => {
-	monitor.kiaEffectId += 1;
-};
-
 export const applyRecordingSaved = (_saved: RecordingSaved): void => {
 	if (
 		monitor.recordingState === 'complete' ||

@@ -145,6 +145,10 @@ Discord notification settings are no longer read from `DISCORD_WEBHOOK_URL`; the
 
 - Keep comments concise: no comment (doc or inline) should exceed 3 lines. If an explanation needs more, tighten the wording rather than adding lines.
 - Every new frontend component must include or update a Storybook story under `obs2/browser/src/stories/`, covering its default and materially distinct states.
+- Organize `obs2/browser/src/lib` by ownership using `app/`, `features/<name>/`, `ui/`, `stores/`, and `developer/`; follow `obs2/browser/src/lib/README.md`.
+- Keep feature code flat by default. Use a PascalCase component capsule only when a component has meaningful private children or implementation modules.
+- Keep component-private types in the component, rune-based controllers in `*.svelte.ts`, pure logic in specifically named modules, and tests beside their subjects.
+- Avoid catch-all `components`, `controllers`, `effects`, `types`, `utils`, and `helpers` directories. Mirror source ownership under `src/stories/`.
 - Use Tailwind v4 utilities for all representable frontend styling. Put shared design-system utilities and theme or animation definitions in `obs2/browser/src/routes/layout.css`; do not add component `<style>` blocks or static inline styles when Tailwind can express the result.
 - When a value is calculated at runtime, pass only that value through a CSS custom property and use Tailwind utilities for the actual layout, color, or animation property.
 - Rust runtime environment variable reads belong in `obs2/rust/src/config/*.rs`, using shared helpers from `config/shared.rs`, with re-exports from `config/mod.rs`. Do not read runtime env vars ad hoc from routes/tasks.
