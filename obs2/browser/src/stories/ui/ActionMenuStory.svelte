@@ -11,8 +11,8 @@
 		{ label: 'Delete', action: noop, tone: 'danger' }
 	];
 	const pageItems: ActionMenuItem[] = [
-		{ label: 'show clips in finder', action: noop },
-		{ label: 'read clips', action: noop }
+		{ label: 'Show in Finder', action: noop },
+		{ label: 'Read clips', action: noop }
 	];
 </script>
 
@@ -23,7 +23,7 @@
 {:else}
 	<div class="relative flex">
 		<button type="button" class="obs-button h-8 rounded-r-none border-r-0 obs-button-gold px-3 font-mono text-xs">
-			+ add times
+			+ Add times
 		</button>
 		<ActionMenu
 			items={pageItems}

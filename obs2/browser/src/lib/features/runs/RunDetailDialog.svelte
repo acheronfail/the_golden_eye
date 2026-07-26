@@ -115,7 +115,7 @@
 							disabled={view.modal.busy !== null}
 							class="obs-text-button shrink-0 obs-button-gold px-3 py-2 font-mono text-xs"
 						>
-							{view.modal.busy === 'keep' ? 'keeping...' : 'keep video'}
+							{view.modal.busy === 'keep' ? 'Keeping...' : 'Keep video'}
 						</button>
 					</section>
 				{/if}
@@ -125,7 +125,7 @@
 						type="button"
 						onclick={view.actions.delete}
 						disabled={view.modal.busy !== null}
-						class="obs-text-button obs-button-danger px-2 py-1 font-mono text-xs">delete</button
+						class="obs-text-button obs-button-danger px-2 py-1 font-mono text-xs">Delete</button
 					>
 					{#if clip.path}
 						<button
@@ -140,7 +140,7 @@
 							type="button"
 							onclick={view.actions.rename}
 							disabled={view.modal.busy !== null}
-							class="obs-text-button px-2 py-1 font-mono text-xs">rename</button
+							class="obs-text-button px-2 py-1 font-mono text-xs">Rename</button
 						>
 					{/if}
 				</div>

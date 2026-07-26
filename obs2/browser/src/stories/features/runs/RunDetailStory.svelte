@@ -27,7 +27,7 @@
 	let view = $derived<RunDetailView>({
 		modal: { error: modalError, busy: modalBusy },
 		display: {
-			fileBrowserLabel: 'show in finder',
+			fileBrowserLabel: 'Show in Finder',
 			levelOptions: LEVEL_OPTIONS.map((level) => ({ value: level, label: level }))
 		},
 		actions: {

@@ -350,7 +350,7 @@
 				</div>
 				<div class="flex flex-wrap justify-end gap-2">
 					<button type="button" class={pathButtonClass} disabled={revealingConfigFile} onclick={showConfigFile}>
-						{revealingConfigFile ? 'Opening...' : 'show config file'}
+						{revealingConfigFile ? 'Opening...' : 'Show config file'}
 					</button>
 					<button type="button" class="obs-button obs-button-danger px-3 py-1.5 text-xs" onclick={requestConfigReset}>
 						Reset to defaults

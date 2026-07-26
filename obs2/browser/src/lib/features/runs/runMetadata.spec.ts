@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RunClip } from '$lib/api';
-import { metadataDraftFromClip, normalizeRunTimeInput, runBrowserLabels, sameMetadataDraft } from './runMetadata';
+import { metadataDraftFromClip, normalizeRunTimeInput, runBrowserLabel, sameMetadataDraft } from './runMetadata';
 
 const clip = {
 	runId: 'run-1',
@@ -43,7 +43,7 @@ describe('run metadata', () => {
 	});
 
 	it('uses platform-specific file-browser labels', () => {
-		expect(runBrowserLabels('MacIntel')).toEqual({ file: 'Show in Finder', folder: 'show clips in finder' });
-		expect(runBrowserLabels('Win32').file).toBe('Show in Explorer');
+		expect(runBrowserLabel('MacIntel')).toBe('Show in Finder');
+		expect(runBrowserLabel('Win32')).toBe('Show in Explorer');
 	});
 });

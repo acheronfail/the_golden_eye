@@ -45,9 +45,9 @@ export function normalizeRunTimeInput(value: string): string {
 	return `${minuteValue.toString().padStart(2, '0')}:${secondValue.toString().padStart(2, '0')}`;
 }
 
-export function runBrowserLabels(platform: string): { file: string; folder: string } {
+export function runBrowserLabel(platform: string): string {
 	const normalized = platform.toLowerCase();
-	if (normalized.includes('mac')) return { file: 'Show in Finder', folder: 'show clips in finder' };
-	if (normalized.includes('win')) return { file: 'Show in Explorer', folder: 'show clips in explorer' };
-	return { file: 'Show in file browser', folder: 'show clips folder' };
+	if (normalized.includes('mac')) return 'Show in Finder';
+	if (normalized.includes('win')) return 'Show in Explorer';
+	return 'Show in file browser';
 }

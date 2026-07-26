@@ -178,13 +178,13 @@ describe('/runs', () => {
 		);
 		render(RunsPage);
 
-		const addTimes = await screen.findByRole('button', { name: '+ add times' });
+		const addTimes = await screen.findByRole('button', { name: '+ Add times' });
 		expect(addTimes).toHaveClass('obs-button-gold', 'h-8', 'px-3');
 		expect(addTimes.parentElement).toHaveClass('z-30');
 		await user.click(addTimes);
 		await user.click(screen.getByRole('radio', { name: 'Import from The Elite' }));
 		await user.type(screen.getByRole('textbox', { name: 'The Elite username' }), 'acheronfail');
-		await user.click(screen.getByRole('button', { name: 'import all times' }));
+		await user.click(screen.getByRole('button', { name: 'Import all times' }));
 
 		expect(mocks.importTheElite).toHaveBeenCalledWith('acheronfail');
 		expect(screen.getByRole('button', { name: /importing all times/i })).toBeDisabled();
@@ -204,7 +204,7 @@ describe('/runs', () => {
 		expect(moreActions).toHaveTextContent('▾');
 		await user.click(moreActions);
 		expect(screen.queryByRole('menuitem', { name: /add times/i })).not.toBeInTheDocument();
-		await user.click(screen.getByRole('menuitem', { name: 'read clips' }));
+		await user.click(screen.getByRole('menuitem', { name: 'Read clips' }));
 		expect(screen.getByRole('dialog', { name: 'Read clips?' })).toHaveTextContent(/will not delete any video files/i);
 		expect(mocks.getRuns).toHaveBeenCalledTimes(1);
 
@@ -271,7 +271,7 @@ describe('/runs', () => {
 		render(RunsPage);
 
 		await user.click(await screen.findByRole('button', { name: 'More run actions' }));
-		const showFolder = screen.getByRole('menuitem', { name: /show clips/i });
+		const showFolder = screen.getByRole('menuitem', { name: 'Show in file browser' });
 		await user.click(showFolder);
 
 		expect(screen.queryByRole('dialog', { name: /Choose clips folder/i })).not.toBeInTheDocument();
@@ -399,7 +399,7 @@ describe('/runs', () => {
 		expect(notice).toHaveClass('obs-alert-warning');
 		expect(notice).not.toHaveClass('obs-alert-error');
 		expect(screen.getByText(/deleted when it falls outside your recent-run history/i)).toBeInTheDocument();
-		await user.click(screen.getByRole('button', { name: 'keep video' }));
+		await user.click(screen.getByRole('button', { name: 'Keep video' }));
 
 		expect(mocks.keepRun).toHaveBeenCalledWith('facility-pending.mov');
 		await waitFor(() =>
@@ -424,7 +424,7 @@ describe('/runs', () => {
 		render(RunsPage);
 
 		await user.click(await screen.findByRole('button', { name: /facility-0058\.mov/i }));
-		await user.click(within(screen.getByRole('dialog', { name: 'Run video' })).getByRole('button', { name: 'rename' }));
+		await user.click(within(screen.getByRole('dialog', { name: 'Run video' })).getByRole('button', { name: 'Rename' }));
 
 		expect(mocks.renameRun).toHaveBeenCalledWith('/runs/facility-0058.mov', 'facility-renamed.mov');
 		expect(await screen.findByRole('heading', { name: 'facility-renamed.mov' })).toBeInTheDocument();
@@ -447,7 +447,7 @@ describe('/runs', () => {
 		render(RunsPage);
 
 		await user.click(await screen.findByRole('button', { name: /facility-0058\.mov/i }));
-		await user.click(within(screen.getByRole('dialog', { name: 'Run video' })).getByRole('button', { name: 'delete' }));
+		await user.click(within(screen.getByRole('dialog', { name: 'Run video' })).getByRole('button', { name: 'Delete' }));
 		await user.click(screen.getByRole('button', { name: 'Delete video, keep run history' }));
 
 		expect(mocks.deleteCatalogRun).toHaveBeenCalledWith(original.runId, true);
@@ -460,7 +460,7 @@ describe('/runs', () => {
 		render(RunsPage);
 
 		await user.click(await screen.findByRole('button', { name: /dam-failed\.mov/i }));
-		await user.click(within(screen.getByRole('dialog', { name: 'Run video' })).getByRole('button', { name: 'delete' }));
+		await user.click(within(screen.getByRole('dialog', { name: 'Run video' })).getByRole('button', { name: 'Delete' }));
 		await user.click(screen.getByRole('button', { name: 'Delete video and run history' }));
 
 		expect(mocks.deleteCatalogRun).toHaveBeenCalledWith('dam-failed.mov', false);
