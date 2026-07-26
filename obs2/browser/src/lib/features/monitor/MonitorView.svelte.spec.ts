@@ -46,6 +46,23 @@ const recentRun: RunClip = {
 };
 
 describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (design) => {
+	it('shows session and level wall clocks with running state styling', () => {
+		render(MonitorView, props(design, 'started', match('start')));
+
+		const timers = screen.getByRole(design === 'signal-band' ? 'group' : 'region', {
+			name: 'Wall-clock timers'
+		});
+		expect(timers).toHaveTextContent('Time in session');
+		expect(timers).toHaveTextContent('Time in level');
+		expect(timers).toHaveTextContent('00:00:000');
+		const levelTimerLabel = screen.getByText('Time in level');
+		expect(levelTimerLabel).toHaveClass('cursor-help');
+		expect(levelTimerLabel).toHaveAttribute('title', expect.stringContaining('start screen disappears'));
+		expect(levelTimerLabel).toHaveAttribute('aria-label', expect.stringContaining("not the game's reported time"));
+		expect(timers.querySelector('[data-running="true"]')).not.toBeNull();
+		expect(timers.querySelector('[data-running="false"]')).not.toBeNull();
+	});
+
 	it('uses the neutral OBS-transition palette while verifying the source', () => {
 		const view = render(MonitorView, {
 			...props(design, null, match('unknown')),
@@ -70,6 +87,22 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 		expect(screen.getByRole('button', { name: /stop monitoring/i })).toBeEnabled();
 		const detailSelector = design === 'signal-band' ? '.signal-detail' : '.glass-detail';
 		expect(view.container.querySelector(detailSelector)).toHaveClass('invisible');
+	});
+
+	it('keeps subtly styled stat placeholders mounted when run times appear', async () => {
+		const view = render(MonitorView, props(design, 'started', match('unknown')));
+		const selector = design === 'signal-band' ? '.signal-metrics' : '.glass-metrics';
+		const metrics = view.container.querySelector(selector);
+
+		expect(metrics).toHaveTextContent(/time\s+--:--\s+target\s+--:--\s+best\s+--:--/);
+		expect(metrics?.querySelectorAll('[data-available="false"]')).toHaveLength(3);
+
+		await view.rerender(props(design, 'complete', match('stats', { time: 58, target_time: 65, best_time: 61 })));
+
+		const updatedMetrics = view.container.querySelector(selector);
+		if (design === 'signal-band') expect(updatedMetrics).toBe(metrics);
+		expect(updatedMetrics).toHaveTextContent(/time\s+0:58\s+target\s+1:05\s+best\s+1:01/);
+		expect(updatedMetrics?.querySelectorAll('[data-available="true"]')).toHaveLength(3);
 	});
 
 	it('lands on the newest state when updates arrive faster than the animation', async () => {
@@ -159,7 +192,10 @@ describe('debug monitor', () => {
 		expect(screen.getByText('[58,65,61]')).toBeInTheDocument();
 		expect(screen.getByText(/"score": 0.98/)).toBeInTheDocument();
 		expect(screen.queryByText(/show FPS setting/i)).not.toBeInTheDocument();
-		expect(view.container.querySelectorAll('.state-cell')).toHaveLength(8);
+		expect(screen.getByRole('heading', { name: 'Wall-clock timers' })).toBeInTheDocument();
+		expect(screen.getByText('time in session')).toBeInTheDocument();
+		expect(screen.getByText('time in level')).toBeInTheDocument();
+		expect(view.container.querySelectorAll('.state-cell')).toHaveLength(10);
 		expect(view.container.querySelectorAll('[data-value-kind="true"]')).not.toHaveLength(0);
 		expect(view.container.querySelectorAll('[data-value-kind="null"]')).not.toHaveLength(0);
 		expect(view.container.querySelector('[class*="motion"], [class*="sweep"]')).not.toBeInTheDocument();
@@ -176,8 +212,17 @@ describe.each<MonitorDesign>(['mission-glass', 'signal-band', 'debug'])('%s rece
 
 		expect(history).toHaveClass(`recent-runs--${design}`);
 		expect(history.querySelector('.run-scroll')).not.toBeNull();
-		if (design === 'mission-glass') expect(history.closest('.glass-layout')).not.toBeNull();
-		if (design === 'signal-band') expect(history.closest('.signal-layout')).not.toBeNull();
+		if (design === 'mission-glass') {
+			expect(history.closest('.glass-layout')).toHaveClass(
+				'h-[calc(100cqh-9rem)]',
+				'grid-rows-[auto_auto_minmax(0,1fr)]'
+			);
+			expect(history).toHaveClass('h-full', 'max-h-none');
+		}
+		if (design === 'signal-band') {
+			expect(history.closest('.signal-layout')).not.toBeNull();
+			expect(history).toHaveClass('@max-[760px]:h-full', '@max-[760px]:max-h-none');
+		}
 		if (design === 'debug') {
 			const lifecycle = view.container.querySelector('[aria-labelledby="lifecycle-heading"]');
 			expect(history.compareDocumentPosition(lifecycle!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);

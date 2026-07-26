@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { MonitorViewProps } from './monitorView';
+	import { formatWallClockTime } from './monitorWallClocks.svelte';
+	import type { MonitorDesignProps } from './monitorView';
 	import { formatMonitorTime, monitorPresentation } from './monitorView';
 	import RecentRuns from './RecentRuns.svelte';
 
@@ -17,8 +18,9 @@
 		recentRunsBusyId = null,
 		recentRunsError = null,
 		onKeepRun = () => {},
-		onStop
-	}: MonitorViewProps = $props();
+		onStop,
+		wallClocks
+	}: MonitorDesignProps = $props();
 
 	const presentation = $derived(
 		monitorPresentation({
@@ -83,6 +85,24 @@
 		error={recentRunsError}
 		onKeep={onKeepRun}
 	/>
+
+	<section class="mt-3" aria-labelledby="wall-clocks-heading" aria-live="off">
+		<h2 class="mb-1 {labelClass}" id="wall-clocks-heading">Wall-clock timers</h2>
+		<dl class={gridClass}>
+			<div class="state-cell" data-running={wallClocks.sessionRunning}>
+				<dt>time in session</dt>
+				<dd class:text-(--obs-text-dim)={!wallClocks.sessionRunning}>
+					{formatWallClockTime(wallClocks.sessionElapsedMs)}
+				</dd>
+			</div>
+			<div class="state-cell" data-running={wallClocks.levelRunning}>
+				<dt>time in level</dt>
+				<dd class:text-(--obs-text-dim)={!wallClocks.levelRunning}>
+					{formatWallClockTime(wallClocks.levelElapsedMs)}
+				</dd>
+			</div>
+		</dl>
+	</section>
 
 	<section class="mt-3" aria-labelledby="lifecycle-heading">
 		<h2 class="mb-1 {labelClass}" id="lifecycle-heading">Lifecycle</h2>
