@@ -30,9 +30,36 @@ export const statisticsFixture: StatisticsResponse = {
 		}
 	},
 	byLevel: [
-		{ levelNumber: 1, counts: counts(5, 10, 8, 1) },
-		{ levelNumber: 2, counts: counts(8, 19, 11, 3) },
-		{ levelNumber: 7, counts: counts(5, 10, 8, 2) }
+		{
+			levelNumber: 1,
+			counts: counts(5, 10, 8, 1),
+			totalSeconds: 1_850,
+			byDifficulty: [
+				{ difficultyNumber: 0, counts: counts(3, 5, 3, 1), totalSeconds: 750 },
+				{ difficultyNumber: 1, counts: counts(1, 3, 3, 0), totalSeconds: 600 },
+				{ difficultyNumber: 2, counts: counts(1, 2, 2, 0), totalSeconds: 500 }
+			]
+		},
+		{
+			levelNumber: 2,
+			counts: counts(8, 19, 11, 3),
+			totalSeconds: 4_100,
+			byDifficulty: [
+				{ difficultyNumber: 0, counts: counts(3, 6, 4, 1), totalSeconds: 1_050 },
+				{ difficultyNumber: 1, counts: counts(3, 7, 4, 1), totalSeconds: 1_400 },
+				{ difficultyNumber: 2, counts: counts(2, 6, 3, 1), totalSeconds: 1_650 }
+			]
+		},
+		{
+			levelNumber: 7,
+			counts: counts(5, 10, 8, 2),
+			totalSeconds: 3_300,
+			byDifficulty: [
+				{ difficultyNumber: 0, counts: counts(2, 4, 3, 1), totalSeconds: 900 },
+				{ difficultyNumber: 1, counts: counts(2, 3, 3, 1), totalSeconds: 1_100 },
+				{ difficultyNumber: 2, counts: counts(1, 3, 2, 0), totalSeconds: 1_300 }
+			]
+		}
 	],
 	overallBuckets: [
 		{ start: '2026-06-29T00:00:00+10:00', end: '2026-07-06T00:00:00+10:00', counts: counts(3, 7, 9, 1) },

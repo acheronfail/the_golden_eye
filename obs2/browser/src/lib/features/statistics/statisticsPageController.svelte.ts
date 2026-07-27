@@ -11,6 +11,8 @@ import {
 	readStatisticsPreferences,
 	writeStatisticsPreferences,
 	type StatisticsImprovementSeries,
+	type StatisticsLevelDifficulty,
+	type StatisticsLevelMeasure,
 	type StatisticsLevelOrder,
 	type StatisticsOutcomeMeasure,
 	type StatisticsTab
@@ -38,12 +40,13 @@ export class StatisticsPageController {
 	data = $state<StatisticsResponse | null>(null);
 	sessions = $state<MonitoringSessionSummary[]>([]);
 	selectedSessionId = $state('');
-	attemptsByLevelStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
+	levelDifficulties = $state<StatisticsLevelDifficulty[]>([0, 1, 2]);
 	attemptsOverTimeStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
 	improvementSeries = $state<StatisticsImprovementSeries[]>(['running-best', 'complete']);
 	outcomeStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
 	sessionStatuses = $state<RunStatus[]>([...ALL_STATUSES]);
 	outcomeMeasure = $state<StatisticsOutcomeMeasure>('share');
+	levelMeasure = $state<StatisticsLevelMeasure>('attempts');
 	levelOrder = $state<StatisticsLevelOrder>('attempts');
 	sessionDetail = $state<MonitoringSessionDetail | null>(null);
 	loading = $state(false);
@@ -90,12 +93,13 @@ export class StatisticsPageController {
 				this.difficultyNumber = stored.difficultyNumber;
 			}
 			if (stored.levelNumber != null && stored.difficultyNumber != null) this.initialCohortResolved = true;
-			if (stored.attemptsByLevelStatuses) this.attemptsByLevelStatuses = stored.attemptsByLevelStatuses;
+			if (stored.levelDifficulties) this.levelDifficulties = stored.levelDifficulties;
 			if (stored.attemptsOverTimeStatuses) this.attemptsOverTimeStatuses = stored.attemptsOverTimeStatuses;
 			if (stored.improvementSeries) this.improvementSeries = stored.improvementSeries;
 			if (stored.outcomeStatuses) this.outcomeStatuses = stored.outcomeStatuses;
 			if (stored.sessionStatuses) this.sessionStatuses = stored.sessionStatuses;
 			if (stored.outcomeMeasure) this.outcomeMeasure = stored.outcomeMeasure;
+			if (stored.levelMeasure) this.levelMeasure = stored.levelMeasure;
 			if (stored.levelOrder) this.levelOrder = stored.levelOrder;
 			if (stored.selectedSessionId) this.selectedSessionId = stored.selectedSessionId;
 		}
@@ -149,12 +153,13 @@ export class StatisticsPageController {
 				bucket: this.bucket,
 				levelNumber: this.levelNumber,
 				difficultyNumber: this.difficultyNumber,
-				attemptsByLevelStatuses: [...this.attemptsByLevelStatuses],
+				levelDifficulties: [...this.levelDifficulties],
 				attemptsOverTimeStatuses: [...this.attemptsOverTimeStatuses],
 				improvementSeries: [...this.improvementSeries],
 				outcomeStatuses: [...this.outcomeStatuses],
 				sessionStatuses: [...this.sessionStatuses],
 				outcomeMeasure: this.outcomeMeasure,
+				levelMeasure: this.levelMeasure,
 				levelOrder: this.levelOrder,
 				selectedSessionId: this.selectedSessionId
 			};

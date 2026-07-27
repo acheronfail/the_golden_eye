@@ -118,6 +118,12 @@
 	--obs-success-surface: rgb(97 194 124 / 14%);
 	--obs-monitor-waiting: #7fb7ff;
 	--obs-monitor-waiting-surface: rgb(127 183 255 / 14%);
+	--obs-difficulty-agent: #7fb7ff;
+	--obs-difficulty-agent-surface: rgb(127 183 255 / 16%);
+	--obs-difficulty-secret: #b99ae8;
+	--obs-difficulty-secret-surface: rgb(185 154 232 / 16%);
+	--obs-difficulty-00: #58c7c7;
+	--obs-difficulty-00-surface: rgb(88 199 199 / 16%);
 }
 
 @layer base {

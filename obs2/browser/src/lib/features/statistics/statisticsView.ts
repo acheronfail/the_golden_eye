@@ -9,7 +9,7 @@ import {
 import type {
 	BaseChartSeries,
 	ChartPattern,
-	HorizontalStackedBarChartData,
+	HorizontalBarChartData,
 	LineChartData,
 	LineChartSeries,
 	VerticalBarChartData
@@ -55,9 +55,8 @@ interface StatusSeriesStyle {
 }
 
 type StatusChartSeries = BaseChartSeries & StatusSeriesStyle;
-type StatusHorizontalBarChartData = Omit<HorizontalStackedBarChartData, 'series'> & {
-	series: StatusChartSeries[];
-};
+
+export type LevelMeasure = 'attempts' | 'time';
 
 const STATUS_SERIES_STYLE: Record<RunStatus, StatusSeriesStyle> = {
 	complete: {
@@ -115,22 +114,39 @@ export function formatDuration(seconds: number): string {
 
 export function attemptsByLevelData(
 	response: StatisticsResponse,
-	order: 'attempts' | 'mission'
-): StatusHorizontalBarChartData {
+	order: 'attempts' | 'mission',
+	measure: LevelMeasure = 'attempts'
+): HorizontalBarChartData {
 	const levels = [...response.byLevel].sort((a, b) =>
 		order === 'attempts'
-			? b.counts.total - a.counts.total || (a.levelNumber ?? 99) - (b.levelNumber ?? 99)
+			? (measure === 'attempts' ? b.counts.total - a.counts.total : b.totalSeconds - a.totalSeconds) ||
+				(a.levelNumber ?? 99) - (b.levelNumber ?? 99)
 			: (a.levelNumber ?? 99) - (b.levelNumber ?? 99)
 	);
+	const difficulties = [0, 1, 2] as const;
+	const styles = [
+		{ color: 'var(--obs-difficulty-agent)', surfaceColor: 'var(--obs-difficulty-agent-surface)' },
+		{ color: 'var(--obs-difficulty-secret)', surfaceColor: 'var(--obs-difficulty-secret-surface)' },
+		{ color: 'var(--obs-difficulty-00)', surfaceColor: 'var(--obs-difficulty-00-surface)' }
+	] as const;
 	return {
-		kind: 'horizontalStackedBar',
+		kind: 'horizontalGroupedBar',
 		xType: 'category',
-		series: ALL_STATUSES.map((status) =>
-			statusSeries(
-				status,
-				levels.map((level) => ({ x: levelLabel(level.levelNumber), y: level.counts[status] }))
-			)
-		)
+		series: difficulties.map((difficultyNumber, index) => ({
+			id: String(difficultyNumber),
+			label: difficultyLabel(difficultyNumber),
+			...styles[index],
+			points: levels.map((level) => {
+				const difficulty = level.byDifficulty.find((value) => value.difficultyNumber === difficultyNumber);
+				const attempts = difficulty?.counts.total ?? 0;
+				const seconds = difficulty?.totalSeconds ?? 0;
+				return {
+					x: levelLabel(level.levelNumber),
+					y: measure === 'attempts' ? attempts : seconds,
+					detail: `${attempts} attempts · ${formatDuration(seconds)}`
+				};
+			})
+		}))
 	};
 }
 
@@ -219,7 +235,7 @@ export function outcomeData(
 	measure: 'share' | 'count'
 ): VerticalBarChartData {
 	return {
-		kind: 'groupedBar',
+		kind: measure === 'share' ? 'stackedBar' : 'groupedBar',
 		xType: 'time',
 		series: ALL_STATUSES.map((status) =>
 			statusSeries(
@@ -259,7 +275,12 @@ export function sessionAttemptsData(session: MonitoringSessionDetail): LineChart
 	};
 }
 
-export function mostPlayedLevel(response: StatisticsResponse): string {
-	const level = [...response.byLevel].sort((a, b) => b.counts.total - a.counts.total)[0];
-	return level ? levelLabel(level.levelNumber) : '—';
+export function mostPlayedLevel(response: StatisticsResponse): { value: string; detail?: string } {
+	const level = [...response.byLevel].sort((a, b) => b.totalSeconds - a.totalSeconds)[0];
+	if (!level) return { value: '—' };
+	const difficulty = [...level.byDifficulty].sort((a, b) => b.totalSeconds - a.totalSeconds)[0];
+	return {
+		value: levelLabel(level.levelNumber),
+		detail: difficulty ? difficultyLabel(difficulty.difficultyNumber) : undefined
+	};
 }

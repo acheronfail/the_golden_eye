@@ -197,6 +197,49 @@
 	}}
 />
 <Story
+	name="Horizontal grouped bars"
+	args={{
+		xLabel: 'Attempts',
+		yLabel: '',
+		data: {
+			kind: 'horizontalGroupedBar',
+			xType: 'category',
+			series: [
+				{
+					id: 'agent',
+					label: 'Agent',
+					color: 'var(--obs-difficulty-agent)',
+					surfaceColor: 'var(--obs-difficulty-agent-surface)',
+					points: [
+						{ x: 'Dam', y: 12 },
+						{ x: 'Facility', y: 8 }
+					]
+				},
+				{
+					id: 'secret-agent',
+					label: 'Secret Agent',
+					color: 'var(--obs-difficulty-secret)',
+					surfaceColor: 'var(--obs-difficulty-secret-surface)',
+					points: [
+						{ x: 'Dam', y: 9 },
+						{ x: 'Facility', y: 13 }
+					]
+				},
+				{
+					id: '00-agent',
+					label: '00 Agent',
+					color: 'var(--obs-difficulty-00)',
+					surfaceColor: 'var(--obs-difficulty-00-surface)',
+					points: [
+						{ x: 'Dam', y: 5 },
+						{ x: 'Facility', y: 7 }
+					]
+				}
+			]
+		}
+	}}
+/>
+<Story
 	name="Clustered time labels"
 	args={{
 		data: {

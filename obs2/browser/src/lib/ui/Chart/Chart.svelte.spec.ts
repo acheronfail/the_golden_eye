@@ -135,4 +135,26 @@ describe('Chart', () => {
 		expect(screen.getByRole('button', { name: 'Dam, Complete: 4' })).toBeInTheDocument();
 		expect(screen.getByText('Dam')).toBeInTheDocument();
 	});
+
+	it('renders accessible horizontal grouped-bar marks and category labels', () => {
+		render(Chart, {
+			title: 'Attempts by level',
+			description: 'Attempts split by difficulty',
+			data: {
+				kind: 'horizontalGroupedBar',
+				xType: 'category',
+				series: [
+					{
+						id: 'agent',
+						label: 'Agent',
+						color: 'green',
+						points: [{ x: 'Dam', y: 4 }]
+					}
+				]
+			}
+		});
+
+		expect(screen.getByRole('button', { name: 'Dam, Agent: 4' })).toBeInTheDocument();
+		expect(screen.getByText('Dam')).toBeInTheDocument();
+	});
 });

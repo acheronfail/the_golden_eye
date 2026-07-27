@@ -723,6 +723,9 @@ fn statistics_and_sessions_use_numeric_difficulty() {
     assert_eq!(data.summary.total_session_seconds, 30.0);
     assert_eq!(data.selected_cohort.as_ref().unwrap().run_times[0].run_id, first.run_id);
     assert_eq!(data.summary.combined_best_times.recorded_cells, 1);
+    assert_eq!(data.by_level[0].total_seconds, 80);
+    assert_eq!(data.by_level[0].by_difficulty[0].difficulty_number, Some(0));
+    assert_eq!(data.by_level[0].by_difficulty[0].counts.total, 2);
 
     let suggested = catalog
         .statistics(StatisticsQuery {

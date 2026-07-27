@@ -20,6 +20,7 @@
 </script>
 
 <Story name="Overview" />
+<Story name="Overview time spent" args={{ levelMeasure: 'time' }} />
 <Story name="Improvement" args={{ tab: 'improvement' }} />
 <Story name="Outcomes" args={{ tab: 'outcomes' }} />
 <Story name="Sessions" args={{ tab: 'sessions' }} />

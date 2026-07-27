@@ -513,7 +513,16 @@ export interface StatisticsResponse {
 			}>;
 		};
 	};
-	byLevel: Array<{ levelNumber: number | null; counts: StatusCounts }>;
+	byLevel: Array<{
+		levelNumber: number | null;
+		counts: StatusCounts;
+		totalSeconds: number;
+		byDifficulty: Array<{
+			difficultyNumber: DifficultyNumber | null;
+			counts: StatusCounts;
+			totalSeconds: number;
+		}>;
+	}>;
 	overallBuckets: BucketCounts[];
 	selectedCohort: {
 		levelNumber: number;

@@ -4,6 +4,8 @@ import { isLocalDateValue, type DateRangeSelection } from './statisticsRange';
 export type StatisticsTab = 'overview' | 'improvement' | 'outcomes' | 'sessions';
 export type StatisticsLevelOrder = 'attempts' | 'mission';
 export type StatisticsOutcomeMeasure = 'share' | 'count';
+export type StatisticsLevelMeasure = 'attempts' | 'time';
+export type StatisticsLevelDifficulty = 0 | 1 | 2;
 export type StatisticsImprovementSeries = RunStatus | 'running-best';
 
 export interface StatisticsPreferences {
@@ -13,12 +15,13 @@ export interface StatisticsPreferences {
 	bucket: StatisticsBucket;
 	levelNumber: number;
 	difficultyNumber: DifficultyNumber;
-	attemptsByLevelStatuses: RunStatus[];
+	levelDifficulties: StatisticsLevelDifficulty[];
 	attemptsOverTimeStatuses: RunStatus[];
 	improvementSeries: StatisticsImprovementSeries[];
 	outcomeStatuses: RunStatus[];
 	sessionStatuses: RunStatus[];
 	outcomeMeasure: StatisticsOutcomeMeasure;
+	levelMeasure: StatisticsLevelMeasure;
 	levelOrder: StatisticsLevelOrder;
 	selectedSessionId: string;
 }
@@ -49,6 +52,18 @@ function storedImprovementSeries(value: unknown): StatisticsImprovementSeries[] 
 		...new Set(
 			value.filter((series): series is StatisticsImprovementSeries =>
 				improvementSeries.includes(series as StatisticsImprovementSeries)
+			)
+		)
+	];
+}
+
+function storedLevelDifficulties(value: unknown): StatisticsLevelDifficulty[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	return [
+		...new Set(
+			value.filter(
+				(difficulty): difficulty is StatisticsLevelDifficulty =>
+					typeof difficulty === 'number' && [0, 1, 2].includes(difficulty)
 			)
 		)
 	];
@@ -92,8 +107,8 @@ export function readStatisticsPreferences(storage: StorageReader): StoredPrefere
 			const legacyStatuses = storedStatuses(parsed.improvementStatuses);
 			if (legacyStatuses) stored.improvementSeries = [...legacyStatuses, 'running-best'];
 		}
-		const attemptsByLevelStatuses = storedStatuses(parsed.attemptsByLevelStatuses);
-		if (attemptsByLevelStatuses) stored.attemptsByLevelStatuses = attemptsByLevelStatuses;
+		const levelDifficulties = storedLevelDifficulties(parsed.levelDifficulties);
+		if (levelDifficulties) stored.levelDifficulties = levelDifficulties;
 		const attemptsOverTimeStatuses = storedStatuses(parsed.attemptsOverTimeStatuses);
 		if (attemptsOverTimeStatuses) stored.attemptsOverTimeStatuses = attemptsOverTimeStatuses;
 		const outcomeStatuses = storedStatuses(parsed.outcomeStatuses);
@@ -103,6 +118,7 @@ export function readStatisticsPreferences(storage: StorageReader): StoredPrefere
 		if (parsed.outcomeMeasure === 'share' || parsed.outcomeMeasure === 'count') {
 			stored.outcomeMeasure = parsed.outcomeMeasure;
 		}
+		if (parsed.levelMeasure === 'attempts' || parsed.levelMeasure === 'time') stored.levelMeasure = parsed.levelMeasure;
 		if (parsed.levelOrder === 'attempts' || parsed.levelOrder === 'mission') stored.levelOrder = parsed.levelOrder;
 		if (typeof parsed.selectedSessionId === 'string') stored.selectedSessionId = parsed.selectedSessionId;
 		return stored;

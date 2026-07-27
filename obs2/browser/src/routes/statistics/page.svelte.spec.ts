@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { statisticsFixture } from '../../stories/features/statistics/statisticsFixtures';
 import { STATISTICS_PREFERENCES_STORAGE_KEY } from '$lib/features/statistics/statisticsPreferences';
@@ -51,6 +52,18 @@ beforeEach(() => {
 });
 
 describe('/statistics', () => {
+	it('toggles difficulty series from the level chart legend', async () => {
+		const user = userEvent.setup();
+		render(StatisticsPage);
+
+		expect(await screen.findByRole('button', { name: 'Hide Agent' })).toBeInTheDocument();
+		await user.click(screen.getByRole('button', { name: 'Hide Agent' }));
+
+		expect(screen.getByRole('button', { name: 'Show Agent' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Hide Secret Agent' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Hide 00 Agent' })).toBeInTheDocument();
+	});
+
 	it('restores view and filters from browser storage', async () => {
 		localStorage.setItem(
 			STATISTICS_PREFERENCES_STORAGE_KEY,
@@ -61,12 +74,13 @@ describe('/statistics', () => {
 				bucket: 'month',
 				levelNumber: 7,
 				difficultyNumber: 2,
-				attemptsByLevelStatuses: ['complete'],
+				levelDifficulties: [0, 2],
 				attemptsOverTimeStatuses: ['complete', 'failed'],
 				improvementSeries: ['running-best'],
 				outcomeStatuses: ['failed', 'abort'],
 				sessionStatuses: ['complete'],
 				outcomeMeasure: 'count',
+				levelMeasure: 'time',
 				levelOrder: 'mission',
 				selectedSessionId: ''
 			})

@@ -97,6 +97,16 @@ pub struct DifficultyCombinedBest {
 pub struct LevelCounts {
     pub level_number: Option<i32>,
     pub counts: StatusCounts,
+    pub total_seconds: i64,
+    pub by_difficulty: Vec<LevelDifficultyCounts>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LevelDifficultyCounts {
+    pub difficulty_number: Option<i32>,
+    pub counts: StatusCounts,
+    pub total_seconds: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -134,9 +144,16 @@ pub fn aggregate(
 ) -> StatisticsData {
     let mut counts = StatusCounts::default();
     let mut by_level = BTreeMap::<Option<i32>, StatusCounts>::new();
+    let mut level_seconds = BTreeMap::<Option<i32>, i64>::new();
+    let mut by_level_difficulty = BTreeMap::<(Option<i32>, Option<i32>), (StatusCounts, i64)>::new();
     for fact in &facts {
         counts.add(fact.status);
         by_level.entry(fact.level_number).or_default().add(fact.status);
+        let time_seconds = i64::from(fact.time_seconds.unwrap_or_default());
+        *level_seconds.entry(fact.level_number).or_default() += time_seconds;
+        let difficulty = by_level_difficulty.entry((fact.level_number, fact.difficulty_number)).or_default();
+        difficulty.0.add(fact.status);
+        difficulty.1 += time_seconds;
     }
 
     let overall_buckets = bucket_counts(&facts, query.from, query.to, query.bucket);
@@ -202,7 +219,23 @@ pub fn aggregate(
             total_session_seconds,
             combined_best_times: combined_best_times(combined_rows),
         },
-        by_level: by_level.into_iter().map(|(level_number, counts)| LevelCounts { level_number, counts }).collect(),
+        by_level: by_level
+            .into_iter()
+            .map(|(level_number, counts)| LevelCounts {
+                level_number,
+                counts,
+                total_seconds: level_seconds.remove(&level_number).unwrap_or_default(),
+                by_difficulty: by_level_difficulty
+                    .iter()
+                    .filter(|((candidate, _), _)| *candidate == level_number)
+                    .map(|((_, difficulty_number), (counts, total_seconds))| LevelDifficultyCounts {
+                        difficulty_number: *difficulty_number,
+                        counts: *counts,
+                        total_seconds: *total_seconds,
+                    })
+                    .collect(),
+            })
+            .collect(),
         overall_buckets,
         selected_cohort,
     }
