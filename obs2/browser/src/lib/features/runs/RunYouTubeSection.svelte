@@ -164,7 +164,7 @@
 		<div class="flex flex-col items-center gap-2 text-center">
 			{#if isUploaded}
 				<div class="mb-1 w-full text-left">
-					<p class="font-mono text-xs text-(--obs-text)">Already uploaded to YouTube.</p>
+					<p class="font-mono text-xs text-(--obs-text)">Uploaded to YouTube.</p>
 					<p class="mt-1 text-xs obs-dim">Use the link below to copy or open the uploaded video.</p>
 				</div>
 			{/if}
