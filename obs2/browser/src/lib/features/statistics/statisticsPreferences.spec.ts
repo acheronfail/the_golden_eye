@@ -23,12 +23,13 @@ const preferences: StatisticsPreferences = {
 	bucket: 'year',
 	levelNumber: 7,
 	difficultyNumber: 2,
-	attemptsByLevelStatuses: ['complete', 'kia'],
+	levelDifficulties: [0, 2],
 	attemptsOverTimeStatuses: [],
 	improvementSeries: ['running-best', 'failed'],
 	outcomeStatuses: ['abort', 'kia'],
 	sessionStatuses: ['complete'],
 	outcomeMeasure: 'count',
+	levelMeasure: 'time',
 	levelOrder: 'mission',
 	selectedSessionId: 'session-123'
 };
@@ -47,7 +48,7 @@ describe('statistics preferences', () => {
 				tab: 'unknown',
 				levelNumber: 99,
 				difficultyNumber: -1,
-				attemptsByLevelStatuses: ['complete', 'unknown', 'complete'],
+				levelDifficulties: [0, 'unknown', 0],
 				improvementSeries: ['running-best', 'unknown', 'running-best'],
 				outcomeStatuses: []
 			})
@@ -57,7 +58,7 @@ describe('statistics preferences', () => {
 			expect.objectContaining({
 				version: 1,
 				bucket: 'year',
-				attemptsByLevelStatuses: ['complete'],
+				levelDifficulties: [0],
 				improvementSeries: ['running-best']
 			})
 		);

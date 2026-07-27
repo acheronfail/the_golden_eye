@@ -50,10 +50,10 @@ export interface VerticalBarChartData extends BaseChartData {
 	series: BarChartSeries[];
 }
 
-export interface HorizontalStackedBarChartData extends BaseChartData {
-	kind: 'horizontalStackedBar';
+export interface HorizontalBarChartData extends BaseChartData {
+	kind: 'horizontalStackedBar' | 'horizontalGroupedBar';
 	xType: 'category';
 	series: BarChartSeries[];
 }
 
-export type ChartData = LineChartData | VerticalBarChartData | HorizontalStackedBarChartData;
+export type ChartData = LineChartData | VerticalBarChartData | HorizontalBarChartData;

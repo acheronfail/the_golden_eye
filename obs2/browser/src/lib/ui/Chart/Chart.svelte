@@ -205,7 +205,7 @@
 				/>
 
 				{#each geometry.yTicks as tick}
-					{#if data.kind === 'horizontalStackedBar'}
+					{#if data.kind === 'horizontalStackedBar' || data.kind === 'horizontalGroupedBar'}
 						<line
 							x1={geometry.margin.left + (tick / geometry.maxValue) * geometry.plotWidth}
 							x2={geometry.margin.left + (tick / geometry.maxValue) * geometry.plotWidth}
@@ -242,7 +242,7 @@
 
 				{#if data.kind === 'line'}
 					<LineChartMarks seriesGeometry={geometry.lineSeries} {interactions} {tickLabel} {formatValue} />
-				{:else if data.kind === 'horizontalStackedBar'}
+				{:else if data.kind === 'horizontalStackedBar' || data.kind === 'horizontalGroupedBar'}
 					<HorizontalStackedBarMarks
 						marks={geometry.bars}
 						categoryLabels={geometry.categoryLabels}
@@ -272,7 +272,7 @@
 					{/if}
 				{/each}
 
-				{#if data.kind !== 'horizontalStackedBar'}
+				{#if data.kind !== 'horizontalStackedBar' && data.kind !== 'horizontalGroupedBar'}
 					{#each geometry.xTicks as category}
 						<text
 							x={geometry.xPosition(category)}
@@ -373,7 +373,7 @@
 									<path d="M6 2 L10 9 L2 9 Z" fill={enabled ? series.color : 'currentColor'} />
 								{:else if data.kind === 'line'}
 									<circle cx="6" cy="6" r="3" fill={enabled ? series.color : 'currentColor'} />
-								{:else if data.kind === 'stackedBar' || data.kind === 'groupedBar' || data.kind === 'horizontalStackedBar'}
+								{:else if data.kind === 'stackedBar' || data.kind === 'groupedBar' || data.kind === 'horizontalStackedBar' || data.kind === 'horizontalGroupedBar'}
 									<rect
 										x="1"
 										y="1"

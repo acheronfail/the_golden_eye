@@ -1,16 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { statisticsFixture } from '../../../stories/features/statistics/statisticsFixtures';
-import { attemptsByLevelData, formatDuration, outcomeData, runTimeData } from './statisticsView';
+import { attemptsByLevelData, formatDuration, mostPlayedLevel, outcomeData, runTimeData } from './statisticsView';
 
 describe('statistics chart data', () => {
-	it('uses the requested status patterns for attempts by level', () => {
+	it('shows three difficulty bars per level', () => {
 		const data = attemptsByLevelData(statisticsFixture, 'attempts');
-		expect(data.series.map((series) => [series.id, series.color, series.pattern, series.shape])).toEqual([
-			['complete', 'var(--obs-success)', 'plain', 'circle'],
-			['failed', 'var(--obs-danger)', 'plain', 'circle'],
-			['abort', 'var(--obs-danger)', 'diagonal', 'square'],
-			['kia', 'var(--obs-danger)', 'dots', 'triangle']
-		]);
+		expect(data.kind).toBe('horizontalGroupedBar');
+		expect(data.series.map((series) => series.label)).toEqual(['Agent', 'Secret Agent', '00 Agent']);
+		expect(data.series.map((series) => series.points[0].y)).toEqual([14, 15, 12]);
+	});
+
+	it('can rank and measure levels by time spent', () => {
+		const data = attemptsByLevelData(statisticsFixture, 'attempts', 'time');
+		expect(data.series[0].points.map((point) => point.x)).toEqual(['Facility', 'Frigate', 'Dam']);
+		expect(data.series[2].points[0].y).toBe(1_650);
+		expect(mostPlayedLevel(statisticsFixture)).toEqual({ value: 'Facility', detail: '00 Agent' });
 	});
 
 	it('normalizes outcome shares across selected statuses only', () => {
@@ -18,6 +22,7 @@ describe('statistics chart data', () => {
 		const failed = data.series.find((series) => series.id === 'failed')!;
 		expect(data.series.map((series) => series.id)).toEqual(['complete', 'failed', 'abort', 'kia']);
 		expect(failed.points[0].y).toBeCloseTo((7 / 16) * 100);
+		expect(data.kind).toBe('stackedBar');
 	});
 
 	it('adds the completed running-best line', () => {

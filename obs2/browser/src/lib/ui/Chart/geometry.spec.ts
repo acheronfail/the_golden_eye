@@ -120,4 +120,24 @@ describe('chart geometry', () => {
 		expect(result.xTicks).toEqual([]);
 		expect(pointAnchor(result, firstBar.series, firstBar.point)?.y).toBe(firstBar.y + firstBar.height / 2);
 	});
+
+	it('places horizontal grouped bars on separate rows', () => {
+		const data = {
+			kind: 'horizontalGroupedBar',
+			xType: 'category',
+			series: [
+				{ id: 'agent', label: 'Agent', color: 'green', points: [{ x: 'Dam', y: 4 }] },
+				{ id: 'secret', label: 'Secret Agent', color: 'gold', points: [{ x: 'Dam', y: 3 }] },
+				{ id: '00', label: '00 Agent', color: 'red', points: [{ x: 'Dam', y: 2 }] }
+			]
+		} satisfies ChartData;
+
+		const result = geometry(data);
+
+		expect(result.maxValue).toBe(4);
+		expect(result.bars.map((bar) => bar.x)).toEqual([result.margin.left, result.margin.left, result.margin.left]);
+		expect(result.bars[0].y).toBeLessThan(result.bars[1].y);
+		expect(result.bars[1].y).toBeLessThan(result.bars[2].y);
+		expect(result.categoryLabels[0].value).toBe('Dam');
+	});
 });

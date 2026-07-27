@@ -26,6 +26,8 @@
 	} from '$lib/features/statistics/statisticsView';
 	import type {
 		StatisticsImprovementSeries,
+		StatisticsLevelDifficulty,
+		StatisticsLevelMeasure,
 		StatisticsLevelOrder,
 		StatisticsOutcomeMeasure,
 		StatisticsTab
@@ -43,12 +45,13 @@
 		selectedSessionId = $bindable(),
 		sessionDetail,
 		sessionLoading = false,
-		attemptsByLevelStatuses = $bindable([...ALL_STATUSES]),
+		levelDifficulties = $bindable([0, 1, 2]),
 		attemptsOverTimeStatuses = $bindable([...ALL_STATUSES]),
 		improvementSeries = $bindable(['running-best', 'complete']),
 		outcomeStatuses = $bindable([...ALL_STATUSES]),
 		sessionStatuses = $bindable([...ALL_STATUSES]),
 		outcomeMeasure = $bindable('share'),
+		levelMeasure = $bindable('attempts'),
 		levelOrder = $bindable('attempts'),
 		controls
 	}: {
@@ -63,12 +66,13 @@
 		selectedSessionId: string;
 		sessionDetail: MonitoringSessionDetail | null;
 		sessionLoading?: boolean;
-		attemptsByLevelStatuses?: RunStatus[];
+		levelDifficulties?: StatisticsLevelDifficulty[];
 		attemptsOverTimeStatuses?: RunStatus[];
 		improvementSeries?: StatisticsImprovementSeries[];
 		outcomeStatuses?: RunStatus[];
 		sessionStatuses?: RunStatus[];
 		outcomeMeasure?: StatisticsOutcomeMeasure;
+		levelMeasure?: StatisticsLevelMeasure;
 		levelOrder?: StatisticsLevelOrder;
 		controls?: Snippet;
 	} = $props();
@@ -82,15 +86,26 @@
 </script>
 
 {#snippet levelOrderActions()}
-	<SegmentedControl
-		value={levelOrder}
-		options={[
-			{ value: 'attempts', label: 'Most attempted' },
-			{ value: 'mission', label: 'Mission order' }
-		]}
-		ariaLabel="Attempts by level order"
-		onChange={(value) => (levelOrder = value as StatisticsLevelOrder)}
-	/>
+	<div class="flex w-full flex-wrap justify-between gap-2">
+		<SegmentedControl
+			value={levelMeasure}
+			options={[
+				{ value: 'attempts', label: 'Attempts' },
+				{ value: 'time', label: 'Time spent' }
+			]}
+			ariaLabel="Level measurement"
+			onChange={(value) => (levelMeasure = value as StatisticsLevelMeasure)}
+		/>
+		<SegmentedControl
+			value={levelOrder}
+			options={[
+				{ value: 'attempts', label: levelMeasure === 'attempts' ? 'Most attempted' : 'Most time' },
+				{ value: 'mission', label: 'Mission order' }
+			]}
+			ariaLabel="Level chart order"
+			onChange={(value) => (levelOrder = value as StatisticsLevelOrder)}
+		/>
+	</div>
 {/snippet}
 
 {#snippet outcomeMeasureActions()}
@@ -147,7 +162,7 @@
 				items={[
 					{ label: 'Attempts', value: String(data.summary.counts.total) },
 					{ label: 'Total session time', value: formatDuration(data.summary.totalSessionSeconds) },
-					{ label: 'Most played', value: mostPlayedLevel(data) },
+					{ label: 'Most played', ...mostPlayedLevel(data) },
 					{
 						label: 'Overall combined time',
 						value: formatDuration(data.summary.combinedBestTimes.overallSeconds)
@@ -172,16 +187,20 @@
 			</div>
 		</section>
 		<section class="mt-4 rounded-sm obs-panel p-4">
-			<SectionTitle title="Attempts by level" actions={levelOrderActions} />
+			<SectionTitle
+				title={levelMeasure === 'attempts' ? 'Attempts by level' : 'Time spent by level'}
+				actions={levelOrderActions}
+			/>
 			<div class="mt-3">
 				<Chart
-					data={attemptsByLevelData(data, levelOrder)}
-					title="Attempts by level"
-					description="Horizontal bars show attempts for every level split by Complete, Failed, Aborted, and Killed in Action"
-					xLabel="Share of attempts"
+					data={attemptsByLevelData(data, levelOrder, levelMeasure)}
+					title={levelMeasure === 'attempts' ? 'Attempts by level' : 'Time spent by level'}
+					description="Three bars per level compare Agent, Secret Agent, and 00 Agent"
+					xLabel={levelMeasure === 'attempts' ? 'Attempts' : 'Time spent'}
+					formatValue={levelMeasure === 'time' ? formatDuration : undefined}
 					interactiveLegend
-					visibleSeriesIds={attemptsByLevelStatuses}
-					onVisibleSeriesChange={(ids) => (attemptsByLevelStatuses = ids as RunStatus[])}
+					visibleSeriesIds={levelDifficulties.map(String)}
+					onVisibleSeriesChange={(ids) => (levelDifficulties = ids.map(Number) as StatisticsLevelDifficulty[])}
 				/>
 			</div>
 		</section>
@@ -211,12 +230,18 @@
 	{:else if tab === 'outcomes'}
 		<section class="mt-4 rounded-sm obs-panel p-4">
 			<SectionTitle title="Outcome mix" actions={outcomeMeasureActions} />
-			<p class="mt-1 text-xs obs-dim">Selected outcomes are side-by-side for each calendar bucket.</p>
+			<p class="mt-1 text-xs obs-dim">
+				{outcomeMeasure === 'share'
+					? 'Selected outcomes are stacked to show each calendar bucket as a whole.'
+					: 'Selected outcomes are side-by-side for each calendar bucket.'}
+			</p>
 			<div class="mt-3">
 				<Chart
 					data={outcomeData(data.overallBuckets, outcomeStatuses, outcomeMeasure)}
 					title="Outcome mix over time"
-					description="Grouped bars compare the selected run outcomes in each period"
+					description={outcomeMeasure === 'share'
+						? 'Stacked bars show the selected run outcome share in each period'
+						: 'Grouped bars compare the selected run outcomes in each period'}
 					xLabel="Date"
 					yLabel={outcomeMeasure === 'share' ? 'Share' : 'Attempts'}
 					formatXValue={bucket === 'year' ? (value) => String(new Date(Number(value)).getFullYear()) : undefined}

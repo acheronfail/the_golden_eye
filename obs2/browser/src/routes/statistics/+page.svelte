@@ -40,12 +40,13 @@
 		bind:selectedSessionId={controller.selectedSessionId}
 		sessionDetail={controller.sessionDetail}
 		sessionLoading={controller.sessionLoading}
-		bind:attemptsByLevelStatuses={controller.attemptsByLevelStatuses}
+		bind:levelDifficulties={controller.levelDifficulties}
 		bind:attemptsOverTimeStatuses={controller.attemptsOverTimeStatuses}
 		bind:improvementSeries={controller.improvementSeries}
 		bind:outcomeStatuses={controller.outcomeStatuses}
 		bind:sessionStatuses={controller.sessionStatuses}
 		bind:outcomeMeasure={controller.outcomeMeasure}
+		bind:levelMeasure={controller.levelMeasure}
 		bind:levelOrder={controller.levelOrder}
 	>
 		{#snippet controls()}

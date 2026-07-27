@@ -76,6 +76,9 @@ function chartCategories(data: ChartData): XValue[] {
 	return data.xType === 'time' ? values.sort((a, b) => Number(a) - Number(b)) : values;
 }
 
+const isHorizontal = (data: ChartData): boolean =>
+	data.kind === 'horizontalStackedBar' || data.kind === 'horizontalGroupedBar';
+
 function linePath(
 	series: LineChartSeries,
 	categories: XValue[],
@@ -107,7 +110,7 @@ function tickValues(
 	plotWidth: number,
 	xPosition: (value: XValue) => number
 ): XValue[] {
-	if (data.kind === 'horizontalStackedBar') return [];
+	if (isHorizontal(data)) return [];
 	if (data.xType !== 'time' || data.kind !== 'line') {
 		const step = Math.max(1, Math.ceil(categories.length / Math.max(1, Math.floor(plotWidth / 70))));
 		return categories.filter((_, index) => index % step === 0);
@@ -144,12 +147,13 @@ export function buildChartGeometry({
 	includeZero
 }: GeometryOptions): ChartGeometry {
 	const categories = chartCategories(data);
-	const margin: ChartMargin =
-		data.kind === 'horizontalStackedBar'
-			? { top: 22, right: 16, bottom: 60, left: 96 }
-			: { top: 22, right: 16, bottom: 60, left: yLabel ? 58 : 40 };
-	const height =
-		data.kind === 'horizontalStackedBar' ? Math.max(320, categories.length * 25 + margin.top + margin.bottom) : 320;
+	const margin: ChartMargin = isHorizontal(data)
+		? { top: 22, right: 16, bottom: 60, left: 96 }
+		: { top: 22, right: 16, bottom: 60, left: yLabel ? 58 : 40 };
+	const horizontalRowHeight = data.kind === 'horizontalGroupedBar' ? data.series.length * 12 + 10 : 25;
+	const height = isHorizontal(data)
+		? Math.max(320, categories.length * horizontalRowHeight + margin.top + margin.bottom)
+		: 320;
 	const plotWidth = Math.max(1, width - margin.left - margin.right);
 	const plotHeight = height - margin.top - margin.bottom;
 	const visibleSeries = data.series.filter((series) => visibleSeriesIds.has(series.id));
@@ -202,30 +206,32 @@ export function buildChartGeometry({
 				}))
 			});
 		}
-	} else if (data.kind === 'horizontalStackedBar') {
+	} else if (isHorizontal(data)) {
 		const series = data.series.filter((candidate) => visibleSeriesIds.has(candidate.id));
 		const rowHeight = plotHeight / Math.max(1, categories.length);
 		for (const [categoryIndex, category] of categories.entries()) {
-			const baseY = margin.top + categoryIndex * rowHeight + rowHeight * 0.18;
-			const barHeight = rowHeight * 0.64;
+			const grouped = data.kind === 'horizontalGroupedBar';
+			const groupTop = margin.top + categoryIndex * rowHeight + rowHeight * 0.12;
+			const groupHeight = rowHeight * 0.76;
+			const barHeight = grouped ? groupHeight / Math.max(1, series.length) : groupHeight;
 			categoryLabels.push({
 				value: category,
 				x: margin.left - 8,
-				y: baseY + barHeight / 2 + 4
+				y: groupTop + groupHeight / 2 + 4
 			});
 			for (const [seriesIndex, candidate] of series.entries()) {
 				const point = candidate.points.find((item) => item.x === category);
 				if (!point || point.y <= 0) continue;
-				const offset = stackOffset(series, seriesIndex, category);
+				const offset = grouped ? 0 : stackOffset(series, seriesIndex, category);
 				const x = margin.left + (offset / maxValue) * plotWidth;
 				const markWidth = (point.y / maxValue) * plotWidth;
 				bars.push({
 					series: candidate,
 					point,
 					x,
-					y: baseY,
+					y: grouped ? groupTop + seriesIndex * barHeight : groupTop,
 					width: markWidth,
-					height: barHeight
+					height: Math.max(1, barHeight - (grouped ? 2 : 0))
 				});
 			}
 		}
@@ -285,7 +291,10 @@ export function pointAnchor(geometry: ChartGeometry, series: ChartSeries, point:
 				series,
 				point,
 				x: bar.x + bar.width / 2,
-				y: geometry.kind === 'horizontalStackedBar' ? bar.y + bar.height / 2 : bar.y
+				y:
+					geometry.kind === 'horizontalStackedBar' || geometry.kind === 'horizontalGroupedBar'
+						? bar.y + bar.height / 2
+						: bar.y
 			}
 		: undefined;
 }
