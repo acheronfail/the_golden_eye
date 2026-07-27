@@ -259,8 +259,8 @@ export function sessionAttemptsData(session: MonitoringSessionDetail): LineChart
 	return {
 		kind: 'line',
 		xType: 'time',
-		series: ALL_STATUSES.map((status) =>
-			statusSeries(
+		series: ALL_STATUSES.map((status) => ({
+			...statusSeries(
 				status,
 				session.attempts
 					.filter((attempt) => attempt.status === status && attempt.timeSeconds != null)
@@ -270,8 +270,9 @@ export function sessionAttemptsData(session: MonitoringSessionDetail): LineChart
 						label: `${formatDuration(attempt.elapsedSeconds)} into session`,
 						detail: `${levelLabel(attempt.levelNumber)} · ${difficultyLabel(attempt.difficultyNumber)}`
 					}))
-			)
-		)
+			),
+			lineStyle: 'smooth' as const
+		}))
 	};
 }
 

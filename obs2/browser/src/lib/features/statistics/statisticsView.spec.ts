@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { statisticsFixture } from '../../../stories/features/statistics/statisticsFixtures';
-import { attemptsByLevelData, formatDuration, mostPlayedLevel, outcomeData, runTimeData } from './statisticsView';
+import { sessionDetailFixture, statisticsFixture } from '../../../stories/features/statistics/statisticsFixtures';
+import {
+	attemptsByLevelData,
+	formatDuration,
+	mostPlayedLevel,
+	outcomeData,
+	runTimeData,
+	sessionAttemptsData
+} from './statisticsView';
 
 describe('statistics chart data', () => {
 	it('shows three difficulty bars per level', () => {
@@ -54,6 +61,12 @@ describe('statistics chart data', () => {
 		for (const point of data.series.flatMap((series) => series.points)) {
 			expect(expectedLabels).toContain(point.label);
 		}
+	});
+
+	it('lightly smooths session attempt lines', () => {
+		const data = sessionAttemptsData(sessionDetailFixture);
+
+		expect(data.series.every((series) => series.lineStyle === 'smooth')).toBe(true);
 	});
 
 	it('formats combined durations without wrapping at 24 hours', () => {
