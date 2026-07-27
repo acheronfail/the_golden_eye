@@ -9,7 +9,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
 use serde::Deserialize;
 
-use crate::cv::{CaptureRegion, LevelMatch};
+use crate::cv::{CaptureRegion, LevelMatch, detect_black_frame};
 use crate::http::{AppEvent, AppState, MonitorStoppedReason};
 
 mod capture;
@@ -316,23 +316,22 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             // paused/stalled source can't stall (and eventually roll out of the
             // replay buffer) a scheduled save.
             let deadline = recording.pending_fire_at();
-            let (result, match_ms, stats) = match source.capture_with_stats_until(deadline, |bytes, w, h| {
-                if timing_enabled {
-                    let match_started = Instant::now();
+            let (result, black_frame, match_ms, stats) =
+                match source.capture_with_stats_until(deadline, |bytes, w, h| {
+                    let match_started = timing_enabled.then(Instant::now);
                     let result = session.match_frame(bytes, w, h);
-                    let match_ms = match_started.elapsed().as_secs_f64() * 1000.0;
-                    (result, Some(match_ms))
-                } else {
-                    (session.match_frame(bytes, w, h), None)
-                }
-            }) {
-                Captured::Frame((result, match_ms), stats) => (result, match_ms, stats),
-                Captured::Idle => {
-                    recording.poll_pending(Instant::now());
-                    continue;
-                }
-                Captured::Closed => break,
-            };
+                    let match_ms = match_started.map(|started| started.elapsed().as_secs_f64() * 1000.0);
+                    let active_picture = session.active_picture_region(w, h);
+                    let black_frame = detect_black_frame(bytes, w, h, active_picture);
+                    (result, black_frame, match_ms)
+                }) {
+                    Captured::Frame((result, black_frame, match_ms), stats) => (result, black_frame, match_ms, stats),
+                    Captured::Idle => {
+                        recording.poll_pending(Instant::now());
+                        continue;
+                    }
+                    Captured::Closed => break,
+                };
             let now = Instant::now();
             if let Some(fps) = throughput.observe(now, stats.dropped_frames_total) {
                 let _ = event_tx.send(AppEvent::MonitorFps(fps));
@@ -371,6 +370,9 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
                     monitor_timing.observe(stats, match_ms, None, source_fps);
                     tracing::error!("err: {}", e.message);
                 }
+            }
+            if let Some(signal) = black_frame {
+                snapshot.observe_black_frame(signal);
             }
         }
         tracing::info!("monitor loop exiting");

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import type { LevelMatch, RecordingStatus, RunClip } from '$lib/api';
 import MonitorView from './MonitorView.svelte';
@@ -46,7 +46,7 @@ const recentRun: RunClip = {
 };
 
 describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (design) => {
-	it('shows session and level wall clocks with running state styling', () => {
+	it('shows session and level wall clocks with an immediate styled tooltip', async () => {
 		render(MonitorView, props(design, 'started', match('start')));
 
 		const timers = screen.getByRole(design === 'signal-band' ? 'group' : 'region', {
@@ -56,9 +56,21 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 		expect(timers).toHaveTextContent('Time in level');
 		expect(timers).toHaveTextContent('00:00:000');
 		const levelTimerLabel = screen.getByText('Time in level');
-		expect(levelTimerLabel).toHaveClass('cursor-help');
-		expect(levelTimerLabel).toHaveAttribute('title', expect.stringContaining('start screen disappears'));
-		expect(levelTimerLabel).toHaveAttribute('aria-label', expect.stringContaining("not the game's reported time"));
+		const levelTimerTrigger = levelTimerLabel.parentElement;
+		expect(levelTimerTrigger).toHaveClass('cursor-help');
+		expect(levelTimerLabel).not.toHaveAttribute('title');
+		expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+		await fireEvent.pointerEnter(levelTimerTrigger!);
+		const tooltip = screen.getByRole('tooltip');
+		expect(tooltip).toHaveTextContent("GoldenEye's in-game timer can be inconsistent");
+		expect(tooltip).toHaveTextContent('only an estimate');
+		expect(tooltip).toHaveTextContent('waits through the opening cutscenes');
+		expect(tooltip).toHaveTextContent('stops at the next fade to black');
+		expect(levelTimerTrigger).toHaveAttribute('aria-describedby', tooltip.id);
+
+		await fireEvent.pointerLeave(levelTimerTrigger!);
+		expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
 		expect(timers.querySelector('[data-running="true"]')).not.toBeNull();
 		expect(timers.querySelector('[data-running="false"]')).not.toBeNull();
 	});
@@ -195,7 +207,14 @@ describe('debug monitor', () => {
 		expect(screen.getByRole('heading', { name: 'Wall-clock timers' })).toBeInTheDocument();
 		expect(screen.getByText('time in session')).toBeInTheDocument();
 		expect(screen.getByText('time in level')).toBeInTheDocument();
-		expect(view.container.querySelectorAll('.state-cell')).toHaveLength(10);
+		expect(screen.getByText('level timer origin')).toBeInTheDocument();
+		expect(screen.getByText('level timer phase')).toBeInTheDocument();
+		expect(screen.getByText('intro swirl delay')).toBeInTheDocument();
+		expect(screen.getByText('black frame')).toBeInTheDocument();
+		expect(screen.getByText('sampled mean luma')).toBeInTheDocument();
+		expect(screen.getByText('dark sample coverage')).toBeInTheDocument();
+		expect(screen.getByText('active picture sample')).toBeInTheDocument();
+		expect(view.container.querySelectorAll('.state-cell')).toHaveLength(11);
 		expect(view.container.querySelectorAll('[data-value-kind="true"]')).not.toHaveLength(0);
 		expect(view.container.querySelectorAll('[data-value-kind="null"]')).not.toHaveLength(0);
 		expect(view.container.querySelector('[class*="motion"], [class*="sweep"]')).not.toBeInTheDocument();

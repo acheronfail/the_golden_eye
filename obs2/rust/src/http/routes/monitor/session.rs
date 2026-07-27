@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::cv::{CaptureRegion, CvMatcher, LevelMatch, Screen};
+use crate::cv::{ActivePictureRegion, CaptureRegion, CvMatcher, LevelMatch, Screen};
 use crate::ge;
 
 /// Frames voted over to steady the stats times shown live. The per-frame matcher
@@ -109,6 +109,10 @@ impl MonitorSession {
 
     pub(super) fn capture_region(&self) -> Option<CaptureRegion> {
         self.matcher.capture_region()
+    }
+
+    pub(super) fn active_picture_region(&self, width: u32, height: u32) -> ActivePictureRegion {
+        self.matcher.active_picture_region(width, height)
     }
 
     /// Matches one BGRA frame. The matcher's scale cache makes the first overlay

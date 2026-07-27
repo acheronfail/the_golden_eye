@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { formatWallClockTime, type MonitorWallClockSnapshot } from './monitorWallClocks.svelte';
 
 	let {
@@ -18,7 +19,7 @@
 	} = $props();
 
 	const levelTimerHelp =
-		"Starts when the start screen disappears. It measures elapsed wall-clock time, not the game's reported time.";
+		"GoldenEye's in-game timer can be inconsistent, so this time is only an estimate. It waits through the opening cutscenes, starts when gameplay should begin, and stops at the next fade to black.";
 </script>
 
 <section class={containerClass} aria-label="Wall-clock timers" aria-live="off" {role}>
@@ -27,11 +28,9 @@
 		<strong>{formatWallClockTime(wallClocks.sessionElapsedMs)}</strong>
 	</div>
 	<div class={!wallClocks.levelRunning ? inactiveTimerClass : ''} data-running={wallClocks.levelRunning}>
-		<small
-			class="{levelLabelClass} {wallClocks.levelRunning ? activeLabelClass : ''}"
-			title={levelTimerHelp}
-			aria-label={`Time in level. ${levelTimerHelp}`}>Time in level</small
-		>
+		<Tooltip content={levelTimerHelp} class={levelLabelClass}>
+			<small class={wallClocks.levelRunning ? activeLabelClass : ''}>Time in level</small>
+		</Tooltip>
 		<strong>{formatWallClockTime(wallClocks.levelElapsedMs)}</strong>
 	</div>
 </section>

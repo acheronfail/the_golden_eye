@@ -771,6 +771,36 @@ export interface MonitorWallClockState {
 	levelStartedAtUnixMs: number | null;
 	levelElapsedMs: number;
 	levelRunning: boolean;
+	levelStartReason: LevelTimerStartReason | null;
+	levelTimerPhase: LevelTimerPhase;
+	introSwirlDelayMs: number | null;
+	fadeDetection: BlackFrameSignal | null;
+}
+
+export type LevelTimerStartReason = 'fade' | 'swirl';
+export type LevelTimerPhase =
+	| 'idle'
+	| 'awaitingInitialBlack'
+	| 'awaitingFirstCutscene'
+	| 'awaitingFirstCutsceneFade'
+	| 'awaitingSecondFadeOrSwirl'
+	| 'awaitingGameplayAfterSkip'
+	| 'running'
+	| 'stopped';
+
+export interface BlackFrameSignal {
+	detected: boolean;
+	meanLuma: number;
+	darkPixelPercent: number;
+	sampleCount: number;
+	sampleRegion: ActivePictureRegion;
+}
+
+export interface ActivePictureRegion {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
 }
 
 export interface AppSnapshot {
