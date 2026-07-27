@@ -17,9 +17,9 @@ export default defineConfig({
 		'import.meta.env.VITE_GE_SERVER_PORT': JSON.stringify(serverPort)
 	},
 	plugins: [tailwindcss(), sveltekit()],
-	// NOTE: must match CMakeLists.txt
+	// NOTE: must match cmake/Frontend.cmake
 	server: {
-		port: 5173,
+		port: 31336,
 		strictPort: true
 	},
 	resolve: process.env.VITEST
