@@ -2,6 +2,128 @@ use super::*;
 
 const TEMPLATES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../cv_templates");
 
+fn solid_bgra(width: u32, height: u32, value: u8) -> Vec<u8> {
+    vec![value; (width * height * 4) as usize]
+}
+
+#[test]
+fn black_frame_detection_tolerates_raised_black_levels() {
+    let signal =
+        detect_black_frame(&solid_bgra(1920, 1080, 30), 1920, 1080, ActivePictureRegion::full(1920, 1080)).unwrap();
+
+    assert!(signal.detected);
+    assert_eq!(signal.mean_luma, 30);
+    assert_eq!(signal.dark_pixel_percent, 100);
+    assert_eq!(signal.sample_count, 576);
+}
+
+#[test]
+fn black_frame_detection_rejects_dark_scenes_with_visible_detail() {
+    let mut frame = solid_bgra(320, 180, 12);
+    for pixel in frame.chunks_exact_mut(4).step_by(5) {
+        pixel[..3].fill(72);
+    }
+
+    let signal = detect_black_frame(&frame, 320, 180, ActivePictureRegion::full(320, 180)).unwrap();
+
+    assert!(!signal.detected);
+    assert!(signal.dark_pixel_percent < 98);
+}
+
+#[test]
+fn black_frame_detection_rejects_invalid_buffers() {
+    assert_eq!(detect_black_frame(&[], 1920, 1080, ActivePictureRegion::full(1920, 1080)), None);
+    assert_eq!(detect_black_frame(&[0; 16], 0, 0, ActivePictureRegion::full(0, 0)), None);
+}
+
+#[test]
+fn black_frame_detection_samples_only_the_active_picture() {
+    let (width, height) = (854, 480);
+    let active = ActivePictureRegion { x: 107, y: 0, width: 640, height: 480 };
+    let mut frame = solid_bgra(width, height, 0);
+    for y in 0..height {
+        for x in active.x..active.x + active.width {
+            let offset = ((y * width + x) * 4) as usize;
+            frame[offset..offset + 3].fill(33);
+        }
+    }
+
+    let full_signal = detect_black_frame(&frame, width, height, ActivePictureRegion::full(width, height)).unwrap();
+    let active_signal = detect_black_frame(&frame, width, height, active).unwrap();
+
+    assert!(full_signal.mean_luma < active_signal.mean_luma, "permanent bars bias the whole-frame mean");
+    assert!(!full_signal.detected, "dark coverage must prevent bars alone from looking like a fade");
+    assert!(!active_signal.detected, "active-picture luma should decide the fade");
+    assert_eq!(active_signal.sample_region, active);
+}
+
+fn black_frame_fixture(name: &str) -> BlackFrameSignal {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/screenshots-rt4kce").join(name);
+    let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
+    let mut bgra = Mat::default();
+    imgproc::cvt_color_def(&bgr, &mut bgra, imgproc::COLOR_BGR2BGRA).unwrap();
+    detect_black_frame(
+        bgra.data_bytes().unwrap(),
+        bgra.cols() as u32,
+        bgra.rows() as u32,
+        ActivePictureRegion::full(bgra.cols() as u32, bgra.rows() as u32),
+    )
+    .unwrap()
+}
+
+#[test]
+fn rt4kce_cutscene_sequence_has_exactly_three_black_frame_edges() {
+    let fixtures = [
+        ("jp - start - 7 - Secret Agent - fade-1-before-black.png", false),
+        ("jp - unknown - fade-1-load-first-cutscene - black.png", true),
+        ("jp - unknown - fade-2-first-to-second - before-black.png", false),
+        ("jp - unknown - fade-2-first-to-second - black.png", true),
+        ("jp - unknown - fade-3-second-to-gameplay - before-black.png", false),
+        ("jp - unknown - fade-3-second-to-gameplay - black.png", true),
+        ("jp - unknown - fade-3-second-to-gameplay - after-black.png", false),
+    ];
+    let signals = fixtures.map(|(name, expected)| {
+        let signal = black_frame_fixture(name);
+        assert_eq!(signal.detected, expected, "{name}");
+        signal
+    });
+    let edges = signals
+        .into_iter()
+        .fold((false, 0), |(previous, edges), signal| {
+            (signal.detected, edges + usize::from(signal.detected && !previous))
+        })
+        .1;
+
+    assert_eq!(edges, 3);
+}
+
+#[test]
+fn active_picture_detection_finds_bars_on_every_edge() {
+    let expected = Rect::new(107, 30, 640, 420);
+    let mut gray = Mat::new_rows_cols_with_default(480, 854, core::CV_8UC1, core::Scalar::all(0.0)).unwrap();
+    imgproc::rectangle(&mut gray, expected, core::Scalar::all(100.0), imgproc::FILLED, imgproc::LINE_8, 0).unwrap();
+
+    assert_eq!(detect_active_picture(&gray).unwrap(), expected);
+}
+
+#[test]
+fn pillarboxed_fixture_separates_active_picture_from_matcher_geometry() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../test/screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png"
+    );
+    let matcher = CvMatcher::new("en", TEMPLATES_DIR).unwrap();
+    let bytes = std::fs::read(path).unwrap();
+    let (level_match, width, height) = matcher.match_level_from_encoded_image(&bytes).unwrap();
+    let active = matcher.active_picture_region(width, height);
+
+    assert_eq!(level_match.screen, Screen::Start);
+    assert!(active.x > 0);
+    assert!(active.width < width);
+    assert_eq!(active.height, height);
+    assert!(matcher.capture_region().is_none(), "correctly shaped game pixels need no matcher correction");
+}
+
 // Decoding + matching an encoded image (the developer upload path) reads the
 // same result as the file-based matcher; uses a committed flicker fixture.
 #[test]
@@ -45,7 +167,7 @@ fn overlay_screens_with_complete_markers_remain_trusted() {
     ];
 
     for (screen, raw_times) in cases {
-        let mut result = level_match(screen, 1, 1, ge::AGENT, raw_times);
+        let mut result = level_match(screen, 1, 1, ge::Difficulty::Agent.number(), raw_times);
 
         reject_untrusted_screen(&mut result);
 
@@ -56,7 +178,7 @@ fn overlay_screens_with_complete_markers_remain_trusted() {
 #[test]
 fn overlay_screens_are_rejected_when_any_required_marker_is_missing() {
     let screens = [Screen::Start, Screen::Stats, Screen::Complete, Screen::Failed, Screen::Abort, Screen::Kia];
-    let marker_cases = [(-1, 1, ge::AGENT), (1, -1, ge::AGENT), (1, 1, -1)];
+    let marker_cases = [(-1, 1, ge::Difficulty::Agent.number()), (1, -1, ge::Difficulty::Agent.number()), (1, 1, -1)];
 
     for screen in screens {
         for (mission, part, difficulty) in marker_cases {
@@ -74,7 +196,7 @@ fn overlay_screens_are_rejected_when_any_required_marker_is_missing() {
 
 #[test]
 fn stats_screen_is_rejected_without_a_readable_run_time() {
-    let mut result = level_match(Screen::Stats, 1, 1, ge::AGENT, Vec::new());
+    let mut result = level_match(Screen::Stats, 1, 1, ge::Difficulty::Agent.number(), Vec::new());
 
     reject_untrusted_screen(&mut result);
 

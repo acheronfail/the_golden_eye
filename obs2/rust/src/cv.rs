@@ -13,6 +13,9 @@ use serde::Serialize;
 use crate::ge;
 use crate::timer::PhaseTimer;
 
+mod black_frame;
+pub use black_frame::{ActivePictureRegion, BlackFrameSignal, detect_black_frame};
+
 // Cached count of usable cores. OpenCV is built without TBB/OpenMP, so each
 // `match_template` pins one core; independent per-scale/per-template matches are
 // spread across spare cores by `par_map`. Queried once; fixed for the process.
@@ -158,7 +161,7 @@ pub const WORK_HEIGHT: i32 = 480;
 
 // GoldenEye renders 4:3, but some HDMI converters stretch it to 16:9, so glyphs
 // come out too wide for the single-scale matcher. The always-on manilla folder
-// (known proportions) calibrates a horizontal squish. See `calibrate_aspect`.
+// (known proportions) calibrates a horizontal squish. See `calibrate_frame`.
 const TARGET_ASPECT: f64 = 4.0 / 3.0;
 // The manilla folder's width:height measures ~1.20-1.26 on clean 4:3 captures. A
 // folder wider than this signals a horizontally stretched picture; the threshold
@@ -176,9 +179,8 @@ const FOLDER_PROJ_FRAC: f64 = 0.25;
 // is rejected as not-a-folder -- gameplay can have warm patches, but the menu
 // folder always fills most of the frame.
 const FOLDER_MIN_FRAC: f64 = 0.40;
-// A column whose mean brightness is below this counts as a (black) pillarbox bar,
-// not content. Real bars sit at ~0, below any GoldenEye background texture, so a
-// stretched frame's content is trimmed of bars before squishing back to 4:3.
+// An edge row/column below this mean brightness counts as a transport-frame bar.
+// Real bars sit near zero, below GoldenEye's visible background texture.
 const BAR_BRIGHTNESS: f64 = 24.0;
 
 // Multipliers searched around the resolution-implied scale. Deriving it from the
@@ -192,31 +194,34 @@ fn candidate_scales(frame_height: i32) -> Vec<f64> {
     SCALE_MULTIPLIERS.iter().map(|m| base * m).collect()
 }
 
-// Horizontal extent [left, right] (inclusive) of non-bar content: the first and
-// last columns whose mean brightness rises above `bar_brightness`. Dark bars are
-// trimmed; a frame with no bars (or all-dark) yields the full width.
-fn content_h_extent(gray: &Mat, bar_brightness: f64) -> Result<(i32, i32)> {
-    let w = gray.cols();
-    if w <= 0 {
+// Extent [first, last] of non-bar content along one axis. A fully dark frame
+// yields the complete axis because it carries no usable boundary evidence.
+fn content_extent(gray: &Mat, dimension: i32, length: i32, bar_brightness: f64) -> Result<(i32, i32)> {
+    if length <= 0 {
         return Ok((0, 0));
     }
-    // Collapse the rows to a single row of per-column means.
-    let mut col_means = Mat::default();
-    core::reduce(gray, &mut col_means, 0, core::REDUCE_AVG, core::CV_64F)?;
-    let means = col_means.data_typed::<f64>()?;
+    let mut means = Mat::default();
+    core::reduce(gray, &mut means, dimension, core::REDUCE_AVG, core::CV_64F)?;
+    let means = means.data_typed::<f64>()?;
 
-    let mut left = 0;
-    while left < w && means[left as usize] < bar_brightness {
-        left += 1;
+    let mut first = 0;
+    while first < length && means[first as usize] < bar_brightness {
+        first += 1;
     }
-    if left >= w {
-        return Ok((0, w - 1));
+    if first >= length {
+        return Ok((0, length - 1));
     }
-    let mut right = w - 1;
-    while right > left && means[right as usize] < bar_brightness {
-        right -= 1;
+    let mut last = length - 1;
+    while last > first && means[last as usize] < bar_brightness {
+        last -= 1;
     }
-    Ok((left, right))
+    Ok((first, last))
+}
+
+fn detect_active_picture(gray: &Mat) -> Result<Rect> {
+    let (left, right) = content_extent(gray, 0, gray.cols(), BAR_BRIGHTNESS)?;
+    let (top, bottom) = content_extent(gray, 1, gray.rows(), BAR_BRIGHTNESS)?;
+    Ok(Rect::new(left, top, (right - left + 1).max(1), (bottom - top + 1).max(1)))
 }
 
 // First and last index along `dim` (0 = columns, 1 = rows) of `mask` where the
@@ -1390,20 +1395,73 @@ fn clamp_rect(rect: Rect, cols: i32, rows: i32) -> Option<Rect> {
     if w >= 2 && h >= 2 { Some(Rect::new(x, y, w, h)) } else { None }
 }
 
-// Aspect correction learned for a source resolution: the horizontal window
-// holding the 4:3 picture and the width it resizes to (height untouched).
-// Learned once from a folder frame and reused for every frame at that resolution.
+// The visible game pixels, independent of whether matching needs correction.
 #[derive(Clone, Copy)]
-struct AspectCalibration {
-    // Source dimensions this calibration was measured for.
-    src_w: i32,
-    src_h: i32,
-    // Horizontal content window to keep (drops any dark pillarbox bars).
+struct ActivePicture {
+    rect: Rect,
+}
+
+impl ActivePicture {
+    fn full(width: i32, height: i32) -> Self {
+        Self { rect: Rect::new(0, 0, width, height) }
+    }
+
+    fn detect(gray: &Mat) -> Result<Self> {
+        Ok(Self { rect: detect_active_picture(gray)? })
+    }
+
+    fn region(self) -> ActivePictureRegion {
+        ActivePictureRegion {
+            x: self.rect.x.max(0) as u32,
+            y: self.rect.y.max(0) as u32,
+            width: self.rect.width.max(1) as u32,
+            height: self.rect.height.max(1) as u32,
+        }
+    }
+}
+
+// Geometry applied only to the image used by level matching.
+#[derive(Clone, Copy)]
+struct LevelGeometry {
     crop_x: i32,
     crop_w: i32,
-    // Width to resize the kept window to; the height is left unchanged.
     target_w: i32,
-    // Source-frame rectangle of the manilla folder measured during calibration.
+}
+
+impl LevelGeometry {
+    fn identity(width: i32) -> Self {
+        Self { crop_x: 0, crop_w: width, target_w: width }
+    }
+
+    fn is_identity(self, source_width: i32) -> bool {
+        self.crop_x == 0 && self.crop_w == source_width && self.target_w == source_width
+    }
+
+    fn apply(self, gray: &Mat) -> Result<Mat> {
+        if self.is_identity(gray.cols()) {
+            return gray.try_clone();
+        }
+        let window = gray.roi(Rect::new(self.crop_x, 0, self.crop_w, gray.rows()))?;
+        let mut corrected = Mat::default();
+        imgproc::resize(
+            &window,
+            &mut corrected,
+            Size::new(self.target_w.max(1), gray.rows()),
+            0.0,
+            0.0,
+            imgproc::INTER_AREA,
+        )?;
+        Ok(corrected)
+    }
+}
+
+// Picture bounds and matcher correction learned from one folder frame.
+#[derive(Clone, Copy)]
+struct FrameCalibration {
+    src_w: i32,
+    src_h: i32,
+    active_picture: ActivePicture,
+    level_geometry: LevelGeometry,
     folder_rect: Option<Rect>,
 }
 
@@ -1420,50 +1478,39 @@ pub struct CaptureRegion {
     pub out_aspect: f32,
 }
 
-impl AspectCalibration {
-    // A calibration that leaves the frame untouched (already 4:3 / pillarboxed).
-    fn identity(src_w: i32, src_h: i32) -> Self {
-        AspectCalibration { src_w, src_h, crop_x: 0, crop_w: src_w, target_w: src_w, folder_rect: None }
+impl FrameCalibration {
+    fn uncalibrated(src_w: i32, src_h: i32) -> Self {
+        Self {
+            src_w,
+            src_h,
+            active_picture: ActivePicture::full(src_w, src_h),
+            level_geometry: LevelGeometry::identity(src_w),
+            folder_rect: None,
+        }
     }
 
-    // As a source-relative capture transform. Horizontal crop only (full height
-    // kept). The crop is a fraction of frame width, equal to the same fraction of
-    // source width (the downscale preserves horizontal aspect).
     fn capture_region(&self) -> CaptureRegion {
+        let geometry = self.level_geometry;
         CaptureRegion {
-            crop_x: self.crop_x as f32 / self.src_w as f32,
+            crop_x: geometry.crop_x as f32 / self.src_w as f32,
             crop_y: 0.0,
-            crop_w: self.crop_w as f32 / self.src_w as f32,
+            crop_w: geometry.crop_w as f32 / self.src_w as f32,
             crop_h: 1.0,
-            out_aspect: self.target_w as f32 / self.src_h as f32,
+            out_aspect: geometry.target_w as f32 / self.src_h as f32,
         }
     }
 
     fn is_identity(&self) -> bool {
-        self.crop_x == 0 && self.crop_w == self.src_w && self.target_w == self.src_w
+        self.level_geometry.is_identity(self.src_w)
     }
 
-    // Applies the correction to a grayscale frame.
     fn apply(&self, gray: &Mat) -> Result<Mat> {
-        if self.is_identity() {
-            return gray.try_clone();
-        }
-        let window = gray.roi(Rect::new(self.crop_x, 0, self.crop_w, gray.rows()))?;
-        let mut out = Mat::default();
-        imgproc::resize(
-            &window,
-            &mut out,
-            Size::new(self.target_w.max(1), gray.rows()),
-            0.0,
-            0.0,
-            imgproc::INTER_AREA,
-        )?;
-        Ok(out)
+        self.level_geometry.apply(gray)
     }
 }
 
 struct RegionMapper {
-    calib: AspectCalibration,
+    calib: FrameCalibration,
     corrected_w: i32,
     corrected_h: i32,
     work_w: i32,
@@ -1471,7 +1518,7 @@ struct RegionMapper {
 }
 
 impl RegionMapper {
-    fn from_frames(calib: AspectCalibration, corrected: &Mat, work: &Mat) -> Self {
+    fn from_frames(calib: FrameCalibration, corrected: &Mat, work: &Mat) -> Self {
         RegionMapper {
             calib,
             corrected_w: corrected.cols(),
@@ -1482,8 +1529,9 @@ impl RegionMapper {
     }
 
     fn corrected_to_source(&self, r: MatchRect) -> MatchRegion {
-        let x = self.calib.crop_x as f64 + r.x as f64 * self.calib.crop_w as f64 / self.calib.target_w as f64;
-        let w = r.w as f64 * self.calib.crop_w as f64 / self.calib.target_w as f64;
+        let geometry = self.calib.level_geometry;
+        let x = geometry.crop_x as f64 + r.x as f64 * geometry.crop_w as f64 / geometry.target_w as f64;
+        let w = r.w as f64 * geometry.crop_w as f64 / geometry.target_w as f64;
         MatchRegion {
             label: String::new(),
             x: x.round() as i32,
@@ -1545,7 +1593,7 @@ pub struct CvMatcher {
     scale_cache: Mutex<Option<ScaleCache>>,
     // Aspect correction learned from the first frame that shows a manilla
     // folder; reused for every later frame at the same source resolution.
-    aspect_cache: Mutex<Option<AspectCalibration>>,
+    calibration_cache: Mutex<Option<FrameCalibration>>,
     // Lazily populated because cold scale recovery may try several scales, but
     // a live source normally settles on one work scale and one native scale.
     glyph_cache: Mutex<Vec<(u64, Arc<ScaledGlyphs>)>>,
@@ -1609,7 +1657,7 @@ impl CvMatcher {
             language_start_jp,
             levels,
             scale_cache: Mutex::new(None),
-            aspect_cache: Mutex::new(None),
+            calibration_cache: Mutex::new(None),
             glyph_cache: Mutex::new(Vec::new()),
         })
     }
@@ -1721,7 +1769,7 @@ impl CvMatcher {
         });
     }
 
-    fn folder_annotation(&self, calib: AspectCalibration) -> Option<AnnotationRect> {
+    fn folder_annotation(&self, calib: FrameCalibration) -> Option<AnnotationRect> {
         if !self.diagnostics {
             return None;
         }
@@ -1736,46 +1784,43 @@ impl CvMatcher {
         })
     }
 
-    // Returns `gray` corrected to 4:3 when the source is a stretched 4:3 picture,
-    // else unchanged. Learned once per resolution off the manilla folder and
-    // cached; folderless frames inherit an earlier menu frame's calibration.
-    fn calibrate_aspect(&self, bgra_frame: &impl ToInputArray, gray: &Mat) -> Result<(Mat, AspectCalibration)> {
+    // Learns active-picture bounds and any matcher-only geometry correction.
+    // Folderless frames use a full-frame, uncorrected fallback.
+    fn calibrate_frame(&self, bgra_frame: &impl ToInputArray, gray: &Mat) -> Result<(Mat, FrameCalibration)> {
         let (w, h) = (gray.cols(), gray.rows());
 
-        // Reuse the calibration already learned for this resolution.
-        if let Some(c) = self.aspect_cache.lock().ok().and_then(|c| *c).filter(|c| c.src_w == w && c.src_h == h) {
+        if let Some(c) = self.calibration_cache.lock().ok().and_then(|c| *c).filter(|c| c.src_w == w && c.src_h == h) {
             return Ok((c.apply(gray)?, c));
         }
 
-        // Cold: measure the folder to decide whether this resolution is
-        // stretched. The colour test needs the original (non-grayscale) frame.
         let Some(folder) = detect_folder_aspect(bgra_frame, w, h)? else {
-            // No folder on this frame -- can't calibrate yet. Match it as-is and
-            // leave the cache empty so a later menu frame can calibrate.
-            let calib = AspectCalibration::identity(w, h);
+            let calib = FrameCalibration::uncalibrated(w, h);
             return Ok((gray.try_clone()?, calib));
         };
 
-        let mut calib = if folder.aspect > FOLDER_STRETCH_ASPECT {
-            // Stretched: the picture is 4:3 squeezed wide. Trim any dark side
-            // bars, then squish the remaining content back to a 4:3 width.
-            let (left, right) = content_h_extent(gray, BAR_BRIGHTNESS)?;
-            let crop_w = (right - left + 1).max(1);
+        let active_picture = ActivePicture::detect(gray)?;
+        let level_geometry = if folder.aspect > FOLDER_STRETCH_ASPECT {
             let target_w = (((h as f64) * TARGET_ASPECT).round() as i32).max(1);
             dbg_cv!(
-                "[calibrate] {w}x{h} folder_aspect={:.3} stretched -> crop {left}+{crop_w} squish to {target_w}",
-                folder.aspect
+                "[calibrate] {w}x{h} folder_aspect={:.3} active={:?} stretched -> crop {}+{} squish to {target_w}",
+                folder.aspect,
+                active_picture.rect,
+                active_picture.rect.x,
+                active_picture.rect.width
             );
-            AspectCalibration { src_w: w, src_h: h, crop_x: left, crop_w, target_w, folder_rect: None }
+            LevelGeometry { crop_x: active_picture.rect.x, crop_w: active_picture.rect.width, target_w }
         } else {
-            // Folder is correctly proportioned (clean 4:3 or pillarboxed): no
-            // correction. Cache identity so later frames skip the measurement.
-            dbg_cv!("[calibrate] {w}x{h} folder_aspect={:.3} not stretched", folder.aspect);
-            AspectCalibration::identity(w, h)
+            dbg_cv!(
+                "[calibrate] {w}x{h} folder_aspect={:.3} active={:?} matcher geometry unchanged",
+                folder.aspect,
+                active_picture.rect
+            );
+            LevelGeometry::identity(w)
         };
-        calib.folder_rect = Some(folder.rect);
+        let calib =
+            FrameCalibration { src_w: w, src_h: h, active_picture, level_geometry, folder_rect: Some(folder.rect) };
 
-        if let Ok(mut cache) = self.aspect_cache.lock() {
+        if let Ok(mut cache) = self.calibration_cache.lock() {
             *cache = Some(calib);
         }
         Ok((calib.apply(gray)?, calib))
@@ -1785,11 +1830,28 @@ impl CvMatcher {
     /// uncalibrated or already 4:3. The monitor feeds it back so the GPU
     /// crops+un-stretches frames directly; stable once non-`None`.
     pub fn capture_region(&self) -> Option<CaptureRegion> {
-        let calib = (*self.aspect_cache.lock().ok()?)?;
+        let calib = (*self.calibration_cache.lock().ok()?)?;
         if calib.is_identity() {
             return None;
         }
         Some(calib.capture_region())
+    }
+
+    /// Active game-picture bounds for this exact capture size. A size change
+    /// falls back to the full frame until that new shape is calibrated.
+    pub fn active_picture_region(&self, width: u32, height: u32) -> ActivePictureRegion {
+        let Ok(width_i32) = i32::try_from(width) else {
+            return ActivePictureRegion::full(width, height);
+        };
+        let Ok(height_i32) = i32::try_from(height) else {
+            return ActivePictureRegion::full(width, height);
+        };
+        self.calibration_cache
+            .lock()
+            .ok()
+            .and_then(|cache| *cache)
+            .filter(|calib| calib.src_w == width_i32 && calib.src_h == height_i32)
+            .map_or_else(|| ActivePictureRegion::full(width, height), |calib| calib.active_picture.region())
     }
 
     // Reads the mission number inside `rect` of native-res `gray`, sweeping
@@ -2011,7 +2073,7 @@ impl CvMatcher {
         // Restore a 4:3 picture that an HDMI converter stretched wide, so glyphs
         // regain the proportions templates expect. Calibrated once per resolution
         // off the folder; a no-op on clean 4:3 or pillarboxed grabs.
-        let (gray, calib) = self.calibrate_aspect(bgra_frame, &gray)?;
+        let (gray, calib) = self.calibrate_frame(bgra_frame, &gray)?;
         let folder_region = self.folder_annotation(calib);
 
         // Match cost grows with frame area, so downscale tall frames to a fixed

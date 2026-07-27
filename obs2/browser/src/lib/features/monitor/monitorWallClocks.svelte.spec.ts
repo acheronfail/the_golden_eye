@@ -42,25 +42,33 @@ describe('MonitorWallClocks', () => {
 		expect(timers.snapshot()).toMatchObject({ sessionElapsedMs: 61_234, sessionRunning: false });
 	});
 
-	it('starts level time only on start to unknown and stops on the next known screen', () => {
+	it('keeps fallback level time at zero while backend fade state is unavailable', () => {
 		const clock = new FakeAnimationClock();
 		const timers = new MonitorWallClocks(clock);
 
 		timers.reconcile(true, 'start');
 		clock.advance(500);
-		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 0, levelRunning: false });
+		expect(timers.snapshot()).toMatchObject({
+			levelElapsedMs: 0,
+			levelRunning: false,
+			levelTimerPhase: 'awaitingInitialBlack'
+		});
 
 		timers.reconcile(true, 'unknown');
 		clock.advance(2_345);
-		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 2_345, levelRunning: true });
+		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 0, levelRunning: false });
 
 		timers.reconcile(true, 'stats');
 		clock.advance(1_000);
-		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 2_345, levelRunning: false });
+		expect(timers.snapshot()).toMatchObject({
+			levelElapsedMs: 0,
+			levelRunning: false,
+			levelTimerPhase: 'stopped'
+		});
 
 		timers.reconcile(true, 'unknown');
 		clock.advance(1_000);
-		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 2_345, levelRunning: false });
+		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 0, levelRunning: false });
 	});
 
 	it('accepts the title-cased screen values emitted by the production matcher', () => {
@@ -71,7 +79,11 @@ describe('MonitorWallClocks', () => {
 		timers.reconcile(true, 'Unknown');
 		clock.advance(1_250);
 
-		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 1_250, levelRunning: true });
+		expect(timers.snapshot()).toMatchObject({
+			levelElapsedMs: 0,
+			levelRunning: false,
+			levelTimerPhase: 'awaitingInitialBlack'
+		});
 	});
 
 	it('stays stopped when a known level screen follows start and resets on the next start', () => {
@@ -87,7 +99,7 @@ describe('MonitorWallClocks', () => {
 		timers.reconcile(true, 'start');
 		timers.reconcile(true, 'unknown');
 		clock.advance(400);
-		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 400, levelRunning: true });
+		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 0, levelRunning: false });
 
 		timers.reconcile(true, 'start');
 		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 0, levelRunning: false });
@@ -103,13 +115,25 @@ describe('MonitorWallClocks', () => {
 			sessionRunning: true,
 			levelStartedAtUnixMs: clock.wallTime - 2_345,
 			levelElapsedMs: 0,
-			levelRunning: true
+			levelRunning: true,
+			levelStartReason: 'fade',
+			levelTimerPhase: 'running',
+			introSwirlDelayMs: 4_000,
+			fadeDetection: {
+				detected: false,
+				meanLuma: 74,
+				darkPixelPercent: 8,
+				sampleCount: 576,
+				sampleRegion: { x: 107, y: 0, width: 640, height: 480 }
+			}
 		});
 		expect(timers.snapshot()).toMatchObject({
 			sessionElapsedMs: 61_234,
 			sessionRunning: true,
 			levelElapsedMs: 2_345,
-			levelRunning: true
+			levelRunning: true,
+			levelTimerPhase: 'running',
+			introSwirlDelayMs: 4_000
 		});
 
 		clock.advance(1_000);
@@ -124,7 +148,17 @@ describe('MonitorWallClocks', () => {
 			sessionRunning: true,
 			levelStartedAtUnixMs: null,
 			levelElapsedMs: 3_345,
-			levelRunning: false
+			levelRunning: false,
+			levelStartReason: 'fade',
+			levelTimerPhase: 'stopped',
+			introSwirlDelayMs: 4_000,
+			fadeDetection: {
+				detected: false,
+				meanLuma: 74,
+				darkPixelPercent: 8,
+				sampleCount: 576,
+				sampleRegion: { x: 107, y: 0, width: 640, height: 480 }
+			}
 		});
 		clock.advance(1_000);
 		expect(timers.snapshot()).toMatchObject({

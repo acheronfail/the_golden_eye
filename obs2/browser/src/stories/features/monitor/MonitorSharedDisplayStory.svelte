@@ -27,7 +27,19 @@
 		sessionRunning: timersRunning,
 		levelStartedAtUnixMs: timersRunning ? Date.now() - 12_345 : null,
 		levelElapsedMs: 12_345,
-		levelRunning: timersRunning
+		levelRunning: timersRunning,
+		levelStartReason: timersRunning ? ('fade' as const) : null,
+		levelTimerPhase: timersRunning ? ('running' as const) : ('idle' as const),
+		introSwirlDelayMs: timersRunning ? 3_650 : null,
+		fadeDetection: timersRunning
+			? {
+					detected: false,
+					meanLuma: 84,
+					darkPixelPercent: 12,
+					sampleCount: 576,
+					sampleRegion: { x: 107, y: 0, width: 640, height: 480 }
+				}
+			: null
 	});
 </script>
 

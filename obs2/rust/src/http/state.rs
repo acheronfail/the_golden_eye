@@ -6,7 +6,9 @@ use serde::Serialize;
 use tokio::sync::{Mutex, broadcast, oneshot, watch};
 
 use super::{ReplayBufferStatus, routes};
-use crate::cv::LevelMatch;
+use crate::cv::{BlackFrameSignal, LevelMatch};
+
+const FADE_DIAGNOSTICS_INTERVAL_MS: u64 = 250;
 
 pub struct AppStateInner {
     /// Holds the sender end of a one-shot channel while an OAuth flow is in
@@ -80,8 +82,39 @@ pub struct MonitorWallClockState {
     pub level_started_at_unix_ms: Option<u64>,
     pub level_elapsed_ms: u64,
     pub level_running: bool,
+    pub level_start_reason: Option<LevelTimerStartReason>,
+    pub level_timer_phase: LevelTimerPhase,
+    pub intro_swirl_delay_ms: Option<u64>,
+    pub fade_detection: Option<BlackFrameSignal>,
     #[serde(skip)]
-    level_armed: bool,
+    second_cutscene_started_at_ms: Option<u64>,
+    #[serde(skip)]
+    second_cutscene_visible: bool,
+    #[serde(skip)]
+    black_frame_active: bool,
+    #[serde(skip)]
+    fade_diagnostics_published_at_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LevelTimerStartReason {
+    Fade,
+    Swirl,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LevelTimerPhase {
+    #[default]
+    Idle,
+    AwaitingInitialBlack,
+    AwaitingFirstCutscene,
+    AwaitingFirstCutsceneFade,
+    AwaitingSecondFadeOrSwirl,
+    AwaitingGameplayAfterSkip,
+    Running,
+    Stopped,
 }
 
 impl MonitorWallClockState {
@@ -94,7 +127,6 @@ impl MonitorWallClockState {
         self.session_started_at_unix_ms = None;
         self.session_running = false;
         self.stop_level(now_ms);
-        self.level_armed = false;
     }
 
     fn reconcile_screen(&mut self, screen: crate::cv::Screen, now_ms: u64) {
@@ -103,26 +135,124 @@ impl MonitorWallClockState {
                 self.level_started_at_unix_ms = None;
                 self.level_elapsed_ms = 0;
                 self.level_running = false;
-                self.level_armed = true;
-            }
-            crate::cv::Screen::Unknown if self.level_armed => {
-                self.level_started_at_unix_ms = Some(now_ms);
-                self.level_elapsed_ms = 0;
-                self.level_running = true;
-                self.level_armed = false;
+                self.level_start_reason = None;
+                self.level_timer_phase = LevelTimerPhase::AwaitingInitialBlack;
+                self.intro_swirl_delay_ms = None;
+                self.fade_detection = None;
+                self.second_cutscene_started_at_ms = None;
+                self.second_cutscene_visible = false;
+                self.black_frame_active = false;
+                self.fade_diagnostics_published_at_ms = None;
             }
             crate::cv::Screen::Unknown => {}
             _ => {
                 self.stop_level(now_ms);
-                self.level_armed = false;
             }
         }
+    }
+
+    fn reconcile_match(&mut self, level_match: &LevelMatch, now_ms: u64) {
+        self.reconcile_screen(level_match.screen, now_ms);
+        if level_match.screen == crate::cv::Screen::Start {
+            self.intro_swirl_delay_ms = crate::ge::Level::from_matcher(level_match.mission, level_match.part)
+                .map(crate::ge::intro::swirl_delay_ms);
+        }
+    }
+
+    fn reconcile_black_frame(&mut self, signal: BlackFrameSignal, now_ms: u64) -> bool {
+        let classification_changed = signal.detected != self.black_frame_active;
+        if classification_changed {
+            self.black_frame_active = signal.detected;
+        }
+        let timer_changed = self.reconcile_level_timer(signal.detected, classification_changed, now_ms);
+        let region_changed =
+            self.fade_detection.as_ref().map(|current| current.sample_region) != Some(signal.sample_region);
+        let diagnostics_changed = self.fade_detection != Some(signal);
+        let diagnostics_due = self
+            .fade_diagnostics_published_at_ms
+            .is_none_or(|published_at| now_ms.saturating_sub(published_at) >= FADE_DIAGNOSTICS_INTERVAL_MS);
+        if !timer_changed && !classification_changed && !region_changed && !(diagnostics_changed && diagnostics_due) {
+            return false;
+        }
+        self.fade_detection = Some(signal);
+        self.fade_diagnostics_published_at_ms = Some(now_ms);
+        true
+    }
+
+    fn reconcile_level_timer(&mut self, black: bool, edge: bool, now_ms: u64) -> bool {
+        let previous_phase = self.level_timer_phase;
+        if let Some(deadline) = self.pending_swirl_deadline()
+            && now_ms >= deadline
+        {
+            self.start_level(deadline, LevelTimerStartReason::Swirl);
+            if edge && black {
+                self.stop_level(now_ms);
+            }
+            return self.level_timer_phase != previous_phase;
+        }
+
+        if edge {
+            match (self.level_timer_phase, black) {
+                (LevelTimerPhase::AwaitingInitialBlack, true) => {
+                    self.level_timer_phase = LevelTimerPhase::AwaitingFirstCutscene;
+                }
+                (LevelTimerPhase::AwaitingFirstCutscene, false) => {
+                    self.level_timer_phase = LevelTimerPhase::AwaitingFirstCutsceneFade;
+                }
+                (LevelTimerPhase::AwaitingFirstCutsceneFade, true) => {
+                    self.level_timer_phase = LevelTimerPhase::AwaitingSecondFadeOrSwirl;
+                    self.second_cutscene_started_at_ms = None;
+                    self.second_cutscene_visible = false;
+                }
+                (LevelTimerPhase::AwaitingSecondFadeOrSwirl, false) => {
+                    self.second_cutscene_started_at_ms = Some(now_ms);
+                    self.second_cutscene_visible = true;
+                }
+                (LevelTimerPhase::AwaitingSecondFadeOrSwirl, true) if self.second_cutscene_visible => {
+                    self.level_timer_phase = LevelTimerPhase::AwaitingGameplayAfterSkip;
+                }
+                (LevelTimerPhase::AwaitingGameplayAfterSkip, false) => {
+                    self.start_level_with_elapsed(
+                        now_ms,
+                        crate::ge::intro::SKIPPED_SWIRL_INITIAL_ELAPSED_MS,
+                        LevelTimerStartReason::Fade,
+                    );
+                }
+                (LevelTimerPhase::Running, true) => self.stop_level(now_ms),
+                _ => {}
+            }
+        }
+        self.level_timer_phase != previous_phase
+    }
+
+    fn pending_swirl_deadline(&self) -> Option<u64> {
+        if self.level_timer_phase != LevelTimerPhase::AwaitingSecondFadeOrSwirl {
+            return None;
+        }
+        let started_at = self.second_cutscene_started_at_ms?;
+        let delay = self.intro_swirl_delay_ms?;
+        Some(started_at.saturating_add(delay))
+    }
+
+    fn start_level(&mut self, now_ms: u64, reason: LevelTimerStartReason) {
+        self.start_level_with_elapsed(now_ms, 0, reason);
+    }
+
+    fn start_level_with_elapsed(&mut self, now_ms: u64, elapsed_ms: u64, reason: LevelTimerStartReason) {
+        self.level_started_at_unix_ms = Some(now_ms.saturating_sub(elapsed_ms));
+        self.level_elapsed_ms = elapsed_ms;
+        self.level_running = true;
+        self.level_start_reason = Some(reason);
+        self.level_timer_phase = LevelTimerPhase::Running;
+        self.second_cutscene_started_at_ms = None;
+        self.second_cutscene_visible = false;
     }
 
     fn stop_level(&mut self, now_ms: u64) {
         self.level_elapsed_ms = elapsed_ms(self.level_started_at_unix_ms, self.level_elapsed_ms, now_ms);
         self.level_started_at_unix_ms = None;
         self.level_running = false;
+        self.level_timer_phase = LevelTimerPhase::Stopped;
     }
 }
 
@@ -178,7 +308,7 @@ impl SharedStateStore {
             state.monitor.cv_language.get_or_insert(cv_language);
             state.monitor.wall_clocks.start_session(now_ms);
             if let Some(level_match) = state.level_match.as_ref() {
-                state.monitor.wall_clocks.reconcile_screen(level_match.screen, now_ms);
+                state.monitor.wall_clocks.reconcile_match(level_match, now_ms);
             }
         });
     }
@@ -205,10 +335,22 @@ impl SharedStateStore {
             if state.monitor.enabled
                 && let Some(level_match) = level_match.as_ref()
             {
-                state.monitor.wall_clocks.reconcile_screen(level_match.screen, now_ms);
+                state.monitor.wall_clocks.reconcile_match(level_match, now_ms);
             }
             state.level_match = level_match;
         });
+    }
+
+    pub fn observe_black_frame(&self, signal: BlackFrameSignal) {
+        let now_ms = unix_time_ms();
+        let next = {
+            let mut state = self.lock_state();
+            if !state.monitor.enabled || !state.monitor.wall_clocks.reconcile_black_frame(signal, now_ms) {
+                return;
+            }
+            state.clone()
+        };
+        self.tx.send_replace(next);
     }
 
     pub fn set_run_catalog_sync(&self, run_catalog_sync: Option<RunCatalogSync>) {

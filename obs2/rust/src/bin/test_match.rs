@@ -1,5 +1,7 @@
 use std::env;
+use std::hint::black_box;
 use std::process::ExitCode;
+use std::time::Instant;
 
 // Linking `ge_rust`'s rlib pulls in its `#[no_mangle]` FFI entry points
 // unconditionally, so this bin must resolve every OBS/bridge symbol they
@@ -7,11 +9,13 @@ use std::process::ExitCode;
 #[path = "../obs_stub.rs"]
 mod obs_stub;
 
-use ge_rust::cv::{CaptureRegion, WORK_HEIGHT};
+use ge_rust::cv::{CaptureRegion, CvMatcher, LevelMatch, WORK_HEIGHT, detect_black_frame};
 use opencv::core::{self, Mat, Rect, Size};
 use opencv::prelude::*;
 use opencv::{Result, imgcodecs, imgproc};
 use serde_json::json;
+
+const BLACK_FRAME_BENCH_ITERATIONS: usize = 250;
 
 fn load_bgra(path: &str) -> Result<Mat> {
     let bgr = imgcodecs::imread(path, imgcodecs::IMREAD_COLOR)?;
@@ -75,6 +79,33 @@ fn result_json(result: &ge_rust::cv::LevelMatch) -> serde_json::Value {
     })
 }
 
+fn benchmark_monitor_cv_sample(matcher: &CvMatcher, frame: &Mat) -> Result<(LevelMatch, serde_json::Value)> {
+    let width = frame.cols() as u32;
+    let height = frame.rows() as u32;
+    let bytes = frame.data_bytes()?;
+    let pipeline_started = Instant::now();
+    let result = matcher.match_level_from_bgra_frame(frame)?;
+    let active_picture = matcher.active_picture_region(width, height);
+    let black_frame = detect_black_frame(bytes, width, height, active_picture)
+        .ok_or_else(|| opencv::Error::new(core::StsError, "could not sample benchmark frame".to_owned()))?;
+    let monitor_cv_runtime_ms = pipeline_started.elapsed().as_secs_f64() * 1000.0;
+
+    let black_frame_started = Instant::now();
+    for _ in 0..BLACK_FRAME_BENCH_ITERATIONS {
+        let active_picture = black_box(matcher.active_picture_region(width, height));
+        black_box(detect_black_frame(black_box(bytes), width, height, active_picture));
+    }
+    let black_frame_runtime_us =
+        black_frame_started.elapsed().as_secs_f64() * 1_000_000.0 / BLACK_FRAME_BENCH_ITERATIONS as f64;
+
+    let mut payload = result_json(&result);
+    let object = payload.as_object_mut().expect("result payload is an object");
+    object.insert("black_frame_runtime_us".to_owned(), json!(black_frame_runtime_us));
+    object.insert("monitor_cv_runtime_ms".to_owned(), json!(monitor_cv_runtime_ms));
+    object.insert("black_frame".to_owned(), json!(black_frame));
+    Ok((result, payload))
+}
+
 fn run() -> Result<i32> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
@@ -129,8 +160,8 @@ fn run() -> Result<i32> {
             let wbgra = load_bgra(&warm)?;
             let warm_frame =
                 if bench_capture_mode == "obs" { obs_capture_emulated_frame(&wbgra, None)? } else { wbgra };
-            let r = matcher.match_level_from_bgra_frame(&warm_frame)?;
-            cache_warm.push(result_json(&r));
+            let (r, sample) = benchmark_monitor_cv_sample(&matcher, &warm_frame)?;
+            cache_warm.push(sample);
             capture_region = matcher.capture_region();
             if !json_output {
                 eprintln!("[bench] warm: {:.2} ms (mission={} part={})", r.runtime_ms, r.mission, r.part);
@@ -145,26 +176,26 @@ fn run() -> Result<i32> {
 
         let mut warmups = Vec::with_capacity(target_warmups);
         for i in 0..target_warmups {
-            let r = matcher.match_level_from_bgra_frame(&bench_bgra)?;
+            let (r, sample) = benchmark_monitor_cv_sample(&matcher, &bench_bgra)?;
             if !json_output {
                 eprintln!(
                     "[bench] warmup {i}: {:.2} ms (mission={} part={} diff={})",
                     r.runtime_ms, r.mission, r.part, r.difficulty
                 );
             }
-            warmups.push(result_json(&r));
+            warmups.push(sample);
         }
 
         let mut samples = Vec::with_capacity(runs);
         for i in 0..runs {
-            let r = matcher.match_level_from_bgra_frame(&bench_bgra)?;
+            let (r, sample) = benchmark_monitor_cv_sample(&matcher, &bench_bgra)?;
             if !json_output {
                 eprintln!(
                     "[bench] run {i}: {:.2} ms (mission={} part={} diff={})",
                     r.runtime_ms, r.mission, r.part, r.difficulty
                 );
             }
-            samples.push(result_json(&r));
+            samples.push(sample);
         }
 
         if json_output {
@@ -178,6 +209,9 @@ fn run() -> Result<i32> {
                         "mode": bench_capture_mode,
                         "work_height": WORK_HEIGHT,
                         "capture_region": capture_region,
+                    },
+                    "bench_black_frame": {
+                        "iterations_per_sample": BLACK_FRAME_BENCH_ITERATIONS,
                     },
                     "lang": lang,
                     "templates_dir": templates_dir,

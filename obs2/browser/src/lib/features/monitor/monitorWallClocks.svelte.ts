@@ -1,4 +1,4 @@
-import type { MonitorWallClockState } from '$lib/api';
+import type { BlackFrameSignal, LevelTimerPhase, LevelTimerStartReason, MonitorWallClockState } from '$lib/api';
 
 export interface AnimationClock {
 	now: () => number;
@@ -12,6 +12,10 @@ export interface MonitorWallClockSnapshot {
 	sessionRunning: boolean;
 	levelElapsedMs: number;
 	levelRunning: boolean;
+	levelStartReason: LevelTimerStartReason | null;
+	levelTimerPhase: LevelTimerPhase;
+	introSwirlDelayMs: number | null;
+	fadeDetection: BlackFrameSignal | null;
 }
 
 const browserClock: AnimationClock = {
@@ -26,10 +30,13 @@ export class MonitorWallClocks {
 	sessionRunning = $state(false);
 	levelElapsedMs = $state(0);
 	levelRunning = $state(false);
+	levelStartReason = $state<LevelTimerStartReason | null>(null);
+	levelTimerPhase = $state<LevelTimerPhase>('idle');
+	introSwirlDelayMs = $state<number | null>(null);
+	fadeDetection = $state<BlackFrameSignal | null>(null);
 
 	private sessionStartedAt: number | null = null;
 	private levelStartedAt: number | null = null;
-	private levelArmed = false;
 	private previousMonitoring = false;
 	private previousScreen: string | null = null;
 	private animationFrame: number | null = null;
@@ -47,7 +54,10 @@ export class MonitorWallClocks {
 			this.levelElapsedMs = 0;
 			this.levelStartedAt = null;
 			this.levelRunning = false;
-			this.levelArmed = false;
+			this.levelStartReason = null;
+			this.levelTimerPhase = 'idle';
+			this.introSwirlDelayMs = null;
+			this.fadeDetection = null;
 			this.previousScreen = null;
 		} else if (!monitoring && this.previousMonitoring) {
 			this.tick(now);
@@ -82,10 +92,13 @@ export class MonitorWallClocks {
 			wallNow
 		);
 		this.levelRunning = state.levelRunning;
+		this.levelStartReason = state.levelStartReason;
+		this.levelTimerPhase = state.levelTimerPhase;
+		this.introSwirlDelayMs = state.introSwirlDelayMs;
+		this.fadeDetection = state.fadeDetection;
 		this.levelStartedAt = state.levelRunning ? now - this.levelElapsedMs : null;
 		this.previousMonitoring = state.sessionRunning;
 		this.previousScreen = null;
-		this.levelArmed = false;
 		this.ensureAnimation();
 	}
 
@@ -94,7 +107,11 @@ export class MonitorWallClocks {
 			sessionElapsedMs: this.sessionElapsedMs,
 			sessionRunning: this.sessionRunning,
 			levelElapsedMs: this.levelElapsedMs,
-			levelRunning: this.levelRunning
+			levelRunning: this.levelRunning,
+			levelStartReason: this.levelStartReason,
+			levelTimerPhase: this.levelTimerPhase,
+			introSwirlDelayMs: this.introSwirlDelayMs,
+			fadeDetection: this.fadeDetection
 		};
 	}
 
@@ -108,18 +125,14 @@ export class MonitorWallClocks {
 			this.levelElapsedMs = 0;
 			this.levelStartedAt = null;
 			this.levelRunning = false;
-			this.levelArmed = true;
-			return;
-		}
-		if (screen === 'unknown' && this.levelArmed) {
-			this.levelStartedAt = now;
-			this.levelRunning = true;
-			this.levelArmed = false;
+			this.levelStartReason = null;
+			this.levelTimerPhase = 'awaitingInitialBlack';
+			this.introSwirlDelayMs = null;
+			this.fadeDetection = null;
 			return;
 		}
 		if (screen !== 'unknown') {
 			this.stopLevel(now);
-			this.levelArmed = false;
 		}
 	}
 
@@ -127,6 +140,7 @@ export class MonitorWallClocks {
 		if (this.levelRunning) this.levelElapsedMs = this.elapsedSince(this.levelStartedAt, now);
 		this.levelRunning = false;
 		this.levelStartedAt = null;
+		this.levelTimerPhase = 'stopped';
 	}
 
 	private tick(now: number): void {

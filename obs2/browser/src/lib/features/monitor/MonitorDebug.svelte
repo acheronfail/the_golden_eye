@@ -101,6 +101,55 @@
 					{formatWallClockTime(wallClocks.levelElapsedMs)}
 				</dd>
 			</div>
+			<div class="state-cell">
+				<dt>level timer origin</dt>
+				<dd>{@render scalar(wallClocks.levelStartReason)}</dd>
+			</div>
+			<div>
+				<dt>level timer phase</dt>
+				<dd>{@render scalar(wallClocks.levelTimerPhase)}</dd>
+			</div>
+			<div>
+				<dt>intro swirl delay</dt>
+				<dd>
+					{@render scalar(
+						wallClocks.introSwirlDelayMs,
+						wallClocks.introSwirlDelayMs == null ? 'null' : `${wallClocks.introSwirlDelayMs / 1_000} s`
+					)}
+				</dd>
+			</div>
+			<div>
+				<dt>black frame</dt>
+				<dd>{@render scalar(wallClocks.fadeDetection?.detected)}</dd>
+			</div>
+			<div>
+				<dt>sampled mean luma</dt>
+				<dd>{@render scalar(wallClocks.fadeDetection?.meanLuma)}</dd>
+			</div>
+			<div>
+				<dt>dark sample coverage</dt>
+				<dd>
+					{@render scalar(
+						wallClocks.fadeDetection?.darkPixelPercent,
+						wallClocks.fadeDetection ? `${wallClocks.fadeDetection.darkPixelPercent}%` : 'null'
+					)}
+				</dd>
+			</div>
+			<div>
+				<dt>sample count</dt>
+				<dd>{@render scalar(wallClocks.fadeDetection?.sampleCount)}</dd>
+			</div>
+			<div>
+				<dt>active picture sample</dt>
+				<dd>
+					{#if wallClocks.fadeDetection}
+						{wallClocks.fadeDetection.sampleRegion.x},{wallClocks.fadeDetection.sampleRegion.y}
+						{wallClocks.fadeDetection.sampleRegion.width}×{wallClocks.fadeDetection.sampleRegion.height}
+					{:else}
+						{@render scalar(null)}
+					{/if}
+				</dd>
+			</div>
 		</dl>
 	</section>
 

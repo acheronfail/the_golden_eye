@@ -176,35 +176,6 @@ impl RunPathError {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct LevelOption {
-    name: &'static str,
-    number: i32,
-}
-
-const LEVEL_OPTIONS: [LevelOption; 20] = [
-    LevelOption { name: "Dam", number: 1 },
-    LevelOption { name: "Facility", number: 2 },
-    LevelOption { name: "Runway", number: 3 },
-    LevelOption { name: "Surface 1", number: 4 },
-    LevelOption { name: "Bunker 1", number: 5 },
-    LevelOption { name: "Silo", number: 6 },
-    LevelOption { name: "Frigate", number: 7 },
-    LevelOption { name: "Surface 2", number: 8 },
-    LevelOption { name: "Bunker 2", number: 9 },
-    LevelOption { name: "Statue", number: 10 },
-    LevelOption { name: "Archives", number: 11 },
-    LevelOption { name: "Streets", number: 12 },
-    LevelOption { name: "Depot", number: 13 },
-    LevelOption { name: "Train", number: 14 },
-    LevelOption { name: "Jungle", number: 15 },
-    LevelOption { name: "Control", number: 16 },
-    LevelOption { name: "Caverns", number: 17 },
-    LevelOption { name: "Cradle", number: 18 },
-    LevelOption { name: "Aztec", number: 19 },
-    LevelOption { name: "Egypt", number: 20 },
-];
-
 pub(crate) fn seed_catalog_if_needed(state: &AppState, settings: &AppSettings) -> bool {
     let mut needs_seed = state.run_catalog_needs_seed.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if !*needs_seed {
@@ -557,12 +528,8 @@ fn normalize_difficulty(value: &str) -> std::result::Result<&'static str, RunPat
         .ok_or(RunPathError::BadRequest("difficulty must be agent, secret agent, 00 agent, or 007"))
 }
 
-fn normalize_level(value: &str) -> std::result::Result<LevelOption, RunPathError> {
-    let trimmed = value.trim();
-    LEVEL_OPTIONS
-        .iter()
-        .copied()
-        .find(|level| level.name.eq_ignore_ascii_case(trimmed))
+fn normalize_level(value: &str) -> std::result::Result<crate::ge::LevelInfo, RunPathError> {
+    crate::ge::level_info_by_name(value)
         .ok_or(RunPathError::BadRequest("level must be one of the supported GoldenEye levels"))
 }
 
@@ -593,7 +560,7 @@ fn normalize_time(value: &str) -> std::result::Result<Option<(i32, String)>, Run
 }
 
 fn create_manual_run(catalog: &RunCatalog, req: ManualRunRequest) -> std::result::Result<RunClip, RunPathError> {
-    let level = level_option(&req.level).ok_or(RunPathError::BadRequest("select a valid level"))?;
+    let level = crate::ge::level_info_by_name(&req.level).ok_or(RunPathError::BadRequest("select a valid level"))?;
     if crate::ge::difficulty_number(&req.difficulty).is_none() {
         return Err(RunPathError::BadRequest("select a valid difficulty"));
     }
@@ -642,7 +609,8 @@ fn import_elite_runs(
 ) -> anyhow::Result<EliteImportResponse> {
     let mut response = EliteImportResponse { imported: 0, already_imported: 0, videos: 0 };
     for elite in elite_runs {
-        let level = level_option(&elite.level).context("The Elite returned an unknown GoldenEye level")?;
+        let level =
+            crate::ge::level_info_by_name(&elite.level).context("The Elite returned an unknown GoldenEye level")?;
         anyhow::ensure!(
             crate::ge::difficulty_number(&elite.difficulty).is_some(),
             "The Elite returned an unsupported difficulty"
@@ -702,10 +670,6 @@ fn elite_rom_version(system: &str) -> Option<RomVersion> {
         "PAL" => Some(RomVersion::Pal),
         _ => None,
     }
-}
-
-fn level_option(value: &str) -> Option<LevelOption> {
-    LEVEL_OPTIONS.iter().copied().find(|option| option.name == value)
 }
 
 fn youtube_metadata(raw_url: &str, title: &str) -> std::result::Result<crate::youtube::YoutubeMetadata, RunPathError> {

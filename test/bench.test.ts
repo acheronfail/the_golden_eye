@@ -24,9 +24,9 @@ interface Scenario {
 }
 
 interface BenchmarkPayload {
-  cache_warm: any[];
-  warmups: any[];
-  samples: any[];
+  cache_warm: BenchmarkSample[];
+  warmups: BenchmarkSample[];
+  samples: BenchmarkSample[];
   opencv: string;
   image: { path: string; width: number; height: number };
   bench_image: { width: number; height: number };
@@ -39,6 +39,27 @@ interface BenchmarkPayload {
       crop_w: number;
       crop_h: number;
       out_aspect: number;
+    };
+  };
+  bench_black_frame: {
+    iterations_per_sample: number;
+  };
+}
+
+interface BenchmarkSample {
+  runtime_ms: number;
+  black_frame_runtime_us: number;
+  monitor_cv_runtime_ms: number;
+  black_frame: {
+    detected: boolean;
+    meanLuma: number;
+    darkPixelPercent: number;
+    sampleCount: number;
+    sampleRegion: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
     };
   };
 }
@@ -129,6 +150,25 @@ function ms(value: number | undefined): string {
   return value === undefined ? "-" : `${value.toFixed(2)} ms`;
 }
 
+function us(value: number | undefined): string {
+  return value === undefined ? "-" : `${value.toFixed(2)} µs`;
+}
+
+function metricSummary(samples: readonly number[]) {
+  if (samples.length === 0) {
+    return null;
+  }
+  const sorted = [...samples].sort((a, b) => a - b);
+  return {
+    mean: samples.reduce((sum, sample) => sum + sample, 0) / samples.length,
+    p50: percentile(sorted, 0.5),
+    p95: percentile(sorted, 0.95),
+    min: sorted[0],
+    max: sorted.at(-1),
+    samples,
+  };
+}
+
 function latencySummary(task: Bench["tasks"][number]) {
   if (!("latency" in task.result)) {
     return null;
@@ -180,6 +220,39 @@ function tableRows(bench: Bench): Record<string, Record<string, string | number 
   );
 }
 
+function monitorPipelineRows(
+  scenarios: readonly Scenario[],
+  payloads: readonly BenchmarkPayload[],
+): Record<string, Record<string, string | undefined>> {
+  return Object.fromEntries(
+    scenarios.map((scenario, index) => {
+      const payload = payloads[index];
+      const matcher = metricSummary(payload.samples.map((sample) => sample.runtime_ms));
+      const blackFrame = metricSummary(
+        payload.samples.map((sample) => sample.black_frame_runtime_us),
+      );
+      const pipeline = metricSummary(payload.samples.map((sample) => sample.monitor_cv_runtime_ms));
+      const calibration = payload.cache_warm[0];
+      const region = payload.samples.at(-1)?.black_frame.sampleRegion;
+      return [
+        scenario.key,
+        {
+          "Matcher mean": ms(matcher?.mean),
+          "Matcher p95": ms(matcher?.p95),
+          "Black mean": us(blackFrame?.mean),
+          "Black p95": us(blackFrame?.p95),
+          "Pipeline mean": ms(pipeline?.mean),
+          "Pipeline p95": ms(pipeline?.p95),
+          "Cold pipeline": ms(calibration?.monitor_cv_runtime_ms),
+          "Sample region": region
+            ? `${region.x},${region.y} ${region.width}x${region.height}`
+            : undefined,
+        },
+      ] as const;
+    }),
+  );
+}
+
 function progressText(completed: number, total: number, runner: Runner): string {
   return `Running ${completed}/${total} benchmark scenarios for ${chalk.cyan.bold(runner.name)}`;
 }
@@ -220,6 +293,7 @@ const scenarios = buildScenarios();
 printConfigHints(scenarios.length);
 
 const results: Record<string, { scenarios: any[] }> = {};
+let blackFrameIterationsPerSample: number | null = null;
 for (const runner of runners) {
   const payloads: BenchmarkPayload[] = [];
   const bench = new Bench({
@@ -261,8 +335,11 @@ for (const runner of runners) {
   }
 
   await bench.run();
+  blackFrameIterationsPerSample ??= payloads[0]?.bench_black_frame.iterations_per_sample ?? null;
   console.log(chalk.blue(`Benchmark results for ${chalk.cyan.bold(runner.name)}...`));
   console.table(tableRows(bench));
+  console.log(chalk.blue(`Monitor CV pipeline for ${chalk.cyan.bold(runner.name)}...`));
+  console.table(monitorPipelineRows(scenarios, payloads));
 
   const scenarioResults = scenarios.map((scenario, index) => {
     const payload = payloads[index];
@@ -285,6 +362,19 @@ for (const runner of runners) {
       warmups: { count: payload.warmups.length, results: payload.warmups },
       samples: { count: payload.samples.length, results: payload.samples },
       stats,
+      monitor_cv_stats: metricSummary(
+        payload.samples.map((sample) => sample.monitor_cv_runtime_ms),
+      ),
+      black_frame_stats: metricSummary(
+        payload.samples.map((sample) => sample.black_frame_runtime_us),
+      ),
+      calibration: payload.cache_warm[0]
+        ? {
+            matcher_ms: payload.cache_warm[0].runtime_ms,
+            monitor_cv_ms: payload.cache_warm[0].monitor_cv_runtime_ms,
+          }
+        : null,
+      active_picture_region: payload.samples.at(-1)?.black_frame.sampleRegion ?? null,
       opencv: payload.opencv,
       image: payload.image,
       bench_image: payload.bench_image,
@@ -306,6 +396,7 @@ await fs.writeFile(
         samples_per_scenario: samplesPerScenario,
         target_warmups_per_scenario: targetWarmups,
         bench_capture_mode: captureMode,
+        black_frame_iterations_per_sample: blackFrameIterationsPerSample,
         available_parallelism: os.availableParallelism?.() ?? os.cpus().length,
         cache_warm_strategy:
           "Use the target frame when it is an overlay; otherwise use a same-folder/lang overlay frame to prime aspect and scale caches.",
