@@ -79,6 +79,31 @@ function chartCategories(data: ChartData): XValue[] {
 const isHorizontal = (data: ChartData): boolean =>
 	data.kind === 'horizontalStackedBar' || data.kind === 'horizontalGroupedBar';
 
+function smoothLinePath(points: Array<{ x: number; y: number }>): string {
+	if (points.length === 0) return '';
+	if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+
+	const slopes = points.slice(1).map((point, index) => {
+		const previous = points[index];
+		return (point.y - previous.y) / (point.x - previous.x);
+	});
+	const tangents = points.map((_, index) => {
+		if (index === 0) return slopes[0];
+		if (index === points.length - 1) return slopes.at(-1)!;
+		const before = slopes[index - 1];
+		const after = slopes[index];
+		if (before === 0 || after === 0 || Math.sign(before) !== Math.sign(after)) return 0;
+		return (2 * before * after) / (before + after);
+	});
+
+	return points.slice(1).reduce((path, point, index) => {
+		const previous = points[index];
+		const width = point.x - previous.x;
+		const controlOffset = width / 3;
+		return `${path} C ${previous.x + controlOffset} ${previous.y + tangents[index] * controlOffset} ${point.x - controlOffset} ${point.y - tangents[index + 1] * controlOffset} ${point.x} ${point.y}`;
+	}, `M ${points[0].x} ${points[0].y}`);
+}
+
 function linePath(
 	series: LineChartSeries,
 	categories: XValue[],
@@ -98,6 +123,14 @@ function linePath(
 		return lastCategory != null && lastPoint != null && Number(lastCategory) > Number(lastPoint.x)
 			? `${path} H ${xPosition(lastCategory)}`
 			: path;
+	}
+	if (series.lineStyle === 'smooth') {
+		return smoothLinePath(
+			points.map((point) => ({
+				x: xPosition(point.x),
+				y: yPosition(point.y)
+			}))
+		);
 	}
 	return points
 		.map((point, index) => `${index === 0 ? 'M' : 'L'} ${xPosition(point.x)} ${yPosition(point.y)}`)

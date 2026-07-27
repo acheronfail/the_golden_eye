@@ -18,7 +18,7 @@ export interface BaseChartSeries {
 
 export interface LineChartSeries extends BaseChartSeries {
 	shape?: 'circle' | 'square' | 'triangle';
-	lineStyle?: 'linear' | 'step' | 'none';
+	lineStyle?: 'linear' | 'smooth' | 'step' | 'none';
 	renderPriority?: number;
 }
 

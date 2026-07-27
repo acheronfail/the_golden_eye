@@ -32,6 +32,45 @@
 
 <Story name="Line" />
 <Story
+	name="Smoothed peaks and valleys"
+	args={{
+		title: 'Session run times',
+		description: 'A dense series with gentle smoothing that still passes through every data point',
+		xLabel: 'Elapsed session time',
+		yLabel: 'Game time',
+		data: {
+			kind: 'line',
+			xType: 'time',
+			series: [
+				{
+					id: 'complete',
+					label: 'Complete',
+					color: 'var(--obs-success)',
+					surfaceColor: 'var(--obs-success-surface)',
+					lineStyle: 'smooth',
+					points: [
+						{ x: Date.UTC(2026, 6, 1), y: 82 },
+						{ x: Date.UTC(2026, 6, 2), y: 58 },
+						{ x: Date.UTC(2026, 6, 3), y: 76 },
+						{ x: Date.UTC(2026, 6, 4), y: 49 },
+						{ x: Date.UTC(2026, 6, 5), y: 88 },
+						{ x: Date.UTC(2026, 6, 6), y: 63 },
+						{ x: Date.UTC(2026, 6, 7), y: 72 },
+						{ x: Date.UTC(2026, 6, 8), y: 45 },
+						{ x: Date.UTC(2026, 6, 9), y: 79 },
+						{ x: Date.UTC(2026, 6, 10), y: 55 },
+						{ x: Date.UTC(2026, 6, 11), y: 84 },
+						{ x: Date.UTC(2026, 6, 12), y: 61 },
+						{ x: Date.UTC(2026, 6, 13), y: 70 },
+						{ x: Date.UTC(2026, 6, 14), y: 52 },
+						{ x: Date.UTC(2026, 6, 15), y: 74 }
+					]
+				}
+			]
+		}
+	}}
+/>
+<Story
 	name="PB progression"
 	args={{
 		interactiveLegend: true,

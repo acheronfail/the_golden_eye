@@ -46,6 +46,37 @@ describe('chart geometry', () => {
 		expect(result.lineSeries[1].path).toContain('H');
 	});
 
+	it('smooths through each point without extending beyond the data range', () => {
+		const data = {
+			kind: 'line',
+			xType: 'time',
+			series: [
+				{
+					id: 'attempt',
+					label: 'Attempt',
+					color: 'green',
+					lineStyle: 'smooth',
+					points: [
+						{ x: 1, y: 20 },
+						{ x: 2, y: 80 },
+						{ x: 3, y: 30 }
+					]
+				}
+			]
+		} satisfies ChartData;
+
+		const result = geometry(data);
+		const { path, points } = result.lineSeries[0];
+		const pathValues = path.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+		const yValues = pathValues.filter((_, index) => index % 2 === 1);
+		const minY = Math.min(...points.map((point) => point.y));
+		const maxY = Math.max(...points.map((point) => point.y));
+
+		expect(path).toContain('C');
+		expect(path.endsWith(`${points[2].x} ${points[2].y}`)).toBe(true);
+		expect(yValues.every((y) => y >= minY && y <= maxY)).toBe(true);
+	});
+
 	it('uses one stack domain and the rendered bar geometry for tooltip anchors', () => {
 		const data = {
 			kind: 'stackedBar',
