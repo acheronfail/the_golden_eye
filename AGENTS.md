@@ -37,7 +37,7 @@ A failed frontend build stops the chain before cargo runs. Do not bypass this de
 
 **Dev mode** (`-DBROWSER_DEV=ON`, used by `just dev`):
 
-- Skips the SPA build and embeds a tiny redirect HTML pointing at `http://localhost:5173` (the Vite dev server).
+- Skips the SPA build and embeds a tiny redirect HTML pointing at `http://localhost:31336` (the Vite dev server).
 - Enables the Rust `dev` feature, which adds permissive CORS so the SPA can call the API from a different origin.
 - Runs `vite dev` plus a watch loop that relinks the core (`make golden_core`) when `obs2/rust/src` or `obs2/rust/Cargo.toml` changes, then hot-reloads it into the running OBS session -- but via the production auto-update pipeline, not a dev-only FIFO (that watcher was removed when the shim was minimized): `obs2/scripts/dev.py` stages the freshly rebuilt core into `.ge_update_staged/` and POSTs to `/api/v1/updates/apply`. `update_apply.rs`'s background auto-apply loop treats dev builds (`cfg!(feature = "dev")`) as always opted in and polls faster, so it picks the staged rebuild up on its own if that POST is momentarily refused (e.g. a monitor session is active). No OBS restart needed either way.
 

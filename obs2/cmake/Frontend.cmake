@@ -13,7 +13,7 @@ set(BROWSER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/browser")
 option(BROWSER_DEV "Embed a dev-server redirect instead of building the SPA" OFF)
 
 # Port the Vite dev server listens on (must match browser/vite.config.ts).
-set(BROWSER_DEV_PORT 5173)
+set(BROWSER_DEV_PORT 31336)
 
 if(BROWSER_DEV)
   # Generate the redirect stand-in and point the embedded bundle at it.

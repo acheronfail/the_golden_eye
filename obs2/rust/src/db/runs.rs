@@ -201,6 +201,7 @@ pub fn end_monitor_session(
     reason: &str,
 ) -> anyhow::Result<()> {
     conn.execute(END_MONITOR_SESSION, params![ended_unix_micros, reason, session_id])?;
+    conn.execute(DELETE_EMPTY_MONITOR_SESSION, [session_id])?;
     Ok(())
 }
 
@@ -214,8 +215,9 @@ pub fn associate_run_session(conn: &Connection, run_id: &str, session_id: &str) 
     Ok(())
 }
 
-pub fn reconcile_monitor_sessions(conn: &Connection) -> anyhow::Result<usize> {
-    Ok(conn.execute(RECONCILE_MONITOR_SESSIONS, [])?)
+pub fn reconcile_monitor_sessions(conn: &Connection) -> anyhow::Result<()> {
+    conn.execute_batch(RECONCILE_MONITOR_SESSIONS)?;
+    Ok(())
 }
 
 pub fn monitor_sessions(conn: &Connection) -> anyhow::Result<Vec<MonitorSessionRow>> {
