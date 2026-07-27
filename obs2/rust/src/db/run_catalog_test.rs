@@ -763,11 +763,12 @@ fn statistics_and_sessions_use_numeric_difficulty() {
         )
         .unwrap();
     catalog.end_monitor_session(&empty_interrupted, None, "interrupted").unwrap();
+    assert!(catalog.monitoring_session(&empty_interrupted).unwrap().is_none());
     let after_empty_interrupted =
         catalog.monitoring_sessions(Some(1_700_000_040_000_000), 1_700_000_044_000_000).unwrap();
     assert!(after_empty_interrupted.iter().all(|session| session.session_id != empty_interrupted));
 
-    catalog
+    let active_empty = catalog
         .create_monitor_session(
             started + Duration::from_secs(45),
             "N64 Capture".to_owned(),
@@ -775,6 +776,8 @@ fn statistics_and_sessions_use_numeric_difficulty() {
             "test".to_owned(),
         )
         .unwrap();
+    let visible_sessions = catalog.monitoring_sessions(None, 1_800_000_000_000_000).unwrap();
+    assert!(visible_sessions.iter().all(|session| session.session_id != active_empty));
     let interrupted = catalog
         .create_monitor_session(
             started + Duration::from_secs(50),
@@ -803,5 +806,38 @@ fn statistics_and_sessions_use_numeric_difficulty() {
             difficulty_number: None,
         })
         .unwrap();
-    assert_eq!(mixed_sessions.summary.total_session_seconds, 35.0);
+    assert_eq!(mixed_sessions.summary.total_session_seconds, 10.0);
+}
+
+#[test]
+fn reopening_catalog_drops_empty_sessions_and_preserves_sessions_with_runs() {
+    let dir = TestDir::new("session-reconciliation");
+    let db_path = dir.join("runs.sqlite");
+    let started = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    let catalog = RunCatalog::open(db_path.clone()).unwrap();
+    let empty = catalog
+        .create_monitor_session(started, "N64 Capture".to_owned(), Some("en".to_owned()), "test".to_owned())
+        .unwrap();
+    let populated = catalog
+        .create_monitor_session(
+            started + Duration::from_secs(10),
+            "N64 Capture".to_owned(),
+            Some("en".to_owned()),
+            "test".to_owned(),
+        )
+        .unwrap();
+    catalog
+        .create_finalized_run_in_session(
+            started + Duration::from_secs(20),
+            finalized_metadata(RunStatus::Complete, Some(80), "Agent"),
+            Some(&populated),
+        )
+        .unwrap();
+    drop(catalog);
+
+    let reopened = RunCatalog::open(db_path).unwrap();
+    assert!(reopened.monitoring_session(&empty).unwrap().is_none());
+    let preserved = reopened.monitoring_session(&populated).unwrap().unwrap();
+    assert_eq!(preserved.summary.end_reason.as_deref(), Some("interrupted"));
+    assert_eq!(preserved.summary.counts.total, 1);
 }

@@ -431,11 +431,8 @@ pub(crate) async fn stop_monitor(state: &AppState, end_reason: &'static str) -> 
         return false;
     };
 
-    if let Some(session_id) = handle.session_id.as_deref()
-        && let Err(err) = state.run_catalog.end_monitor_session(session_id, Some(SystemTime::now()), end_reason)
-    {
-        tracing::warn!("failed to close monitoring session {session_id}: {err:#}");
-    }
+    let session_id = handle.session_id.clone();
+    let session_ended_at = SystemTime::now();
 
     // Tear down on a blocking thread so we don't stall the async runtime while
     // the in-flight match finishes. Joining the thread drops the session,
@@ -461,6 +458,14 @@ pub(crate) async fn stop_monitor(state: &AppState, end_reason: &'static str) -> 
     })
     .await
     .ok();
+
+    // Finalize only after the worker stops so its last frame cannot race an
+    // empty-session delete while persisting the session's first run.
+    if let Some(session_id) = session_id.as_deref()
+        && let Err(err) = state.run_catalog.end_monitor_session(session_id, Some(session_ended_at), end_reason)
+    {
+        tracing::warn!("failed to close monitoring session {session_id}: {err:#}");
+    }
 
     // Clear retained monitor/match/recording state so all clients receive one
     // backend-owned snapshot reflecting the stopped session.

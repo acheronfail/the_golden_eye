@@ -9,7 +9,7 @@ WITH session_bounds AS (
             ELSE COALESCE(MAX(r.completed_unix_micros), s.started_unix_micros)
         END AS effective_end
     FROM monitor_sessions s
-    LEFT JOIN run_sessions rs ON rs.session_id = s.session_id
+    INNER JOIN run_sessions rs ON rs.session_id = s.session_id
     LEFT JOIN runs r ON r.run_id = rs.run_id
     GROUP BY s.session_id
 )
