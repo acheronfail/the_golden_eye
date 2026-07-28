@@ -194,13 +194,18 @@ export const applyMonitorSnapshot = (snapshot: AppSnapshot): void => {
 	const nextStatus = monitorStatusFromSnapshot(snapshot);
 	const previousSource = monitor.status?.enabled ? monitor.status.sourceName : null;
 	const nextSource = nextStatus.enabled ? nextStatus.sourceName : null;
+	const previousRecordingState = previousSource === nextSource ? monitor.recordingState : null;
+	const nextRecordingState = nextStatus.enabled ? visibleRecordingState(snapshot.recordingState) : null;
 	monitor.status = nextStatus;
 	monitor.loaded = true;
 	monitor.match = snapshot.match;
 	monitor.cvLanguage = snapshot.monitor.cvLanguage ?? null;
 	monitor.wallClocks = snapshot.monitor.wallClocks;
 	monitor.replaySaves = snapshot.replaySaves;
-	monitor.recordingState = nextStatus.enabled ? visibleRecordingState(snapshot.recordingState) : null;
+	monitor.recordingState = nextRecordingState;
+	if (nextRecordingState === 'kia' && previousRecordingState !== 'kia') {
+		monitor.kiaEffectId += 1;
+	}
 	if (!nextStatus.enabled || previousSource !== nextSource) {
 		monitor.fps = null;
 	}
