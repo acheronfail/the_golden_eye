@@ -18,8 +18,10 @@
 		recentRunsError = null,
 		onKeepRun = () => {},
 		onStop,
-		wallClocks
-	}: MonitorDesignProps = $props();
+		wallClocks,
+		runIdentityLabel,
+		runIdentityAvailable
+	}: MonitorDesignProps & { runIdentityLabel: string; runIdentityAvailable: boolean } = $props();
 
 	const presentation = $derived(
 		monitorPresentation({ verified, monitoring, transition, recordingState, match, fps, showMonitorFps, onStop })
@@ -93,6 +95,8 @@
 			{presentation}
 			{match}
 			statsPosition="inside"
+			statusLabel={runIdentityLabel}
+			statusAvailable={runIdentityAvailable}
 			panelClass="glass-panel relative w-full animate-glass-panel rounded-[clamp(1rem,4cqw,1.6rem)] border border-[color-mix(in_srgb,var(--monitor-accent)_38%,var(--obs-border-soft))] bg-[rgb(37_41_52_/_90%)] p-[clamp(1.25rem,4.5cqw,2.5rem)] text-center shadow-[0_1.5rem_5rem_rgb(0_0_0_/_35%),0_0_4rem_var(--monitor-surface),inset_0_1px_0_rgb(255_255_255_/_11%)] transition-[border-color,box-shadow] duration-240 motion-reduce:[animation-duration:1ms] @max-[520px]:p-[1.35rem] [@container(max-height:42rem)]:p-[clamp(0.65rem,2.5cqw,0.95rem)] [@container(max-height:58rem)]:p-[clamp(0.85rem,3cqw,1.25rem)]"
 			statusClass="font-mono text-[clamp(0.65rem,2.8cqw,0.82rem)] tracking-[0.15em] text-(--monitor-accent) uppercase transition-colors duration-240 [@container(max-height:42rem)]:text-[clamp(0.58rem,2cqw,0.72rem)]"
 			titleClass="mt-[0.55rem] mb-[0.7rem] text-[clamp(2.25rem,11cqw,5rem)] leading-[0.92] font-semibold tracking-[-0.065em] [overflow-wrap:anywhere] text-[color-mix(in_srgb,var(--monitor-accent)_12%,var(--obs-text))] transition-colors duration-240 [@container(max-height:42rem)]:mt-[0.3rem] [@container(max-height:42rem)]:mb-[0.4rem] [@container(max-height:42rem)]:text-[clamp(2rem,8cqw,3.5rem)]"

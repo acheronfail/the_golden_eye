@@ -18,8 +18,10 @@
 		recentRunsError = null,
 		onKeepRun = () => {},
 		onStop,
-		wallClocks
-	}: MonitorDesignProps = $props();
+		wallClocks,
+		runIdentityLabel,
+		runIdentityAvailable
+	}: MonitorDesignProps & { runIdentityLabel: string; runIdentityAvailable: boolean } = $props();
 
 	const presentation = $derived(
 		monitorPresentation({ verified, monitoring, transition, recordingState, match, fps, showMonitorFps, onStop })
@@ -90,7 +92,8 @@
 				{presentation}
 				{match}
 				statsPosition="before"
-				statusSuffix=" / ACTIVE"
+				statusLabel={runIdentityLabel}
+				statusAvailable={runIdentityAvailable}
 				panelClass="signal-content animate-signal-title motion-reduce:[animation-delay:0ms] motion-reduce:[animation-duration:1ms]"
 				statusClass="font-mono text-[clamp(0.65rem,2.8cqw,0.82rem)] tracking-[0.15em] text-(--monitor-accent) uppercase transition-colors duration-240 [@container(max-height:42rem)]:text-[clamp(0.58rem,2cqw,0.72rem)]"
 				titleClass="mt-2 mb-[0.65rem] max-w-full text-[clamp(2.4rem,11cqw,5.25rem)] leading-[0.9] font-semibold tracking-[-0.065em] [overflow-wrap:anywhere] text-[color-mix(in_srgb,var(--monitor-accent)_12%,var(--obs-text))] transition-colors duration-240 [@container(max-height:42rem)]:mt-[0.3rem] [@container(max-height:42rem)]:mb-[0.4rem] [@container(max-height:42rem)]:text-[clamp(2rem,8cqw,3.5rem)]"

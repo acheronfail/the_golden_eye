@@ -101,6 +101,20 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 		expect(view.container.querySelector(detailSelector)).toHaveClass('invisible');
 	});
 
+	it('shows the start-screen level until level selection is shown', async () => {
+		const start = { ...match('start'), mission: 1, part: 2, difficulty: 2 };
+		const view = render(MonitorView, props(design, 'started', start));
+
+		expect(screen.getByText('Facility / 00 Agent')).toHaveAttribute('data-available', 'true');
+
+		await view.rerender(props(design, 'started', match('unknown')));
+		expect(screen.getByText('Facility / 00 Agent')).toBeInTheDocument();
+
+		await view.rerender(props(design, null, match('levels')));
+		expect(screen.getByText('- / -')).toHaveAttribute('data-available', 'false');
+		expect(screen.queryByText(/monitoring \/ active/i)).not.toBeInTheDocument();
+	});
+
 	it('keeps subtly styled stat placeholders mounted when run times appear', async () => {
 		const view = render(MonitorView, props(design, 'started', match('unknown')));
 		const selector = design === 'signal-band' ? '.signal-metrics' : '.glass-metrics';

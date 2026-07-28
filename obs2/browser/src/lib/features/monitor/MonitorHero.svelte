@@ -7,7 +7,8 @@
 		presentation,
 		match = null,
 		statsPosition,
-		statusSuffix = '',
+		statusLabel,
+		statusAvailable = true,
 		panelClass = '',
 		statusClass = '',
 		titleClass = '',
@@ -20,7 +21,8 @@
 		presentation: MonitorPresentation;
 		match?: LevelMatch | null;
 		statsPosition: 'inside' | 'before';
-		statusSuffix?: string;
+		statusLabel: string;
+		statusAvailable?: boolean;
 		panelClass?: string;
 		statusClass?: string;
 		titleClass?: string;
@@ -32,8 +34,8 @@
 </script>
 
 {#snippet statusText()}
-	<p class={statusClass}>
-		{verified ? presentation.statusLabel : 'Verifying source'}{statusSuffix}
+	<p class="{statusClass} {statusAvailable ? '' : 'opacity-45'}" data-available={statusAvailable}>
+		{statusLabel}
 	</p>
 	<h1 class={titleClass}>
 		{verified ? presentation.title : 'checking source'}
