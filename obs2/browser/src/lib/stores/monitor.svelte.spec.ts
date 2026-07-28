@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { RecordingSaved } from '$lib/api';
+import type { AppSnapshot, RecordingSaved, RecordingStatus } from '$lib/api';
 import {
+	applyMonitorSnapshot,
 	applyRecordingSaved,
 	monitor,
 	monitorPhaseStyleForPhase,
@@ -16,6 +17,33 @@ const saved = (overrides: Partial<RecordingSaved> = {}): RecordingSaved => ({
 	durationSecs: 12.3,
 	failed: true,
 	...overrides
+});
+
+const snapshot = (recordingState: RecordingStatus | null): AppSnapshot => ({
+	monitor: {
+		enabled: true,
+		sourceName: 'N64 Capture',
+		wallClocks: {
+			sessionStartedAtUnixMs: null,
+			sessionElapsedMs: 0,
+			sessionRunning: true,
+			levelStartedAtUnixMs: null,
+			levelElapsedMs: 0,
+			levelRunning: false,
+			levelStartReason: null,
+			levelTimerPhase: 'idle',
+			introSwirlDelayMs: null,
+			fadeDetection: null
+		}
+	},
+	match: null,
+	runCatalogSync: null,
+	recordingState,
+	replaySaves: [],
+	sources: [],
+	replayBuffer: {} as AppSnapshot['replayBuffer'],
+	settingsStatus: {} as AppSnapshot['settingsStatus'],
+	update: {} as AppSnapshot['update']
 });
 
 describe('monitor presentation phases', () => {
@@ -34,6 +62,37 @@ describe('monitor presentation phases', () => {
 		for (const state of ['failed', 'aborted', 'kia', 'statsSkipped'] as const) {
 			expect(monitorPresentationPhase(state)).toBe('danger');
 		}
+	});
+});
+
+describe('KIA overlay trigger', () => {
+	beforeEach(() => {
+		monitor.status = null;
+		monitor.recordingState = null;
+		monitor.kiaEffectId = 0;
+	});
+
+	it('triggers once when a snapshot enters KIA', () => {
+		applyMonitorSnapshot(snapshot('started'));
+		applyMonitorSnapshot(snapshot('kia'));
+
+		expect(monitor.recordingState).toBe('kia');
+		expect(monitor.kiaEffectId).toBe(1);
+	});
+
+	it('does not replay for repeated KIA snapshots', () => {
+		applyMonitorSnapshot(snapshot('kia'));
+		applyMonitorSnapshot(snapshot('kia'));
+
+		expect(monitor.kiaEffectId).toBe(1);
+	});
+
+	it('triggers again when a later run enters KIA', () => {
+		applyMonitorSnapshot(snapshot('kia'));
+		applyMonitorSnapshot(snapshot('started'));
+		applyMonitorSnapshot(snapshot('kia'));
+
+		expect(monitor.kiaEffectId).toBe(2);
 	});
 });
 
