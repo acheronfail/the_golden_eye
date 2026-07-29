@@ -98,20 +98,20 @@
 </section>
 
 <section class={styles.panel}>
-	<label class={styles.label} for="recent-run-limit">Recent run history</label>
+	<label class={styles.label} for="recent-run-limit">Saveable clips</label>
 	<input
 		id="recent-run-limit"
 		type="number"
 		min="1"
-		max="100"
+		max="20"
 		step="1"
 		bind:value={settings.recentRunLimit}
 		onblur={view.normalize.recentRunLimit}
 		class={styles.input}
 	/>
 	<p class={styles.hint}>
-		Keep videos for this many recent runs while you decide what to keep. After each new clip is saved, older unkept
-		videos are removed, but their run history remains.
+		Keep this many recent videos saveable while you decide what to keep. The recent-runs list still shows up to 20
+		runs, including expired clips.
 	</p>
 </section>
 

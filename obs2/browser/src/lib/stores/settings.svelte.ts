@@ -8,6 +8,7 @@ export type UpdateCheckInterval = z.infer<typeof UpdateCheckIntervalSchema>;
 const YoutubeVisibilitySchema = z.enum(['public', 'unlisted', 'private']);
 export type YoutubeVisibility = z.infer<typeof YoutubeVisibilitySchema>;
 const MonitorDesignSchema = z.enum(['signal-band', 'mission-glass', 'debug']);
+export const MAX_RECENT_RUN_LIMIT = 20;
 
 export interface Settings {
 	stopReplayBufferWhenMonitorStopped: boolean;
@@ -90,7 +91,12 @@ const settingsSchema = (defaults: Settings) =>
 		lastUsedSourceName: z.string().nullable().catch(defaults.lastUsedSourceName),
 		welcomeModalShown: z.boolean().catch(defaults.welcomeModalShown),
 		completedOutputPath: z.string().catch(defaults.completedOutputPath),
-		recentRunLimit: z.coerce.number().int().min(1).max(100).catch(defaults.recentRunLimit),
+		recentRunLimit: z.coerce
+			.number()
+			.int()
+			.min(1)
+			.max(MAX_RECENT_RUN_LIMIT)
+			.catch(defaults.recentRunLimit),
 		clipFilenameTemplate: z.string().catch(defaults.clipFilenameTemplate),
 		preRunPaddingSecs: z.coerce.number().min(0).catch(defaults.preRunPaddingSecs),
 		postRunPaddingSecs: z.coerce.number().min(0).catch(defaults.postRunPaddingSecs),
@@ -120,7 +126,10 @@ const parseSettings = (value: unknown, defaults = bootstrapSettings): Settings =
 	const parsed = settingsSchema(defaults).parse(value);
 	return {
 		...parsed,
-		recentRunLimit: Math.min(100, Math.max(1, nonNegativeInt(parsed.recentRunLimit, defaults.recentRunLimit))),
+		recentRunLimit: Math.min(
+			MAX_RECENT_RUN_LIMIT,
+			Math.max(1, nonNegativeInt(parsed.recentRunLimit, defaults.recentRunLimit))
+		),
 		clipFilenameTemplate: normalizeClipFilenameTemplate(parsed.clipFilenameTemplate, defaults.clipFilenameTemplate),
 		preRunPaddingSecs: nonNegativeNumber(parsed.preRunPaddingSecs, defaults.preRunPaddingSecs),
 		postRunPaddingSecs: nonNegativeNumber(parsed.postRunPaddingSecs, defaults.postRunPaddingSecs),
@@ -203,7 +212,10 @@ export const settings = new (class {
 
 	recordingOptions: RecordingOptions = $derived({
 		completedOutputPath: this.completedOutputPath.trim(),
-		recentRunLimit: Math.min(100, Math.max(1, nonNegativeInt(this.recentRunLimit, this.defaults.recentRunLimit))),
+		recentRunLimit: Math.min(
+			MAX_RECENT_RUN_LIMIT,
+			Math.max(1, nonNegativeInt(this.recentRunLimit, this.defaults.recentRunLimit))
+		),
 		clipFilenameTemplate: this.clipFilenameTemplate.trim() || this.defaults.clipFilenameTemplate,
 		preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs, this.defaults.preRunPaddingSecs),
 		postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, this.defaults.postRunPaddingSecs)
@@ -224,7 +236,10 @@ export const settings = new (class {
 			lastUsedSourceName: this.lastUsedSourceName,
 			welcomeModalShown: this.welcomeModalShown,
 			completedOutputPath: this.completedOutputPath,
-			recentRunLimit: Math.min(100, Math.max(1, nonNegativeInt(this.recentRunLimit, this.defaults.recentRunLimit))),
+			recentRunLimit: Math.min(
+				MAX_RECENT_RUN_LIMIT,
+				Math.max(1, nonNegativeInt(this.recentRunLimit, this.defaults.recentRunLimit))
+			),
 			clipFilenameTemplate: this.clipFilenameTemplate,
 			preRunPaddingSecs: nonNegativeNumber(this.preRunPaddingSecs, this.defaults.preRunPaddingSecs),
 			postRunPaddingSecs: nonNegativeNumber(this.postRunPaddingSecs, this.defaults.postRunPaddingSecs),

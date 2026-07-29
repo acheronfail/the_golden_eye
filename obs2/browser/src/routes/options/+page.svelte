@@ -7,7 +7,7 @@
 	import { dismissNotificationFlagsByKey } from '$lib/stores/notifications.svelte';
 	import { replayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import Select from '$lib/ui/Select.svelte';
-	import { settings } from '$lib/stores/settings.svelte';
+	import { MAX_RECENT_RUN_LIMIT, settings } from '$lib/stores/settings.svelte';
 	import OptionsGeneral from '$lib/features/options/OptionsGeneral.svelte';
 	import OptionsNotifications from '$lib/features/options/OptionsNotifications.svelte';
 	import OptionsRecording from '$lib/features/options/OptionsRecording.svelte';
@@ -85,7 +85,7 @@
 	const normalizeRecentRunLimit = () => {
 		const value = Number(settings.recentRunLimit);
 		settings.recentRunLimit = Number.isFinite(value)
-			? Math.min(100, Math.max(1, Math.trunc(value)))
+			? Math.min(MAX_RECENT_RUN_LIMIT, Math.max(1, Math.trunc(value)))
 			: settings.defaults.recentRunLimit;
 	};
 

@@ -82,4 +82,19 @@ describe('recent runs store', () => {
 
 		expect(store.items).toEqual([finalized]);
 	});
+
+	it('always requests and displays the maximum recent-run history', async () => {
+		const runs = Array.from({ length: 20 }, (_, index) => ({
+			...finalized,
+			runId: `run-${index}`,
+			metadata: { ...finalized.metadata, runId: `run-${index}` }
+		}));
+		mocks.getRecentRuns.mockResolvedValue(runs);
+		const store = new RecentRunsStore();
+
+		await store.refresh();
+
+		expect(mocks.getRecentRuns).toHaveBeenCalledWith(20);
+		expect(store.items).toHaveLength(20);
+	});
 });

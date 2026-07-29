@@ -128,6 +128,14 @@ fn json_value_is_normalized_field_by_field() {
 }
 
 #[test]
+fn recent_run_limit_is_clamped_to_the_saveable_clip_maximum() {
+    let settings = AppSettings::from_json_value(json!({ "recentRunLimit": 100 }));
+
+    assert_eq!(settings.recent_run_limit, MAX_RECENT_RUN_LIMIT);
+    assert_eq!(settings.recording_options().recent_run_limit, MAX_RECENT_RUN_LIMIT);
+}
+
+#[test]
 fn output_path_defaults_follow_obs_replay_directory_and_completed_path() {
     let replay_dir = PathBuf::from("/tmp/obs-replays");
     let settings = AppSettings::from_json_value(json!({})).with_default_output_paths(Some(&replay_dir));

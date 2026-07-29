@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, c_char};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -34,6 +34,7 @@ pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level} - {difficulty} - {time
 pub const DEFAULT_PRE_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_RECENT_RUN_LIMIT: usize = 10;
+pub const MAX_RECENT_RUN_LIMIT: usize = 20;
 /// Internal safety margin added to both the pre- and post-run padding, on top of
 /// the user's configured values and hidden from them, so a single-frame timing
 /// window can't drop the level-start briefing or stats overlay (e.g. padding 0).
@@ -62,9 +63,8 @@ fn next_replay_tracking_id() -> u64 {
     NEXT_REPLAY_TRACKING_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Recording behaviour supplied by the frontend when a monitor session starts.
-/// The settings store materializes empty output paths into runtime defaults
-/// before these options are read.
+/// Recording behaviour loaded when a monitor session starts. The saveable-clip
+/// count is updated live; other options remain fixed for the session.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RecordingOptions {
@@ -647,6 +647,9 @@ pub struct RecordingState {
     replay_saves: ReplaySaveStateStore,
     /// Recording/output options fixed for this monitor session.
     options: RecordingOptions,
+    /// The retention count is the one recording option that can change while a
+    /// monitor is running.
+    recent_run_limit: Arc<AtomicUsize>,
     /// OBS source this monitor session records from, stored in clip metadata.
     source_name: String,
     /// Game/template language this monitor session matches, stored in clip metadata.
@@ -666,6 +669,7 @@ impl RecordingState {
         session: RecordingSessionContext,
         run_catalog: Arc<RunCatalog>,
     ) -> Self {
+        let recent_run_limit = Arc::new(AtomicUsize::new(options.recent_run_limit.clamp(1, MAX_RECENT_RUN_LIMIT)));
         RecordingState {
             clip_start: None,
             status: None,
@@ -677,11 +681,16 @@ impl RecordingState {
             recording_state,
             replay_saves,
             options,
+            recent_run_limit,
             source_name: session.source_name,
             game_language: session.game_language,
             run_catalog,
             monitor_session_id: session.monitor_session_id,
         }
+    }
+
+    pub fn set_recent_run_limit_source(&mut self, source: Arc<AtomicUsize>) {
+        self.recent_run_limit = source;
     }
 
     /// Publish a recorder state transition to the backend-retained phase store
@@ -822,6 +831,7 @@ impl RecordingState {
             stats: pending.stats,
             metadata: finalized.metadata,
             options: self.options.clone(),
+            recent_run_limit: self.recent_run_limit.clone(),
             event_tx: self.event_tx.clone(),
             recording_state: self.recording_state.clone(),
             replay_saves: self.replay_saves.clone(),
@@ -1068,6 +1078,8 @@ struct SaveAndTrimJob {
     stats: Option<LevelMatch>,
     metadata: ffmpeg::ClipMetadata,
     options: RecordingOptions,
+    #[cfg_attr(test, allow(dead_code))]
+    recent_run_limit: Arc<AtomicUsize>,
     event_tx: broadcast::Sender<AppEvent>,
     recording_state: RecordingStateStore,
     replay_saves: ReplaySaveStateStore,
@@ -1088,6 +1100,7 @@ struct TrimClipRequest<'a> {
     stats: Option<LevelMatch>,
     metadata: ffmpeg::ClipMetadata,
     options: &'a RecordingOptions,
+    recent_run_limit: usize,
     run_catalog: &'a RunCatalog,
 }
 
@@ -1144,6 +1157,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
         stats: job.stats,
         metadata: job.metadata,
         options: &job.options,
+        recent_run_limit: job.recent_run_limit.load(Ordering::Acquire),
         run_catalog: &job.run_catalog,
     }) {
         Ok(saved) => {
@@ -1281,7 +1295,7 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
         metadata: clip_metadata,
     }) {
         Ok(_) => {
-            if let Err(err) = req.run_catalog.cleanup_recent(req.options.recent_run_limit) {
+            if let Err(err) = req.run_catalog.cleanup_recent(req.recent_run_limit) {
                 tracing::warn!("failed to clean up expired recent-run clips: {err:#}");
             }
         }

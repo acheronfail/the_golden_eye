@@ -1,5 +1,5 @@
 import { backend, type RecordingSavePending, type RunClip } from '$lib/api';
-import { settings } from '$lib/stores/settings.svelte';
+import { MAX_RECENT_RUN_LIMIT } from '$lib/stores/settings.svelte';
 
 const formatRunTime = (seconds: number | undefined): string | undefined => {
 	if (seconds === undefined) return undefined;
@@ -52,7 +52,7 @@ export class RecentRunsStore {
 		this.loading = true;
 		this.error = null;
 		try {
-			const items = await backend.getRecentRuns(settings.recentRunLimit);
+			const items = await backend.getRecentRuns(MAX_RECENT_RUN_LIMIT);
 			if (version === this.refreshVersion) {
 				this.catalogItems = items;
 				for (const saveId of this.finalizedSaveIds) this.pendingItems.delete(saveId);
@@ -84,7 +84,7 @@ export class RecentRunsStore {
 		const pending = [...this.pendingItems.values()].sort((a, b) =>
 			b.metadata.timestamp.localeCompare(a.metadata.timestamp)
 		);
-		this.items = [...pending, ...this.catalogItems].slice(0, settings.recentRunLimit);
+		this.items = [...pending, ...this.catalogItems].slice(0, MAX_RECENT_RUN_LIMIT);
 	}
 }
 

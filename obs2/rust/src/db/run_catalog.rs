@@ -171,7 +171,7 @@ impl RunCatalog {
     }
 
     pub fn recent_runs(&self, limit: usize) -> anyhow::Result<Vec<RunRecord>> {
-        runs::recent_runs(&self.lock(), limit.clamp(1, 20))
+        runs::recent_runs(&self.lock(), limit.clamp(1, crate::recording::MAX_RECENT_RUN_LIMIT))
     }
 
     pub fn get_run(&self, run_id: &str) -> anyhow::Result<Option<RunRecord>> {
@@ -410,9 +410,15 @@ impl RunCatalog {
     pub fn cleanup_recent(&self, keep_recent: usize) -> anyhow::Result<Vec<String>> {
         let conn = self.lock();
         let runs = runs::list_runs(&conn)?;
+        let keep_recent = keep_recent.clamp(1, crate::recording::MAX_RECENT_RUN_LIMIT);
         let mut expired = Vec::new();
-        for mut run in runs.into_iter().skip(keep_recent.clamp(1, 20)) {
+        let mut pending_clips = 0;
+        for mut run in runs {
             if run.retention_state != RunRetentionState::Pending || run.clip.is_none() {
+                continue;
+            }
+            pending_clips += 1;
+            if pending_clips <= keep_recent {
                 continue;
             }
             let clip = run.clip.as_ref().expect("checked above");

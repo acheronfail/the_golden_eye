@@ -192,6 +192,9 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "run catalog task failed"))?;
     let recording_options = state.settings.get_recording_options();
+    let recent_run_limit = Arc::new(std::sync::atomic::AtomicUsize::new(
+        recording_options.recent_run_limit.clamp(1, crate::recording::MAX_RECENT_RUN_LIMIT),
+    ));
     let source_name =
         CString::new(params.source_name).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
@@ -284,6 +287,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let source_fps = unsafe { crate::ffi::ge_obs_video_fps() };
     // Kept for the handle so a standalone frame dump can share the latched region.
     let handle_region = region.clone();
+    let worker_recent_run_limit = recent_run_limit.clone();
     let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
         let mut source = ObsSource { mailbox: worker_mailbox, region };
         let mut session = session;
@@ -305,6 +309,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             crate::recording::RecordingSessionContext::new(recording_source_name, recording_lang, recording_session_id),
             run_catalog.clone(),
         );
+        recording.set_recent_run_limit_source(worker_recent_run_limit);
         loop {
             let diagnostics_enabled = monitor_annotations_state.monitor_annotations_enabled.load(Ordering::Acquire);
             if diagnostics_enabled != last_diagnostics_enabled {
@@ -400,6 +405,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         source_name: status_source_name.clone(),
         session_id: monitor_session_id,
         region: handle_region,
+        recent_run_limit,
     });
     state.snapshot.set_monitor_running(status_source_name, DEFAULT_MONITOR_LANGUAGE.to_owned());
     state.snapshot.set_replay_buffer(crate::http::current_replay_buffer_status());

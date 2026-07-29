@@ -261,7 +261,7 @@ fn seed_from_roots_indexes_nested_tagged_clips() {
 }
 
 #[test]
-fn cleanup_recent_expires_only_pending_clips_outside_the_history_window() {
+fn cleanup_recent_keeps_the_configured_number_of_pending_clips() {
     let dir = TestDir::new("prune-nested");
     let failed = dir.join("failed");
     let old = failed.join("Dam/Agent/old.mov");
@@ -286,12 +286,12 @@ fn cleanup_recent_expires_only_pending_clips_outside_the_history_window() {
     conn.execute("UPDATE runs SET retention_state = 'pending' WHERE run_id = ?1", [&old_id]).unwrap();
     conn.execute("UPDATE runs SET retention_state = 'pending' WHERE clip_path LIKE '%middle.mov' OR clip_path LIKE '%newest.mov'", []).unwrap();
     drop(conn);
-    catalog.cleanup_recent(3).unwrap();
+    catalog.cleanup_recent(2).unwrap();
 
     assert!(!old.exists(), "oldest failed clip should be pruned across nested dirs");
     assert!(middle.exists());
     assert!(newest.exists());
-    assert!(complete.exists(), "kept clips outside the window must survive");
+    assert!(complete.exists(), "kept clips must survive without consuming the pending-clip limit");
     let clips = catalog.list(&[RunCatalogRoot { path: failed }]).unwrap();
     assert_eq!(clips.len(), 3);
     assert!(!clips.iter().any(|clip| clip.path.ends_with("old.mov")));
