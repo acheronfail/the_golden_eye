@@ -110,8 +110,8 @@
 		class={styles.input}
 	/>
 	<p class={styles.hint}>
-		Keep this many recent videos saveable while you decide what to keep. The recent-runs list still shows up to 20
-		runs, including expired clips.
+		Keep this many recent videos saveable while you decide what to keep. The recent-runs list still shows up to 20 runs,
+		including expired clips.
 	</p>
 </section>
 

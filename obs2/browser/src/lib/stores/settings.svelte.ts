@@ -91,12 +91,7 @@ const settingsSchema = (defaults: Settings) =>
 		lastUsedSourceName: z.string().nullable().catch(defaults.lastUsedSourceName),
 		welcomeModalShown: z.boolean().catch(defaults.welcomeModalShown),
 		completedOutputPath: z.string().catch(defaults.completedOutputPath),
-		recentRunLimit: z.coerce
-			.number()
-			.int()
-			.min(1)
-			.max(MAX_RECENT_RUN_LIMIT)
-			.catch(defaults.recentRunLimit),
+		recentRunLimit: z.coerce.number().int().min(1).max(MAX_RECENT_RUN_LIMIT).catch(defaults.recentRunLimit),
 		clipFilenameTemplate: z.string().catch(defaults.clipFilenameTemplate),
 		preRunPaddingSecs: z.coerce.number().min(0).catch(defaults.preRunPaddingSecs),
 		postRunPaddingSecs: z.coerce.number().min(0).catch(defaults.postRunPaddingSecs),
