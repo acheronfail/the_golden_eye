@@ -221,7 +221,8 @@ pub async fn handle_recent(
     Query(params): Query<RecentRunsParams>,
 ) -> Result<impl IntoResponse> {
     let settings = state.settings.get_effective();
-    let limit = params.limit.unwrap_or(settings.recent_run_limit).clamp(1, 20);
+    let limit =
+        params.limit.unwrap_or(crate::recording::MAX_RECENT_RUN_LIMIT).clamp(1, crate::recording::MAX_RECENT_RUN_LIMIT);
     let runs = tokio::task::spawn_blocking(move || {
         seed_catalog_if_needed(&state, &settings);
         state.run_catalog.recent_runs(limit)

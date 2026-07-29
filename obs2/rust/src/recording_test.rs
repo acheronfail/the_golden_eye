@@ -321,6 +321,24 @@ fn complete_report_then_stats_schedules_completed_save() {
 }
 
 #[test]
+fn save_job_uses_a_clip_limit_changed_during_the_monitor_session() {
+    let options = RecordingOptions { recent_run_limit: 5, ..RecordingOptions::default() };
+    let (mut recording, mut events) = test_recording(options);
+    let live_limit = Arc::new(AtomicUsize::new(20));
+    recording.set_recent_run_limit_source(live_limit);
+    let start = Instant::now();
+    let stats_at = start + Duration::from_secs(10);
+
+    recording.on_frame(start, &match_for_screen(Screen::Start));
+    recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Complete));
+    recording.on_frame(stats_at, &match_with_time());
+    let _ = pending_save_event(&mut events);
+
+    let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
+    assert_eq!(job.recent_run_limit.load(Ordering::Acquire), 20);
+}
+
+#[test]
 fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
     let dir = TestDir::new("catalog-failure-save");
     let catalog = Arc::new(crate::db::run_catalog::RunCatalog::open(dir.join("runs.sqlite")).unwrap());
@@ -385,6 +403,7 @@ fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
         stats: job.stats,
         metadata: job.metadata.clone(),
         options: &options,
+        recent_run_limit: options.recent_run_limit,
         run_catalog: &catalog,
     })
     .expect("save tagged clip");

@@ -1,4 +1,5 @@
 use std::ffi::{CString, c_void};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -19,6 +20,13 @@ pub struct MonitorHandle {
     /// The latched capture transform, shared so a standalone frame dump on the
     /// same source can crop/un-stretch its frames identically to the matcher.
     pub(super) region: Arc<Mutex<Option<CaptureRegion>>>,
+    pub(super) recent_run_limit: Arc<AtomicUsize>,
+}
+
+impl MonitorHandle {
+    pub(crate) fn set_recent_run_limit(&self, limit: usize) {
+        self.recent_run_limit.store(limit.clamp(1, crate::recording::MAX_RECENT_RUN_LIMIT), Ordering::Release);
+    }
 }
 
 /// The leaked `ProducerCtx` pointer, made `Send` so the handle can move to the
