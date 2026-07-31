@@ -490,6 +490,11 @@ impl Screen {
             Screen::Levels => "levels",
         }
     }
+
+    /// Screens that launch a mission and anchor recording/timing state.
+    pub fn is_level_launch(self) -> bool {
+        matches!(self, Screen::Start | Screen::Opts007)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

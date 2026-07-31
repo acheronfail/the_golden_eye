@@ -117,6 +117,20 @@ fn monitor_wall_clocks_follow_backend_screen_transitions() {
 }
 
 #[test]
+fn monitor_wall_clock_treats_007_options_as_a_level_launch() {
+    let mut clocks = MonitorWallClockState::default();
+
+    clocks.start_session(1_000);
+    clocks.reconcile_match(&level_match(crate::cv::Screen::Opts007, 1, 1), 1_100);
+
+    assert_eq!(clocks.level_started_at_unix_ms, None);
+    assert_eq!(clocks.level_elapsed_ms, 0);
+    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::AwaitingInitialBlack);
+    assert_eq!(clocks.intro_swirl_delay_ms, Some(crate::ge::intro::swirl_delay_ms(crate::ge::Level::Dam)));
+    assert!(!clocks.level_running);
+}
+
+#[test]
 fn monitor_wall_clock_starts_on_a_skipped_second_cutscene_and_stops_on_the_next_fade() {
     let mut clocks = MonitorWallClockState::default();
     let sample_region = crate::cv::ActivePictureRegion::full(640, 480);

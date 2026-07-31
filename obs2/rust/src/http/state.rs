@@ -131,7 +131,7 @@ impl MonitorWallClockState {
 
     fn reconcile_screen(&mut self, screen: crate::cv::Screen, now_ms: u64) {
         match screen {
-            crate::cv::Screen::Start => {
+            screen if screen.is_level_launch() => {
                 self.level_started_at_unix_ms = None;
                 self.level_elapsed_ms = 0;
                 self.level_running = false;
@@ -153,7 +153,7 @@ impl MonitorWallClockState {
 
     fn reconcile_match(&mut self, level_match: &LevelMatch, now_ms: u64) {
         self.reconcile_screen(level_match.screen, now_ms);
-        if level_match.screen == crate::cv::Screen::Start {
+        if level_match.screen.is_level_launch() {
             self.intro_swirl_delay_ms = crate::ge::Level::from_matcher(level_match.mission, level_match.part)
                 .map(crate::ge::intro::swirl_delay_ms);
         }

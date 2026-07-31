@@ -86,6 +86,20 @@ describe('MonitorWallClocks', () => {
 		});
 	});
 
+	it('treats the title-cased 007 options screen as a launch screen', () => {
+		const clock = new FakeAnimationClock();
+		const timers = new MonitorWallClocks(clock);
+
+		timers.reconcile(true, 'Opts007');
+		clock.advance(1_250);
+
+		expect(timers.snapshot()).toMatchObject({
+			levelElapsedMs: 0,
+			levelRunning: false,
+			levelTimerPhase: 'awaitingInitialBlack'
+		});
+	});
+
 	it('stays stopped when a known level screen follows start and resets on the next start', () => {
 		const clock = new FakeAnimationClock();
 		const timers = new MonitorWallClocks(clock);

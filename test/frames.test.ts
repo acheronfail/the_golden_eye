@@ -150,7 +150,9 @@ async function evaluateScreenshotTest(
       ? check(result.screen, "anything except 'detail'", result.screen !== "stats")
       : check(result.screen, screenshot.screen, result.screen === screenshot.screen);
 
-  if (["stats", "start", "complete", "failed", "abort", "kia"].includes(screenshot.screen)) {
+  if (
+    ["007opts", "stats", "start", "complete", "failed", "abort", "kia"].includes(screenshot.screen)
+  ) {
     const resultLevel = getLevel(result.mission, result.part);
     const resultDifficulty: Difficulty | undefined = NumberDifficultyMap.get(result.difficulty);
     checks.level = check(resultLevel, screenshot.level, resultLevel === screenshot.level);
