@@ -184,8 +184,15 @@ fn match_with_unreadable_header() -> LevelMatch {
 }
 
 fn match_for_screen(screen: Screen) -> LevelMatch {
+    match_for_screen_with_identity(screen, 5, 1, 2)
+}
+
+fn match_for_screen_with_identity(screen: Screen, mission: i32, part: i32, difficulty: i32) -> LevelMatch {
     let mut m = match_with_time();
     m.screen = screen;
+    m.mission = mission;
+    m.part = part;
+    m.difficulty = difficulty;
     m.times = None;
     m.raw_times.clear();
     m
@@ -761,6 +768,35 @@ fn duplicate_start_frames_do_not_reset_the_session_anchor() {
     let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
     assert_eq!(job.status, RunStatus::Complete);
     assert!((job.start_before_save_secs - 30.5).abs() < f64::EPSILON);
+}
+
+#[test]
+fn seven_options_launches_and_canonicalizes_the_completed_run() {
+    let (mut recording, mut events) = test_recording_saving_short_failed_runs();
+    let start = Instant::now();
+
+    recording.on_frame(start, &match_for_screen_with_identity(Screen::Opts007, 1, 1, 3));
+    recording.on_frame(start + Duration::from_secs(10), &stats_match(14));
+
+    let pending = pending_save_event(&mut events);
+    let stats = recording.pending.as_ref().and_then(|pending| pending.stats.as_ref()).expect("pending stats");
+    assert_eq!((stats.mission, stats.part, stats.difficulty), (1, 1, 3));
+    assert_eq!(pending.difficulty.as_deref(), Some("007"));
+    recording.pending = None;
+}
+
+#[test]
+fn returning_to_difficulty_selection_cancels_a_007_launch() {
+    let (mut recording, _events) = test_recording(RecordingOptions::default());
+    let start = Instant::now();
+
+    recording.on_frame(start, &match_for_screen_with_identity(Screen::Opts007, 1, 1, 3));
+    recording.on_frame(start + Duration::from_secs(1), &match_for_screen(Screen::Select));
+
+    assert_eq!(recording.clip_start, None);
+    assert_eq!(recording.status, None);
+    assert_eq!(recording.identity_vote.winner, None);
+    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Cancelled));
 }
 
 #[test]

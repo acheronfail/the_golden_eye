@@ -27,8 +27,10 @@ export const reconcileMonitorRunIdentity = (
 	current: MonitorRunIdentity | null,
 	match: LevelMatch | null | undefined
 ): MonitorRunIdentity | null => {
-	if (!match || match.screen === 'levels' || match.screen === 'select') return null;
-	if (match.screen === 'start') return identityFromStart(match);
+	if (!match) return null;
+	const screen = match.screen.trim().toLowerCase();
+	if (screen === 'levels' || screen === 'select') return null;
+	if (screen === 'start' || screen === 'opts007') return identityFromStart(match);
 	return current;
 };
 

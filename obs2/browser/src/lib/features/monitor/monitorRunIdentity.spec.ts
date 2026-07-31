@@ -20,6 +20,12 @@ describe('monitor run identity', () => {
 		expect(monitorRunIdentityLabel(facility)).toBe('Facility / 00 Agent');
 	});
 
+	it('captures identity from the 007 options launch screen and production casing', () => {
+		const identity = reconcileMonitorRunIdentity(null, match('Opts007', 1, 1, 3));
+
+		expect(monitorRunIdentityLabel(identity)).toBe('Dam / 007');
+	});
+
 	it('retains the identity during a run and replaces it on the next start', () => {
 		const facility = reconcileMonitorRunIdentity(null, match('start', 1, 2, 2));
 		const gameplay = reconcileMonitorRunIdentity(facility, match('unknown'));

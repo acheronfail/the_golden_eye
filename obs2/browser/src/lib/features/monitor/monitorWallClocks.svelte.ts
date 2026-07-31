@@ -121,7 +121,7 @@ export class MonitorWallClocks {
 	}
 
 	private reconcileScreen(screen: string | null, now: number): void {
-		if (screen === 'start') {
+		if (screen === 'start' || screen === 'opts007') {
 			this.levelElapsedMs = 0;
 			this.levelStartedAt = null;
 			this.levelRunning = false;

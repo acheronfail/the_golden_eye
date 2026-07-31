@@ -1034,7 +1034,17 @@ impl RecordingState {
                     self.refine_stats_vote(now, m);
                 }
             }
-            Screen::Unknown | Screen::Select => {}
+            Screen::Select => {
+                // Leaving a launch screen for difficulty selection abandons the
+                // provisional run; a later launch must get a fresh anchor/identity.
+                if self.report.is_none() && self.clip_start.take().is_some() {
+                    self.status = None;
+                    self.identity_vote = RunIdentityVote::default();
+                    tracing::info!("recording session cancelled (returned to difficulty selection)");
+                    self.emit(RecordingStatus::Cancelled);
+                }
+            }
+            Screen::Unknown => {}
         }
 
         // Leaving the stats screen locks the vote: any later run's stats screen
