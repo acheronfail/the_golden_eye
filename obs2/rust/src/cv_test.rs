@@ -204,6 +204,18 @@ fn stats_screen_is_rejected_without_a_readable_run_time() {
 }
 
 #[test]
+fn stats_screen_is_rejected_when_the_start_tab_is_visible() {
+    let mut result = level_match(Screen::Stats, 1, 1, ge::Difficulty::Agent.number(), vec![62]);
+    result.detected_lang = Some("jp".to_owned());
+
+    reject_untrusted_screen(&mut result);
+
+    assert_eq!(result.screen, Screen::Unknown);
+    assert!(result.raw_times.is_empty());
+    assert_eq!(result.times, None);
+}
+
+#[test]
 fn non_overlay_screens_do_not_require_header_markers() {
     for screen in [Screen::Opts007, Screen::Select, Screen::Levels, Screen::Unknown] {
         let mut result = level_match(screen, -1, -1, -1, Vec::new());

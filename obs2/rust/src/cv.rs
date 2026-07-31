@@ -545,7 +545,11 @@ fn has_overlay_markers(result: &LevelMatch) -> bool {
 fn reject_untrusted_screen(result: &mut LevelMatch) {
     let missing_required_markers = screen_requires_overlay_markers(result.screen) && !has_overlay_markers(result);
     let stats_without_times = result.screen == Screen::Stats && result.raw_times.is_empty();
-    if missing_required_markers || stats_without_times {
+    // A strong START-tab match identifies the pre-level briefing flow. Briefing
+    // text can resemble both the statistics banner and time rows, but real
+    // post-run stats screens never carry this tab.
+    let stats_with_start_tab = result.screen == Screen::Stats && result.detected_lang.is_some();
+    if missing_required_markers || stats_without_times || stats_with_start_tab {
         result.screen = Screen::Unknown;
         result.times = None;
         result.raw_times.clear();
