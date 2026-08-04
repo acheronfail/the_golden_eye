@@ -160,7 +160,7 @@ impl MonitorWallClockState {
     fn reconcile_match(&mut self, level_match: &LevelMatch, now_ms: u64) {
         self.reconcile_screen(level_match.screen, now_ms);
         if level_match.screen.is_level_launch() {
-            self.intro_swirl_delay_ms = crate::ge::Level::from_matcher(level_match.mission, level_match.part)
+            self.intro_swirl_delay_ms = crate::ge::Level::from_mission_and_part(level_match.mission, level_match.part)
                 .map(crate::ge::intro::swirl_delay_ms);
         }
     }

@@ -63,7 +63,7 @@
 			titleTemplate: settings.youtubeTitleTemplate,
 			descriptionTemplate: settings.youtubeDescriptionTemplate,
 			visibility: settings.youtubeVisibility,
-			datetimeLocal: datetimeLocalForClip(clip, typeof navigator === 'undefined' ? undefined : navigator.languages)
+			datetimeLocal: datetimeLocalForClip(clip)
 		})
 	);
 	let visibleUploadError = $derived(
@@ -76,10 +76,7 @@
 		void backend.openYouTubeUrl(openUrl).catch((err) => console.warn('Failed to open YouTube video', err));
 	};
 	const uploadVideo = () => {
-		const datetimeLocal = datetimeLocalForClip(
-			clip,
-			typeof navigator === 'undefined' ? undefined : navigator.languages
-		);
+		const datetimeLocal = datetimeLocalForClip(clip);
 		void youtube.upload(clip.path, { datetimeLocal }).catch((err) => console.warn('Failed to upload to YouTube', err));
 	};
 	const forgetUpload = () => {

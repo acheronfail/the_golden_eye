@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { RunClip } from '$lib/api';
 	import ActionMenu, { type ActionMenuItem } from '$lib/ui/ActionMenu.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import {
 		formatDate,
 		formatRunListDate,
@@ -9,6 +10,7 @@
 		statusLabel,
 		wasPersonalBest
 	} from '$lib/features/runs/runsView';
+	import { settings } from '$lib/stores/settings.svelte';
 
 	let {
 		clip,
@@ -36,24 +38,48 @@
 		keep?: (clip: RunClip) => void | Promise<void>;
 	} = $props();
 
-	const retentionLabelFor = (run: RunClip): string => {
+	const retentionLabelFor = (
+		run: RunClip
+	): {
+		label: string;
+		description: string;
+	} => {
 		if (!run.path) {
 			switch (run.retentionReason) {
 				case 'manualEntry':
-					return 'manual';
+					return {
+						label: 'manual',
+						description: 'This entry was manually added.'
+					};
 				case 'theElite':
-					return 'the elite';
+					return {
+						label: 'the elite',
+						description: 'This entry was imported and downloaded from the-elite.net.'
+					};
 				default:
-					return 'history only';
+					return {
+						label: 'history only',
+						description: 'This entry has no local video clip.'
+					};
 			}
 		}
 
 		switch (run.retentionState) {
 			case 'pending':
-				return 'pending';
-			case 'kept':
+				return {
+					label: 'pending',
+					description: `This entry has a local video clip, but unless you choose to keep it, it will be deleted if ${settings.recentRunLimit} newer clips are saved.`
+				};
 			case 'expired':
-				return 'kept';
+				return {
+					label: 'expired',
+					description: 'This entry expired and so its clip has been deleted.'
+				};
+			case 'kept':
+				return {
+					label: 'kept',
+					description: "This entry has been explicitly kept, and won't be deleted."
+				};
 		}
 	};
 
@@ -90,11 +116,11 @@
 </script>
 
 <div
-	class="relative grid grid-cols-[minmax(0,1fr)_auto] border-b border-(--obs-border-muted) transition-colors hover:bg-(--obs-control-hover)"
+	class="relative grid grid-cols-[minmax(0,1fr)_auto] border-b border-(--obs-border-muted) px-2 transition-colors hover:bg-(--obs-control-hover)"
 >
 	<button
 		type="button"
-		class="grid min-h-14 min-w-0 cursor-pointer grid-cols-[minmax(5.5rem,1fr)_minmax(5rem,.8fr)_minmax(3.75rem,.6fr)_minmax(4rem,.6fr)] items-center gap-2 px-2 py-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-(--obs-gold-hover) sm:grid-cols-[minmax(8rem,1.35fr)_minmax(6rem,.8fr)_minmax(5.5rem,.7fr)_minmax(4.5rem,.6fr)]"
+		class="grid min-h-14 min-w-0 cursor-pointer grid-cols-[minmax(5.5rem,1fr)_minmax(5rem,.8fr)_minmax(3.75rem,.6fr)_minmax(4rem,.6fr)] items-center gap-2 py-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-(--obs-gold-hover) sm:grid-cols-[minmax(8rem,1.35fr)_minmax(6rem,.8fr)_minmax(5.5rem,.7fr)_minmax(4.5rem,.6fr)]"
 		aria-label={itemLabel}
 		onclick={() => open(clip)}
 	>
@@ -117,10 +143,13 @@
 			></span>
 			{compactStatusLabel}
 		</span>
-		<span
-			class="truncate font-mono text-[10px] {pending ? 'font-semibold text-(--obs-danger)' : 'text-(--obs-text-dim)'}"
-			>{retentionLabel}</span
-		>
+		<Tooltip content={retentionLabel.description} class="cursor-help">
+			<span
+				class="truncate font-mono text-[10px] {pending ? 'font-semibold text-(--obs-danger)' : 'text-(--obs-text-dim)'}"
+			>
+				{retentionLabel.label}
+			</span>
+		</Tooltip>
 	</button>
 
 	<ActionMenu

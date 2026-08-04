@@ -2,9 +2,9 @@ use super::*;
 
 #[test]
 fn level_info_uses_display_names_and_one_based_numbers() {
-    assert_eq!(Level::from_matcher(1, 1), Some(Level::Dam));
-    assert_eq!(Level::from_matcher(9, 1), Some(Level::Egypt));
-    assert_eq!(Level::from_matcher(10, 1), None);
+    assert_eq!(Level::from_mission_and_part(1, 1), Some(Level::Dam));
+    assert_eq!(Level::from_mission_and_part(9, 1), Some(Level::Egypt));
+    assert_eq!(Level::from_mission_and_part(10, 1), None);
     assert_eq!(level_info(1, 1), Some(LevelInfo { name: "Dam", number: 1 }));
     assert_eq!(level_info(1, 2), Some(LevelInfo { name: "Facility", number: 2 }));
     assert_eq!(level_info(9, 1), Some(LevelInfo { name: "Egypt", number: 20 }));

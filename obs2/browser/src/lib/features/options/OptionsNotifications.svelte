@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { settings } from '$lib/stores/settings.svelte';
 	import { optionsClasses as styles } from '$lib/features/options/optionsView';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	const notificationTemplateTokens = [
 		{ value: '{broadcast_url}', description: 'YouTube broadcast URL for the stream.' },
@@ -48,9 +49,9 @@
 		<p class={styles.hint}>Available tokens</p>
 		<div class="flex flex-wrap gap-2">
 			{#each notificationTemplateTokens as token}
-				<code class={styles.templateToken} title={token.description} aria-label={`${token.value}: ${token.description}`}
-					>{token.value}</code
-				>
+				<Tooltip content={token.description} class="cursor-help">
+					<code class={styles.templateToken} aria-label={`${token.value}: ${token.description}`}>{token.value}</code>
+				</Tooltip>
 			{/each}
 		</div>
 	</section>
@@ -67,9 +68,9 @@
 		<p class={styles.hint}>Available tokens</p>
 		<div class="flex flex-wrap gap-2">
 			{#each notificationTemplateTokens as token}
-				<code class={styles.templateToken} title={token.description} aria-label={`${token.value}: ${token.description}`}
-					>{token.value}</code
-				>
+				<Tooltip content={token.description} class="cursor-help">
+					<code class={styles.templateToken} aria-label={`${token.value}: ${token.description}`}>{token.value}</code>
+				</Tooltip>
 			{/each}
 		</div>
 	</section>

@@ -2,24 +2,17 @@
 	import Select from '$lib/ui/Select.svelte';
 	import type { MonitorDesign } from '$lib/features/monitor/monitorView';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { optionsClasses as styles, type RecordingOptionsView } from '$lib/features/options/optionsView';
+	import {
+		clipTemplateTokens,
+		optionsClasses as styles,
+		type RecordingOptionsView
+	} from '$lib/features/options/optionsView';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	const monitorDesignOptions: { value: MonitorDesign; label: string }[] = [
 		{ value: 'signal-band', label: 'Signal band' },
 		{ value: 'mission-glass', label: 'Mission glass' },
 		{ value: 'debug', label: 'For Your Eyes Only' }
-	];
-
-	const clipTemplateTokens = [
-		{ value: '{obs_replay_name}', description: 'Original OBS replay-buffer filename without the extension.' },
-		{ value: '{level}', description: 'GoldenEye level name, such as Dam, Facility, or Egypt.' },
-		{ value: '{levelNumber}', description: 'GoldenEye level number from 1 through 20.' },
-		{ value: '{time}', description: 'Run time as mm:ss when the stats screen was read.' },
-		{ value: '{difficulty}', description: 'Difficulty name: Agent, Secret Agent, 00 Agent, or 007.' },
-		{ value: '{status}', description: 'Run result: complete, failed, abort, or kia.' },
-		{ value: '{rom}', description: 'ROM version: NTSC-U, NTSC-J, PAL, or unknown.' },
-		{ value: '{timestamp}', description: 'ISO timestamp in UTC for when the run completed.' },
-		{ value: '{timestamp_local}', description: 'ISO timestamp in local time for when the run completed.' }
 	];
 
 	let { view }: { view: RecordingOptionsView } = $props();
@@ -34,7 +27,7 @@
 		options={monitorDesignOptions}
 		class="font-mono text-sm"
 	/>
-	<p class={styles.hint}>Choose the full-screen monitor shown while watching a capture source.</p>
+	<p class={styles.hint}>Change up the theme of the monitor shown while watching a capture source.</p>
 </section>
 
 <section class={styles.panel}>
@@ -51,23 +44,27 @@
 	{#if view.template.error}
 		<p class={styles.pathError}>{view.template.error}</p>
 	{:else}
-		<p class={styles.hint}>
-			Use {view.template.separator} to create folders inside the output folder, for example {`{level}${view.template.separator}{difficulty}${view.template.separator}{time}`}.
+		<p class="{styles.hint} leading-5">
+			Use <span class={styles.templateToken}>{view.template.separator}</span> to create folders inside the output
+			folder, for example
+			<span class={styles.templateToken}
+				>{`{level}${view.template.separator}{difficulty}${view.template.separator}{time}`}</span
+			>.
 		</p>
 	{/if}
 	<p class={styles.hint}>Available tokens</p>
 	<div class="flex flex-wrap gap-2">
 		{#each clipTemplateTokens as token}
-			<code class={styles.templateToken} title={token.description} aria-label={`${token.value}: ${token.description}`}
-				>{token.value}</code
-			>
+			<Tooltip content={token.description} class="cursor-help">
+				<code class={styles.templateToken} aria-label={`${token.value}: ${token.description}`}>{token.value}</code>
+			</Tooltip>
 		{/each}
 	</div>
 </section>
 
 <section class={styles.panel}>
 	<div class="flex flex-wrap items-center justify-between gap-3">
-		<label class={styles.label} for="completed-output-path">Run clips</label>
+		<label class={styles.label} for="completed-output-path">Where to save clips?</label>
 		<div class="flex flex-wrap justify-end gap-2">
 			<button type="button" class={styles.pathButton} disabled={view.paths.picking} onclick={view.paths.choose}
 				>{view.paths.picking ? 'Choosing...' : 'Choose...'}</button
@@ -93,12 +90,14 @@
 	{:else if view.paths.validation && settings.completedOutputPath.trim()}
 		<p class={styles.pathStatus}>{view.paths.statusMessage(view.paths.validation)}</p>
 	{:else}
-		<p class={styles.hint}>Defaults to a GoldenEye folder inside OBS's replay-buffer output folder.</p>
+		<p class={styles.hint}>
+			Defaults to a folder named <span class={styles.templateToken}>GoldenEye</span> inside OBS's replay-buffer output folder.
+		</p>
 	{/if}
 </section>
 
 <section class={styles.panel}>
-	<label class={styles.label} for="recent-run-limit">Saveable clips</label>
+	<label class={styles.label} for="recent-run-limit">Max recent clip limit</label>
 	<input
 		id="recent-run-limit"
 		type="number"
@@ -110,8 +109,9 @@
 		class={styles.input}
 	/>
 	<p class={styles.hint}>
-		Keep this many recent videos saveable while you decide what to keep. The recent-runs list still shows up to 20 runs,
-		including expired clips.
+		While monitoring your game, this plugin saves clips of your runs. This setting controls how many clips will be saved
+		on disk while you're playing. You can choose to 'keep' clips (save them forever) but if you don't they'll be removed
+		automatically when there are more than this setting.
 	</p>
 </section>
 
