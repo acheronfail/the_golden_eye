@@ -53,6 +53,7 @@ pub fn detect_watch(data: &[u8], width: u32, height: u32, active_picture: Active
     let mut dark_ring = 0_u32;
     let mut face_samples = 0_u32;
     let mut green_face = 0_u32;
+    let mut dark_face = 0_u32;
 
     for y in active_picture.y..active_picture.y + active_picture.height {
         let dy = (y as f32 + 0.5 - center_y) / radius_y;
@@ -81,6 +82,7 @@ pub fn detect_watch(data: &[u8], width: u32, height: u32, active_picture: Active
             } else if radius < FACE_OUTER {
                 face_samples += 1;
                 green_face += u32::from(g > 20 && i16::from(g) > i16::from(r) + 8 && i16::from(g) > i16::from(b) + 5);
+                dark_face += u32::from(luma < DARK_RING_LUMA_MAX);
             }
         }
     }
@@ -92,7 +94,10 @@ pub fn detect_watch(data: &[u8], width: u32, height: u32, active_picture: Active
         && green_face_percent >= CLOCK_GREEN_PERCENT_MIN
         && dark_ring_percent >= CLOCK_DARK_RING_PERCENT_MIN;
     let menu_surface = bright_tick_percent < MENU_TICK_PERCENT_MAX && dark_ring_percent >= MENU_DARK_RING_PERCENT_MIN;
-    let presentation = if clock_face {
+    let fully_dark = dark_ring == ring_samples && dark_face == face_samples;
+    let presentation = if fully_dark {
+        WatchPresentation::Absent
+    } else if clock_face {
         WatchPresentation::ClockFace
     } else if menu_surface {
         WatchPresentation::MenuSurface
