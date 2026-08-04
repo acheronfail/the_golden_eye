@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RunClip } from '$lib/api';
 import { datetimeLocalForClip, formatDatetimeLocal, renderYouTubeUploadPreview } from './youtubeMetadata';
 
@@ -29,16 +29,26 @@ const clip = (timestamp = '2026-07-18T10:30:45Z'): RunClip => ({
 });
 
 describe('YouTube datetime local helper', () => {
+	const originalNavigator = globalThis.navigator;
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
 	it('formats datetime_local with the browser locale', () => {
 		const timestamp = '2026-07-18T10:30:45Z';
 
-		expect(formatDatetimeLocal(timestamp, 'en-US')).toBe(new Date(timestamp).toLocaleString('en-US'));
-		expect(datetimeLocalForClip(clip(timestamp), 'en-US')).toBe(new Date(timestamp).toLocaleString('en-US'));
+		vi.stubGlobal('navigator', { ...originalNavigator, languages: ['en-US'] });
+		expect(formatDatetimeLocal(timestamp)).toBe(new Date(timestamp).toLocaleString('en-US'));
+		expect(datetimeLocalForClip(clip(timestamp))).toBe(new Date(timestamp).toLocaleString('en-US'));
+
+		vi.stubGlobal('navigator', { ...originalNavigator, languages: ['en-AU'] });
+		expect(formatDatetimeLocal(timestamp)).toBe(new Date(timestamp).toLocaleString('en-AU'));
+		expect(datetimeLocalForClip(clip(timestamp))).toBe(new Date(timestamp).toLocaleString('en-AU'));
 	});
 
 	it('falls back to the raw timestamp when the timestamp is invalid', () => {
-		expect(formatDatetimeLocal('not a timestamp', 'en-US')).toBe('not a timestamp');
-		expect(datetimeLocalForClip(clip('not a timestamp'), 'en-US')).toBe('not a timestamp');
+		expect(formatDatetimeLocal('not a timestamp')).toBe('not a timestamp');
+		expect(datetimeLocalForClip(clip('not a timestamp'))).toBe('not a timestamp');
 	});
 });
 

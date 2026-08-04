@@ -2,7 +2,11 @@
 	import Select from '$lib/ui/Select.svelte';
 	import type { MonitorDesign } from '$lib/features/monitor/monitorView';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { clipTemplateTokens, optionsClasses as styles, type RecordingOptionsView } from '$lib/features/options/optionsView';
+	import {
+		clipTemplateTokens,
+		optionsClasses as styles,
+		type RecordingOptionsView
+	} from '$lib/features/options/optionsView';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	const monitorDesignOptions: { value: MonitorDesign; label: string }[] = [
@@ -60,7 +64,7 @@
 
 <section class={styles.panel}>
 	<div class="flex flex-wrap items-center justify-between gap-3">
-		<label class={styles.label} for="completed-output-path">Run clips</label>
+		<label class={styles.label} for="completed-output-path">Where to save clips?</label>
 		<div class="flex flex-wrap justify-end gap-2">
 			<button type="button" class={styles.pathButton} disabled={view.paths.picking} onclick={view.paths.choose}
 				>{view.paths.picking ? 'Choosing...' : 'Choose...'}</button
@@ -93,7 +97,7 @@
 </section>
 
 <section class={styles.panel}>
-	<label class={styles.label} for="recent-run-limit">Saveable clips</label>
+	<label class={styles.label} for="recent-run-limit">Max recent clip limit</label>
 	<input
 		id="recent-run-limit"
 		type="number"
@@ -106,8 +110,8 @@
 	/>
 	<p class={styles.hint}>
 		While monitoring your game, this plugin saves clips of your runs. This setting controls how many clips will be saved
-		on disk while you're playing. You can choose to 'keep' clips (save them forever) but if you don't they'll be
-		removed.
+		on disk while you're playing. You can choose to 'keep' clips (save them forever) but if you don't they'll be removed
+		automatically when there are more than this setting.
 	</p>
 </section>
 

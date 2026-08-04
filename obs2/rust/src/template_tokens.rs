@@ -27,7 +27,7 @@ fn part_to_romain_numeral(n: i32) -> &'static str {
         3 => "ii",
         4 => "iv",
         5 => "v",
-        _ => "unknown"
+        _ => "unknown",
     }
 }
 
