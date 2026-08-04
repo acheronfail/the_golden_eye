@@ -149,6 +149,13 @@ async function evaluateScreenshotTest(
     screenshot.screen === "detail"
       ? check(result.screen, "anything except 'detail'", result.screen !== "stats")
       : check(result.screen, screenshot.screen, result.screen === screenshot.screen);
+  if (screenshot.expectedBlackFrame !== undefined) {
+    checks.blackFrame = check(
+      result.black_frame,
+      screenshot.expectedBlackFrame,
+      result.black_frame === screenshot.expectedBlackFrame,
+    );
+  }
 
   if (
     ["007opts", "stats", "start", "complete", "failed", "abort", "kia"].includes(screenshot.screen)

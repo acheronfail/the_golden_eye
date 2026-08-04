@@ -31,6 +31,20 @@ fn black_frame_detection_rejects_dark_scenes_with_visible_detail() {
 }
 
 #[test]
+fn black_frame_detection_rejects_a_single_visible_sample() {
+    let mut frame = solid_bgra(320, 180, 7);
+    let sample_x = (320 / (32 * 2)) as usize;
+    let sample_y = (180 / (18 * 2)) as usize;
+    let offset = (sample_y * 320 + sample_x) * 4;
+    frame[offset..offset + 3].fill(255);
+
+    let signal = detect_black_frame(&frame, 320, 180, ActivePictureRegion::full(320, 180)).unwrap();
+
+    assert_eq!(signal.dark_pixel_percent, 99);
+    assert!(!signal.detected);
+}
+
+#[test]
 fn black_frame_detection_rejects_invalid_buffers() {
     assert_eq!(detect_black_frame(&[], 1920, 1080, ActivePictureRegion::full(1920, 1080)), None);
     assert_eq!(detect_black_frame(&[0; 16], 0, 0, ActivePictureRegion::full(0, 0)), None);

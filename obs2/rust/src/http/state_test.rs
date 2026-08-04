@@ -180,6 +180,9 @@ fn monitor_wall_clock_starts_on_a_skipped_second_cutscene_and_stops_on_the_next_
     assert_eq!(json["fadeDetection"]["sampleRegion"]["width"], 640);
 
     clocks.reconcile_black_frame(black, 5_000);
+    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
+    assert!(clocks.level_running);
+    clocks.reconcile_black_frame(black, 5_250);
     assert_eq!(clocks.level_elapsed_ms, 2_200);
     assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Stopped);
     assert!(!clocks.level_running);
@@ -216,7 +219,7 @@ fn monitor_wall_clock_starts_when_the_level_swirl_delay_expires() {
 }
 
 #[test]
-fn first_black_frame_after_the_swirl_deadline_stops_the_level_timer() {
+fn sustained_black_after_the_swirl_deadline_stops_at_the_first_black_frame() {
     let sample_region = crate::cv::ActivePictureRegion::full(640, 480);
     let black = crate::cv::BlackFrameSignal {
         detected: true,
@@ -236,10 +239,38 @@ fn first_black_frame_after_the_swirl_deadline_stops_the_level_timer() {
     clocks.reconcile_black_frame(visible, 2_100);
 
     clocks.reconcile_black_frame(black, 5_300);
+    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
+    clocks.reconcile_black_frame(black, 5_550);
     assert_eq!(clocks.level_start_reason, Some(LevelTimerStartReason::Swirl));
     assert_eq!(clocks.level_elapsed_ms, 33);
     assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Stopped);
     assert!(!clocks.level_running);
+}
+
+#[test]
+fn short_camera_black_flash_does_not_stop_the_level_timer() {
+    let sample_region = crate::cv::ActivePictureRegion::full(640, 480);
+    let black = crate::cv::BlackFrameSignal {
+        detected: true,
+        mean_luma: 7,
+        dark_pixel_percent: 100,
+        sample_count: 576,
+        sample_region,
+    };
+    let visible = crate::cv::BlackFrameSignal { detected: false, mean_luma: 80, dark_pixel_percent: 5, ..black };
+
+    let mut clocks = MonitorWallClockState::default();
+    clocks.start_session(1_000);
+    clocks.start_level(2_000, LevelTimerStartReason::Fade);
+    clocks.reconcile_black_frame(black, 5_000);
+    clocks.reconcile_black_frame(black, 5_033);
+    clocks.reconcile_black_frame(black, 5_067);
+    clocks.reconcile_black_frame(black, 5_100);
+    clocks.reconcile_black_frame(visible, 5_133);
+
+    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
+    assert!(clocks.level_running);
+    assert_eq!(clocks.level_started_at_unix_ms, Some(2_000));
 }
 
 #[test]
