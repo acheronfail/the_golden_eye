@@ -90,11 +90,11 @@
 </script>
 
 <div
-	class="relative grid grid-cols-[minmax(0,1fr)_auto] border-b border-(--obs-border-muted) transition-colors hover:bg-(--obs-control-hover)"
+	class="relative grid grid-cols-[minmax(0,1fr)_auto] border-b border-(--obs-border-muted) transition-colors hover:bg-(--obs-control-hover) px-2"
 >
 	<button
 		type="button"
-		class="grid min-h-14 min-w-0 cursor-pointer grid-cols-[minmax(5.5rem,1fr)_minmax(5rem,.8fr)_minmax(3.75rem,.6fr)_minmax(4rem,.6fr)] items-center gap-2 px-2 py-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-(--obs-gold-hover) sm:grid-cols-[minmax(8rem,1.35fr)_minmax(6rem,.8fr)_minmax(5.5rem,.7fr)_minmax(4.5rem,.6fr)]"
+		class="grid min-h-14 min-w-0 cursor-pointer grid-cols-[minmax(5.5rem,1fr)_minmax(5rem,.8fr)_minmax(3.75rem,.6fr)_minmax(4rem,.6fr)] items-center gap-2 py-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-(--obs-gold-hover) sm:grid-cols-[minmax(8rem,1.35fr)_minmax(6rem,.8fr)_minmax(5.5rem,.7fr)_minmax(4.5rem,.6fr)]"
 		aria-label={itemLabel}
 		onclick={() => open(clip)}
 	>
