@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+
 	let {
 		url,
 		onOpen
@@ -29,6 +31,10 @@
 	const selectUrl = (event: Event) => {
 		(event.currentTarget as HTMLInputElement).select();
 	};
+
+	onDestroy(() => {
+		if (copyResetTimer) clearTimeout(copyResetTimer);
+	});
 </script>
 
 <div class="flex w-full items-center justify-center gap-2 px-2 sm:px-8">
