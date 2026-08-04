@@ -23,7 +23,7 @@
 					copyResetTimer = null;
 				}, 1500);
 			})
-			.catch((err) => console.warn('Failed to copy YouTube URL', err));
+			.catch((err) => console.warn('Failed to copy URL', err));
 	};
 
 	const selectUrl = (event: Event) => {
@@ -36,7 +36,7 @@
 		class="obs-input min-w-0 flex-1 truncate border-(--obs-border-soft) px-3 py-1.5 text-center font-mono text-xs shadow-[inset_0_1px_0_var(--obs-border-soft)]"
 		readonly
 		value={url}
-		aria-label="YouTube video URL"
+		aria-label="URL"
 		onclick={selectUrl}
 		onfocus={selectUrl}
 	/>
