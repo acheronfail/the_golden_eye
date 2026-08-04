@@ -205,6 +205,7 @@ test:
 fmt:
     just clippy
     cd obs2/browser && npm run format:repo
+    cd obs2/browser && npm run check
     cd obs2/rust && rustup run nightly cargo fmt --
     find obs2 obs2/shim obs2/shim/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_rust.h -print0 | xargs -0 clang-format -style=file -i
 

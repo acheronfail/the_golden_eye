@@ -44,7 +44,6 @@ export interface RunsPageNavigation {
 type ActionScope = 'modal' | 'list';
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-const runKey = (run: RunClip): string => run.runId;
 const levelSelectOptions = LEVEL_OPTIONS.map((level) => ({ value: level, label: level }));
 
 export class RunsPageController {
