@@ -1,6 +1,7 @@
 import type { RunClip } from '$lib/api';
 import type { YoutubeVisibility } from '$lib/stores/settings.svelte';
 import { romVersionLabel } from '$lib/features/runs/runsView';
+import { missionAndPartFromLevel, NumberLevelMap } from './geLevels';
 
 export interface YouTubeUploadPreviewOptions {
 	titleTemplate: string;
@@ -45,13 +46,12 @@ const formatIsoLocal = (timestamp: string): string => {
 		: timestamp;
 };
 
-export const formatDatetimeLocal = (timestamp: string, locale?: Intl.LocalesArgument): string => {
+export const formatDatetimeLocal = (timestamp: string): string => {
 	const date = dateFromTimestamp(timestamp);
-	return date ? date.toLocaleString(locale) : timestamp;
+	return date ? date.toLocaleString(typeof navigator === 'undefined' ? undefined : navigator.languages) : timestamp;
 };
 
-export const datetimeLocalForClip = (clip: RunClip, locale?: Intl.LocalesArgument): string =>
-	formatDatetimeLocal(clip.metadata.timestamp, locale);
+export const datetimeLocalForClip = (clip: RunClip): string => formatDatetimeLocal(clip.metadata.timestamp);
 
 const visibilityLabel = (visibility: YoutubeVisibility): string => {
 	if (visibility === 'public') return 'Public';
@@ -59,12 +59,38 @@ const visibilityLabel = (visibility: YoutubeVisibility): string => {
 	return 'Unlisted';
 };
 
+const partToRomanNumeral = (n: number) => {
+	switch (n) {
+		case 1:
+			return 'i';
+		case 2:
+			return 'ii';
+		case 3:
+			return 'iii';
+		case 4:
+			return 'iv';
+		case 5:
+			return 'v';
+		default:
+			return '';
+	}
+};
+
 const renderTemplate = (template: string, clip: RunClip, datetimeLocal: string): string => {
 	const metadata = clip.metadata;
+
+	// NOTE: first try from name and then level number, same as `RunTemplateTokens::from_clip_metadata`
+	let missionAndPart = missionAndPartFromLevel(metadata.level);
+	if (!missionAndPart && typeof metadata.levelNumber === 'number') {
+		missionAndPart = missionAndPartFromLevel(NumberLevelMap.get(metadata.levelNumber));
+	}
+	let mission = missionAndPart ? missionAndPart[0].toString() : '';
+	let part = missionAndPart ? partToRomanNumeral(missionAndPart[1]) : '';
+
 	return template
 		.replaceAll('{obs_replay_name}', clipStem(clip))
-		.replaceAll('{mission}', '')
-		.replaceAll('{part}', '')
+		.replaceAll('{mission}', mission)
+		.replaceAll('{part}', part)
 		.replaceAll('{difficulty}', metadata.difficulty ?? '')
 		.replaceAll('{level}', metadata.level)
 		.replaceAll('{levelNumber}', metadata.levelNumber?.toString() ?? '')

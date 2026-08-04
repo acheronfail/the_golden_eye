@@ -1,9 +1,10 @@
 <script lang="ts">
 	import Select from '$lib/ui/Select.svelte';
 	import { settings, type YoutubeVisibility } from '$lib/stores/settings.svelte';
-	import { optionsClasses as styles } from '$lib/features/options/optionsView';
+	import { optionsClasses as styles, youtubeTemplateTokens } from '$lib/features/options/optionsView';
 	import { youtube } from '$lib/stores/youtube.svelte';
 	import YouTubeConnectButton from '$lib/features/youtube/YouTubeConnectButton.svelte';
+	import Tooltip from '../../ui/Tooltip.svelte';
 
 	const visibilityOptions: { value: YoutubeVisibility; label: string }[] = [
 		{ value: 'public', label: 'Public' },
@@ -14,22 +15,6 @@
 	let accountEmail = $derived(
 		youtube.account?.email && youtube.account?.email !== accountLabel ? youtube.account.email : null
 	);
-
-	const tokens = [
-		'{obs_replay_name}',
-		'{mission}',
-		'{part}',
-		'{levelNumber}',
-		'{level}',
-		'{time}',
-		'{difficulty}',
-		'{status}',
-		'{rom}',
-		'{timestamp}',
-		'{timestamp_local}',
-		'{datetime_local}',
-		'{plugin_version}'
-	];
 
 	const disconnect = async () => {
 		await youtube.disconnect();
@@ -100,8 +85,10 @@
 			<div class="grid gap-2">
 				<p class={styles.hint}>Supported tokens</p>
 				<div class="flex flex-wrap gap-1.5">
-					{#each tokens as token}
-						<code class={styles.templateToken}>{token}</code>
+					{#each youtubeTemplateTokens as token}
+						<Tooltip content={token.description} class="cursor-help">
+							<code class={styles.templateToken}>{token.value}</code>
+						</Tooltip>
 					{/each}
 				</div>
 			</div>

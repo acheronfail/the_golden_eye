@@ -83,7 +83,33 @@ impl Level {
         }
     }
 
-    pub fn from_matcher(mission: i32, part: i32) -> Option<Self> {
+    pub fn from_number(n: i32) -> Option<Self> {
+        match n {
+            1 => Some(Self::Dam),
+            2 => Some(Self::Facility),
+            3 => Some(Self::Runway),
+            4 => Some(Self::Surface1),
+            5 => Some(Self::Bunker1),
+            6 => Some(Self::Silo),
+            7 => Some(Self::Frigate),
+            8 => Some(Self::Surface2),
+            9 => Some(Self::Bunker2),
+            10 => Some(Self::Statue),
+            11 => Some(Self::Archives),
+            12 => Some(Self::Streets),
+            13 => Some(Self::Depot),
+            14 => Some(Self::Train),
+            15 => Some(Self::Jungle),
+            16 => Some(Self::Control),
+            17 => Some(Self::Caverns),
+            18 => Some(Self::Cradle),
+            19 => Some(Self::Aztec),
+            20 => Some(Self::Egypt),
+            _ => None,
+        }
+    }
+
+    pub fn from_mission_and_part(mission: i32, part: i32) -> Option<Self> {
         match (mission, part) {
             (1, 1) => Some(Self::Dam),
             (1, 2) => Some(Self::Facility),
@@ -106,6 +132,31 @@ impl Level {
             (8, 1) => Some(Self::Aztec),
             (9, 1) => Some(Self::Egypt),
             _ => None,
+        }
+    }
+
+    pub fn to_mission_and_part(self) -> (i32, i32) {
+        match self {
+            Self::Dam => (1, 1),
+            Self::Facility => (1, 2),
+            Self::Runway => (1, 3),
+            Self::Surface1 => (2, 1),
+            Self::Bunker1 => (2, 2),
+            Self::Silo => (3, 1),
+            Self::Frigate => (4, 1),
+            Self::Surface2 => (5, 1),
+            Self::Bunker2 => (5, 2),
+            Self::Statue => (6, 1),
+            Self::Archives => (6, 2),
+            Self::Streets => (6, 3),
+            Self::Depot => (6, 4),
+            Self::Train => (6, 5),
+            Self::Jungle => (7, 1),
+            Self::Control => (7, 2),
+            Self::Caverns => (7, 3),
+            Self::Cradle => (7, 4),
+            Self::Aztec => (8, 1),
+            Self::Egypt => (9, 1),
         }
     }
 
@@ -137,7 +188,7 @@ impl Difficulty {
         }
     }
 
-    pub fn from_matcher(value: i32) -> Option<Self> {
+    pub fn from_number(value: i32) -> Option<Self> {
         match value {
             0 => Some(Self::Agent),
             1 => Some(Self::SecretAgent),
@@ -166,7 +217,7 @@ pub struct LevelInfo {
 
 /// Human-readable level metadata keyed by the matcher mission/part numbers.
 pub fn level_info(mission: i32, part: i32) -> Option<LevelInfo> {
-    Level::from_matcher(mission, part).map(LevelInfo::from)
+    Level::from_mission_and_part(mission, part).map(LevelInfo::from)
 }
 
 /// Canonical level metadata keyed by a human-readable name.
@@ -182,7 +233,7 @@ impl From<Level> for LevelInfo {
 
 /// Human-readable difficulty label keyed by the matcher difficulty index.
 pub fn difficulty_name(difficulty: i32) -> Option<&'static str> {
-    Difficulty::from_matcher(difficulty).map(Difficulty::name)
+    Difficulty::from_number(difficulty).map(Difficulty::name)
 }
 
 /// Canonical matcher difficulty keyed by a human-readable metadata label.
@@ -246,8 +297,8 @@ impl Times {
     /// `None` when no run time was read (e.g. a non-stats screen).
     pub fn classify(mission: i32, part: i32, difficulty: i32, times: &[i32]) -> Option<Times> {
         let &time = times.first()?;
-        let shows_target = Level::from_matcher(mission, part)
-            .zip(Difficulty::from_matcher(difficulty))
+        let shows_target = Level::from_mission_and_part(mission, part)
+            .zip(Difficulty::from_number(difficulty))
             .is_some_and(|(level, difficulty)| shows_target(level, difficulty));
         let (target_time, best_time) = if shows_target {
             // [run, target, best?]

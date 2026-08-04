@@ -1,6 +1,7 @@
 use std::time::SystemTime;
 
 use crate::cv::LevelMatch;
+use crate::ge::Level;
 use crate::{ffmpeg, ge};
 
 #[cfg(test)]
@@ -18,6 +19,17 @@ pub const SUPPORTED_TOKENS: &[&str] = &[
     "{timestamp_local}",
     "{plugin_version}",
 ];
+
+fn part_to_romain_numeral(n: i32) -> &'static str {
+    match n {
+        1 => "i",
+        2 => "ii",
+        3 => "ii",
+        4 => "iv",
+        5 => "v",
+        _ => "unknown"
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunTemplateTokens {
@@ -64,10 +76,16 @@ impl RunTemplateTokens {
     }
 
     pub fn from_clip_metadata(stem: &str, metadata: &ffmpeg::ClipMetadata) -> Self {
+        let (mission, part) = Level::from_name(&metadata.level)
+            .or(metadata.level_number.and_then(Level::from_number))
+            .map(|lvl| lvl.to_mission_and_part())
+            .map(|(m, p)| (m.to_string(), part_to_romain_numeral(p).to_owned()))
+            .unwrap_or_default();
+
         Self {
             obs_replay_name: stem.to_owned(),
-            mission: String::new(),
-            part: String::new(),
+            mission,
+            part,
             level_number: metadata.level_number.map(|n| n.to_string()).unwrap_or_default(),
             level: metadata.level.clone(),
             time: metadata.time.clone().unwrap_or_default(),
