@@ -56,7 +56,7 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 		expect(timers).toHaveTextContent('Time in level');
 		expect(timers).toHaveTextContent('00:00:000');
 		const levelTimerLabel = screen.getByText('Time in level');
-		const levelTimerTrigger = levelTimerLabel.parentElement;
+		const levelTimerTrigger = levelTimerLabel.parentElement?.parentElement;
 		expect(levelTimerTrigger).toHaveClass('cursor-help');
 		expect(levelTimerLabel).not.toHaveAttribute('title');
 		expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();

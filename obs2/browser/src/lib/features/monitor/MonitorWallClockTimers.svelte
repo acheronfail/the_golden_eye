@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import MetaPills from '../../ui/MetaPills.svelte';
 	import { formatWallClockTime, type MonitorWallClockSnapshot } from './monitorWallClocks.svelte';
 
 	let {
@@ -29,7 +30,12 @@
 	</div>
 	<div class={!wallClocks.levelRunning ? inactiveTimerClass : ''} data-running={wallClocks.levelRunning}>
 		<Tooltip content={levelTimerHelp} class={levelLabelClass}>
-			<small class={wallClocks.levelRunning ? activeLabelClass : ''}>Time in level</small>
+			<small class={wallClocks.levelRunning ? activeLabelClass : ''}>
+				<span class="flex flex-row items-center gap-2">
+					Time in level
+					<MetaPills chips={[{ label: 'beta', class: 'text-(--obs-danger) border border-(--obs-danger)' }]} />
+				</span>
+			</small>
 		</Tooltip>
 		<strong>{formatWallClockTime(wallClocks.levelElapsedMs)}</strong>
 	</div>

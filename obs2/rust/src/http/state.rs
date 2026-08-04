@@ -9,6 +9,7 @@ use super::{ReplayBufferStatus, routes};
 use crate::cv::{BlackFrameSignal, LevelMatch};
 
 const FADE_DIAGNOSTICS_INTERVAL_MS: u64 = 250;
+const END_FADE_CONFIRMATION_MS: u64 = 250;
 
 pub struct AppStateInner {
     /// Holds the sender end of a one-shot channel while an OAuth flow is in
@@ -93,6 +94,8 @@ pub struct MonitorWallClockState {
     #[serde(skip)]
     black_frame_active: bool,
     #[serde(skip)]
+    end_fade_started_at_ms: Option<u64>,
+    #[serde(skip)]
     fade_diagnostics_published_at_ms: Option<u64>,
 }
 
@@ -142,6 +145,7 @@ impl MonitorWallClockState {
                 self.second_cutscene_started_at_ms = None;
                 self.second_cutscene_visible = false;
                 self.black_frame_active = false;
+                self.end_fade_started_at_ms = None;
                 self.fade_diagnostics_published_at_ms = None;
             }
             crate::cv::Screen::Unknown => {}
@@ -186,7 +190,20 @@ impl MonitorWallClockState {
         {
             self.start_level(deadline, LevelTimerStartReason::Swirl);
             if edge && black {
-                self.stop_level(now_ms);
+                self.end_fade_started_at_ms = Some(now_ms);
+            }
+            return self.level_timer_phase != previous_phase;
+        }
+
+        if self.level_timer_phase == LevelTimerPhase::Running {
+            if edge {
+                self.end_fade_started_at_ms = black.then_some(now_ms);
+            }
+            if black
+                && let Some(started_at) = self.end_fade_started_at_ms
+                && now_ms.saturating_sub(started_at) >= END_FADE_CONFIRMATION_MS
+            {
+                self.stop_level(started_at);
             }
             return self.level_timer_phase != previous_phase;
         }
@@ -218,7 +235,6 @@ impl MonitorWallClockState {
                         LevelTimerStartReason::Fade,
                     );
                 }
-                (LevelTimerPhase::Running, true) => self.stop_level(now_ms),
                 _ => {}
             }
         }
@@ -246,6 +262,7 @@ impl MonitorWallClockState {
         self.level_timer_phase = LevelTimerPhase::Running;
         self.second_cutscene_started_at_ms = None;
         self.second_cutscene_visible = false;
+        self.end_fade_started_at_ms = None;
     }
 
     fn stop_level(&mut self, now_ms: u64) {
@@ -253,6 +270,7 @@ impl MonitorWallClockState {
         self.level_started_at_unix_ms = None;
         self.level_running = false;
         self.level_timer_phase = LevelTimerPhase::Stopped;
+        self.end_fade_started_at_ms = None;
     }
 }
 

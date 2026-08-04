@@ -226,6 +226,8 @@ fn run() -> Result<i32> {
 
     let matcher = ge_rust::cv::CvMatcher::new(lang, templates_dir)?.with_diagnostics(diagnostics);
     let result = matcher.match_level_from_bgra_frame(&bgra)?;
+    let active_picture = matcher.active_picture_region(bgra.cols() as u32, bgra.rows() as u32);
+    let black_frame = detect_black_frame(bgra.data_bytes()?, bgra.cols() as u32, bgra.rows() as u32, active_picture);
 
     println!(
         "{}",
@@ -244,6 +246,7 @@ fn run() -> Result<i32> {
             "match_regions": result.match_regions,
             "annotation_sets": result.annotation_sets,
             "runtime_ms": result.runtime_ms,
+            "black_frame": black_frame.is_some_and(|signal| signal.detected),
         })
     );
 

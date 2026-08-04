@@ -6,7 +6,7 @@ const GRID_ROWS: usize = 18;
 // detailed dark scenes from passing at this more tolerant ceiling.
 const LUMA_MAX: u8 = 32;
 const MEAN_LUMA_MAX: u8 = 32;
-const DARK_PERCENT_MIN: u8 = 98;
+const DARK_PERCENT_MIN: u8 = 100;
 
 /// Pixel bounds containing the game picture in the current captured frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -82,7 +82,7 @@ pub fn detect_black_frame(
 
     let sample_count = u32::try_from(columns * rows).ok()?;
     let mean_luma = ((luma_sum + sample_count / 2) / sample_count) as u8;
-    let dark_pixel_percent = ((dark_samples * 100 + sample_count / 2) / sample_count) as u8;
+    let dark_pixel_percent = (dark_samples * 100 / sample_count) as u8;
     Some(BlackFrameSignal {
         detected: mean_luma <= MEAN_LUMA_MAX && dark_pixel_percent >= DARK_PERCENT_MIN,
         mean_luma,

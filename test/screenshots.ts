@@ -40,6 +40,7 @@ export interface ScreenshotInfo {
   level?: Level;
   difficulty?: Difficulty;
   extra: string[];
+  expectedBlackFrame?: boolean;
   filePath: string;
 }
 
@@ -72,6 +73,11 @@ export const getScreenshots = async () => {
     const entry = path.basename(filePath);
     const name = path.basename(entry, ".png");
     const tag = path.basename(path.dirname(filePath)).replace("screenshots-", "");
+    const expectedBlackFrame = name.includes(" - black-frame")
+      ? true
+      : name.includes(" - not-black-frame")
+        ? false
+        : undefined;
 
     const [lang, screenStr, levelNumStr, difficultyStr, ...extra] = name.split(" - ");
 
@@ -81,7 +87,7 @@ export const getScreenshots = async () => {
     }
 
     if (screen === "levels" || screen === "unknown") {
-      return { tag, name, lang, screen, extra, filePath };
+      return { tag, name, lang, screen, extra, expectedBlackFrame, filePath };
     }
 
     const level = NumberLevelMap.get(parseInt(levelNumStr, 10));
@@ -106,6 +112,7 @@ export const getScreenshots = async () => {
       level,
       difficulty,
       extra,
+      expectedBlackFrame,
       filePath,
     };
   });
