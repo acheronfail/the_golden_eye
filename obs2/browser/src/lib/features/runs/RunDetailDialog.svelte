@@ -162,19 +162,21 @@
 				{:else if clip.youtube}
 					{@const ytLink = `https://youtu.be/${clip.youtube.videoId}`}
 					{@const ytEmbed = `https://www.youtube.com/embed/${clip.youtube.videoId}`}
-					<div class="mb-2">
-						<span class="rounded border border-(--obs-border-soft) px-2 py-1 font-mono text-[10px] obs-dim">
-							{youtubeSourceLabel(clip.youtube.source)}
-						</span>
+					<div class="mb-2 flex flex-col gap-2">
+						<div>
+							<span class="rounded border border-(--obs-border-soft) px-2 py-1 font-mono text-[10px] obs-dim">
+								{youtubeSourceLabel(clip.youtube.source)}
+							</span>
+						</div>
+						<iframe
+							src={ytEmbed}
+							title={clip.youtube.title || `${clip.metadata.level} run on YouTube`}
+							class="aspect-video w-full obs-preview"
+							allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+							allowfullscreen
+						></iframe>
+						<CopyToClipboard url={ytLink} onOpen={() => openYtLink(ytLink)} />
 					</div>
-					<iframe
-						src={ytEmbed}
-						title={clip.youtube.title || `${clip.metadata.level} run on YouTube`}
-						class="aspect-video w-full obs-preview"
-						allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-						allowfullscreen
-					></iframe>
-					<CopyToClipboard url={ytLink} onOpen={() => openYtLink(ytLink)} />
 				{:else}
 					<p class="rounded obs-empty-state px-4 py-6 text-center text-sm">
 						{clip.retentionReason === 'manualEntry' || clip.retentionReason === 'theElite'
