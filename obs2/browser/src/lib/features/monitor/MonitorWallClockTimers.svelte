@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import MetaPills from '../../ui/MetaPills.svelte';
+	import MetaPills from '$lib/ui/MetaPills.svelte';
 	import { formatWallClockTime, type MonitorWallClockSnapshot } from './monitorWallClocks.svelte';
 
 	let {
