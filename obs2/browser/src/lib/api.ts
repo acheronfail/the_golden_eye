@@ -304,10 +304,6 @@ export class Backend {
 		return this.json<T>(path, this.withJsonBody('PATCH', body));
 	}
 
-	private delete(path: string): Promise<void> {
-		return this.void(path, { method: 'DELETE' });
-	}
-
 	private async json<T>(path: string, init?: RequestInit, errors?: RequestErrorMessages): Promise<T> {
 		const res = await this.request(path, init, errors);
 		return res.json() as Promise<T>;

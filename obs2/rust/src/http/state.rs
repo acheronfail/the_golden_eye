@@ -177,7 +177,7 @@ impl MonitorWallClockState {
         let diagnostics_due = self
             .fade_diagnostics_published_at_ms
             .is_none_or(|published_at| now_ms.saturating_sub(published_at) >= FADE_DIAGNOSTICS_INTERVAL_MS);
-        if !timer_changed && !classification_changed && !region_changed && !(diagnostics_changed && diagnostics_due) {
+        if !(timer_changed || classification_changed || region_changed || diagnostics_changed && diagnostics_due) {
             return false;
         }
         self.fade_detection = Some(signal);

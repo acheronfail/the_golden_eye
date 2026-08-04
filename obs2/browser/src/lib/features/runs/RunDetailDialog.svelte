@@ -14,6 +14,7 @@
 		runDetail,
 		type RunDetailView
 	} from '$lib/features/runs/runsView';
+	import CopyToClipboard from './CopyToClipboard.svelte';
 
 	let {
 		clip,
@@ -26,6 +27,10 @@
 	} = $props();
 
 	let metadataSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+	const openYtLink = (url: string) => {
+		void backend.openYouTubeUrl(url).catch((err) => console.warn('Failed to open YouTube video', err));
+	};
 
 	const scheduleMetadataSave = (debounceMs = 0) => {
 		if (metadataSaveTimer) clearTimeout(metadataSaveTimer);
@@ -155,18 +160,23 @@
 					<video src={backend.runVideoUrl(clip.path)} controls class="aspect-video w-full obs-preview"></video>
 					<RunYouTubeSection {clip} />
 				{:else if clip.youtube}
-					<div class="mb-2">
-						<span class="rounded border border-(--obs-border-soft) px-2 py-1 font-mono text-[10px] obs-dim">
-							{youtubeSourceLabel(clip.youtube.source)}
-						</span>
+					{@const ytLink = `https://youtu.be/${clip.youtube.videoId}`}
+					{@const ytEmbed = `https://www.youtube.com/embed/${clip.youtube.videoId}`}
+					<div class="mb-2 flex flex-col gap-2">
+						<div>
+							<span class="rounded border border-(--obs-border-soft) px-2 py-1 font-mono text-[10px] obs-dim">
+								{youtubeSourceLabel(clip.youtube.source)}
+							</span>
+						</div>
+						<iframe
+							src={ytEmbed}
+							title={clip.youtube.title || `${clip.metadata.level} run on YouTube`}
+							class="aspect-video w-full obs-preview"
+							allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+							allowfullscreen
+						></iframe>
+						<CopyToClipboard url={ytLink} onOpen={() => openYtLink(ytLink)} />
 					</div>
-					<iframe
-						src={`https://www.youtube.com/embed/${clip.youtube.videoId}`}
-						title={clip.youtube.title || `${clip.metadata.level} run on YouTube`}
-						class="aspect-video w-full obs-preview"
-						allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-						allowfullscreen
-					></iframe>
 				{:else}
 					<p class="rounded obs-empty-state px-4 py-6 text-center text-sm">
 						{clip.retentionReason === 'manualEntry' || clip.retentionReason === 'theElite'

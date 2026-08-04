@@ -8,6 +8,7 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { youtube } from '$lib/stores/youtube.svelte';
 	import { datetimeLocalForClip, renderYouTubeUploadPreview } from '$lib/features/youtube/youtubeMetadata';
+	import CopyToClipboard from './CopyToClipboard.svelte';
 
 	let { clip }: { clip: RunClip } = $props();
 
@@ -15,11 +16,9 @@
 	let history = $derived(youtube.historyForPath(clip.path));
 	let helpOpen = $state(false);
 	let initializedPath = $state<string | null>(null);
-	let copied = $state(false);
 	let forgetArmed = $state(false);
 	let dismissedUploadErrorId = $state<string | null>(null);
 	let dismissedStoreError = $state<string | null>(null);
-	let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
 	let forgetResetTimer: ReturnType<typeof setTimeout> | null = null;
 	const displayProgress = Tween.of(() => Math.max(0, Math.min(1, upload?.progressRatio ?? 0)), {
 		duration: 650,
@@ -86,23 +85,6 @@
 	const forgetUpload = () => {
 		void youtube.forget(clip.path).catch((err) => console.warn('Failed to forget YouTube upload', err));
 	};
-	const copyUrl = () => {
-		if (!openUrl) return;
-		void navigator.clipboard
-			.writeText(openUrl)
-			.then(() => {
-				copied = true;
-				if (copyResetTimer) clearTimeout(copyResetTimer);
-				copyResetTimer = setTimeout(() => {
-					copied = false;
-					copyResetTimer = null;
-				}, 1500);
-			})
-			.catch((err) => console.warn('Failed to copy YouTube URL', err));
-	};
-	const selectUrl = (event: Event) => {
-		(event.currentTarget as HTMLInputElement).select();
-	};
 	const armOrForgetUpload = () => {
 		if (forgetArmed) {
 			forgetArmed = false;
@@ -120,7 +102,6 @@
 	};
 
 	onDestroy(() => {
-		if (copyResetTimer) clearTimeout(copyResetTimer);
 		if (forgetResetTimer) clearTimeout(forgetResetTimer);
 	});
 </script>
@@ -212,20 +193,7 @@
 				{/if}
 			{/if}
 			{#if openUrl}
-				<div class="flex w-full items-center justify-center gap-2 px-2 sm:px-8">
-					<input
-						class="obs-input min-w-0 flex-1 truncate border-(--obs-border-soft) px-3 py-1.5 text-center font-mono text-xs shadow-[inset_0_1px_0_var(--obs-border-soft)]"
-						readonly
-						value={openUrl}
-						aria-label="YouTube video URL"
-						onclick={selectUrl}
-						onfocus={selectUrl}
-					/>
-					<button type="button" class="obs-button w-17 obs-button-xs" onclick={copyUrl}
-						>{copied ? 'Copied' : 'Copy'}</button
-					>
-					<button type="button" class="obs-button obs-button-xs" onclick={openVideo}>Open</button>
-				</div>
+				<CopyToClipboard url={openUrl} onOpen={openVideo} />
 			{/if}
 			{#if upload?.state === 'uploading' && upload.progressRatio !== null}
 				<div class="h-2 w-full max-w-sm overflow-hidden rounded bg-black/30">

@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RunsPage from './+page.svelte';
 import type { RunClip, RunsResponse } from '$lib/api';
-import { settings } from '$lib/stores/settings.svelte';
 import { youtube } from '$lib/stores/youtube.svelte';
 
 const mocks = vi.hoisted(() => ({

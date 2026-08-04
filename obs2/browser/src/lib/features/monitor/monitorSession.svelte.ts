@@ -42,7 +42,6 @@ const errorMessage = (error: unknown): string => (error instanceof Error ? error
 export class MonitorSessionController {
 	phase = $state<MonitorRoutePhase>({ kind: 'checking' });
 	stopPrompt = $state<StopPromptState>({ kind: 'closed' });
-	private snapshot: MonitorSessionSnapshot | null = null;
 	private operationId = 0;
 
 	constructor(private readonly actions: MonitorSessionActions) {}
@@ -74,7 +73,6 @@ export class MonitorSessionController {
 	}
 
 	reconcile(snapshot: MonitorSessionSnapshot): void {
-		this.snapshot = snapshot;
 		const sourcePath = `/sources/${encodeURIComponent(snapshot.sourceName)}`;
 		if (snapshot.currentPath !== sourcePath || this.phase.kind === 'redirecting') return;
 		if (!snapshot.monitorLoaded) {
