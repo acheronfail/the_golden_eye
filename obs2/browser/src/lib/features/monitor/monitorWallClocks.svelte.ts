@@ -12,6 +12,7 @@ export interface MonitorWallClockSnapshot {
 	sessionRunning: boolean;
 	levelElapsedMs: number;
 	levelRunning: boolean;
+	levelPaused: boolean;
 	levelStartReason: LevelTimerStartReason | null;
 	levelTimerPhase: LevelTimerPhase;
 	introSwirlDelayMs: number | null;
@@ -30,6 +31,7 @@ export class MonitorWallClocks {
 	sessionRunning = $state(false);
 	levelElapsedMs = $state(0);
 	levelRunning = $state(false);
+	levelPaused = $state(false);
 	levelStartReason = $state<LevelTimerStartReason | null>(null);
 	levelTimerPhase = $state<LevelTimerPhase>('idle');
 	introSwirlDelayMs = $state<number | null>(null);
@@ -54,6 +56,7 @@ export class MonitorWallClocks {
 			this.levelElapsedMs = 0;
 			this.levelStartedAt = null;
 			this.levelRunning = false;
+			this.levelPaused = false;
 			this.levelStartReason = null;
 			this.levelTimerPhase = 'idle';
 			this.introSwirlDelayMs = null;
@@ -92,6 +95,7 @@ export class MonitorWallClocks {
 			wallNow
 		);
 		this.levelRunning = state.levelRunning;
+		this.levelPaused = state.levelPaused;
 		this.levelStartReason = state.levelStartReason;
 		this.levelTimerPhase = state.levelTimerPhase;
 		this.introSwirlDelayMs = state.introSwirlDelayMs;
@@ -108,6 +112,7 @@ export class MonitorWallClocks {
 			sessionRunning: this.sessionRunning,
 			levelElapsedMs: this.levelElapsedMs,
 			levelRunning: this.levelRunning,
+			levelPaused: this.levelPaused,
 			levelStartReason: this.levelStartReason,
 			levelTimerPhase: this.levelTimerPhase,
 			introSwirlDelayMs: this.introSwirlDelayMs,
@@ -125,6 +130,7 @@ export class MonitorWallClocks {
 			this.levelElapsedMs = 0;
 			this.levelStartedAt = null;
 			this.levelRunning = false;
+			this.levelPaused = false;
 			this.levelStartReason = null;
 			this.levelTimerPhase = 'awaitingInitialBlack';
 			this.introSwirlDelayMs = null;
@@ -139,6 +145,7 @@ export class MonitorWallClocks {
 	private stopLevel(now: number): void {
 		if (this.levelRunning) this.levelElapsedMs = this.elapsedSince(this.levelStartedAt, now);
 		this.levelRunning = false;
+		this.levelPaused = false;
 		this.levelStartedAt = null;
 		this.levelTimerPhase = 'stopped';
 	}

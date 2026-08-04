@@ -23,7 +23,7 @@ impl ActivePictureRegion {
         Self { x: 0, y: 0, width, height }
     }
 
-    fn clamp(self, frame_width: u32, frame_height: u32) -> Option<Self> {
+    pub(super) fn clamp(self, frame_width: u32, frame_height: u32) -> Option<Self> {
         let x = self.x.min(frame_width);
         let y = self.y.min(frame_height);
         let width = self.width.min(frame_width.saturating_sub(x));

@@ -15,6 +15,8 @@ use crate::timer::PhaseTimer;
 
 mod black_frame;
 pub use black_frame::{ActivePictureRegion, BlackFrameSignal, detect_black_frame};
+mod watch;
+pub use watch::{WatchDetector, WatchPresentation, WatchSignal, WatchState, WatchTransition, detect_watch};
 
 // Cached count of usable cores. OpenCV is built without TBB/OpenMP, so each
 // `match_template` pins one core; independent per-scale/per-template matches are
@@ -394,6 +396,7 @@ fn template_annotation(region: &MatchRegion) -> AnnotationRect {
 }
 
 fn annotation_sets(
+    watch_detection: Option<AnnotationSet>,
     match_regions: &[MatchRegion],
     search_regions: Vec<AnnotationRect>,
     folder_region: Option<AnnotationRect>,
@@ -427,6 +430,9 @@ fn annotation_sets(
             label: "Folder dimensions".to_owned(),
             annotations: vec![folder_region],
         });
+    }
+    if let Some(watch_detection) = watch_detection {
+        sets.push(watch_detection);
     }
     sets
 }
@@ -2073,6 +2079,21 @@ impl CvMatcher {
         // developer "Time digits" annotation set below when diagnostics are on.
         let mut time_digit_diag: Vec<(String, MatchRect)> = Vec::new();
         let mut timer = PhaseTimer::new();
+        let watch_detection = if self.diagnostics {
+            bgra_frame
+                .input_array()
+                .ok()
+                .and_then(|input| input.get_mat_def().ok())
+                .and_then(|frame| {
+                    let width = frame.cols() as u32;
+                    let height = frame.rows() as u32;
+                    let active_picture = self.active_picture_region(width, height);
+                    detect_watch(frame.data_bytes().ok()?, width, height, active_picture)
+                })
+                .map(watch::annotation_set)
+        } else {
+            None
+        };
 
         // Convert the BGRA frame to grayscale once; every template is matched
         // against this single-channel frame.
@@ -2171,7 +2192,8 @@ impl CvMatcher {
             dbg_cv!("[gate] no header; levels_score={levels_score:.3} => {:?}", result.screen);
             timer.lap("levels detect");
             result.match_regions = match_regions;
-            result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region, Vec::new());
+            result.annotation_sets =
+                annotation_sets(watch_detection, &result.match_regions, search_regions, folder_region, Vec::new());
             result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
             return Ok(result);
         }
@@ -2189,7 +2211,7 @@ impl CvMatcher {
                 dbg_cv!("[language] configured={} detected={detected_lang}; rejecting wrong-language frame", self.lang);
                 result.match_regions = match_regions;
                 result.annotation_sets =
-                    annotation_sets(&result.match_regions, search_regions, folder_region, Vec::new());
+                    annotation_sets(watch_detection, &result.match_regions, search_regions, folder_region, Vec::new());
                 result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
                 return Ok(result);
             }
@@ -2486,7 +2508,8 @@ impl CvMatcher {
 
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
         result.match_regions = match_regions;
-        result.annotation_sets = annotation_sets(&result.match_regions, search_regions, folder_region, time_digits);
+        result.annotation_sets =
+            annotation_sets(watch_detection, &result.match_regions, search_regions, folder_region, time_digits);
 
         Ok(result)
     }

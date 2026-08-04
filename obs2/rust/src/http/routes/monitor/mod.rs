@@ -1,7 +1,7 @@
 use std::ffi::CString;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use axum::Json;
 use axum::extract::State;
@@ -9,7 +9,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
 use serde::Deserialize;
 
-use crate::cv::{CaptureRegion, LevelMatch, detect_black_frame};
+use crate::cv::{CaptureRegion, LevelMatch, WatchDetector, detect_black_frame, detect_watch};
 use crate::http::{AppEvent, AppState, MonitorStoppedReason};
 
 mod capture;
@@ -310,6 +310,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             run_catalog.clone(),
         );
         recording.set_recent_run_limit_source(worker_recent_run_limit);
+        let mut watch_detector = WatchDetector::default();
         loop {
             let diagnostics_enabled = monitor_annotations_state.monitor_annotations_enabled.load(Ordering::Acquire);
             if diagnostics_enabled != last_diagnostics_enabled {
@@ -321,22 +322,31 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             // paused/stalled source can't stall (and eventually roll out of the
             // replay buffer) a scheduled save.
             let deadline = recording.pending_fire_at();
-            let (result, black_frame, match_ms, stats) =
-                match source.capture_with_stats_until(deadline, |bytes, w, h| {
+            let (result, black_frame, watch_signal, observed_at_unix_ms, match_ms, stats) = match source
+                .capture_with_stats_until(deadline, |bytes, w, h| {
+                    let observed_at_unix_ms = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis()
+                        .try_into()
+                        .unwrap_or(u64::MAX);
                     let match_started = timing_enabled.then(Instant::now);
                     let result = session.match_frame(bytes, w, h);
-                    let match_ms = match_started.map(|started| started.elapsed().as_secs_f64() * 1000.0);
                     let active_picture = session.active_picture_region(w, h);
                     let black_frame = detect_black_frame(bytes, w, h, active_picture);
-                    (result, black_frame, match_ms)
+                    let watch_signal = detect_watch(bytes, w, h, active_picture);
+                    let match_ms = match_started.map(|started| started.elapsed().as_secs_f64() * 1000.0);
+                    (result, black_frame, watch_signal, observed_at_unix_ms, match_ms)
                 }) {
-                    Captured::Frame((result, black_frame, match_ms), stats) => (result, black_frame, match_ms, stats),
-                    Captured::Idle => {
-                        recording.poll_pending(Instant::now());
-                        continue;
-                    }
-                    Captured::Closed => break,
-                };
+                Captured::Frame((result, black_frame, watch_signal, observed_at_unix_ms, match_ms), stats) => {
+                    (result, black_frame, watch_signal, observed_at_unix_ms, match_ms, stats)
+                }
+                Captured::Idle => {
+                    recording.poll_pending(Instant::now());
+                    continue;
+                }
+                Captured::Closed => break,
+            };
             let now = Instant::now();
             if let Some(fps) = throughput.observe(now, stats.dropped_frames_total) {
                 let _ = event_tx.send(AppEvent::MonitorFps(fps));
@@ -378,6 +388,11 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
             }
             if let Some(signal) = black_frame {
                 snapshot.observe_black_frame(signal);
+            }
+            if let Some(signal) = watch_signal
+                && let Some(transition) = watch_detector.observe(signal).transition
+            {
+                snapshot.observe_watch_transition(transition, observed_at_unix_ms);
             }
         }
         tracing::info!("monitor loop exiting");

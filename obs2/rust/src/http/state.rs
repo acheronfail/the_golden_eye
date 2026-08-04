@@ -6,7 +6,7 @@ use serde::Serialize;
 use tokio::sync::{Mutex, broadcast, oneshot, watch};
 
 use super::{ReplayBufferStatus, routes};
-use crate::cv::{BlackFrameSignal, LevelMatch};
+use crate::cv::{BlackFrameSignal, LevelMatch, WatchTransition};
 
 const FADE_DIAGNOSTICS_INTERVAL_MS: u64 = 250;
 const END_FADE_CONFIRMATION_MS: u64 = 250;
@@ -83,6 +83,7 @@ pub struct MonitorWallClockState {
     pub level_started_at_unix_ms: Option<u64>,
     pub level_elapsed_ms: u64,
     pub level_running: bool,
+    pub level_paused: bool,
     pub level_start_reason: Option<LevelTimerStartReason>,
     pub level_timer_phase: LevelTimerPhase,
     pub intro_swirl_delay_ms: Option<u64>,
@@ -138,6 +139,7 @@ impl MonitorWallClockState {
                 self.level_started_at_unix_ms = None;
                 self.level_elapsed_ms = 0;
                 self.level_running = false;
+                self.level_paused = false;
                 self.level_start_reason = None;
                 self.level_timer_phase = LevelTimerPhase::AwaitingInitialBlack;
                 self.intro_swirl_delay_ms = None;
@@ -196,6 +198,10 @@ impl MonitorWallClockState {
         }
 
         if self.level_timer_phase == LevelTimerPhase::Running {
+            if self.level_paused {
+                self.end_fade_started_at_ms = None;
+                return self.level_timer_phase != previous_phase;
+            }
             if edge {
                 self.end_fade_started_at_ms = black.then_some(now_ms);
             }
@@ -258,6 +264,7 @@ impl MonitorWallClockState {
         self.level_started_at_unix_ms = Some(now_ms.saturating_sub(elapsed_ms));
         self.level_elapsed_ms = elapsed_ms;
         self.level_running = true;
+        self.level_paused = false;
         self.level_start_reason = Some(reason);
         self.level_timer_phase = LevelTimerPhase::Running;
         self.second_cutscene_started_at_ms = None;
@@ -269,8 +276,32 @@ impl MonitorWallClockState {
         self.level_elapsed_ms = elapsed_ms(self.level_started_at_unix_ms, self.level_elapsed_ms, now_ms);
         self.level_started_at_unix_ms = None;
         self.level_running = false;
+        self.level_paused = false;
         self.level_timer_phase = LevelTimerPhase::Stopped;
         self.end_fade_started_at_ms = None;
+    }
+
+    fn reconcile_watch_transition(&mut self, transition: WatchTransition, now_ms: u64) -> bool {
+        if self.level_timer_phase != LevelTimerPhase::Running {
+            return false;
+        }
+        match transition {
+            WatchTransition::Paused if !self.level_paused => {
+                self.level_elapsed_ms = elapsed_ms(self.level_started_at_unix_ms, self.level_elapsed_ms, now_ms);
+                self.level_started_at_unix_ms = None;
+                self.level_running = false;
+                self.level_paused = true;
+                self.end_fade_started_at_ms = None;
+                true
+            }
+            WatchTransition::Resumed if self.level_paused => {
+                self.level_started_at_unix_ms = Some(now_ms.saturating_sub(self.level_elapsed_ms));
+                self.level_running = true;
+                self.level_paused = false;
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -364,6 +395,19 @@ impl SharedStateStore {
         let next = {
             let mut state = self.lock_state();
             if !state.monitor.enabled || !state.monitor.wall_clocks.reconcile_black_frame(signal, now_ms) {
+                return;
+            }
+            state.clone()
+        };
+        self.tx.send_replace(next);
+    }
+
+    pub fn observe_watch_transition(&self, transition: WatchTransition, observed_at_unix_ms: u64) {
+        let next = {
+            let mut state = self.lock_state();
+            if !state.monitor.enabled
+                || !state.monitor.wall_clocks.reconcile_watch_transition(transition, observed_at_unix_ms)
+            {
                 return;
             }
             state.clone()
