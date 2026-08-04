@@ -112,7 +112,7 @@ fn rt4kce_cutscene_sequence_has_exactly_three_black_frame_edges() {
 }
 
 fn watch_fixture_path(name: &str) -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/screenshots-yt").join(name)
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/screenshots-yt-rt4kce").join(name)
 }
 
 fn watch_fixture(name: &str) -> WatchSignal {
