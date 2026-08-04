@@ -41,6 +41,7 @@ export interface ScreenshotInfo {
   difficulty?: Difficulty;
   extra: string[];
   expectedBlackFrame?: boolean;
+  expectedWatchPresentation?: "absent" | "clockFace" | "menuSurface" | "ambiguous";
   filePath: string;
 }
 
@@ -78,6 +79,15 @@ export const getScreenshots = async () => {
       : name.includes(" - not-black-frame")
         ? false
         : undefined;
+    const expectedWatchPresentation = name.includes(" - watch-clock-face")
+      ? "clockFace"
+      : name.includes(" - watch-menu-surface")
+        ? "menuSurface"
+        : name.includes(" - watch-ambiguous")
+          ? "ambiguous"
+          : name.includes(" - watch-absent")
+            ? "absent"
+            : undefined;
 
     const [lang, screenStr, levelNumStr, difficultyStr, ...extra] = name.split(" - ");
 
@@ -87,7 +97,16 @@ export const getScreenshots = async () => {
     }
 
     if (screen === "levels" || screen === "unknown") {
-      return { tag, name, lang, screen, extra, expectedBlackFrame, filePath };
+      return {
+        tag,
+        name,
+        lang,
+        screen,
+        extra,
+        expectedBlackFrame,
+        expectedWatchPresentation,
+        filePath,
+      };
     }
 
     const level = NumberLevelMap.get(parseInt(levelNumStr, 10));
@@ -113,6 +132,7 @@ export const getScreenshots = async () => {
       difficulty,
       extra,
       expectedBlackFrame,
+      expectedWatchPresentation,
       filePath,
     };
   });

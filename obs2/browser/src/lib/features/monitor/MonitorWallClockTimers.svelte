@@ -20,7 +20,7 @@
 	} = $props();
 
 	const levelTimerHelp =
-		"GoldenEye's in-game timer can be inconsistent, so this time is only an estimate. It waits through the opening cutscenes, starts when gameplay should begin, and stops at the next fade to black.";
+		"GoldenEye's in-game timer can be inconsistent, so this time is only an estimate. It waits through the opening cutscenes, pauses while the watch is open, and stops at the next fade to black.";
 </script>
 
 <section class={containerClass} aria-label="Wall-clock timers" aria-live="off" {role}>

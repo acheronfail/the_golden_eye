@@ -28,6 +28,7 @@
 		levelStartedAtUnixMs: timersRunning ? Date.now() - 12_345 : null,
 		levelElapsedMs: 12_345,
 		levelRunning: timersRunning,
+		levelPaused: false,
 		levelStartReason: timersRunning ? ('fade' as const) : null,
 		levelTimerPhase: timersRunning ? ('running' as const) : ('idle' as const),
 		introSwirlDelayMs: timersRunning ? 3_650 : null,

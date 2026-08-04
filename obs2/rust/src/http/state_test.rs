@@ -77,6 +77,7 @@ fn snapshot_event_contains_retained_app_state() {
     assert_eq!(json["state"]["monitor"]["cvLanguage"], "en");
     assert_eq!(json["state"]["monitor"]["wallClocks"]["sessionElapsedMs"], 0);
     assert_eq!(json["state"]["monitor"]["wallClocks"]["levelRunning"], false);
+    assert_eq!(json["state"]["monitor"]["wallClocks"]["levelPaused"], false);
     assert!(json["state"]["monitor"]["wallClocks"]["introSwirlDelayMs"].is_null());
     assert_eq!(json["state"]["monitor"]["wallClocks"]["levelTimerPhase"], "idle");
     assert!(json["state"]["match"].is_null());
@@ -271,6 +272,51 @@ fn short_camera_black_flash_does_not_stop_the_level_timer() {
     assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
     assert!(clocks.level_running);
     assert_eq!(clocks.level_started_at_unix_ms, Some(2_000));
+}
+
+#[test]
+fn watch_transitions_pause_and_resume_the_running_level_clock_at_the_observed_frames() {
+    let mut clocks = MonitorWallClockState::default();
+    clocks.start_session(1_000);
+    clocks.start_level(2_000, LevelTimerStartReason::Fade);
+
+    assert!(clocks.reconcile_watch_transition(crate::cv::WatchTransition::Paused, 3_033));
+    assert_eq!(clocks.level_elapsed_ms, 1_033);
+    assert_eq!(clocks.level_started_at_unix_ms, None);
+    assert!(!clocks.level_running);
+    assert!(clocks.level_paused);
+    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
+
+    assert!(clocks.reconcile_watch_transition(crate::cv::WatchTransition::Resumed, 5_033));
+    assert_eq!(clocks.level_started_at_unix_ms, Some(4_000));
+    assert!(clocks.level_running);
+    assert!(!clocks.level_paused);
+
+    clocks.stop_level(6_000);
+    assert_eq!(clocks.level_elapsed_ms, 2_000);
+}
+
+#[test]
+fn black_fade_confirmation_does_not_stop_a_watch_paused_level() {
+    let sample_region = crate::cv::ActivePictureRegion::full(640, 480);
+    let black = crate::cv::BlackFrameSignal {
+        detected: true,
+        mean_luma: 7,
+        dark_pixel_percent: 100,
+        sample_count: 576,
+        sample_region,
+    };
+    let mut clocks = MonitorWallClockState::default();
+    clocks.start_session(1_000);
+    clocks.start_level(2_000, LevelTimerStartReason::Fade);
+    clocks.reconcile_watch_transition(crate::cv::WatchTransition::Paused, 3_000);
+
+    clocks.reconcile_black_frame(black, 3_100);
+    clocks.reconcile_black_frame(black, 3_500);
+
+    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
+    assert!(clocks.level_paused);
+    assert_eq!(clocks.level_elapsed_ms, 1_000);
 }
 
 #[test]

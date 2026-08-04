@@ -110,6 +110,10 @@
 				<dd>{@render scalar(wallClocks.levelTimerPhase)}</dd>
 			</div>
 			<div>
+				<dt>watch paused</dt>
+				<dd>{@render scalar(wallClocks.levelPaused)}</dd>
+			</div>
+			<div>
 				<dt>intro swirl delay</dt>
 				<dd>
 					{@render scalar(

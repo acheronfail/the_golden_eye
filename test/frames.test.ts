@@ -156,6 +156,13 @@ async function evaluateScreenshotTest(
       result.black_frame === screenshot.expectedBlackFrame,
     );
   }
+  if (screenshot.expectedWatchPresentation !== undefined) {
+    checks.watchPresentation = check(
+      result.watch?.presentation,
+      screenshot.expectedWatchPresentation,
+      result.watch?.presentation === screenshot.expectedWatchPresentation,
+    );
+  }
 
   if (
     ["007opts", "stats", "start", "complete", "failed", "abort", "kia"].includes(screenshot.screen)

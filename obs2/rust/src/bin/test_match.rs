@@ -9,7 +9,7 @@ use std::time::Instant;
 #[path = "../obs_stub.rs"]
 mod obs_stub;
 
-use ge_rust::cv::{CaptureRegion, CvMatcher, LevelMatch, WORK_HEIGHT, detect_black_frame};
+use ge_rust::cv::{CaptureRegion, CvMatcher, LevelMatch, WORK_HEIGHT, detect_black_frame, detect_watch};
 use opencv::core::{self, Mat, Rect, Size};
 use opencv::prelude::*;
 use opencv::{Result, imgcodecs, imgproc};
@@ -228,6 +228,7 @@ fn run() -> Result<i32> {
     let result = matcher.match_level_from_bgra_frame(&bgra)?;
     let active_picture = matcher.active_picture_region(bgra.cols() as u32, bgra.rows() as u32);
     let black_frame = detect_black_frame(bgra.data_bytes()?, bgra.cols() as u32, bgra.rows() as u32, active_picture);
+    let watch = detect_watch(bgra.data_bytes()?, bgra.cols() as u32, bgra.rows() as u32, active_picture);
 
     println!(
         "{}",
@@ -247,6 +248,7 @@ fn run() -> Result<i32> {
             "annotation_sets": result.annotation_sets,
             "runtime_ms": result.runtime_ms,
             "black_frame": black_frame.is_some_and(|signal| signal.detected),
+            "watch": watch,
         })
     );
 

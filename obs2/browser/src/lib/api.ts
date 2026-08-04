@@ -780,6 +780,7 @@ export interface MonitorWallClockState {
 	levelStartedAtUnixMs: number | null;
 	levelElapsedMs: number;
 	levelRunning: boolean;
+	levelPaused: boolean;
 	levelStartReason: LevelTimerStartReason | null;
 	levelTimerPhase: LevelTimerPhase;
 	introSwirlDelayMs: number | null;

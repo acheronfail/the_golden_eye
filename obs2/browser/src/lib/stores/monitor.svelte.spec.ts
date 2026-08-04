@@ -30,6 +30,7 @@ const snapshot = (recordingState: RecordingStatus | null): AppSnapshot => ({
 			levelStartedAtUnixMs: null,
 			levelElapsedMs: 0,
 			levelRunning: false,
+			levelPaused: false,
 			levelStartReason: null,
 			levelTimerPhase: 'idle',
 			introSwirlDelayMs: null,

@@ -111,6 +111,137 @@ fn rt4kce_cutscene_sequence_has_exactly_three_black_frame_edges() {
     assert_eq!(edges, 3);
 }
 
+fn watch_fixture_path(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/screenshots-yt").join(name)
+}
+
+fn watch_fixture(name: &str) -> WatchSignal {
+    let path = watch_fixture_path(name);
+    let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
+    let mut bgra = Mat::default();
+    imgproc::cvt_color_def(&bgr, &mut bgra, imgproc::COLOR_BGR2BGRA).unwrap();
+    detect_watch(
+        bgra.data_bytes().unwrap(),
+        bgra.cols() as u32,
+        bgra.rows() as u32,
+        ActivePictureRegion::full(bgra.cols() as u32, bgra.rows() as u32),
+    )
+    .unwrap()
+}
+
+#[test]
+fn watch_diagnostics_include_developer_annotation_bounds() {
+    let name = "jp - unknown - 1 - watch-menu-surface.png";
+    let bytes = std::fs::read(watch_fixture_path(name)).unwrap();
+    let matcher = CvMatcher::new("jp", TEMPLATES_DIR).unwrap().with_diagnostics(true);
+    let (result, width, height) = matcher.match_level_from_encoded_image(&bytes).unwrap();
+    let annotations = result.annotation_sets.iter().find(|set| set.id == "watch_detection").unwrap();
+
+    assert_eq!(annotations.label, "Watch detection");
+    assert_eq!(annotations.annotations.len(), 2);
+    assert!(annotations.annotations[0].label.contains("MenuSurface"));
+    assert!(annotations.annotations.iter().all(|annotation| {
+        annotation.x >= 0
+            && annotation.y >= 0
+            && annotation.w > 0
+            && annotation.h > 0
+            && annotation.x + annotation.w <= width as i32
+            && annotation.y + annotation.h <= height as i32
+    }));
+}
+
+#[test]
+fn watch_presentation_separates_clock_and_menu_surfaces_across_captures() {
+    let fixtures = [
+        ("en - unknown - 1 - watch-clock-face.png", WatchPresentation::ClockFace),
+        ("en - unknown - 2 - watch-clock-face.png", WatchPresentation::ClockFace),
+        ("en - unknown - 1 - watch-menu-surface.png", WatchPresentation::MenuSurface),
+        ("en - unknown - 2 - watch-menu-surface.png", WatchPresentation::MenuSurface),
+        ("en - unknown - 3 - watch-menu-surface.png", WatchPresentation::MenuSurface),
+        ("en - unknown - 4 - watch-menu-surface.png", WatchPresentation::MenuSurface),
+        ("jp - unknown - 1 - watch-clock-face.png", WatchPresentation::ClockFace),
+        ("jp - unknown - 2 - watch-clock-face.png", WatchPresentation::ClockFace),
+        ("jp - unknown - 3 - watch-clock-face.png", WatchPresentation::ClockFace),
+        ("jp - unknown - 4 - watch-clock-face.png", WatchPresentation::ClockFace),
+        ("jp - unknown - 1 - watch-menu-surface.png", WatchPresentation::MenuSurface),
+        ("jp - unknown - 2 - watch-menu-surface.png", WatchPresentation::MenuSurface),
+        ("jp - unknown - 3 - watch-menu-surface.png", WatchPresentation::MenuSurface),
+        ("jp - unknown - 4 - watch-menu-surface.png", WatchPresentation::MenuSurface),
+        ("jp - unknown - 5 - watch-menu-surface.png", WatchPresentation::MenuSurface),
+        ("jp - unknown - 6 - watch-menu-surface.png", WatchPresentation::MenuSurface),
+    ];
+
+    for (name, expected) in fixtures {
+        assert_eq!(watch_fixture(name).presentation, expected, "{name}");
+    }
+}
+
+#[test]
+fn watch_detector_latches_pause_through_menu_transitions_and_resumes_on_clock() {
+    let sequences = [
+        [
+            "jp - unknown - 1 - watch-clock-face.png",
+            "jp - unknown - 1 - watch-menu-surface.png",
+            "jp - unknown - 2 - watch-menu-surface.png",
+            "jp - unknown - 3 - watch-menu-surface.png",
+            "jp - unknown - 2 - watch-clock-face.png",
+        ],
+        [
+            "jp - unknown - 1 - watch-clock-face.png",
+            "jp - unknown - 1 - watch-menu-surface.png",
+            "jp - unknown - 2 - watch-menu-surface.png",
+            "jp - unknown - 3 - watch-menu-surface.png",
+            "jp - unknown - 2 - watch-clock-face.png",
+        ],
+    ];
+
+    for sequence in sequences {
+        let mut detector = WatchDetector::default();
+        let states = sequence.map(|name| detector.observe(watch_fixture(name)));
+        assert_eq!(states[0], WatchState { is_paused: false, transition: None });
+        assert_eq!(states[1], WatchState { is_paused: true, transition: Some(WatchTransition::Paused) });
+        assert_eq!(states[2], WatchState { is_paused: true, transition: None });
+        assert_eq!(states[3], WatchState { is_paused: true, transition: None });
+        assert_eq!(states[4], WatchState { is_paused: false, transition: Some(WatchTransition::Resumed) });
+    }
+}
+
+#[test]
+fn watch_detector_finds_both_english_pause_cycles() {
+    let fixtures = [
+        "en - unknown - 1 - watch-clock-face.png",
+        "en - unknown - 1 - watch-menu-surface.png",
+        "en - unknown - 2 - watch-menu-surface.png",
+        "en - unknown - 3 - watch-menu-surface.png",
+        "en - unknown - 4 - watch-menu-surface.png",
+        "en - unknown - 2 - watch-clock-face.png",
+        "en - unknown - 1 - watch-absent.png",
+        "en - unknown - 5 - watch-menu-surface.png",
+        "en - unknown - 6 - watch-menu-surface.png",
+        "en - unknown - 2 - watch-absent.png",
+        "en - unknown - 3 - watch-clock-face.png",
+        "en - unknown - 7 - watch-menu-surface.png",
+        "en - unknown - 8 - watch-menu-surface.png",
+        "en - unknown - 9 - watch-menu-surface.png",
+        "en - unknown - 4 - watch-clock-face.png",
+    ];
+    let mut detector = WatchDetector::default();
+    let transitions: Vec<_> = fixtures
+        .into_iter()
+        .filter_map(|name| detector.observe(watch_fixture(name)).transition.map(|transition| (name, transition)))
+        .collect();
+
+    assert_eq!(
+        transitions,
+        vec![
+            ("en - unknown - 1 - watch-menu-surface.png", WatchTransition::Paused),
+            ("en - unknown - 2 - watch-clock-face.png", WatchTransition::Resumed),
+            ("en - unknown - 7 - watch-menu-surface.png", WatchTransition::Paused),
+            ("en - unknown - 4 - watch-clock-face.png", WatchTransition::Resumed),
+        ]
+    );
+}
+
 #[test]
 fn active_picture_detection_finds_bars_on_every_edge() {
     let expected = Rect::new(107, 30, 640, 420);

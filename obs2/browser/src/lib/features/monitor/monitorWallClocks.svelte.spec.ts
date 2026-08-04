@@ -130,6 +130,7 @@ describe('MonitorWallClocks', () => {
 			levelStartedAtUnixMs: clock.wallTime - 2_345,
 			levelElapsedMs: 0,
 			levelRunning: true,
+			levelPaused: false,
 			levelStartReason: 'fade',
 			levelTimerPhase: 'running',
 			introSwirlDelayMs: 4_000,
@@ -163,6 +164,7 @@ describe('MonitorWallClocks', () => {
 			levelStartedAtUnixMs: null,
 			levelElapsedMs: 3_345,
 			levelRunning: false,
+			levelPaused: false,
 			levelStartReason: 'fade',
 			levelTimerPhase: 'stopped',
 			introSwirlDelayMs: 4_000,
@@ -180,6 +182,33 @@ describe('MonitorWallClocks', () => {
 			sessionRunning: true,
 			levelElapsedMs: 3_345,
 			levelRunning: false
+		});
+	});
+
+	it('keeps a watch-paused level frozen until the backend resumes it', () => {
+		const clock = new FakeAnimationClock();
+		const timers = new MonitorWallClocks(clock);
+
+		timers.sync({
+			sessionStartedAtUnixMs: clock.wallTime - 10_000,
+			sessionElapsedMs: 0,
+			sessionRunning: true,
+			levelStartedAtUnixMs: null,
+			levelElapsedMs: 2_500,
+			levelRunning: false,
+			levelPaused: true,
+			levelStartReason: 'fade',
+			levelTimerPhase: 'running',
+			introSwirlDelayMs: 4_000,
+			fadeDetection: null
+		});
+		clock.advance(1_000);
+
+		expect(timers.snapshot()).toMatchObject({
+			levelElapsedMs: 2_500,
+			levelRunning: false,
+			levelPaused: true,
+			levelTimerPhase: 'running'
 		});
 	});
 });
