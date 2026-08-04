@@ -8,6 +8,7 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { youtube } from '$lib/stores/youtube.svelte';
 	import { datetimeLocalForClip, renderYouTubeUploadPreview } from '$lib/features/youtube/youtubeMetadata';
+	import CopyToClipboard from './CopyToClipboard.svelte';
 
 	let { clip }: { clip: RunClip } = $props();
 
@@ -212,20 +213,7 @@
 				{/if}
 			{/if}
 			{#if openUrl}
-				<div class="flex w-full items-center justify-center gap-2 px-2 sm:px-8">
-					<input
-						class="obs-input min-w-0 flex-1 truncate border-(--obs-border-soft) px-3 py-1.5 text-center font-mono text-xs shadow-[inset_0_1px_0_var(--obs-border-soft)]"
-						readonly
-						value={openUrl}
-						aria-label="YouTube video URL"
-						onclick={selectUrl}
-						onfocus={selectUrl}
-					/>
-					<button type="button" class="obs-button w-17 obs-button-xs" onclick={copyUrl}
-						>{copied ? 'Copied' : 'Copy'}</button
-					>
-					<button type="button" class="obs-button obs-button-xs" onclick={openVideo}>Open</button>
-				</div>
+				<CopyToClipboard url={openUrl} onOpen={openVideo} />
 			{/if}
 			{#if upload?.state === 'uploading' && upload.progressRatio !== null}
 				<div class="h-2 w-full max-w-sm overflow-hidden rounded bg-black/30">
