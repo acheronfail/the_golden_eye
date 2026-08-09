@@ -7,6 +7,24 @@ const API_ORIGIN = import.meta.env.DEV ? `http://localhost:${import.meta.env.VIT
 
 type RequestErrorMessages = Partial<Record<number, string>>;
 
+interface RunQueryFilters {
+	search: string;
+	level: string;
+	difficulty: string;
+	status: string;
+	language: string;
+	minTime: string;
+	maxTime: string;
+}
+
+const runTimeSeconds = (value?: string): number | null => {
+	if (!value?.trim()) return null;
+	const parts = value.trim().split(':').map(Number);
+	if (parts.length === 1 && Number.isFinite(parts[0])) return Math.max(0, parts[0]);
+	if (parts.length !== 2 || parts.some((part) => !Number.isFinite(part))) return null;
+	return parts[1] >= 0 && parts[1] < 60 ? Math.max(0, parts[0] * 60 + parts[1]) : null;
+};
+
 type FileRevealRequest =
 	| { target: 'run'; path: string }
 	| { target: 'runFolder'; kind: RunDirectoryScan['kind'] }
@@ -30,10 +48,33 @@ export class Backend {
 		return this.apiUrl(`/api/v1/screenshot?source=${encodeURIComponent(source)}`);
 	}
 
-	public getRuns(options: { refresh?: boolean; sort?: RunSort; signal?: AbortSignal } = {}): Promise<RunsResponse> {
+	public getRuns(
+		options: {
+			refresh?: boolean;
+			sort?: RunSort;
+			cursor?: string;
+			runId?: string;
+			limit?: number;
+			filters?: RunQueryFilters;
+			signal?: AbortSignal;
+		} = {}
+	): Promise<RunsResponse> {
 		const query = new URLSearchParams();
 		if (options.refresh) query.set('refresh', 'true');
 		query.set('sort', options.sort ?? 'newest');
+		if (options.cursor) query.set('cursor', options.cursor);
+		if (options.runId) query.set('runId', options.runId);
+		if (options.limit) query.set('limit', String(options.limit));
+		const filters = options.filters;
+		if (filters?.search.trim()) query.set('search', filters.search.trim());
+		if (filters?.level) query.set('level', filters.level);
+		if (filters?.difficulty) query.set('difficulty', filters.difficulty);
+		if (filters?.status) query.set('status', filters.status);
+		if (filters?.language) query.set('language', filters.language);
+		const minimum = runTimeSeconds(filters?.minTime);
+		const maximum = runTimeSeconds(filters?.maxTime);
+		if (minimum !== null) query.set('minTimeSeconds', String(minimum));
+		if (maximum !== null) query.set('maxTimeSeconds', String(maximum));
 		return this.getJson(`/api/v1/runs?${query}`, { signal: options.signal });
 	}
 
@@ -450,6 +491,9 @@ export type RunRetentionState = 'pending' | 'kept' | 'expired';
 export interface RunsResponse {
 	directories: RunDirectoryScan[];
 	clips: RunClip[];
+	requestedRun?: RunClip | null;
+	total?: number;
+	nextCursor?: string | null;
 }
 
 export type RunSort = 'newest' | 'oldest' | 'fastest' | 'slowest';

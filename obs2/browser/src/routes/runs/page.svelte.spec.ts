@@ -2,7 +2,8 @@ import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RunsPage from './+page.svelte';
-import type { RunClip, RunsResponse } from '$lib/api';
+import type { RunClip, RunsResponse, RunSort } from '$lib/api';
+import { EMPTY_RUN_FILTERS, visibleRunClips, type RunFilters } from '$lib/features/runs/runsView';
 import { youtube } from '$lib/stores/youtube.svelte';
 
 const mocks = vi.hoisted(() => ({
@@ -123,6 +124,8 @@ const runsResponse: RunsResponse = {
 	]
 };
 
+let catalogClips: RunClip[];
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.pageUrl = new URL('http://localhost/runs');
@@ -140,19 +143,50 @@ beforeEach(() => {
 		if (!run) throw new Error('run not found');
 		return { ...run, retentionState: 'kept' };
 	});
-	mocks.getRuns.mockResolvedValue(runsResponse);
+	catalogClips = [...runsResponse.clips];
+	mocks.getRuns.mockImplementation(async (options: { filters?: RunFilters; sort?: RunSort; runId?: string } = {}) => {
+		const clips = visibleRunClips(catalogClips, options.filters ?? EMPTY_RUN_FILTERS, options.sort ?? 'newest');
+		return {
+			directories: runsResponse.directories,
+			clips,
+			requestedRun: options.runId ? catalogClips.find((run) => run.runId === options.runId) : undefined,
+			total: clips.length,
+			nextCursor: null
+		};
+	});
 	mocks.renameRun.mockImplementation(async (path: string, fileName: string) => {
 		const run = runsResponse.clips.find((candidate) => candidate.path === path);
 		if (!run) throw new Error('run not found');
-		return { ...run, path: `/runs/${fileName}`, fileName };
+		const updated = { ...run, path: `/runs/${fileName}`, fileName };
+		catalogClips = catalogClips.map((candidate) => (candidate.runId === updated.runId ? updated : candidate));
+		return updated;
 	});
-	mocks.deleteCatalogRun.mockResolvedValue(null);
+	mocks.deleteCatalogRun.mockImplementation(async (runId: string, keepHistory: boolean) => {
+		const run = catalogClips.find((candidate) => candidate.runId === runId);
+		if (!run) throw new Error('run not found');
+		if (!keepHistory) {
+			catalogClips = catalogClips.filter((candidate) => candidate.runId !== runId);
+			return null;
+		}
+		const updated = {
+			...run,
+			path: '',
+			fileName: '',
+			directory: '',
+			sizeBytes: 0,
+			durationSecs: null,
+			retentionState: 'expired' as const,
+			retentionReason: 'deleted'
+		};
+		catalogClips = catalogClips.map((candidate) => (candidate.runId === runId ? updated : candidate));
+		return updated;
+	});
 	mocks.createManualRun.mockResolvedValue(runsResponse.clips[0]);
 	mocks.importTheElite.mockResolvedValue({ imported: 84, alreadyImported: 0, videos: 73 });
 	mocks.updateRunMetadata.mockImplementation(async (runId: string, metadata) => {
-		const run = runsResponse.clips.find((candidate) => candidate.runId === runId);
+		const run = catalogClips.find((candidate) => candidate.runId === runId);
 		if (!run) throw new Error('run not found');
-		return {
+		const updated = {
 			...run,
 			metadata: {
 				...run.metadata,
@@ -162,6 +196,8 @@ beforeEach(() => {
 					: undefined
 			}
 		};
+		catalogClips = catalogClips.map((candidate) => (candidate.runId === runId ? updated : candidate));
+		return updated;
 	});
 });
 
@@ -433,16 +469,6 @@ describe('/runs', () => {
 	it('deletes only the video when the user chooses to keep run history', async () => {
 		const user = userEvent.setup();
 		const original = runsResponse.clips[0];
-		mocks.deleteCatalogRun.mockResolvedValue({
-			...original,
-			path: '',
-			fileName: '',
-			directory: '',
-			sizeBytes: 0,
-			durationSecs: null,
-			retentionState: 'expired',
-			retentionReason: 'deleted'
-		});
 		render(RunsPage);
 
 		await user.click(await screen.findByRole('button', { name: /facility-0058\.mov/i }));

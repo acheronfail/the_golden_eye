@@ -4,9 +4,20 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
-use super::run_catalog::{IndexedRunClip, RunCatalogRoot, RunCatalogSave, RunRecord, RunRetentionState, RunSort};
+use super::run_catalog::{
+    IndexedRunClip,
+    RunCatalogRoot,
+    RunCatalogSave,
+    RunCursor,
+    RunListQuery,
+    RunPage,
+    RunRecord,
+    RunRetentionState,
+    RunSort,
+};
 use crate::ffmpeg;
 use crate::models::clip_metadata::{ClipMetadata, RunStatus};
 use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
@@ -17,6 +28,8 @@ const CREATE_LEVEL_DIFFICULTY_TIMESTAMP_INDEX: &str =
     include_str!("sql/runs/create_level_difficulty_timestamp_index.sql");
 const CREATE_TIME_INDEX: &str = include_str!("sql/runs/create_time_index.sql");
 const CREATE_TIME_SORT_INDEX: &str = include_str!("sql/runs/create_time_sort_index.sql");
+const CREATE_TIME_SORT_DESC_INDEX: &str = include_str!("sql/runs/create_time_sort_desc_index.sql");
+const CREATE_TIMESTAMP_SORT_INDEX: &str = include_str!("sql/runs/create_timestamp_sort_index.sql");
 const DROP_TABLES: &str = include_str!("sql/runs/drop_tables.sql");
 const MIGRATE_V2_ROWS: &str = include_str!("sql/runs/migrate_v2_rows.sql");
 const CREATE_SESSION_TABLES: &str = include_str!("sql/runs/create_session_tables.sql");
@@ -78,6 +91,8 @@ pub fn initialise(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(CREATE_LEVEL_DIFFICULTY_TIMESTAMP_INDEX)?;
     conn.execute_batch(CREATE_TIME_INDEX)?;
     conn.execute_batch(CREATE_TIME_SORT_INDEX)?;
+    conn.execute_batch(CREATE_TIME_SORT_DESC_INDEX)?;
+    conn.execute_batch(CREATE_TIMESTAMP_SORT_INDEX)?;
     Ok(())
 }
 
@@ -117,6 +132,130 @@ pub fn list_runs_sorted(conn: &Connection, sort: RunSort) -> anyhow::Result<Vec<
     let mut stmt = conn.prepare(sql)?;
     let rows = stmt.query_map([], row_to_run)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn list_run_page(conn: &Connection, query: &RunListQuery) -> anyhow::Result<RunPage> {
+    let mut filters = Vec::new();
+    let mut values = Vec::<Value>::new();
+
+    if let Some(level) = query.level_number {
+        let value = bind_value(&mut values, level.into());
+        filters.push(format!("level_number = {value}"));
+    }
+    if let Some(difficulty) = query.difficulty_number {
+        let value = bind_value(&mut values, difficulty.into());
+        filters.push(format!("difficulty_number = {value}"));
+    }
+    if let Some(status) = query.status.as_ref() {
+        let value = bind_value(&mut values, status.clone().into());
+        filters.push(format!("status = {value}"));
+    }
+    if let Some(language) = query.language.as_ref() {
+        let value = bind_value(&mut values, language.clone().into());
+        filters.push(format!("json_extract(metadata_json, '$.gameLanguage') = {value}"));
+    }
+    if let Some(minimum) = query.min_time_seconds {
+        let value = bind_value(&mut values, minimum.into());
+        filters.push(format!("time_seconds >= {value}"));
+    }
+    if let Some(maximum) = query.max_time_seconds {
+        let value = bind_value(&mut values, maximum.into());
+        filters.push(format!("time_seconds <= {value}"));
+    }
+    if let Some(search) = query.search.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        for term in search.split_whitespace() {
+            let escaped = term.to_ascii_lowercase().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+            let value = bind_value(&mut values, format!("%{escaped}%").into());
+            filters.push(format!(
+                "lower(coalesce(clip_path, '') || ' ' || metadata_json || ' ' || CASE status WHEN 'complete' THEN 'completed' WHEN 'abort' THEN 'aborted' WHEN 'kia' THEN 'killed in action' ELSE status END) LIKE {value} ESCAPE '\\'"
+            ));
+        }
+    }
+
+    let filter_sql = if filters.is_empty() { String::new() } else { format!(" WHERE {}", filters.join(" AND ")) };
+    let total = if query.cursor.is_none() {
+        let count: i64 = conn.query_row(
+            &format!("SELECT count(*) FROM runs{filter_sql}"),
+            params_from_iter(values.iter()),
+            |row| row.get(0),
+        )?;
+        Some(count as usize)
+    } else {
+        None
+    };
+
+    let mut page_filters = filters;
+    if let Some(cursor) = query.cursor.as_ref() {
+        let completed = bind_value(&mut values, cursor.completed_unix_micros.into());
+        let cursor_id = bind_value(&mut values, cursor.run_id.clone().into());
+        let condition = match query.sort {
+            RunSort::Newest => format!(
+                "(completed_unix_micros < {completed} OR (completed_unix_micros = {completed} AND run_id < {cursor_id}))"
+            ),
+            RunSort::Oldest => format!(
+                "(completed_unix_micros > {completed} OR (completed_unix_micros = {completed} AND run_id > {cursor_id}))"
+            ),
+            RunSort::Fastest | RunSort::Slowest => {
+                let null_rank = bind_value(&mut values, i64::from(cursor.time_seconds.is_none()).into());
+                let same_rank_tail = if let Some(time) = cursor.time_seconds {
+                    let time_value = bind_value(&mut values, time.into());
+                    let time_comparison = if query.sort == RunSort::Fastest { ">" } else { "<" };
+                    format!(
+                        "time_seconds {time_comparison} {time_value} OR (time_seconds = {time_value} AND (completed_unix_micros < {completed} OR (completed_unix_micros = {completed} AND run_id < {cursor_id})))"
+                    )
+                } else {
+                    format!(
+                        "completed_unix_micros < {completed} OR (completed_unix_micros = {completed} AND run_id < {cursor_id})"
+                    )
+                };
+                format!(
+                    "((time_seconds IS NULL) > {null_rank} OR ((time_seconds IS NULL) = {null_rank} AND ({same_rank_tail})))"
+                )
+            }
+        };
+        page_filters.push(condition);
+    }
+
+    let where_sql =
+        if page_filters.is_empty() { String::new() } else { format!(" WHERE {}", page_filters.join(" AND ")) };
+    let order_sql = match query.sort {
+        RunSort::Newest => "completed_unix_micros DESC, run_id DESC",
+        RunSort::Oldest => "completed_unix_micros ASC, run_id ASC",
+        RunSort::Fastest => "time_seconds IS NULL, time_seconds ASC, completed_unix_micros DESC, run_id DESC",
+        RunSort::Slowest => "time_seconds IS NULL, time_seconds DESC, completed_unix_micros DESC, run_id DESC",
+    };
+    let limit = query.limit.clamp(1, 200);
+    let limit_param = bind_value(&mut values, (limit as i64 + 1).into());
+    let sql = format!(
+        "SELECT run_id, completed_unix_micros, retention_state, retention_reason, clip_path, size_bytes, modified_unix, duration_secs, metadata_json, youtube_json FROM runs{where_sql} ORDER BY {order_sql} LIMIT {limit_param}"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mut runs =
+        stmt.query_map(params_from_iter(values.iter()), row_to_run)?.collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_more = runs.len() > limit;
+    runs.truncate(limit);
+    let next_cursor = if has_more {
+        let last = runs.last().expect("non-empty page with more rows");
+        Some(conn.query_row(
+            "SELECT completed_unix_micros, time_seconds FROM runs WHERE run_id = ?1",
+            [&last.run_id],
+            |row| {
+                Ok(RunCursor {
+                    completed_unix_micros: row.get(0)?,
+                    time_seconds: row.get(1)?,
+                    run_id: last.run_id.clone(),
+                })
+            },
+        )?)
+    } else {
+        None
+    };
+    Ok(RunPage { runs, total, next_cursor })
+}
+
+fn bind_value(values: &mut Vec<Value>, value: Value) -> String {
+    values.push(value);
+    format!("?{}", values.len())
 }
 
 pub fn recent_runs(conn: &Connection, limit: usize) -> anyhow::Result<Vec<RunRecord>> {

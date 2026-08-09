@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { RunClip } from '$lib/api';
 import {
 	EMPTY_RUN_FILTERS,
+	appendRunListRows,
 	clipTimeSeconds,
+	createRunListRows,
 	formatBytes,
 	gameLanguageForRomVersion,
 	groupRunClips,
@@ -10,6 +12,8 @@ import {
 	parseRunTimeSeconds,
 	retentionReasonLabel,
 	retentionStateLabel,
+	replaceRunListClip,
+	stickyRunListHeader,
 	visibleRunClips,
 	wasPersonalBest,
 	type RunFilters
@@ -137,6 +141,58 @@ describe('runs view behaviour', () => {
 			'unknown.mov'
 		]);
 		expect(groupRunClips(clips, 'fastest')).toEqual([{ label: null, clips }]);
+	});
+
+	it('extends precomputed virtual rows across page boundaries', () => {
+		const now = new Date('2026-07-11T12:00:00Z');
+		const next = { ...clips[1], metadata: { ...clips[1].metadata, timestamp: clips[0].metadata.timestamp } };
+		const firstPage = createRunListRows(clips.slice(0, 1), 'newest', now);
+		const rows = appendRunListRows(firstPage, [next], 'newest', now);
+
+		expect(rows.map((row) => row.type)).toEqual(['header', 'run', 'run']);
+		expect(rows[0]).toMatchObject({ type: 'header', label: 'Yesterday', count: 2, top: 0, height: 38 });
+		expect(rows[1]).toMatchObject({ type: 'run', top: 38, height: 56 });
+		expect(rows[2]).toMatchObject({ type: 'run', top: 94, height: 56 });
+	});
+
+	it('builds thousands of same-date rows with one group header', () => {
+		const many = Array.from({ length: 5_000 }, (_, index) => ({
+			...clips[0],
+			runId: `run-${index}`,
+			metadata: { ...clips[0].metadata, timestamp: `2026-07-10T10:${String(index % 60).padStart(2, '0')}:00Z` }
+		}));
+		const rows = createRunListRows(many, 'newest', new Date('2026-07-11T12:00:00Z'));
+
+		expect(rows).toHaveLength(5_001);
+		expect(rows[0]).toMatchObject({ type: 'header', label: 'Yesterday', count: 5_000 });
+		expect(rows.at(-1)).toMatchObject({ type: 'run', top: 279_982 });
+	});
+
+	it('keeps time-sorted rows flat and replaces retention-only changes in place', () => {
+		const rows = createRunListRows(clips, 'fastest');
+		const updated = { ...clips[0], retentionState: 'pending' as const };
+
+		expect(rows.every((row) => row.type === 'run')).toBe(true);
+		expect(replaceRunListClip(rows, updated).find((row) => row.key === clips[0].runId)).toMatchObject({
+			type: 'run',
+			clip: updated
+		});
+	});
+
+	it('pins the active date header and pushes it away at the next group', () => {
+		const now = new Date('2026-07-11T12:00:00Z');
+		const grouped = [
+			{ ...clips[1], metadata: { ...clips[1].metadata, timestamp: '2026-07-11T10:00:00Z' } },
+			{ ...clips[0], metadata: { ...clips[0].metadata, timestamp: '2026-07-11T09:00:00Z' } },
+			{ ...clips[2], metadata: { ...clips[2].metadata, timestamp: '2026-07-10T10:00:00Z' } }
+		];
+		const rows = createRunListRows(grouped, 'newest', now);
+
+		expect(stickyRunListHeader(rows, 20)).toMatchObject({ row: { label: 'Today' }, top: 20 });
+		expect(stickyRunListHeader(rows, 120)).toMatchObject({ row: { label: 'Today' }, top: 112 });
+		expect(stickyRunListHeader(rows, 150)).toBeNull();
+		expect(stickyRunListHeader(rows, 160)).toMatchObject({ row: { label: 'Yesterday' }, top: 160 });
+		expect(stickyRunListHeader(createRunListRows(grouped, 'fastest'), 100)).toBeNull();
 	});
 
 	it('filters by search text across filename and metadata', () => {

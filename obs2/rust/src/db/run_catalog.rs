@@ -48,6 +48,55 @@ pub enum RunSort {
     Slowest,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct RunListQuery {
+    pub sort: RunSort,
+    pub cursor: Option<RunCursor>,
+    pub limit: usize,
+    pub search: Option<String>,
+    pub level_number: Option<i32>,
+    pub difficulty_number: Option<i32>,
+    pub status: Option<String>,
+    pub language: Option<String>,
+    pub min_time_seconds: Option<i32>,
+    pub max_time_seconds: Option<i32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunCursor {
+    pub completed_unix_micros: i64,
+    pub time_seconds: Option<i32>,
+    pub run_id: String,
+}
+
+impl RunCursor {
+    pub fn encode(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.completed_unix_micros,
+            self.time_seconds.map_or_else(|| "n".to_owned(), |value| value.to_string()),
+            self.run_id
+        )
+    }
+
+    pub fn decode(value: &str) -> anyhow::Result<Self> {
+        let mut parts = value.splitn(3, '|');
+        let completed_unix_micros = parts.next().context("cursor timestamp is missing")?.parse()?;
+        let time = parts.next().context("cursor time is missing")?;
+        let run_id = parts.next().context("cursor run id is missing")?.to_owned();
+        anyhow::ensure!(!run_id.is_empty(), "cursor run id is empty");
+        let time_seconds = if time == "n" { None } else { Some(time.parse()?) };
+        Ok(Self { completed_unix_micros, time_seconds, run_id })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RunPage {
+    pub runs: Vec<RunRecord>,
+    pub total: Option<usize>,
+    pub next_cursor: Option<RunCursor>,
+}
+
 impl RunRetentionState {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -166,8 +215,13 @@ impl RunCatalog {
         runs::list_runs(&self.lock())
     }
 
+    #[cfg(test)]
     pub fn list_runs_sorted(&self, sort: RunSort) -> anyhow::Result<Vec<RunRecord>> {
         runs::list_runs_sorted(&self.lock(), sort)
+    }
+
+    pub fn list_run_page(&self, query: &RunListQuery) -> anyhow::Result<RunPage> {
+        runs::list_run_page(&self.lock(), query)
     }
 
     pub fn recent_runs(&self, limit: usize) -> anyhow::Result<Vec<RunRecord>> {

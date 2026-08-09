@@ -23,6 +23,7 @@
 		},
 		page.url.searchParams.get('sort')
 	);
+	let previousFilters = JSON.stringify(controller.filters);
 
 	onMount(() => controller.initialize(navigator.platform));
 	onDestroy(() => controller.destroy());
@@ -31,6 +32,14 @@
 		const requestedRunId = page.url.searchParams.get('runId');
 		controller.clips;
 		untrack(() => controller.reconcileRequestedRun(requestedRunId));
+	});
+
+	$effect(() => {
+		const nextFilters = JSON.stringify(controller.filters);
+		if (nextFilters !== previousFilters) {
+			previousFilters = nextFilters;
+			untrack(() => controller.filtersChanged());
+		}
 	});
 
 	const onkeydown = (event: KeyboardEvent) => controller.handleKeydown(event);
@@ -103,8 +112,12 @@
 
 	<RunList
 		loading={controller.loading}
+		loadingMore={controller.loadingMore}
 		clips={controller.clips}
-		visibleClips={controller.visibleClips}
+		rows={controller.rows}
+		total={controller.total}
+		hasMore={controller.hasMore}
+		loadMore={() => controller.loadMore()}
 		scannedDirectoryCount={controller.scannedDirectoryCount}
 		directoryCount={controller.runs?.directories.length ?? null}
 		hasActiveFilters={controller.hasActiveFilters}

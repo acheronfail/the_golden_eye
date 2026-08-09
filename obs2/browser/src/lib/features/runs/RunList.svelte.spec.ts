@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import RunList from './RunList.svelte';
 import type { RunClip } from '$lib/api';
+import { createRunListRows } from '$lib/features/runs/runsView';
 
 const runClip = (fileName: string, level: string): RunClip => ({
 	runId: fileName,
@@ -30,12 +31,12 @@ const runClip = (fileName: string, level: string): RunClip => ({
 });
 
 describe('RunList', () => {
-	it('keeps chronological date separators sticky', () => {
-		const clips = [runClip('facility.mov', 'Facility')];
+	it('only mounts the visible window for long run histories', () => {
+		const clips = Array.from({ length: 100 }, (_, index) => runClip(`run-${index}.mov`, `Run ${index}`));
 		const { container } = render(RunList, {
 			loading: false,
 			clips,
-			visibleClips: clips,
+			rows: createRunListRows(clips, 'newest'),
 			scannedDirectoryCount: 1,
 			directoryCount: 1,
 			hasActiveFilters: false,
@@ -49,9 +50,102 @@ describe('RunList', () => {
 			remove: () => {}
 		});
 
-		const separator = container.querySelector('[role="list"] section .sticky');
-		expect(separator).toBeInTheDocument();
-		expect(separator).toHaveClass('top-[var(--runs-filter-sticky-height,0px)]');
+		expect(container.querySelectorAll('[role="listitem"]').length).toBeGreaterThan(0);
+		expect(container.querySelectorAll('[role="listitem"]').length).toBeLessThan(clips.length);
+		expect(container.querySelector('[role="list"] > [aria-hidden="true"]')).toHaveClass('h-[var(--list-height)]');
+	});
+
+	it('updates the visible window when the app content container scrolls', async () => {
+		const clips = Array.from({ length: 100 }, (_, index) => runClip(`run-${index}.mov`, `Run ${index}`));
+		let listTop = 100;
+		document.body.classList.add('obs-content-scroller');
+		const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: HTMLElement
+		) {
+			if (this.getAttribute('role') === 'list') {
+				return { top: listTop, bottom: listTop + 5638, height: 5638 } as DOMRect;
+			}
+			if (this === document.body) return { top: 0, bottom: 600, height: 600 } as DOMRect;
+			return { top: 0, bottom: 0, height: 0 } as DOMRect;
+		});
+
+		try {
+			render(RunList, {
+				loading: false,
+				clips,
+				rows: createRunListRows(clips, 'fastest'),
+				scannedDirectoryCount: 1,
+				directoryCount: 1,
+				hasActiveFilters: false,
+				sort: 'fastest',
+				onSortChange: () => {},
+				fileBrowserLabel: 'Show in Finder',
+				clearFilters: () => {},
+				open: () => {},
+				rename: () => {},
+				reveal: () => {},
+				remove: () => {}
+			});
+			expect(screen.queryByRole('button', { name: 'Open run-50.mov' })).not.toBeInTheDocument();
+
+			listTop = -2800;
+			document.body.dispatchEvent(new Event('scroll'));
+
+			await waitFor(() => expect(screen.getByRole('button', { name: 'Open run-50.mov' })).toBeInTheDocument());
+		} finally {
+			rect.mockRestore();
+			document.body.classList.remove('obs-content-scroller');
+		}
+	});
+
+	it('pins the active date header below the sticky filters', async () => {
+		const clips = Array.from({ length: 3 }, (_, index) => runClip(`run-${index}.mov`, `Run ${index}`));
+		let listTop = 100;
+		document.body.classList.add('obs-content-scroller');
+		const computedStyle = vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+			getPropertyValue: (property: string) => (property === '--runs-filter-sticky-height' ? '80px' : '')
+		} as CSSStyleDeclaration);
+		const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: HTMLElement
+		) {
+			if (this.getAttribute('role') === 'list') {
+				return { top: listTop, bottom: listTop + 206, height: 206 } as DOMRect;
+			}
+			if (this === document.body) return { top: 0, bottom: 600, height: 600 } as DOMRect;
+			return { top: 0, bottom: 0, height: 0 } as DOMRect;
+		});
+
+		try {
+			const { container } = render(RunList, {
+				loading: false,
+				clips,
+				rows: createRunListRows(clips, 'newest'),
+				scannedDirectoryCount: 1,
+				directoryCount: 1,
+				hasActiveFilters: false,
+				sort: 'newest',
+				onSortChange: () => {},
+				fileBrowserLabel: 'Show in Finder',
+				clearFilters: () => {},
+				open: () => {},
+				rename: () => {},
+				reveal: () => {},
+				remove: () => {}
+			});
+			expect(container.querySelector('[data-sticky-run-header]')).not.toBeInTheDocument();
+
+			listTop = -100;
+			document.body.dispatchEvent(new Event('scroll'));
+
+			await waitFor(() => expect(container.querySelector('[data-sticky-run-header]')).toBeInTheDocument());
+			expect(container.querySelector<HTMLElement>('[data-sticky-run-header]')?.style.getPropertyValue('--row-y')).toBe(
+				'180px'
+			);
+		} finally {
+			rect.mockRestore();
+			computedStyle.mockRestore();
+			document.body.classList.remove('obs-content-scroller');
+		}
 	});
 
 	it('keeps one action menu open and dismisses it on an outside click', async () => {
@@ -60,7 +154,7 @@ describe('RunList', () => {
 		render(RunList, {
 			loading: false,
 			clips,
-			visibleClips: clips,
+			rows: createRunListRows(clips, 'newest'),
 			scannedDirectoryCount: 2,
 			directoryCount: 2,
 			hasActiveFilters: false,
