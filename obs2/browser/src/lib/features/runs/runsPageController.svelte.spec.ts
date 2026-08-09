@@ -75,4 +75,17 @@ describe('RunsPageController', () => {
 		expect(controller.selected).toBeNull();
 		expect(controller.metadataDraft).toBeNull();
 	});
+
+	it('appends cursor pages without duplicating runs', async () => {
+		const { controller, api } = setup();
+		controller.runs = { directories: [], clips: [clip], total: 2, nextCursor: 'run-1' };
+		const next = { ...clip, runId: 'run-2', fileName: 'next.mp4' };
+		api.getRuns.mockResolvedValue({ directories: [], clips: [clip, next], total: 2, nextCursor: null });
+
+		await controller.loadMore();
+
+		expect(api.getRuns).toHaveBeenCalledWith(expect.objectContaining({ cursor: 'run-1', sort: 'newest' }));
+		expect(controller.clips.map((run) => run.runId)).toEqual(['run-1', 'run-2']);
+		expect(controller.hasMore).toBe(false);
+	});
 });

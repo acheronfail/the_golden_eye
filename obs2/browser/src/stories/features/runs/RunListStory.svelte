@@ -6,6 +6,8 @@
 		loading = false,
 		clips = [],
 		visibleClips = clips,
+		total = clips.length,
+		hasMore = false,
 		scannedDirectoryCount = 2,
 		directoryCount = 2,
 		hasActiveFilters = false,
@@ -14,6 +16,8 @@
 		loading?: boolean;
 		clips?: RunClip[];
 		visibleClips?: RunClip[];
+		total?: number;
+		hasMore?: boolean;
 		scannedDirectoryCount?: number;
 		directoryCount?: number | null;
 		hasActiveFilters?: boolean;
@@ -25,13 +29,16 @@
 	<div class="mb-4">
 		<h1 class="text-2xl font-semibold obs-heading">Runs</h1>
 		<p class="mt-1 font-mono text-xs obs-dim">
-			{visibleClips.length} of {clips.length}{loading ? ' | scanning...' : ''}
+			{visibleClips.length} loaded of {total}{loading ? ' | scanning...' : ''}
 		</p>
 	</div>
 	<RunList
 		{loading}
 		{clips}
 		{visibleClips}
+		{total}
+		{hasMore}
+		loadMore={() => {}}
 		{scannedDirectoryCount}
 		{directoryCount}
 		{hasActiveFilters}

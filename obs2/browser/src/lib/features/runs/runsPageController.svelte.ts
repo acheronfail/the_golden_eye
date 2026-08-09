@@ -49,6 +49,7 @@ const levelSelectOptions = LEVEL_OPTIONS.map((level) => ({ value: level, label: 
 export class RunsPageController {
 	runs = $state<RunsResponse | null>(null);
 	loading = $state(false);
+	loadingMore = $state(false);
 	error = $state<string | null>(null);
 	selected = $state<RunClip | null>(null);
 	metadataDraft = $state<EditableRunMetadata | null>(null);
@@ -71,6 +72,7 @@ export class RunsPageController {
 	readClipsOpen = $state(false);
 
 	private reloadAbort: AbortController | null = null;
+	private filterReloadTimer: ReturnType<typeof setTimeout> | null = null;
 	private metadataSavePromise: Promise<boolean> | null = null;
 	private handledRequestedRunId: string | null = null;
 
@@ -88,6 +90,14 @@ export class RunsPageController {
 
 	get visibleClips(): RunClip[] {
 		return visibleRunClips(this.clips, this.filters, this.sort);
+	}
+
+	get total(): number {
+		return this.runs?.total ?? this.clips.length;
+	}
+
+	get hasMore(): boolean {
+		return Boolean(this.runs?.nextCursor);
 	}
 
 	get directoryErrors(): RunDirectoryScan[] {
@@ -155,6 +165,7 @@ export class RunsPageController {
 
 	destroy(): void {
 		this.reloadAbort?.abort();
+		if (this.filterReloadTimer) clearTimeout(this.filterReloadTimer);
 	}
 
 	async reload(refresh = false): Promise<void> {
@@ -164,9 +175,15 @@ export class RunsPageController {
 		this.loading = true;
 		this.error = null;
 		const selectedId = this.selected?.runId ?? null;
-		this.runs = { directories: [], clips: [] };
+		this.runs = { directories: [], clips: [], total: 0, nextCursor: null };
 		try {
-			const loaded = await this.api.getRuns({ refresh, sort: this.sort, signal: abort.signal });
+			const loaded = await this.api.getRuns({
+				refresh,
+				sort: this.sort,
+				runId: this.navigation.currentUrl().searchParams.get('runId') ?? undefined,
+				filters: { ...this.filters },
+				signal: abort.signal
+			});
 			if (abort.signal.aborted) return;
 			this.runs = loaded;
 			if (selectedId && !loaded.clips.some((clip) => clip.runId === selectedId)) {
@@ -181,6 +198,39 @@ export class RunsPageController {
 				this.reloadAbort = null;
 			}
 		}
+	}
+
+	async loadMore(): Promise<void> {
+		const cursor = this.runs?.nextCursor;
+		if (!cursor || this.loading || this.loadingMore) return;
+		this.loadingMore = true;
+		try {
+			const loaded = await this.api.getRuns({
+				sort: this.sort,
+				cursor,
+				filters: { ...this.filters }
+			});
+			if (!this.runs || this.runs.nextCursor !== cursor) return;
+			const seen = new Set(this.runs.clips.map((clip) => clip.runId));
+			this.runs = {
+				directories: loaded.directories,
+				clips: [...this.runs.clips, ...loaded.clips.filter((clip) => !seen.has(clip.runId))],
+				total: loaded.total ?? this.total,
+				nextCursor: loaded.nextCursor
+			};
+		} catch (error) {
+			this.error = errorMessage(error);
+		} finally {
+			this.loadingMore = false;
+		}
+	}
+
+	filtersChanged(): void {
+		if (this.filterReloadTimer) clearTimeout(this.filterReloadTimer);
+		this.filterReloadTimer = setTimeout(() => {
+			this.filterReloadTimer = null;
+			void this.reload();
+		}, 250);
 	}
 
 	select(clip: RunClip): void {
@@ -333,7 +383,9 @@ export class RunsPageController {
 		this.importError = null;
 		try {
 			const created = await this.api.createManualRun(input);
-			if (this.runs) this.runs = { ...this.runs, clips: [created, ...this.runs.clips] };
+			if (this.runs) {
+				this.runs = { ...this.runs, clips: [created, ...this.runs.clips], total: this.total + 1 };
+			}
 			this.importOpen = false;
 			this.select(created);
 		} catch (error) {
@@ -450,6 +502,10 @@ export class RunsPageController {
 
 	private removeClip(runId: string): void {
 		if (!this.runs) return;
-		this.runs = { ...this.runs, clips: this.runs.clips.filter((clip) => clip.runId !== runId) };
+		this.runs = {
+			...this.runs,
+			clips: this.runs.clips.filter((clip) => clip.runId !== runId),
+			total: Math.max(0, this.total - 1)
+		};
 	}
 }

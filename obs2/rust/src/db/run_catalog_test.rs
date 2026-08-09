@@ -189,6 +189,70 @@ fn catalog_sorts_runs_by_time_with_missing_times_last() {
 }
 
 #[test]
+fn catalog_pages_runs_with_stable_sort_cursors_and_filters() {
+    let dir = TestDir::new("run-pages");
+    let catalog = catalog(&dir);
+    let base = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+    let oldest = catalog.create_finalized_run(base, finalized_metadata(RunStatus::Failed, Some(90), "Agent")).unwrap();
+    let middle = catalog
+        .create_finalized_run(
+            base + Duration::from_secs(1),
+            finalized_metadata(RunStatus::Complete, Some(45), "00 Agent"),
+        )
+        .unwrap();
+    let newest = catalog
+        .create_finalized_run(base + Duration::from_secs(2), finalized_metadata(RunStatus::Failed, None, "Agent"))
+        .unwrap();
+
+    let first =
+        catalog.list_run_page(&RunListQuery { sort: RunSort::Newest, limit: 2, ..RunListQuery::default() }).unwrap();
+    assert_eq!(first.total, Some(3));
+    assert_eq!(first.runs.iter().map(|run| &run.run_id).collect::<Vec<_>>(), [&newest.run_id, &middle.run_id]);
+    assert_eq!(first.next_cursor.as_ref().map(|cursor| cursor.run_id.as_str()), Some(middle.run_id.as_str()));
+
+    let second = catalog
+        .list_run_page(&RunListQuery {
+            sort: RunSort::Newest,
+            cursor: first.next_cursor,
+            limit: 2,
+            ..RunListQuery::default()
+        })
+        .unwrap();
+    assert_eq!(second.runs.iter().map(|run| &run.run_id).collect::<Vec<_>>(), [&oldest.run_id]);
+    assert_eq!(second.total, None);
+    assert!(second.next_cursor.is_none());
+
+    for sort in [RunSort::Newest, RunSort::Oldest, RunSort::Fastest, RunSort::Slowest] {
+        let expected = catalog.list_runs_sorted(sort).unwrap().into_iter().map(|run| run.run_id).collect::<Vec<_>>();
+        let mut actual = Vec::new();
+        let mut cursor = None;
+        loop {
+            let page =
+                catalog.list_run_page(&RunListQuery { sort, cursor, limit: 1, ..RunListQuery::default() }).unwrap();
+            actual.extend(page.runs.into_iter().map(|run| run.run_id));
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+        }
+        assert_eq!(actual, expected, "cursor order for {sort:?}");
+    }
+
+    let filtered = catalog
+        .list_run_page(&RunListQuery {
+            sort: RunSort::Fastest,
+            limit: 1,
+            status: Some("complete".to_owned()),
+            difficulty_number: Some(2),
+            max_time_seconds: Some(60),
+            ..RunListQuery::default()
+        })
+        .unwrap();
+    assert_eq!(filtered.total, Some(1));
+    assert_eq!(filtered.runs[0].run_id, middle.run_id);
+}
+
+#[test]
 fn recent_history_persists_and_both_delete_modes_preserve_the_requested_data() {
     let dir = TestDir::new("durable-history");
     let db_path = dir.join("runs.sqlite");
@@ -616,9 +680,14 @@ fn sqlite_metadata_document_round_trips_complete_metadata() {
     let mut statement = conn.prepare("PRAGMA index_list(runs)").unwrap();
     let indexes =
         statement.query_map([], |row| row.get::<_, String>(1)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
-    for index in
-        ["runs_status_timestamp_idx", "runs_level_difficulty_timestamp_idx", "runs_time_idx", "runs_time_sort_idx"]
-    {
+    for index in [
+        "runs_status_timestamp_idx",
+        "runs_level_difficulty_timestamp_idx",
+        "runs_time_idx",
+        "runs_time_sort_idx",
+        "runs_time_sort_desc_idx",
+        "runs_timestamp_sort_idx",
+    ] {
         assert!(indexes.iter().any(|candidate| candidate == index), "missing expression index {index}");
     }
 }

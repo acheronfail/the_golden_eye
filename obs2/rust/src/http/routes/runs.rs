@@ -12,7 +12,16 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
-use crate::db::run_catalog::{IndexedRunClip, RunCatalog, RunCatalogRoot, RunRecord, RunRetentionState, RunSort};
+use crate::db::run_catalog::{
+    IndexedRunClip,
+    RunCatalog,
+    RunCatalogRoot,
+    RunCursor,
+    RunListQuery,
+    RunRecord,
+    RunRetentionState,
+    RunSort,
+};
 use crate::db::runs;
 use crate::ffmpeg::{self, ClipMetadata};
 use crate::http::AppState;
@@ -31,6 +40,16 @@ pub struct RunsParams {
     refresh: bool,
     #[serde(default)]
     sort: RunSort,
+    cursor: Option<String>,
+    limit: Option<usize>,
+    search: Option<String>,
+    level: Option<String>,
+    difficulty: Option<String>,
+    status: Option<String>,
+    language: Option<String>,
+    min_time_seconds: Option<i32>,
+    max_time_seconds: Option<i32>,
+    run_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,6 +127,9 @@ pub struct EditableRunMetadata {
 pub struct RunsResponse {
     directories: Vec<RunDirectoryScan>,
     clips: Vec<RunClip>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total: Option<usize>,
+    next_cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -195,6 +217,12 @@ pub async fn handle_list(State(state): State<AppState>, Query(params): Query<Run
     let settings = state.settings.get_effective();
     let refresh = params.refresh;
     let sort = params.sort;
+    let cursor = params
+        .cursor
+        .as_deref()
+        .map(RunCursor::decode)
+        .transpose()
+        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid run page cursor").into_response())?;
     let response = tokio::task::spawn_blocking(move || {
         let seeded = seed_catalog_if_needed(&state, &settings);
         if refresh && !seeded {
@@ -203,7 +231,26 @@ pub async fn handle_list(State(state): State<AppState>, Query(params): Query<Run
             state.snapshot.set_run_catalog_sync(None);
             result?;
         }
-        Ok::<_, anyhow::Error>(list_configured_runs(&settings, &state.run_catalog, sort))
+        let query = RunListQuery {
+            sort,
+            cursor,
+            limit: params.limit.unwrap_or(50),
+            search: params.search,
+            level_number: params.level.as_deref().and_then(crate::ge::level_info_by_name).map(|level| level.number),
+            difficulty_number: params.difficulty.as_deref().and_then(crate::ge::difficulty_number),
+            status: params.status,
+            language: params.language,
+            min_time_seconds: params.min_time_seconds,
+            max_time_seconds: params.max_time_seconds,
+        };
+        let mut response = list_configured_run_page(&settings, &state.run_catalog, &query);
+        if let Some(run_id) = params.run_id
+            && !response.clips.iter().any(|clip| clip.run_id == run_id)
+            && let Some(run) = state.run_catalog.get_run(&run_id)?
+        {
+            response.clips.push(run_clip_from_record(run));
+        }
+        Ok::<_, anyhow::Error>(response)
     })
     .await
     .map_err(|err| {
@@ -357,6 +404,10 @@ fn elite_fetch_error_status(error: &anyhow::Error) -> StatusCode {
 }
 
 pub fn list_configured_runs(settings: &AppSettings, catalog: &RunCatalog, sort: RunSort) -> RunsResponse {
+    list_configured_run_page(settings, catalog, &RunListQuery { sort, limit: 200, ..RunListQuery::default() })
+}
+
+pub fn list_configured_run_page(settings: &AppSettings, catalog: &RunCatalog, query: &RunListQuery) -> RunsResponse {
     let dirs = configured_run_directories(settings);
     let mut directories = Vec::new();
 
@@ -375,15 +426,19 @@ pub fn list_configured_runs(settings: &AppSettings, catalog: &RunCatalog, sort: 
         }
     }
 
-    let clips = match catalog.list_runs_sorted(sort) {
-        Ok(runs) => runs.into_iter().map(run_clip_from_record).collect(),
+    let (clips, total, next_cursor) = match catalog.list_run_page(query) {
+        Ok(page) => (
+            page.runs.into_iter().map(run_clip_from_record).collect(),
+            page.total,
+            page.next_cursor.map(|cursor| cursor.encode()),
+        ),
         Err(err) => {
             tracing::warn!("failed to list run catalog: {err:#}");
-            Vec::new()
+            (Vec::new(), Some(0), None)
         }
     };
 
-    RunsResponse { directories, clips }
+    RunsResponse { directories, clips, total, next_cursor }
 }
 
 pub fn seed_catalog_from_settings(catalog: &RunCatalog, settings: &AppSettings) -> anyhow::Result<()> {
