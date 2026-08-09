@@ -98,6 +98,56 @@ describe('RunList', () => {
 		}
 	});
 
+	it('pins the active date header below the sticky filters', async () => {
+		const clips = Array.from({ length: 3 }, (_, index) => runClip(`run-${index}.mov`, `Run ${index}`));
+		let listTop = 100;
+		document.body.classList.add('obs-content-scroller');
+		const computedStyle = vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+			getPropertyValue: (property: string) => (property === '--runs-filter-sticky-height' ? '80px' : '')
+		} as CSSStyleDeclaration);
+		const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: HTMLElement
+		) {
+			if (this.getAttribute('role') === 'list') {
+				return { top: listTop, bottom: listTop + 206, height: 206 } as DOMRect;
+			}
+			if (this === document.body) return { top: 0, bottom: 600, height: 600 } as DOMRect;
+			return { top: 0, bottom: 0, height: 0 } as DOMRect;
+		});
+
+		try {
+			const { container } = render(RunList, {
+				loading: false,
+				clips,
+				rows: createRunListRows(clips, 'newest'),
+				scannedDirectoryCount: 1,
+				directoryCount: 1,
+				hasActiveFilters: false,
+				sort: 'newest',
+				onSortChange: () => {},
+				fileBrowserLabel: 'Show in Finder',
+				clearFilters: () => {},
+				open: () => {},
+				rename: () => {},
+				reveal: () => {},
+				remove: () => {}
+			});
+			expect(container.querySelector('[data-sticky-run-header]')).not.toBeInTheDocument();
+
+			listTop = -100;
+			document.body.dispatchEvent(new Event('scroll'));
+
+			await waitFor(() => expect(container.querySelector('[data-sticky-run-header]')).toBeInTheDocument());
+			expect(container.querySelector<HTMLElement>('[data-sticky-run-header]')?.style.getPropertyValue('--row-y')).toBe(
+				'180px'
+			);
+		} finally {
+			rect.mockRestore();
+			computedStyle.mockRestore();
+			document.body.classList.remove('obs-content-scroller');
+		}
+	});
+
 	it('keeps one action menu open and dismisses it on an outside click', async () => {
 		const user = userEvent.setup();
 		const clips = [runClip('facility.mov', 'Facility'), runClip('control.mov', 'Control')];

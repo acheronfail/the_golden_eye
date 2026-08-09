@@ -215,6 +215,7 @@ impl RunCatalog {
         runs::list_runs(&self.lock())
     }
 
+    #[cfg(test)]
     pub fn list_runs_sorted(&self, sort: RunSort) -> anyhow::Result<Vec<RunRecord>> {
         runs::list_runs_sorted(&self.lock(), sort)
     }

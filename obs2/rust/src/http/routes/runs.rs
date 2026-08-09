@@ -405,6 +405,7 @@ fn elite_fetch_error_status(error: &anyhow::Error) -> StatusCode {
     }
 }
 
+#[cfg(test)]
 pub fn list_configured_runs(settings: &AppSettings, catalog: &RunCatalog, sort: RunSort) -> RunsResponse {
     list_configured_run_page(settings, catalog, &RunListQuery { sort, limit: 200, ..RunListQuery::default() })
 }

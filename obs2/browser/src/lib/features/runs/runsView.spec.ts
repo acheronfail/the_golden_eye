@@ -13,6 +13,7 @@ import {
 	retentionReasonLabel,
 	retentionStateLabel,
 	replaceRunListClip,
+	stickyRunListHeader,
 	visibleRunClips,
 	wasPersonalBest,
 	type RunFilters
@@ -176,6 +177,22 @@ describe('runs view behaviour', () => {
 			type: 'run',
 			clip: updated
 		});
+	});
+
+	it('pins the active date header and pushes it away at the next group', () => {
+		const now = new Date('2026-07-11T12:00:00Z');
+		const grouped = [
+			{ ...clips[1], metadata: { ...clips[1].metadata, timestamp: '2026-07-11T10:00:00Z' } },
+			{ ...clips[0], metadata: { ...clips[0].metadata, timestamp: '2026-07-11T09:00:00Z' } },
+			{ ...clips[2], metadata: { ...clips[2].metadata, timestamp: '2026-07-10T10:00:00Z' } }
+		];
+		const rows = createRunListRows(grouped, 'newest', now);
+
+		expect(stickyRunListHeader(rows, 20)).toMatchObject({ row: { label: 'Today' }, top: 20 });
+		expect(stickyRunListHeader(rows, 120)).toMatchObject({ row: { label: 'Today' }, top: 112 });
+		expect(stickyRunListHeader(rows, 150)).toBeNull();
+		expect(stickyRunListHeader(rows, 160)).toMatchObject({ row: { label: 'Yesterday' }, top: 160 });
+		expect(stickyRunListHeader(createRunListRows(grouped, 'fastest'), 100)).toBeNull();
 	});
 
 	it('filters by search text across filename and metadata', () => {

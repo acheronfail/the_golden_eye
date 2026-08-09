@@ -46,30 +46,32 @@
 	const storyRows = $derived(createRunListRows(storyVisibleClips, sort));
 </script>
 
-<main class="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
-	<div class="mb-4">
-		<h1 class="text-2xl font-semibold obs-heading">Runs</h1>
-		<p class="mt-1 font-mono text-xs obs-dim">
-			{storyVisibleClips.length} loaded of {storyTotal}{loading ? ' | scanning...' : ''}
-		</p>
-	</div>
-	<RunList
-		{loading}
-		clips={storyClips}
-		rows={storyRows}
-		total={storyTotal}
-		{hasMore}
-		loadMore={() => {}}
-		{scannedDirectoryCount}
-		{directoryCount}
-		{hasActiveFilters}
-		{sort}
-		onSortChange={() => {}}
-		fileBrowserLabel="Show in file browser"
-		clearFilters={() => {}}
-		open={() => {}}
-		rename={() => {}}
-		reveal={() => {}}
-		remove={() => {}}
-	/>
-</main>
+<div class="h-screen overflow-y-auto obs-content-scroller">
+	<main class="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
+		<div class="mb-4">
+			<h1 class="text-2xl font-semibold obs-heading">Runs</h1>
+			<p class="mt-1 font-mono text-xs obs-dim">
+				{storyVisibleClips.length} loaded of {storyTotal}{loading ? ' | scanning...' : ''}
+			</p>
+		</div>
+		<RunList
+			{loading}
+			clips={storyClips}
+			rows={storyRows}
+			total={storyTotal}
+			{hasMore}
+			loadMore={() => {}}
+			{scannedDirectoryCount}
+			{directoryCount}
+			{hasActiveFilters}
+			{sort}
+			onSortChange={() => {}}
+			fileBrowserLabel="Show in file browser"
+			clearFilters={() => {}}
+			open={() => {}}
+			rename={() => {}}
+			reveal={() => {}}
+			remove={() => {}}
+		/>
+	</main>
+</div>

@@ -158,8 +158,13 @@ export function groupRunClips(
 }
 
 export type RunListRow =
-	| { type: 'header'; key: string; label: string; count: number; top: number; height: 38 }
-	| { type: 'run'; key: string; clip: RunClip; top: number; height: 56 };
+	| { type: 'header'; key: string; label: string; count: number; top: number; height: 38; nextTop: number | null }
+	| { type: 'run'; key: string; clip: RunClip; top: number; height: 56; groupHeaderIndex: number };
+
+export interface StickyRunListHeader {
+	row: Extract<RunListRow, { type: 'header' }>;
+	top: number;
+}
 
 export function createRunListRows(clips: RunClip[], sort: RunSort, now = new Date()): RunListRow[] {
 	return appendRunListRows([], clips, sort, now);
@@ -182,19 +187,41 @@ export function appendRunListRows(
 		if (sort !== 'fastest' && sort !== 'slowest') {
 			const label = runDateGroupLabel(clip.metadata.timestamp, now);
 			if (label !== groupLabel) {
+				if (headerIndex >= 0) {
+					const previous = rows[headerIndex];
+					if (previous.type === 'header') rows[headerIndex] = { ...previous, nextTop: top };
+				}
 				headerIndex = rows.length;
 				groupLabel = label;
-				rows.push({ type: 'header', key: `header-${label}`, label, count: 1, top, height: 38 });
+				rows.push({ type: 'header', key: `header-${label}`, label, count: 1, top, height: 38, nextTop: null });
 				top += 38;
 			} else if (headerIndex >= 0) {
 				const header = rows[headerIndex];
 				if (header.type === 'header') rows[headerIndex] = { ...header, count: header.count + 1 };
 			}
 		}
-		rows.push({ type: 'run', key: clip.runId ?? clip.path, clip, top, height: 56 });
+		rows.push({ type: 'run', key: clip.runId ?? clip.path, clip, top, height: 56, groupHeaderIndex: headerIndex });
 		top += 56;
 	}
 	return rows;
+}
+
+export function stickyRunListHeader(rows: RunListRow[], offset: number): StickyRunListHeader | null {
+	if (rows.length === 0) return null;
+	let low = 0;
+	let high = rows.length;
+	while (low < high) {
+		const middle = (low + high) >> 1;
+		if (rows[middle].top <= offset) low = middle + 1;
+		else high = middle;
+	}
+	const index = Math.max(0, low - 1);
+	const row = rows[index];
+	const headerIndex = row.type === 'header' ? index : row.groupHeaderIndex;
+	if (headerIndex < 0) return null;
+	const header = rows[headerIndex];
+	if (header.type !== 'header' || offset <= header.top) return null;
+	return { row: header, top: Math.min(offset, (header.nextTop ?? Number.POSITIVE_INFINITY) - header.height) };
 }
 
 export function replaceRunListClip(rows: RunListRow[], clip: RunClip): RunListRow[] {

@@ -3,7 +3,7 @@
 	import RunListItem from '$lib/features/runs/RunListItem.svelte';
 	import RunSortMenu from '$lib/features/runs/RunSortMenu.svelte';
 	import SectionTitle from '$lib/ui/SectionTitle.svelte';
-	import type { RunListRow } from '$lib/features/runs/runsView';
+	import { stickyRunListHeader, type RunListRow } from '$lib/features/runs/runsView';
 
 	let {
 		loading,
@@ -54,6 +54,7 @@
 	let viewportHeight = $state(1000);
 	const showDate = $derived(sort === 'fastest' || sort === 'slowest');
 	const listHeight = $derived(rows.length === 0 ? 0 : rows[rows.length - 1].top + rows[rows.length - 1].height);
+	const pinnedHeader = $derived(stickyRunListHeader(rows, viewportStart));
 	const virtualRows = $derived.by(() => {
 		const minimum = viewportStart - 400;
 		const maximum = viewportStart + viewportHeight + 400;
@@ -80,24 +81,30 @@
 	function trackViewport(node: HTMLDivElement) {
 		let frame = 0;
 		const scroller = node.closest<HTMLElement>('.obs-content-scroller');
+		const filter = node.closest('main')?.querySelector('form');
 		const scrollTarget: HTMLElement | Window = scroller ?? window;
 		const update = () => {
 			cancelAnimationFrame(frame);
 			frame = requestAnimationFrame(() => {
 				const rect = node.getBoundingClientRect();
 				const viewport = scroller?.getBoundingClientRect();
-				const viewportTop = viewport?.top ?? 0;
+				const stickyInset =
+					Number.parseFloat(getComputedStyle(node).getPropertyValue('--runs-filter-sticky-height')) || 0;
+				const viewportTop = (viewport?.top ?? 0) + stickyInset;
 				const viewportBottom = viewport?.bottom ?? window.innerHeight;
 				viewportStart = Math.max(0, viewportTop - rect.top);
 				viewportHeight = Math.max(0, viewportBottom - viewportTop);
 			});
 		};
+		const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+		if (filter) resizeObserver?.observe(filter);
 		scrollTarget.addEventListener('scroll', update, { passive: true });
 		window.addEventListener('resize', update);
 		update();
 		return {
 			destroy() {
 				cancelAnimationFrame(frame);
+				resizeObserver?.disconnect();
 				scrollTarget.removeEventListener('scroll', update);
 				window.removeEventListener('resize', update);
 			}
@@ -186,6 +193,20 @@
 				{/if}
 			</div>
 		{/each}
+		{#if pinnedHeader}
+			<div
+				data-sticky-run-header
+				aria-hidden="true"
+				class="pointer-events-none absolute inset-x-0 top-0 z-10 translate-y-(--row-y)"
+				style:--row-y={`${pinnedHeader.top}px`}
+			>
+				<SectionTitle
+					title={pinnedHeader.row.label}
+					detail={`${pinnedHeader.row.count} ${pinnedHeader.row.count === 1 ? 'run' : 'runs'}`}
+					class="h-[38px] bg-(--obs-bg) pt-2"
+				/>
+			</div>
+		{/if}
 	</div>
 	{#if hasMore}
 		<div use:observeMore class="flex h-12 items-center justify-center font-mono text-xs obs-dim">
