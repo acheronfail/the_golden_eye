@@ -3,14 +3,14 @@
 	import RunListItem from '$lib/features/runs/RunListItem.svelte';
 	import RunSortMenu from '$lib/features/runs/RunSortMenu.svelte';
 	import SectionTitle from '$lib/ui/SectionTitle.svelte';
-	import { groupRunClips } from '$lib/features/runs/runsView';
+	import type { RunListRow } from '$lib/features/runs/runsView';
 
 	let {
 		loading,
 		loadingMore = false,
 		clips,
-		visibleClips,
-		total = visibleClips.length,
+		rows,
+		total = clips.length,
 		hasMore = false,
 		loadMore = () => {},
 		scannedDirectoryCount,
@@ -30,7 +30,7 @@
 		loading: boolean;
 		loadingMore?: boolean;
 		clips: RunClip[];
-		visibleClips: RunClip[];
+		rows: RunListRow[];
 		total?: number;
 		hasMore?: boolean;
 		loadMore?: () => void | Promise<void>;
@@ -52,46 +52,21 @@
 	let openMenuPath = $state<string | null>(null);
 	let viewportStart = $state(0);
 	let viewportHeight = $state(1000);
-	const groups = $derived(groupRunClips(visibleClips, sort));
 	const showDate = $derived(sort === 'fastest' || sort === 'slowest');
-	const layout = $derived.by(() => {
-		const rows: Array<
-			| { type: 'header'; key: string; label: string; detail: string; top: number; height: number }
-			| { type: 'run'; key: string; clip: RunClip; top: number; height: number }
-		> = [];
-		let top = 0;
-		for (const group of groups) {
-			if (group.label) {
-				rows.push({
-					type: 'header',
-					key: `header-${group.label}`,
-					label: group.label,
-					detail: `${group.clips.length} ${group.clips.length === 1 ? 'run' : 'runs'}`,
-					top,
-					height: 38
-				});
-				top += 38;
-			}
-			for (const clip of group.clips) {
-				rows.push({ type: 'run', key: clip.runId ?? clip.path, clip, top, height: 56 });
-				top += 56;
-			}
-		}
-		return { rows, height: top };
-	});
+	const listHeight = $derived(rows.length === 0 ? 0 : rows[rows.length - 1].top + rows[rows.length - 1].height);
 	const virtualRows = $derived.by(() => {
 		const minimum = viewportStart - 400;
 		const maximum = viewportStart + viewportHeight + 400;
 		let low = 0;
-		let high = layout.rows.length;
+		let high = rows.length;
 		while (low < high) {
 			const middle = (low + high) >> 1;
-			if (layout.rows[middle].top + layout.rows[middle].height < minimum) low = middle + 1;
+			if (rows[middle].top + rows[middle].height < minimum) low = middle + 1;
 			else high = middle;
 		}
 		const start = low;
-		while (low < layout.rows.length && layout.rows[low].top <= maximum) low += 1;
-		return layout.rows.slice(start, low);
+		while (low < rows.length && rows[low].top <= maximum) low += 1;
+		return rows.slice(start, low);
 	});
 
 	function setMenuOpen(path: string, open: boolean) {
@@ -157,7 +132,7 @@
 		<p class="text-sm obs-muted">No tagged clips found.</p>
 		<p class="mt-1 font-mono text-xs obs-dim">New clips saved by this plugin will appear here.</p>
 	</div>
-{:else if visibleClips.length === 0}
+{:else if clips.length === 0}
 	<div class="rounded obs-empty-state px-4 py-6 text-center">
 		<p class="text-sm obs-muted">No runs match the current filters.</p>
 		<button
@@ -177,17 +152,21 @@
 		<p class="font-mono text-xs">
 			<strong>{total}</strong>
 			{total === 1 ? 'run' : 'runs'}
-			{#if visibleClips.length < total}<span class="obs-dim"> · {visibleClips.length} loaded</span>{/if}
+			{#if clips.length < total}<span class="obs-dim"> · {clips.length} loaded</span>{/if}
 		</p>
 		<RunSortMenu {sort} onChange={onSortChange} />
 	</div>
 
-	<div use:trackViewport role="list" aria-label="Runs" class="relative" style:--list-height={`${layout.height}px`}>
+	<div use:trackViewport role="list" aria-label="Runs" class="relative" style:--list-height={`${listHeight}px`}>
 		<div class="h-[var(--list-height)]" aria-hidden="true"></div>
 		{#each virtualRows as row (row.key)}
 			<div class="absolute inset-x-0 top-0 translate-y-(--row-y)" style:--row-y={`${row.top}px`}>
 				{#if row.type === 'header'}
-					<SectionTitle title={row.label} detail={row.detail} class="h-[38px] bg-(--obs-bg) pt-2" />
+					<SectionTitle
+						title={row.label}
+						detail={`${row.count} ${row.count === 1 ? 'run' : 'runs'}`}
+						class="h-[38px] bg-(--obs-bg) pt-2"
+					/>
 				{:else}
 					<div role="listitem" class="h-14">
 						<RunListItem

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RunClip } from '$lib/api';
 import { RunsPageController, type RunsPageNavigation } from './runsPageController.svelte';
+import { createRunListRows } from './runsView';
 
 const clip = {
 	runId: 'run-1',
@@ -38,12 +39,17 @@ function setup() {
 	};
 	const controller = new RunsPageController(api, navigation);
 	controller.runs = { directories: [], clips: [clip] };
+	controller.rows = createRunListRows([clip], 'newest');
 	return { controller, api, navigation };
 }
 
 describe('RunsPageController', () => {
 	it('updates the catalog and selected run through one rename path', async () => {
-		const { controller } = setup();
+		const { controller, api } = setup();
+		api.getRuns.mockResolvedValue({
+			directories: [],
+			clips: [{ ...clip, path: '/runs/new.mp4', fileName: 'new.mp4' }]
+		});
 		controller.select(clip);
 		controller.metadataDraft!.time = '01:06';
 
@@ -66,6 +72,7 @@ describe('RunsPageController', () => {
 	it('removes a deleted run from both the catalog and selection', async () => {
 		const { controller, api } = setup();
 		api.deleteCatalogRun.mockResolvedValue(null);
+		api.getRuns.mockResolvedValue({ directories: [], clips: [] });
 		controller.select(clip);
 		controller.requestDelete(clip);
 
@@ -78,14 +85,20 @@ describe('RunsPageController', () => {
 
 	it('appends cursor pages without duplicating runs', async () => {
 		const { controller, api } = setup();
-		controller.runs = { directories: [], clips: [clip], total: 2, nextCursor: 'run-1' };
 		const next = { ...clip, runId: 'run-2', fileName: 'next.mp4' };
-		api.getRuns.mockResolvedValue({ directories: [], clips: [clip, next], total: 2, nextCursor: null });
+		api.getRuns
+			.mockResolvedValueOnce({ directories: [], clips: [clip], total: 2, nextCursor: 'run-1' })
+			.mockResolvedValueOnce({ directories: [], clips: [clip, next], total: 2, nextCursor: null });
 
+		await controller.reload();
 		await controller.loadMore();
 
-		expect(api.getRuns).toHaveBeenCalledWith(expect.objectContaining({ cursor: 'run-1', sort: 'newest' }));
+		expect(api.getRuns).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'run-1', sort: 'newest' }));
 		expect(controller.clips.map((run) => run.runId)).toEqual(['run-1', 'run-2']);
+		expect(controller.rows.filter((row) => row.type === 'run').map((row) => row.clip.runId)).toEqual([
+			'run-1',
+			'run-2'
+		]);
 		expect(controller.hasMore).toBe(false);
 	});
 });

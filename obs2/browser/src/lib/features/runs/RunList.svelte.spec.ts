@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import RunList from './RunList.svelte';
 import type { RunClip } from '$lib/api';
+import { createRunListRows } from '$lib/features/runs/runsView';
 
 const runClip = (fileName: string, level: string): RunClip => ({
 	runId: fileName,
@@ -35,7 +36,7 @@ describe('RunList', () => {
 		const { container } = render(RunList, {
 			loading: false,
 			clips,
-			visibleClips: clips,
+			rows: createRunListRows(clips, 'newest'),
 			scannedDirectoryCount: 1,
 			directoryCount: 1,
 			hasActiveFilters: false,
@@ -58,7 +59,9 @@ describe('RunList', () => {
 		const clips = Array.from({ length: 100 }, (_, index) => runClip(`run-${index}.mov`, `Run ${index}`));
 		let listTop = 100;
 		document.body.classList.add('obs-content-scroller');
-		const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+		const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: HTMLElement
+		) {
 			if (this.getAttribute('role') === 'list') {
 				return { top: listTop, bottom: listTop + 5638, height: 5638 } as DOMRect;
 			}
@@ -70,7 +73,7 @@ describe('RunList', () => {
 			render(RunList, {
 				loading: false,
 				clips,
-				visibleClips: clips,
+				rows: createRunListRows(clips, 'fastest'),
 				scannedDirectoryCount: 1,
 				directoryCount: 1,
 				hasActiveFilters: false,
@@ -101,7 +104,7 @@ describe('RunList', () => {
 		render(RunList, {
 			loading: false,
 			clips,
-			visibleClips: clips,
+			rows: createRunListRows(clips, 'newest'),
 			scannedDirectoryCount: 2,
 			directoryCount: 2,
 			hasActiveFilters: false,

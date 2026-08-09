@@ -114,7 +114,7 @@
 		loading={controller.loading}
 		loadingMore={controller.loadingMore}
 		clips={controller.clips}
-		visibleClips={controller.visibleClips}
+		rows={controller.rows}
 		total={controller.total}
 		hasMore={controller.hasMore}
 		loadMore={() => controller.loadMore()}

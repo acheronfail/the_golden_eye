@@ -491,6 +491,7 @@ export type RunRetentionState = 'pending' | 'kept' | 'expired';
 export interface RunsResponse {
 	directories: RunDirectoryScan[];
 	clips: RunClip[];
+	requestedRun?: RunClip | null;
 	total?: number;
 	nextCursor?: string | null;
 }

@@ -128,6 +128,8 @@ pub struct RunsResponse {
     directories: Vec<RunDirectoryScan>,
     clips: Vec<RunClip>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    requested_run: Option<RunClip>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     total: Option<usize>,
     next_cursor: Option<String>,
 }
@@ -248,7 +250,7 @@ pub async fn handle_list(State(state): State<AppState>, Query(params): Query<Run
             && !response.clips.iter().any(|clip| clip.run_id == run_id)
             && let Some(run) = state.run_catalog.get_run(&run_id)?
         {
-            response.clips.push(run_clip_from_record(run));
+            response.requested_run = Some(run_clip_from_record(run));
         }
         Ok::<_, anyhow::Error>(response)
     })
@@ -438,7 +440,7 @@ pub fn list_configured_run_page(settings: &AppSettings, catalog: &RunCatalog, qu
         }
     };
 
-    RunsResponse { directories, clips, total, next_cursor }
+    RunsResponse { directories, clips, requested_run: None, total, next_cursor }
 }
 
 pub fn seed_catalog_from_settings(catalog: &RunCatalog, settings: &AppSettings) -> anyhow::Result<()> {

@@ -150,9 +150,68 @@ export function groupRunClips(
 	const groups = new Map<string, RunClip[]>();
 	for (const clip of clips) {
 		const label = runDateGroupLabel(clip.metadata.timestamp, now);
-		groups.set(label, [...(groups.get(label) ?? []), clip]);
+		const group = groups.get(label);
+		if (group) group.push(clip);
+		else groups.set(label, [clip]);
 	}
 	return [...groups].map(([label, groupedClips]) => ({ label, clips: groupedClips }));
+}
+
+export type RunListRow =
+	| { type: 'header'; key: string; label: string; count: number; top: number; height: 38 }
+	| { type: 'run'; key: string; clip: RunClip; top: number; height: 56 };
+
+export function createRunListRows(clips: RunClip[], sort: RunSort, now = new Date()): RunListRow[] {
+	return appendRunListRows([], clips, sort, now);
+}
+
+export function appendRunListRows(
+	current: RunListRow[],
+	clips: RunClip[],
+	sort: RunSort,
+	now = new Date()
+): RunListRow[] {
+	if (clips.length === 0) return current;
+	const rows = [...current];
+	let top = rows.length === 0 ? 0 : rows[rows.length - 1].top + rows[rows.length - 1].height;
+	let headerIndex = sort === 'fastest' || sort === 'slowest' ? -1 : findLastHeader(rows);
+	const lastHeader = headerIndex >= 0 ? rows[headerIndex] : null;
+	let groupLabel = lastHeader?.type === 'header' ? lastHeader.label : null;
+
+	for (const clip of clips) {
+		if (sort !== 'fastest' && sort !== 'slowest') {
+			const label = runDateGroupLabel(clip.metadata.timestamp, now);
+			if (label !== groupLabel) {
+				headerIndex = rows.length;
+				groupLabel = label;
+				rows.push({ type: 'header', key: `header-${label}`, label, count: 1, top, height: 38 });
+				top += 38;
+			} else if (headerIndex >= 0) {
+				const header = rows[headerIndex];
+				if (header.type === 'header') rows[headerIndex] = { ...header, count: header.count + 1 };
+			}
+		}
+		rows.push({ type: 'run', key: clip.runId ?? clip.path, clip, top, height: 56 });
+		top += 56;
+	}
+	return rows;
+}
+
+export function replaceRunListClip(rows: RunListRow[], clip: RunClip): RunListRow[] {
+	const index = rows.findIndex((row) => row.type === 'run' && row.clip.runId === clip.runId);
+	if (index < 0) return rows;
+	const row = rows[index];
+	if (row.type !== 'run') return rows;
+	const updated = [...rows];
+	updated[index] = { ...row, clip };
+	return updated;
+}
+
+function findLastHeader(rows: RunListRow[]): number {
+	for (let index = rows.length - 1; index >= 0; index -= 1) {
+		if (rows[index].type === 'header') return index;
+	}
+	return -1;
 }
 
 export function hasActiveRunFilters(filters: RunFilters): boolean {
