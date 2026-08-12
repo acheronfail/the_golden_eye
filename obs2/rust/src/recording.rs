@@ -40,11 +40,14 @@ pub const MAX_RECENT_RUN_LIMIT: usize = 20;
 /// window can't drop the level-start briefing or stats overlay (e.g. padding 0).
 const MATCH_PADDING_BUFFER_SECS: f64 = 0.5;
 
-/// How long to wait for OBS to finish writing the saved replay file before
-/// giving up. The save is asynchronous; we block on the replay-saved event
-/// (delivered via [`on_replay_saved`]) rather than polling.
+/// A replay save taking this long is unusual, but OBS can still complete it.
+/// Keep ownership of the request so a late identity-less event remains attached
+/// to the correct run.
 #[cfg(not(test))]
-const REPLAY_SAVE_TIMEOUT: Duration = Duration::from_secs(20);
+const REPLAY_SAVE_SLOW_WARNING: Duration = Duration::from_secs(20);
+/// Avoid blocking all later saves forever if OBS never sends a completion event.
+#[cfg(not(test))]
+const REPLAY_SAVE_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long a monitor start should wait for OBS to finish an in-progress replay
 /// buffer stop before giving up.
 const REPLAY_STOP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -218,18 +221,23 @@ pub fn on_replay_buffer_stopped() {
 /// Register a pending plugin save and return the generation to wait past.
 /// Incrementing before the save call (so an immediate event still counts as ours)
 /// lets [`on_replay_saved`] tell our saves from the user's manual ones.
-#[cfg(not(test))]
 fn begin_replay_save_request() -> u64 {
     let mut guard = REPLAY_SAVED.lock().unwrap_or_else(|p| p.into_inner());
     guard.pending_requests = guard.pending_requests.saturating_add(1);
     guard.generation
 }
 
-/// Block until a replay-saved event newer than `since` arrives, returning the
-/// path OBS wrote, or `None` on timeout (or if the event carried no path).
-#[cfg(not(test))]
-fn wait_for_replay_saved(since: u64, timeout: Duration) -> Option<String> {
+#[derive(Debug, PartialEq, Eq)]
+enum ReplaySaveWait {
+    Saved(Option<String>),
+    TimedOut,
+}
+
+/// Block until a replay-saved event newer than `since` arrives. A slow save is
+/// warned about without abandoning it; only the hard timeout releases ownership.
+fn wait_for_replay_saved(since: u64, slow_warning: Duration, timeout: Duration) -> ReplaySaveWait {
     let start = Instant::now();
+    let mut warned = false;
     let mut guard = REPLAY_SAVED.lock().unwrap_or_else(|p| p.into_inner());
     while guard.generation == since {
         let elapsed = start.elapsed();
@@ -238,16 +246,20 @@ fn wait_for_replay_saved(since: u64, timeout: Duration) -> Option<String> {
             // isn't mistaken for it. `on_replay_saved` holds the same lock, so a
             // just-claimed event would have advanced `generation` and exited above.
             guard.pending_requests = guard.pending_requests.saturating_sub(1);
-            return None;
+            return ReplaySaveWait::TimedOut;
         }
-        let (next, res) = REPLAY_SAVED_CV.wait_timeout(guard, timeout - elapsed).unwrap_or_else(|p| p.into_inner());
+
+        if !warned && elapsed >= slow_warning {
+            tracing::warn!(?elapsed, ?timeout, "OBS replay buffer save is slow; continuing to wait");
+            warned = true;
+        }
+
+        let next_deadline = if warned { timeout } else { slow_warning.min(timeout) };
+        let wait_for = next_deadline.saturating_sub(elapsed);
+        let (next, _) = REPLAY_SAVED_CV.wait_timeout(guard, wait_for).unwrap_or_else(|p| p.into_inner());
         guard = next;
-        if res.timed_out() && guard.generation == since {
-            guard.pending_requests = guard.pending_requests.saturating_sub(1);
-            return None;
-        }
     }
-    guard.last_path.clone()
+    ReplaySaveWait::Saved(guard.last_path.clone())
 }
 
 fn wait_for_replay_buffer_not_stopping(timeout: Duration) -> bool {
@@ -1135,22 +1147,33 @@ fn save_and_trim(job: SaveAndTrimJob) {
         unsafe { crate::ffi::obs_frontend_replay_buffer_save() };
 
         // Block on the OBS replay-saved event (no polling); it carries the path.
-        let event_path = match wait_for_replay_saved(since, REPLAY_SAVE_TIMEOUT) {
-            Some(path) => path,
-            None => {
-                tracing::error!("replay buffer save did not complete in time");
+        let event_path = match wait_for_replay_saved(since, REPLAY_SAVE_SLOW_WARNING, REPLAY_SAVE_TIMEOUT) {
+            ReplaySaveWait::Saved(path) => path,
+            ReplaySaveWait::TimedOut => {
+                tracing::error!(?REPLAY_SAVE_TIMEOUT, "replay buffer save did not complete in time");
                 job.replay_saves.fail(job.tracking_id, "OBS replay buffer save timed out".to_owned());
                 return;
             }
         };
 
-        match (output_directory.as_deref(), before) {
+        let resolved = match (output_directory.as_deref(), before) {
             (Some(dir), Some(before)) => {
-                let new_files = new_replay_files(dir, &before, &event_path);
+                let new_files = new_replay_files(dir, &before, event_path.as_deref());
                 resolve_saved_replay(event_path, new_files)
             }
             // No known output directory to diff against: trust OBS's reported path.
-            _ => ResolvedReplay { path: event_path, safe_to_delete: true },
+            _ => event_path.map(|path| ResolvedReplay { path, safe_to_delete: true }),
+        };
+        match resolved {
+            Some(resolved) => resolved,
+            None => {
+                tracing::error!(
+                    "replay buffer saved, but OBS did not report its path and the file could not be identified"
+                );
+                job.replay_saves
+                    .fail(job.tracking_id, "OBS saved the replay but its file could not be found".to_owned());
+                return;
+            }
         }
     };
 
@@ -1219,10 +1242,10 @@ fn snapshot_replay_files(dir: &Path) -> HashSet<PathBuf> {
     files
 }
 
-/// Files that appeared in `dir` since `before`, restricted to the saved file's
-/// extension so unrelated churn (a concurrent trim output, say) is ignored.
-fn new_replay_files(dir: &Path, before: &HashSet<PathBuf>, event_path: &str) -> Vec<PathBuf> {
-    let extension = Path::new(event_path).extension().map(ToOwned::to_owned);
+/// Files that appeared in `dir` since `before`. When OBS reports a path, restrict
+/// matches to its extension so unrelated churn is ignored.
+fn new_replay_files(dir: &Path, before: &HashSet<PathBuf>, event_path: Option<&str>) -> Vec<PathBuf> {
+    let extension = event_path.and_then(|path| Path::new(path).extension()).map(ToOwned::to_owned);
     snapshot_replay_files(dir)
         .into_iter()
         .filter(|path| !before.contains(path))
@@ -1232,12 +1255,13 @@ fn new_replay_files(dir: &Path, before: &HashSet<PathBuf>, event_path: &str) -> 
 
 /// Pick the file to trim from the saved event and the files that appeared during
 /// the save. Exactly one new file is unambiguously ours (trust it, delete after);
-/// zero or many means a concurrent save, so use OBS's path but never delete.
-fn resolve_saved_replay(event_path: String, new_files: Vec<PathBuf>) -> ResolvedReplay {
+/// zero or many means a concurrent save, so use OBS's path but never delete. If
+/// OBS omitted the path too, the file cannot be resolved safely.
+fn resolve_saved_replay(event_path: Option<String>, new_files: Vec<PathBuf>) -> Option<ResolvedReplay> {
     if let [only] = new_files.as_slice() {
-        return ResolvedReplay { path: only.to_string_lossy().into_owned(), safe_to_delete: true };
+        return Some(ResolvedReplay { path: only.to_string_lossy().into_owned(), safe_to_delete: true });
     }
-    ResolvedReplay { path: event_path, safe_to_delete: false }
+    event_path.map(|path| ResolvedReplay { path, safe_to_delete: false })
 }
 
 #[cfg(test)]
