@@ -980,7 +980,7 @@ fn new_replay_files_reports_only_matching_files_added_after_the_snapshot() {
     write_file(&added);
     write_file(&other_ext);
 
-    let new_files = new_replay_files(dir.path(), &before, &added.to_string_lossy());
+    let new_files = new_replay_files(dir.path(), &before, Some(&added.to_string_lossy()));
 
     // Only the newly-added file with the saved file's extension counts: the
     // pre-existing file and the unrelated `.txt` are both excluded.
@@ -992,7 +992,7 @@ fn resolve_saved_replay_trusts_the_single_new_file_over_the_event_path() {
     let event_path = "/replays/user-save.mp4".to_owned();
     let ours = PathBuf::from("/replays/our-save.mp4");
 
-    let resolved = resolve_saved_replay(event_path, vec![ours.clone()]);
+    let resolved = resolve_saved_replay(Some(event_path), vec![ours.clone()]).unwrap();
 
     assert_eq!(resolved.path, ours.to_string_lossy());
     assert!(resolved.safe_to_delete);
@@ -1006,14 +1006,39 @@ fn resolve_saved_replay_keeps_source_when_a_concurrent_save_is_ambiguous() {
 
     // Two files appeared, so we can't tell ours from the user's: fall back to
     // OBS's reported path but never delete it.
-    let resolved = resolve_saved_replay(event_path.clone(), vec![a, b]);
+    let resolved = resolve_saved_replay(Some(event_path.clone()), vec![a, b]).unwrap();
     assert_eq!(resolved.path, event_path);
     assert!(!resolved.safe_to_delete);
 
     // No new file at all is treated the same conservative way.
-    let resolved = resolve_saved_replay(event_path.clone(), vec![]);
+    let resolved = resolve_saved_replay(Some(event_path.clone()), vec![]).unwrap();
     assert_eq!(resolved.path, event_path);
     assert!(!resolved.safe_to_delete);
+}
+
+#[test]
+fn resolve_saved_replay_recovers_a_single_new_file_when_obs_omits_the_path() {
+    let ours = PathBuf::from("/replays/our-save.mp4");
+
+    let resolved = resolve_saved_replay(None, vec![ours.clone()]).unwrap();
+
+    assert_eq!(resolved.path, ours.to_string_lossy());
+    assert!(resolved.safe_to_delete);
+    assert!(resolve_saved_replay(None, vec![]).is_none());
+}
+
+#[test]
+fn replay_save_wait_keeps_ownership_after_the_slow_warning() {
+    let since = begin_replay_save_request();
+    let publisher = std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_millis(30));
+        on_replay_saved(Some("/replays/late.mp4".to_owned()));
+    });
+
+    let result = wait_for_replay_saved(since, Duration::from_millis(5), Duration::from_secs(1));
+    publisher.join().unwrap();
+
+    assert_eq!(result, ReplaySaveWait::Saved(Some("/replays/late.mp4".to_owned())));
 }
 
 #[test]
