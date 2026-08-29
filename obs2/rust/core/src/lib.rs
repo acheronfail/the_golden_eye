@@ -199,11 +199,15 @@ pub extern "C" fn ge_rust_set_was_reloaded(was_reloaded: bool) {
 /// Snapshot at STOPPING so a stale STOPPED event can't tear down a replacement monitor.
 static REPLAY_STOP_SHOULD_STOP_MONITOR: AtomicBool = AtomicBool::new(false);
 
-// Standalone test and contract-export executables never call OBS, but still
-// need these symbols available to satisfy strict linkers such as MSVC.
-#[cfg(any(test, feature = "export"))]
+// Standalone test executables never call OBS, but still need these symbols.
+#[cfg(test)]
 #[path = "obs_stub.rs"]
 mod obs_stub;
+
+// The contract exporter needs the same stubs for strict linkers such as MSVC.
+#[cfg(all(not(test), feature = "export"))]
+#[path = "obs_stub.rs"]
+mod export_obs_stub;
 
 /// Start the HTTP server on a background tokio runtime; returns immediately.
 /// A no-op returning `true` if already running. Returns `false` if the runtime
