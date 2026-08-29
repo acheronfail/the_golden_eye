@@ -212,27 +212,17 @@ test:
 
 # formats the project and runs clippy
 fmt:
-    just generate-settings
-    just generate-api
+    just generate-contracts
     just clippy
     cd obs2/browser && npm run format:repo
     cd obs2/browser && npm run check
     cd obs2/rust && rustup run nightly cargo fmt --all --
     find obs2 obs2/shim obs2/shim/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_rust.h -print0 | xargs -0 clang-format -style=file -i
 
-# regenerates the browser settings types/defaults from the Rust contract
-generate-settings:
-    cd "{{ justfile_directory() }}/obs2/rust" && cargo run --quiet --locked --package ge_settings --features export --bin export-settings -- "{{ justfile_directory() }}/obs2/browser/src/lib/generated/settings.ts"
-
-# regenerates browser API types from the Rust wire contract
-generate-api:
-    #!/usr/bin/env bash
-    set -euo pipefail
+# regenerates browser settings and API types from the Rust contracts
+generate-contracts:
     just configure-release
-    source "{{ justfile_directory() }}/obs2/build/rust-cargo-env.sh"
-    export BROWSER_BUNDLE="{{ justfile_directory() }}/obs2/templates/browser-dev.html.in"
-    cd "{{ justfile_directory() }}/obs2/rust"
-    cargo run --quiet --locked --package ge_rust --features export --bin export-api -- "{{ justfile_directory() }}/obs2/browser/src/lib/generated/api.ts"
+    cmake --build "{{ justfile_directory() }}/obs2/build" --target browser_contracts
 
 # runs clippy
 clippy:

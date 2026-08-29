@@ -93,5 +93,4 @@ else()
   endif()
 endif()
 
-add_dependencies(browser_build settings_bindings)
-add_dependencies(browser_build api_bindings)
+add_dependencies(browser_build browser_contracts)
