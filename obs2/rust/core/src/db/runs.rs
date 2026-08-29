@@ -4,6 +4,8 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
+use ge_clip::{ClipMetadata, RunStatus};
+use ge_media as ffmpeg;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
@@ -18,8 +20,6 @@ use super::run_catalog::{
     RunRetentionState,
     RunSort,
 };
-use crate::ffmpeg;
-use crate::models::clip_metadata::{ClipMetadata, RunStatus};
 use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
 
 const CREATE_TABLE: &str = include_str!("sql/runs/create_table.sql");

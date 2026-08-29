@@ -1,11 +1,9 @@
 # Static FFmpeg wiring.
 #
-# FFmpeg is referenced by the Rust staticlib (the `ffmpeg-next` crate links
-# against libav* via ffmpeg-sys-next). When cargo builds the test_match binary
-# it follows the crate's cargo:rustc-link-lib directives, but those don't carry
-# over when CMake links the static archive into the plugin — so, exactly like
-# OpenCV, we add FFmpeg (and the libs its static archives pull in) to the
-# plugin's own link line ourselves.
+# FFmpeg is referenced through `ge_media` (the `ffmpeg-next` crate links against
+# libav* via ffmpeg-sys-next). Cargo's link directives don't carry over when
+# CMake links the Rust static archive into the plugin, so we also add FFmpeg and
+# its static dependencies to the plugin's own link line.
 #
 # FFmpeg is always linked statically from vendor/ffmpeg-static (built by
 # `just ffmpeg-static`), so the distributed plugin is self-contained — no

@@ -800,6 +800,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ge_clip"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ge_cv"
 version = "0.1.0"
 dependencies = [
@@ -817,6 +825,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ge_media"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ffmpeg-next",
+ "ge_clip",
+ "tracing",
+]
+
+[[package]]
 name = "ge_rust"
 version = "0.1.0"
 dependencies = [
@@ -828,8 +846,10 @@ dependencies = [
  "chrono",
  "ffmpeg-next",
  "futures-util",
+ "ge_clip",
  "ge_cv",
  "ge_game",
+ "ge_media",
  "ge_settings",
  "http-body-util",
  "keyring",

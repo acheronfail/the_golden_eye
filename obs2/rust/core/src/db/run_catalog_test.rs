@@ -3,10 +3,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use ge_clip::{RomVersion, RunStatus};
+use ge_media as ffmpeg;
+
 use super::*;
 use crate::db::run_catalog::RunCatalog;
-use crate::ffmpeg;
-use crate::models::clip_metadata::{RomVersion, RunStatus};
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 const CREATE_SCHEMA_V2_FIXTURE: &str = include_str!("sql/runs/create_schema_v2_fixture.sql");

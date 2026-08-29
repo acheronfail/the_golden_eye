@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
+use ge_clip::{ClipMetadata, RunStatus};
+use ge_media as ffmpeg;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +22,6 @@ use super::statistics::{
     session_detail,
 };
 use super::{meta, runs};
-use crate::models::clip_metadata::{ClipMetadata, RunStatus};
 use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
 
 const DB_FILE_NAME: &str = "runs.sqlite";
@@ -395,7 +396,7 @@ impl RunCatalog {
             run.metadata.retention_reason.as_deref(),
             &run.metadata,
         )?;
-        crate::ffmpeg::rewrite_metadata_in_place(&clip.path, &run.metadata)?;
+        ffmpeg::rewrite_metadata_in_place(&clip.path, &run.metadata)?;
         let refreshed = runs::attach_saved_clip(
             &conn,
             &RunCatalogSave {
@@ -419,7 +420,7 @@ impl RunCatalog {
         if let Some(clip) = &run.clip {
             let path = clip.path.clone();
             let duration_secs = clip.duration_secs;
-            crate::ffmpeg::rewrite_metadata_in_place(&path, &metadata)?;
+            ffmpeg::rewrite_metadata_in_place(&path, &metadata)?;
             runs::update_metadata(&conn, run_id, &metadata)?;
             run.clip = Some(runs::attach_saved_clip(
                 &conn,
@@ -515,7 +516,7 @@ impl RunCatalog {
                     clip.run_id = clip.metadata.run_id.clone();
                     clip.retention_state = RunRetentionState::parse(&clip.metadata.retention_state);
                     clip.retention_reason = clip.metadata.retention_reason.clone();
-                    crate::ffmpeg::rewrite_metadata_in_place(&clip.path, &clip.metadata)?;
+                    ffmpeg::rewrite_metadata_in_place(&clip.path, &clip.metadata)?;
                     clip = runs::read_from_disk(&clip.path)?.context("rewritten clip metadata disappeared")?;
                 }
                 self.upsert_imported_clip(clip)?;

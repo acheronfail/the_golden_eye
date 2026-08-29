@@ -1,5 +1,5 @@
 //! Replay-buffer driven recording. We keep OBS's replay buffer running for the whole
-//! session and save/trim (via [`crate::ffmpeg`]) a window out of it per run, rather
+//! session and save/trim (via `ge_media`) a window out of it per run, rather
 //! than start/stop per run. Padding is anchored to the save moment (file ends at ~now).
 
 use std::collections::{HashMap, HashSet};
@@ -11,6 +11,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Context;
+use ge_clip::{ClipMetadata, RunStatus};
+use ge_media as ffmpeg;
 pub use ge_settings::{
     DEFAULT_CLIP_FILENAME_TEMPLATE,
     DEFAULT_POST_RUN_PADDING_SECS,
@@ -23,6 +25,7 @@ use tokio::sync::broadcast;
 
 use crate::cv::{LevelMatch, Screen};
 use crate::db::run_catalog::{RunCatalog, RunCatalogSave};
+use crate::ge;
 use crate::http::{
     AppEvent,
     RecordingSavePending,
@@ -33,9 +36,7 @@ use crate::http::{
     ReplaySaveStateStore,
     ReplaySaveStatus,
 };
-use crate::models::clip_metadata::RunStatus;
 use crate::template_tokens::{RunTemplateTokens, format_iso_utc, format_time};
-use crate::{ffmpeg, ge};
 
 /// Internal safety margin added to both the pre- and post-run padding, on top of
 /// the user's configured values and hidden from them, so a single-frame timing
@@ -559,20 +560,18 @@ fn record_stats_vote(pending: &mut PendingSave, m: &LevelMatch) -> bool {
     changed
 }
 
-impl RunStatus {
-    fn from_failure_screen(screen: Screen) -> Option<Self> {
-        match screen {
-            Screen::Failed => Some(RunStatus::Failed),
-            Screen::Abort => Some(RunStatus::Abort),
-            Screen::Kia => Some(RunStatus::Kia),
-            Screen::Unknown
-            | Screen::Start
-            | Screen::Stats
-            | Screen::Complete
-            | Screen::Opts007
-            | Screen::Select
-            | Screen::Levels => None,
-        }
+fn run_status_from_failure_screen(screen: Screen) -> Option<RunStatus> {
+    match screen {
+        Screen::Failed => Some(RunStatus::Failed),
+        Screen::Abort => Some(RunStatus::Abort),
+        Screen::Kia => Some(RunStatus::Kia),
+        Screen::Unknown
+        | Screen::Start
+        | Screen::Stats
+        | Screen::Complete
+        | Screen::Opts007
+        | Screen::Select
+        | Screen::Levels => None,
     }
 }
 
@@ -1002,7 +1001,7 @@ impl RecordingState {
                     let report = self.canonicalize_match(m.clone());
                     self.report.get_or_insert(report);
                     if !self.status.is_some_and(RunStatus::is_failed) {
-                        self.status = RunStatus::from_failure_screen(m.screen);
+                        self.status = run_status_from_failure_screen(m.screen);
                         self.emit(match m.screen {
                             Screen::Failed => RecordingStatus::Failed,
                             Screen::Abort => RecordingStatus::Aborted,
@@ -1100,7 +1099,7 @@ struct SaveAndTrimJob {
     status: RunStatus,
     completed_at: SystemTime,
     stats: Option<LevelMatch>,
-    metadata: ffmpeg::ClipMetadata,
+    metadata: ClipMetadata,
     options: RecordingOptions,
     #[cfg_attr(test, allow(dead_code))]
     recent_run_limit: Arc<AtomicUsize>,
@@ -1122,7 +1121,7 @@ struct TrimClipRequest<'a> {
     status: RunStatus,
     completed_at: SystemTime,
     stats: Option<LevelMatch>,
-    metadata: ffmpeg::ClipMetadata,
+    metadata: ClipMetadata,
     options: &'a RecordingOptions,
     recent_run_limit: usize,
     run_catalog: &'a RunCatalog,
@@ -1375,11 +1374,11 @@ fn clip_metadata(
     stats: Option<&LevelMatch>,
     source_name: &str,
     game_language: &str,
-) -> ffmpeg::ClipMetadata {
+) -> ClipMetadata {
     let level_info = stats.and_then(|m| ge::level_info(m.mission, m.part));
     let time_seconds = stats.and_then(|m| m.times.map(|times| times.time.max(0)));
 
-    ffmpeg::ClipMetadata {
+    ClipMetadata {
         run_id: String::new(),
         timestamp: format_iso_utc(completed_at),
         time: time_seconds.map(format_time),

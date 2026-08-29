@@ -8,6 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, anyhow};
 use axum::http::StatusCode;
 use base64::Engine;
+use ge_clip::ClipMetadata;
 use keyring::Entry;
 use reqwest::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, HeaderMap, HeaderValue, LOCATION};
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,6 @@ use tokio::sync::Semaphore;
 
 use crate::config;
 use crate::db::run_catalog::RunCatalog;
-use crate::ffmpeg::ClipMetadata;
 use crate::settings::{AppSettings, YoutubeVisibility};
 use crate::template_tokens::RunTemplateTokens;
 
@@ -939,8 +939,9 @@ fn now_iso() -> String {
 
 #[cfg(test)]
 mod tests {
+    use ge_clip::RunStatus;
+
     use super::*;
-    use crate::models::clip_metadata::RunStatus;
 
     #[test]
     fn legacy_youtube_metadata_defaults_to_plugin_upload_source() {

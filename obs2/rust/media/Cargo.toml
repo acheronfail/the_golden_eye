@@ -1,0 +1,11 @@
+[package]
+name = "ge_media"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1.0.102"
+ffmpeg-next = { version = "8.1.0", default-features = false, features = ["static", "codec", "format", "software-resampling", "software-scaling"] }
+ge_clip = { path = "../clip" }
+tracing = "0.1.44"

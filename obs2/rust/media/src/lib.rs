@@ -3,13 +3,33 @@
 //! remux (fast, lossless), so cuts land on keyframes -- the clip may start early.
 
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use anyhow::{Context, anyhow};
 use ffmpeg_next::ffi::AV_TIME_BASE;
 use ffmpeg_next::{Dictionary, DictionaryRef, Rescale, codec, encoder, format, media, rescale};
+use ge_clip::{ClipMetadata, RomVersion, RunStatus};
 
-pub use crate::models::clip_metadata::ClipMetadata;
-use crate::models::clip_metadata::is_ffmpeg_plugin_tag;
+const TAG_CREATED_BY: &str = "fail.acheron.thegoldeneye.created_by";
+const TAG_CREATED_BY_VALUE: &str = "the-golden-eye";
+const TAG_SCHEMA_VERSION: &str = "fail.acheron.thegoldeneye.schema_version";
+const TAG_SCHEMA_VERSION_VALUE: &str = "2";
+const TAG_PLUGIN_VERSION: &str = "fail.acheron.thegoldeneye.plugin_version";
+const TAG_RUN_TIMESTAMP: &str = "fail.acheron.thegoldeneye.run_timestamp";
+const TAG_RUN_TIME: &str = "fail.acheron.thegoldeneye.time";
+const TAG_RUN_TIME_SECONDS: &str = "fail.acheron.thegoldeneye.time_seconds";
+const TAG_LEVEL: &str = "fail.acheron.thegoldeneye.level";
+const TAG_LEVEL_NUMBER: &str = "fail.acheron.thegoldeneye.level_number";
+const TAG_DIFFICULTY: &str = "fail.acheron.thegoldeneye.difficulty";
+const TAG_STATUS: &str = "fail.acheron.thegoldeneye.status";
+const TAG_WAS_PERSONAL_BEST: &str = "fail.acheron.thegoldeneye.was_personal_best";
+const TAG_GAME_LANGUAGE: &str = "fail.acheron.thegoldeneye.game_language";
+const TAG_LEGACY_ROM_LANGUAGE: &str = "fail.acheron.thegoldeneye.rom_language";
+const TAG_ROM_VERSION: &str = "fail.acheron.thegoldeneye.rom_version";
+const TAG_SOURCE_NAME: &str = "fail.acheron.thegoldeneye.source_name";
+const TAG_RUN_ID: &str = "fail.acheron.thegoldeneye.run_id";
+const TAG_RETENTION_STATE: &str = "fail.acheron.thegoldeneye.retention_state";
+const TAG_RETENTION_REASON: &str = "fail.acheron.thegoldeneye.retention_reason";
 
 /// Initialise FFmpeg. Cheap and safe to call repeatedly (libav guards its own
 /// one-time setup), so each entry point calls it rather than relying on a
@@ -31,7 +51,7 @@ pub fn duration_secs(path: &Path) -> anyhow::Result<f64> {
 pub fn read_clip_metadata(path: &Path) -> anyhow::Result<Option<ClipMetadata>> {
     init()?;
     let ictx = format::input(path).with_context(|| format!("opening {}", path.display()))?;
-    Ok(ClipMetadata::from_ffmpeg_tags(&ictx.metadata()))
+    Ok(clip_metadata_from_ffmpeg_tags(&ictx.metadata()))
 }
 
 /// Rewrites only the container metadata for `path`, preserving streams without
@@ -195,8 +215,110 @@ fn metadata_with_plugin_tags(source: &DictionaryRef<'_>, clip_metadata: &ClipMet
             metadata.set(key, value);
         }
     }
-    clip_metadata.write_ffmpeg_tags(&mut metadata);
+    write_ffmpeg_tags(clip_metadata, &mut metadata);
     metadata
+}
+
+fn is_ffmpeg_plugin_tag(key: &str) -> bool {
+    [
+        TAG_CREATED_BY,
+        TAG_SCHEMA_VERSION,
+        TAG_PLUGIN_VERSION,
+        TAG_RUN_TIMESTAMP,
+        TAG_RUN_TIME,
+        TAG_RUN_TIME_SECONDS,
+        TAG_LEVEL,
+        TAG_LEVEL_NUMBER,
+        TAG_DIFFICULTY,
+        TAG_STATUS,
+        TAG_WAS_PERSONAL_BEST,
+        TAG_GAME_LANGUAGE,
+        TAG_LEGACY_ROM_LANGUAGE,
+        TAG_ROM_VERSION,
+        TAG_SOURCE_NAME,
+        TAG_RUN_ID,
+        TAG_RETENTION_STATE,
+        TAG_RETENTION_REASON,
+        "comment",
+    ]
+    .iter()
+    .any(|candidate| key.eq_ignore_ascii_case(candidate))
+}
+
+fn write_ffmpeg_tags(clip: &ClipMetadata, metadata: &mut Dictionary) {
+    metadata.set(TAG_CREATED_BY, TAG_CREATED_BY_VALUE);
+    metadata.set(TAG_SCHEMA_VERSION, TAG_SCHEMA_VERSION_VALUE);
+    metadata.set(TAG_PLUGIN_VERSION, &clean_metadata_value(&clip.plugin_version));
+    metadata.set(TAG_RUN_TIMESTAMP, &clean_metadata_value(&clip.timestamp));
+    set_optional_metadata(metadata, TAG_RUN_TIME, clip.time.as_deref());
+    set_optional_metadata(metadata, TAG_RUN_TIME_SECONDS, clip.time_seconds.map(|s| s.to_string()).as_deref());
+    metadata.set(TAG_LEVEL, &clean_metadata_value(&clip.level));
+    set_optional_metadata(metadata, TAG_LEVEL_NUMBER, clip.level_number.map(|n| n.to_string()).as_deref());
+    set_optional_metadata(metadata, TAG_DIFFICULTY, clip.difficulty.as_deref());
+    metadata.set(TAG_STATUS, clip.status.as_str());
+    metadata.set(TAG_WAS_PERSONAL_BEST, if clip.was_personal_best { "true" } else { "false" });
+    metadata.set(TAG_GAME_LANGUAGE, &clean_metadata_value(&clip.game_language));
+    set_optional_metadata(metadata, TAG_ROM_VERSION, clip.rom_version.map(RomVersion::as_str));
+    metadata.set(TAG_SOURCE_NAME, &clean_metadata_value(&clip.source_name));
+    if !clip.run_id.is_empty() {
+        metadata.set(TAG_RUN_ID, &clean_metadata_value(&clip.run_id));
+    }
+    metadata.set(TAG_RETENTION_STATE, &clean_metadata_value(&clip.retention_state));
+    set_optional_metadata(metadata, TAG_RETENTION_REASON, clip.retention_reason.as_deref());
+    metadata.set("comment", &clean_metadata_value(&clip.comment));
+}
+
+fn clip_metadata_from_ffmpeg_tags(metadata: &DictionaryRef<'_>) -> Option<ClipMetadata> {
+    if get_metadata(metadata, TAG_CREATED_BY)? != TAG_CREATED_BY_VALUE {
+        return None;
+    }
+
+    let timestamp = get_metadata(metadata, TAG_RUN_TIMESTAMP)?;
+    let status = get_metadata(metadata, TAG_STATUS).and_then(|value| RunStatus::from_str(&value).ok())?;
+    let was_personal_best =
+        get_metadata(metadata, TAG_WAS_PERSONAL_BEST).is_some_and(|value| matches!(value.as_str(), "true" | "1"));
+
+    Some(ClipMetadata {
+        run_id: get_metadata(metadata, TAG_RUN_ID).unwrap_or_default(),
+        timestamp,
+        time: get_metadata(metadata, TAG_RUN_TIME),
+        time_seconds: get_metadata(metadata, TAG_RUN_TIME_SECONDS).and_then(|value| value.parse().ok()),
+        level: get_metadata(metadata, TAG_LEVEL).unwrap_or_else(|| "unknown".to_owned()),
+        level_number: get_metadata(metadata, TAG_LEVEL_NUMBER).and_then(|value| value.parse().ok()),
+        difficulty: get_metadata(metadata, TAG_DIFFICULTY),
+        status,
+        was_personal_best,
+        game_language: get_metadata(metadata, TAG_GAME_LANGUAGE)
+            .or_else(|| get_metadata(metadata, TAG_LEGACY_ROM_LANGUAGE))
+            .unwrap_or_default(),
+        rom_version: get_metadata(metadata, TAG_ROM_VERSION).and_then(|value| RomVersion::from_str(&value).ok()),
+        source_name: get_metadata(metadata, TAG_SOURCE_NAME).unwrap_or_default(),
+        comment: get_metadata(metadata, "comment").unwrap_or_default(),
+        plugin_version: get_metadata(metadata, TAG_PLUGIN_VERSION).unwrap_or_default(),
+        retention_state: get_metadata(metadata, TAG_RETENTION_STATE).unwrap_or_else(|| "kept".to_owned()),
+        retention_reason: get_metadata(metadata, TAG_RETENTION_REASON),
+    })
+}
+
+fn clean_metadata_value(value: &str) -> String {
+    value.replace('\0', " ").trim().to_owned()
+}
+
+fn set_optional_metadata(metadata: &mut Dictionary, key: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        let cleaned = clean_metadata_value(value);
+        if !cleaned.is_empty() {
+            metadata.set(key, &cleaned);
+        }
+    }
+}
+
+fn get_metadata(metadata: &DictionaryRef<'_>, key: &str) -> Option<String> {
+    metadata
+        .get(key)
+        .or_else(|| metadata.iter().find(|(candidate, _)| candidate.eq_ignore_ascii_case(key)).map(|(_, value)| value))
+        .map(str::to_owned)
+        .filter(|value| !value.is_empty())
 }
 
 fn sibling_temp_path(path: &Path, role: &str) -> anyhow::Result<PathBuf> {
