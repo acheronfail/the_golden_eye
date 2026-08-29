@@ -207,6 +207,7 @@ mod obs_stub;
 // The contract exporter needs the same stubs for strict linkers such as MSVC.
 #[cfg(all(not(test), feature = "export"))]
 #[path = "obs_stub.rs"]
+/// cbindgen:ignore
 mod export_obs_stub;
 
 /// Start the HTTP server on a background tokio runtime; returns immediately.
