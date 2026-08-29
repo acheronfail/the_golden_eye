@@ -10,220 +10,45 @@ use std::sync::Mutex;
 use anyhow::Context;
 use serde::Serialize;
 use serde_json::Value;
-
-use crate::recording::{
+use settings_contract::{AppSettings as ContractSettings, MAX_RECENT_RUN_LIMIT};
+#[cfg(test)]
+use settings_contract::{
     DEFAULT_CLIP_FILENAME_TEMPLATE,
-    DEFAULT_POST_RUN_PADDING_SECS,
     DEFAULT_PRE_RUN_PADDING_SECS,
     DEFAULT_RECENT_RUN_LIMIT,
-    MAX_RECENT_RUN_LIMIT,
-    RecordingOptions,
+    DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE,
+    MonitorDesign,
 };
-use crate::stream_notifier::{DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE, DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE};
+pub use settings_contract::{UpdateCheckInterval, YoutubeVisibility};
+
+use crate::recording::RecordingOptions;
 
 pub(crate) const SETTINGS_FILE_NAME: &str = "settings.json";
-pub const DEFAULT_UPDATE_CHECK_INTERVAL: UpdateCheckInterval = UpdateCheckInterval::Weekly;
 pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "GoldenEye";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum MonitorDesign {
-    SignalBand,
-    MissionGlass,
-    Debug,
-}
+/// Runtime wrapper around the generated settings contract. It keeps
+/// OBS-dependent projections out of the lightweight contract crate.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct AppSettings(ContractSettings);
 
-impl MonitorDesign {
-    pub fn from_json_value(value: Option<&Value>) -> Self {
-        match value.and_then(Value::as_str) {
-            Some("signal-band") => MonitorDesign::SignalBand,
-            Some("mission-glass") => MonitorDesign::MissionGlass,
-            Some("debug") => MonitorDesign::Debug,
-            _ => DEFAULT_MONITOR_DESIGN,
-        }
+impl std::ops::Deref for AppSettings {
+    type Target = ContractSettings;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-pub const DEFAULT_MONITOR_DESIGN: MonitorDesign = MonitorDesign::SignalBand;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum UpdateCheckInterval {
-    Monthly,
-    Weekly,
-    Daily,
-    Never,
-}
-
-impl UpdateCheckInterval {
-    pub fn from_json_value(value: Option<&Value>) -> Self {
-        match value.and_then(Value::as_str) {
-            Some("monthly") => UpdateCheckInterval::Monthly,
-            Some("daily") => UpdateCheckInterval::Daily,
-            Some("never") => UpdateCheckInterval::Never,
-            Some("weekly") => UpdateCheckInterval::Weekly,
-            _ => DEFAULT_UPDATE_CHECK_INTERVAL,
-        }
-    }
-
-    pub fn interval_secs(self) -> Option<u64> {
-        match self {
-            UpdateCheckInterval::Daily => Some(24 * 60 * 60),
-            UpdateCheckInterval::Weekly => Some(7 * 24 * 60 * 60),
-            UpdateCheckInterval::Monthly => Some(30 * 24 * 60 * 60),
-            UpdateCheckInterval::Never => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum YoutubeVisibility {
-    Public,
-    Unlisted,
-    Private,
-}
-
-impl YoutubeVisibility {
-    pub fn from_json_value(value: Option<&Value>) -> Self {
-        match value.and_then(Value::as_str) {
-            Some("public") => YoutubeVisibility::Public,
-            Some("unlisted") => YoutubeVisibility::Unlisted,
-            Some("private") => YoutubeVisibility::Private,
-            _ => DEFAULT_YOUTUBE_VISIBILITY,
-        }
-    }
-}
-
-pub const DEFAULT_YOUTUBE_VISIBILITY: YoutubeVisibility = YoutubeVisibility::Unlisted;
-pub const DEFAULT_YOUTUBE_TITLE_TEMPLATE: &str = "{level} - {difficulty} - {time}";
-pub const DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE: &str =
-    "Achieved at {datetime_local}\n\nRecorded with The Golden Eye {plugin_version}.";
-
-/// User settings stored in the plugin-owned JSON file and mirrored by the SPA's
-/// bindable settings object.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AppSettings {
-    pub stop_replay_buffer_when_monitor_stopped: bool,
-    pub stop_replay_buffer_prompt_shown: bool,
-    pub monitor_design: MonitorDesign,
-    pub show_monitor_fps: bool,
-    pub show_developer_settings: bool,
-    pub show_source_previews: bool,
-    pub last_used_source_name: Option<String>,
-    pub welcome_modal_shown: bool,
-    pub completed_output_path: String,
-    pub recent_run_limit: usize,
-    pub clip_filename_template: String,
-    pub pre_run_padding_secs: f64,
-    pub post_run_padding_secs: f64,
-    pub discord_notifications_enabled: bool,
-    pub discord_webhook_url: String,
-    pub streaming_started_message_template: String,
-    pub streaming_stopped_message_template: String,
-    pub update_check_interval: UpdateCheckInterval,
-    pub last_update_check_time: Option<u64>,
-    /// Version of the most recently detected plugin update, backend-owned. Paired
-    /// with `last_known_update_release_url` so the "plugin updated" notice can show a
-    /// changelog link once it matches the running `crate::PLUGIN_VERSION`.
-    pub last_known_update_version: Option<String>,
-    /// The GitHub release URL paired with `last_known_update_version`.
-    pub last_known_update_release_url: Option<String>,
-    pub auto_update_enabled: bool,
-    pub youtube_visibility: YoutubeVisibility,
-    pub youtube_title_template: String,
-    pub youtube_description_template: String,
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            stop_replay_buffer_when_monitor_stopped: false,
-            stop_replay_buffer_prompt_shown: false,
-            monitor_design: DEFAULT_MONITOR_DESIGN,
-            show_monitor_fps: false,
-            show_developer_settings: false,
-            show_source_previews: true,
-            last_used_source_name: None,
-            welcome_modal_shown: false,
-            completed_output_path: String::new(),
-            recent_run_limit: DEFAULT_RECENT_RUN_LIMIT,
-            clip_filename_template: DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned(),
-            pre_run_padding_secs: DEFAULT_PRE_RUN_PADDING_SECS,
-            post_run_padding_secs: DEFAULT_POST_RUN_PADDING_SECS,
-            discord_notifications_enabled: true,
-            discord_webhook_url: String::new(),
-            streaming_started_message_template: DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE.to_owned(),
-            streaming_stopped_message_template: DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE.to_owned(),
-            update_check_interval: DEFAULT_UPDATE_CHECK_INTERVAL,
-            last_update_check_time: None,
-            last_known_update_version: None,
-            last_known_update_release_url: None,
-            auto_update_enabled: false,
-            youtube_visibility: DEFAULT_YOUTUBE_VISIBILITY,
-            youtube_title_template: DEFAULT_YOUTUBE_TITLE_TEMPLATE.to_owned(),
-            youtube_description_template: DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE.to_owned(),
-        }
+impl std::ops::DerefMut for AppSettings {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
 impl AppSettings {
-    pub fn from_json_value(value: Value) -> Self {
-        let default = AppSettings::default();
-        let Some(object) = value.as_object() else {
-            return default;
-        };
-
-        Self {
-            stop_replay_buffer_when_monitor_stopped: bool_field(
-                object.get("stopReplayBufferWhenMonitorStopped"),
-                default.stop_replay_buffer_when_monitor_stopped,
-            ),
-            stop_replay_buffer_prompt_shown: bool_field(
-                object.get("stopReplayBufferPromptShown"),
-                default.stop_replay_buffer_prompt_shown,
-            ),
-            monitor_design: MonitorDesign::from_json_value(object.get("monitorDesign")),
-            show_monitor_fps: bool_field(object.get("showMonitorFps"), default.show_monitor_fps),
-            show_developer_settings: bool_field(object.get("showDeveloperSettings"), default.show_developer_settings),
-            show_source_previews: bool_field(object.get("showSourcePreviews"), default.show_source_previews),
-            last_used_source_name: non_empty_string_field_option(object.get("lastUsedSourceName")),
-            welcome_modal_shown: bool_field(object.get("welcomeModalShown"), default.welcome_modal_shown),
-            completed_output_path: string_field(object.get("completedOutputPath"), &default.completed_output_path),
-            recent_run_limit: non_negative_usize(object.get("recentRunLimit"), default.recent_run_limit)
-                .clamp(1, MAX_RECENT_RUN_LIMIT),
-            clip_filename_template: clip_filename_template(object.get("clipFilenameTemplate")),
-            pre_run_padding_secs: non_negative_f64(object.get("preRunPaddingSecs"), default.pre_run_padding_secs),
-            post_run_padding_secs: non_negative_f64(object.get("postRunPaddingSecs"), default.post_run_padding_secs),
-            discord_notifications_enabled: bool_field(
-                object.get("discordNotificationsEnabled"),
-                default.discord_notifications_enabled,
-            ),
-            discord_webhook_url: string_field(object.get("discordWebhookUrl"), &default.discord_webhook_url),
-            streaming_started_message_template: message_template(
-                object.get("streamingStartedMessageTemplate"),
-                DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE,
-            ),
-            streaming_stopped_message_template: message_template(
-                object.get("streamingStoppedMessageTemplate"),
-                DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE,
-            ),
-            update_check_interval: UpdateCheckInterval::from_json_value(object.get("updateCheckInterval")),
-            last_update_check_time: non_negative_u64_option(object.get("lastUpdateCheckTime")),
-            last_known_update_version: string_field_option(object.get("lastKnownUpdateVersion")),
-            last_known_update_release_url: string_field_option(object.get("lastKnownUpdateReleaseUrl")),
-            auto_update_enabled: bool_field(object.get("autoUpdateEnabled"), default.auto_update_enabled),
-            youtube_visibility: YoutubeVisibility::from_json_value(object.get("youtubeVisibility")),
-            youtube_title_template: message_template(
-                object.get("youtubeTitleTemplate"),
-                DEFAULT_YOUTUBE_TITLE_TEMPLATE,
-            ),
-            youtube_description_template: message_template(
-                object.get("youtubeDescriptionTemplate"),
-                DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE,
-            ),
-        }
+    pub fn from_json_value(value: Value) -> anyhow::Result<Self> {
+        Ok(Self(ContractSettings::from_json_value(value)?))
     }
 
     pub fn recording_options(&self) -> RecordingOptions {
@@ -251,14 +76,8 @@ impl AppSettings {
         NotificationOptions {
             enabled: self.discord_notifications_enabled,
             discord_webhook_url: self.discord_webhook_url.trim().to_owned(),
-            streaming_started_message_template: message_template_str(
-                Some(&self.streaming_started_message_template),
-                DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE,
-            ),
-            streaming_stopped_message_template: message_template_str(
-                Some(&self.streaming_stopped_message_template),
-                DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE,
-            ),
+            streaming_started_message_template: self.streaming_started_message_template.clone(),
+            streaming_stopped_message_template: self.streaming_stopped_message_template.clone(),
         }
     }
 }
@@ -449,7 +268,7 @@ impl SettingsStore {
         }
 
         self.update(|current| {
-            let mut settings = apply_runtime_output_path_defaults(AppSettings::from_json_value(value.clone()));
+            let mut settings = apply_runtime_output_path_defaults(AppSettings::from_json_value(value.clone())?);
             settings.last_update_check_time = current.last_update_check_time;
             settings.last_known_update_version = current.last_known_update_version.clone();
             settings.last_known_update_release_url = current.last_known_update_release_url.clone();
@@ -517,7 +336,7 @@ fn parse_settings_bytes(path: &Path, bytes: Option<&[u8]>) -> anyhow::Result<App
         Some(bytes) => {
             let value: Value =
                 serde_json::from_slice(bytes).with_context(|| format!("parsing settings file {}", path.display()))?;
-            Ok(AppSettings::from_json_value(value))
+            AppSettings::from_json_value(value)
         }
         None => Ok(AppSettings::default()),
     }
@@ -540,56 +359,6 @@ fn write_settings(path: &Path, settings: &AppSettings) -> anyhow::Result<Vec<u8>
     let bytes = serde_json::to_vec_pretty(settings).context("serializing settings")?;
     std::fs::write(path, &bytes).with_context(|| format!("writing settings file {}", path.display()))?;
     Ok(bytes)
-}
-
-fn string_field(value: Option<&Value>, fallback: &str) -> String {
-    value.and_then(Value::as_str).unwrap_or(fallback).to_owned()
-}
-
-fn string_field_option(value: Option<&Value>) -> Option<String> {
-    value.and_then(Value::as_str).map(str::to_owned)
-}
-
-fn non_empty_string_field_option(value: Option<&Value>) -> Option<String> {
-    value.and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned)
-}
-
-fn bool_field(value: Option<&Value>, fallback: bool) -> bool {
-    value.and_then(Value::as_bool).unwrap_or(fallback)
-}
-
-fn clip_filename_template(value: Option<&Value>) -> String {
-    let value = value.and_then(Value::as_str).unwrap_or(DEFAULT_CLIP_FILENAME_TEMPLATE);
-    if value.is_empty() { DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned() } else { value.to_owned() }
-}
-
-fn message_template(value: Option<&Value>, fallback: &str) -> String {
-    message_template_str(value.and_then(Value::as_str), fallback)
-}
-
-fn message_template_str(value: Option<&str>, fallback: &str) -> String {
-    let value = value.unwrap_or(fallback);
-    if value.trim().is_empty() { fallback.to_owned() } else { value.to_owned() }
-}
-
-fn non_negative_usize(value: Option<&Value>, fallback: usize) -> usize {
-    number_value(value).filter(|n| n.is_finite()).map(|n| n.max(0.0).trunc() as usize).unwrap_or(fallback)
-}
-
-fn non_negative_u64_option(value: Option<&Value>) -> Option<u64> {
-    number_value(value).filter(|n| n.is_finite()).map(|n| n.max(0.0).trunc() as u64)
-}
-
-fn non_negative_f64(value: Option<&Value>, fallback: f64) -> f64 {
-    number_value(value).filter(|n| n.is_finite()).map(|n| n.max(0.0)).unwrap_or(fallback)
-}
-
-fn number_value(value: Option<&Value>) -> Option<f64> {
-    match value? {
-        Value::Number(n) => n.as_f64(),
-        Value::String(s) => s.parse::<f64>().ok(),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

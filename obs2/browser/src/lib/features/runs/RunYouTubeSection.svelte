@@ -60,9 +60,9 @@
 	let isUploaded = $derived(Boolean(openUrl && (upload?.state === 'uploaded' || (!upload && history))));
 	let preview = $derived(
 		renderYouTubeUploadPreview(clip, {
-			titleTemplate: settings.youtubeTitleTemplate,
-			descriptionTemplate: settings.youtubeDescriptionTemplate,
-			visibility: settings.youtubeVisibility,
+			titleTemplate: settings.values.youtubeTitleTemplate,
+			descriptionTemplate: settings.values.youtubeDescriptionTemplate,
+			visibility: settings.values.youtubeVisibility,
 			datetimeLocal: datetimeLocalForClip(clip)
 		})
 	);

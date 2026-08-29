@@ -68,7 +68,7 @@
 			case 'pending':
 				return {
 					label: 'pending',
-					description: `This entry has a local video clip, but unless you choose to keep it, it will be deleted if ${settings.recentRunLimit} newer clips are saved.`
+					description: `This entry has a local video clip, but unless you choose to keep it, it will be deleted if ${settings.values.recentRunLimit} newer clips are saved.`
 				};
 			case 'expired':
 				return {

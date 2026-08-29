@@ -12,6 +12,13 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Context;
 use serde::Deserialize;
+pub use settings_contract::{
+    DEFAULT_CLIP_FILENAME_TEMPLATE,
+    DEFAULT_POST_RUN_PADDING_SECS,
+    DEFAULT_PRE_RUN_PADDING_SECS,
+    DEFAULT_RECENT_RUN_LIMIT,
+    MAX_RECENT_RUN_LIMIT,
+};
 use tokio::sync::broadcast;
 
 use crate::cv::{LevelMatch, Screen};
@@ -30,11 +37,6 @@ use crate::models::clip_metadata::RunStatus;
 use crate::template_tokens::{RunTemplateTokens, format_iso_utc, format_time};
 use crate::{ffmpeg, ge};
 
-pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level} - {difficulty} - {time} - {timestamp_local}";
-pub const DEFAULT_PRE_RUN_PADDING_SECS: f64 = 5.0;
-pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
-pub const DEFAULT_RECENT_RUN_LIMIT: usize = 10;
-pub const MAX_RECENT_RUN_LIMIT: usize = 20;
 /// Internal safety margin added to both the pre- and post-run padding, on top of
 /// the user's configured values and hidden from them, so a single-frame timing
 /// window can't drop the level-start briefing or stats overlay (e.g. padding 0).

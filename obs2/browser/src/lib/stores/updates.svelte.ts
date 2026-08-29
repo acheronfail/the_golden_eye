@@ -170,7 +170,7 @@ export const updates = new (class {
 		const update = this.status.phase === 'available' ? this.status.available : null;
 		if (
 			!update ||
-			(settings.autoUpdateEnabled && !update.requiresManualInstall) ||
+			(settings.values.autoUpdateEnabled && !update.requiresManualInstall) ||
 			this.dismissedVersion === update.latestVersion
 		) {
 			this.removeAvailableNotification();

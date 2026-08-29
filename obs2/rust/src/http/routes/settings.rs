@@ -8,8 +8,8 @@ use crate::http::AppState;
 use crate::settings::SettingsStatus;
 
 /// Replaces the current settings and writes them to the platform config file.
-/// The body is parsed field-by-field so future/missing/mistyped fields fall back
-/// to safe defaults instead of poisoning the settings file.
+/// Missing fields receive contract defaults; invalid field types are rejected
+/// so a malformed manual edit is visible instead of silently changing values.
 #[axum::debug_handler]
 pub async fn handle_put(State(state): State<AppState>, Json(value): Json<Value>) -> Result<impl IntoResponse> {
     match state.settings.set_from_json_value_with_runtime_defaults(value) {

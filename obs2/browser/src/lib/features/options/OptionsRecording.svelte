@@ -22,8 +22,8 @@
 	<label class={styles.label} for="monitor-design">Monitor design</label>
 	<Select
 		id="monitor-design"
-		value={settings.monitorDesign}
-		onChange={(value) => (settings.monitorDesign = value as MonitorDesign)}
+		value={settings.values.monitorDesign}
+		onChange={(value) => (settings.values.monitorDesign = value as MonitorDesign)}
 		options={monitorDesignOptions}
 		class="font-mono text-sm"
 	/>
@@ -35,7 +35,7 @@
 	<input
 		id="clip-filename-template"
 		type="text"
-		value={settings.clipFilenameTemplate}
+		value={settings.values.clipFilenameTemplate}
 		oninput={(event) => view.template.set((event.currentTarget as HTMLInputElement).value)}
 		placeholder={settings.defaults.clipFilenameTemplate}
 		aria-invalid={Boolean(view.template.error)}
@@ -69,7 +69,7 @@
 			<button type="button" class={styles.pathButton} disabled={view.paths.picking} onclick={view.paths.choose}
 				>{view.paths.picking ? 'Choosing...' : 'Choose...'}</button
 			>
-			{#if settings.completedOutputPath.trim()}
+			{#if settings.values.completedOutputPath.trim()}
 				<button type="button" class={styles.pathButton} onclick={view.paths.clear}>Use default</button>
 			{/if}
 		</div>
@@ -77,7 +77,7 @@
 	<input
 		id="completed-output-path"
 		type="text"
-		bind:value={settings.completedOutputPath}
+		bind:value={settings.values.completedOutputPath}
 		oninput={view.paths.clearValidation}
 		onblur={view.paths.validate}
 		placeholder={view.paths.placeholder}
@@ -87,7 +87,7 @@
 		<p class={styles.pathPending}>Checking folder...</p>
 	{:else if view.paths.validation?.error}
 		<p class={styles.pathError}>{view.paths.validation.error}</p>
-	{:else if view.paths.validation && settings.completedOutputPath.trim()}
+	{:else if view.paths.validation && settings.values.completedOutputPath.trim()}
 		<p class={styles.pathStatus}>{view.paths.statusMessage(view.paths.validation)}</p>
 	{:else}
 		<p class={styles.hint}>
@@ -104,7 +104,7 @@
 		min="1"
 		max="20"
 		step="1"
-		bind:value={settings.recentRunLimit}
+		bind:value={settings.values.recentRunLimit}
 		onblur={view.normalize.recentRunLimit}
 		class={styles.input}
 	/>
@@ -125,7 +125,7 @@
 				type="number"
 				min="0"
 				step="0.25"
-				bind:value={settings.preRunPaddingSecs}
+				bind:value={settings.values.preRunPaddingSecs}
 				onblur={view.normalize.preRunPadding}
 				class={styles.input}
 			/>
@@ -139,7 +139,7 @@
 				type="number"
 				min="0"
 				step="0.25"
-				bind:value={settings.postRunPaddingSecs}
+				bind:value={settings.values.postRunPaddingSecs}
 				onblur={view.normalize.postRunPadding}
 				class={styles.input}
 			/>

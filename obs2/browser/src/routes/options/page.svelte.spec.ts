@@ -7,6 +7,7 @@ import { monitor } from '$lib/stores/monitor.svelte';
 import { replayBuffer } from '$lib/stores/replayBuffer.svelte';
 import { settings } from '$lib/stores/settings.svelte';
 import { updates } from '$lib/stores/updates.svelte';
+import { DEFAULT_SETTINGS } from '$lib/generated/settings';
 
 const mocks = vi.hoisted(() => {
 	const api = {
@@ -75,29 +76,10 @@ vi.mock('$lib/api', async (importOriginal) => {
 });
 
 const defaultSettings: Settings = {
-	stopReplayBufferWhenMonitorStopped: false,
-	stopReplayBufferPromptShown: false,
-	monitorDesign: 'signal-band',
-	showMonitorFps: false,
-	showDeveloperSettings: false,
-	showSourcePreviews: true,
-	lastUsedSourceName: null,
+	...DEFAULT_SETTINGS,
 	welcomeModalShown: true,
-	completedOutputPath: '',
 	recentRunLimit: 5,
-	clipFilenameTemplate: '{level} - {time} - {difficulty} - {status}',
-	preRunPaddingSecs: 5,
-	postRunPaddingSecs: 5,
-	discordNotificationsEnabled: true,
-	discordWebhookUrl: '',
-	streamingStartedMessageTemplate: 'Bond is now streaming at: {broadcast_url}',
-	streamingStoppedMessageTemplate: 'Bond stopped streaming at: {broadcast_url}',
-	updateCheckInterval: 'weekly',
-	lastUpdateCheckTime: null,
-	autoUpdateEnabled: false,
-	youtubeVisibility: 'unlisted',
-	youtubeTitleTemplate: '{level} - {difficulty} - {time}',
-	youtubeDescriptionTemplate: 'Achieved at {datetime_local}\n\nRecorded with The Golden Eye {plugin_version}.'
+	clipFilenameTemplate: '{level} - {time} - {difficulty} - {status}'
 };
 
 const availableReplayBuffer = {
@@ -253,7 +235,7 @@ describe('/options', () => {
 
 		await waitFor(() => expect(mocks.api.resetSettingsToDefaults).toHaveBeenCalledOnce());
 		await waitFor(() => expect(screen.queryByRole('dialog', { name: /Reset settings/i })).not.toBeInTheDocument());
-		expect(settings.discordWebhookUrl).toBe('');
+		expect(settings.values.discordWebhookUrl).toBe('');
 	});
 
 	it('checks, then offers an explicit download and apply when auto-install is off', async () => {
@@ -296,7 +278,7 @@ describe('/options', () => {
 			updaterVersion: 1,
 			requiresManualInstall: true
 		};
-		settings.autoUpdateEnabled = true;
+		settings.values.autoUpdateEnabled = true;
 		updates.applyStatus({ phase: 'available', available: update });
 		const user = userEvent.setup();
 		render(OptionsPageHarness);

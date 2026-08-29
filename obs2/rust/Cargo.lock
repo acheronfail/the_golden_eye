@@ -823,6 +823,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "settings-contract",
  "sha2",
  "tokio",
  "tokio-tungstenite",
@@ -2307,6 +2308,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "170fb83ab34de17dc69aa7c67482b22218ddb85da56546f9bd6b929e32a05930"
 dependencies = [
  "stable_deref_trait",
+]
+
+[[package]]
+name = "settings-contract"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

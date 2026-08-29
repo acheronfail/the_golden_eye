@@ -262,8 +262,8 @@ fn video_files_in_directory_searches_recursively() {
 fn list_configured_runs_creates_missing_output_directories_before_scanning() {
     let dir = TestDir::new("configured-missing");
     let completed = dir.join("completed/deeply/nested");
-    let settings =
-        AppSettings { completed_output_path: completed.to_string_lossy().into_owned(), ..AppSettings::default() };
+    let mut settings = AppSettings::default();
+    settings.completed_output_path = completed.to_string_lossy().into_owned();
 
     let catalog = test_catalog(&dir);
     let runs = list_configured_runs(&settings, &catalog, RunSort::Newest);
@@ -285,8 +285,8 @@ fn list_configured_runs_reads_seeded_catalog_without_rescanning() {
     let failed_clip = completed.join("Dam/Agent/failed.mov");
     write_tagged_clip(&completed_clip, "complete", "2026-01-02T00:00:00Z");
     write_tagged_clip(&failed_clip, "failed", "2026-01-01T00:00:00Z");
-    let settings =
-        AppSettings { completed_output_path: completed.to_string_lossy().into_owned(), ..AppSettings::default() };
+    let mut settings = AppSettings::default();
+    settings.completed_output_path = completed.to_string_lossy().into_owned();
     let catalog = test_catalog(&dir);
     seed_catalog_from_settings(&catalog, &settings).unwrap();
 
@@ -305,8 +305,8 @@ fn refresh_catalog_updates_listing_without_deleting_missing_history() {
     let old_clip = completed.join("old.mov");
     let new_clip = completed.join("new.mov");
     write_tagged_clip(&old_clip, "complete", "2026-01-01T00:00:00Z");
-    let settings =
-        AppSettings { completed_output_path: completed.to_string_lossy().into_owned(), ..AppSettings::default() };
+    let mut settings = AppSettings::default();
+    settings.completed_output_path = completed.to_string_lossy().into_owned();
     let catalog = test_catalog(&dir);
     seed_catalog_from_settings(&catalog, &settings).unwrap();
     fs::remove_file(&old_clip).unwrap();

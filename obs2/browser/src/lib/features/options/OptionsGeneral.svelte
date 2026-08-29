@@ -13,7 +13,7 @@
 	];
 
 	const onUpdateCheckIntervalChange = (value: string) => {
-		settings.updateCheckInterval = value as UpdateCheckInterval;
+		settings.values.updateCheckInterval = value as UpdateCheckInterval;
 	};
 
 	let applyBlockedReason = $derived(
@@ -31,7 +31,7 @@
 	<Select
 		id="update-check-interval"
 		class="font-mono text-sm"
-		value={settings.updateCheckInterval}
+		value={settings.values.updateCheckInterval}
 		onChange={onUpdateCheckIntervalChange}
 		options={updateCheckIntervals}
 	/>
@@ -44,7 +44,7 @@
 	<label class="flex items-center gap-3">
 		<input
 			type="checkbox"
-			bind:checked={settings.autoUpdateEnabled}
+			bind:checked={settings.values.autoUpdateEnabled}
 			disabled={manualUpdate !== null}
 			class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
 		/>
@@ -92,7 +92,7 @@
 	<label class="flex items-center gap-3">
 		<input
 			type="checkbox"
-			bind:checked={settings.stopReplayBufferWhenMonitorStopped}
+			bind:checked={settings.values.stopReplayBufferWhenMonitorStopped}
 			class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
 		/>
 		<span class={styles.label}>Stop replay buffer when monitor stopped</span>
@@ -104,7 +104,7 @@
 	<label class="flex items-center gap-3">
 		<input
 			type="checkbox"
-			bind:checked={settings.showMonitorFps}
+			bind:checked={settings.values.showMonitorFps}
 			class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
 		/>
 		<span class={styles.label}>Show monitor FPS</span>
@@ -116,7 +116,7 @@
 	<label class="flex items-center gap-3">
 		<input
 			type="checkbox"
-			bind:checked={settings.showDeveloperSettings}
+			bind:checked={settings.values.showDeveloperSettings}
 			class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
 		/>
 		<span class={styles.label}>Show developer settings</span>

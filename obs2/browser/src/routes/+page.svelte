@@ -51,7 +51,7 @@
 		};
 	});
 
-	const lastUsedSource = $derived((sources ?? []).find((source) => source.name === settings.lastUsedSourceName));
+	const lastUsedSource = $derived((sources ?? []).find((source) => source.name === settings.values.lastUsedSourceName));
 	let options = $derived<Option[]>([
 		...(lastUsedSource
 			? [
@@ -70,7 +70,7 @@
 
 	const select = (option: Option) => {
 		if (replayUnavailable) return;
-		settings.lastUsedSourceName = option.title;
+		settings.values.lastUsedSourceName = option.title;
 		goto(`/sources/${encodeURIComponent(option.title)}`);
 	};
 
@@ -88,7 +88,7 @@
 	};
 
 	const toggleSourcePreviews = () => {
-		settings.showSourcePreviews = !settings.showSourcePreviews;
+		settings.values.showSourcePreviews = !settings.values.showSourcePreviews;
 	};
 </script>
 
@@ -150,10 +150,10 @@
 	{:else}
 		<div class="mb-2 flex justify-end">
 			<button type="button" class="obs-text-button obs-button-xs" onclick={toggleSourcePreviews}>
-				{settings.showSourcePreviews ? 'Hide previews' : 'Show previews'}
+				{settings.values.showSourcePreviews ? 'Hide previews' : 'Show previews'}
 			</button>
 		</div>
-		{#if settings.showSourcePreviews}
+		{#if settings.values.showSourcePreviews}
 			<OptionList {options} onSelect={select} {leading} disabled={replayUnavailable} />
 		{:else}
 			<OptionList {options} onSelect={select} disabled={replayUnavailable} />

@@ -28,8 +28,8 @@ beforeEach(() => {
 	obsSources.items = [{ name: 'N64 Capture', id: 'video_capture_device' }];
 	obsSources.loaded = true;
 	obsSources.version = 1;
-	settings.showSourcePreviews = true;
-	settings.lastUsedSourceName = null;
+	settings.values.showSourcePreviews = true;
+	settings.values.lastUsedSourceName = null;
 	replayBuffer.status = {
 		enabled: true,
 		available: true,
@@ -49,7 +49,7 @@ describe('home page', () => {
 		await user.click(screen.getByRole('button', { name: /N64 Capture/i }));
 
 		expect(mocks.goto).toHaveBeenCalledWith('/sources/N64%20Capture');
-		expect(settings.lastUsedSourceName).toBe('N64 Capture');
+		expect(settings.values.lastUsedSourceName).toBe('N64 Capture');
 	});
 
 	it('pins an available last used source above the remaining sources', () => {
@@ -57,7 +57,7 @@ describe('home page', () => {
 			{ name: 'Capture Card', id: 'decklink_input' },
 			{ name: 'N64 Capture', id: 'video_capture_device' }
 		];
-		settings.lastUsedSourceName = 'N64 Capture';
+		settings.values.lastUsedSourceName = 'N64 Capture';
 
 		render(HomePage);
 
@@ -74,7 +74,7 @@ describe('home page', () => {
 	});
 
 	it('falls back to the normal list when the last used source is unavailable', () => {
-		settings.lastUsedSourceName = 'Disconnected Capture';
+		settings.values.lastUsedSourceName = 'Disconnected Capture';
 
 		render(HomePage);
 
@@ -91,7 +91,7 @@ describe('home page', () => {
 
 		await user.click(screen.getByRole('button', { name: /hide previews/i }));
 
-		expect(settings.showSourcePreviews).toBe(false);
+		expect(settings.values.showSourcePreviews).toBe(false);
 		expect(screen.queryByAltText('Preview of N64 Capture')).not.toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /show previews/i })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /N64 Capture/i })).toBeInTheDocument();

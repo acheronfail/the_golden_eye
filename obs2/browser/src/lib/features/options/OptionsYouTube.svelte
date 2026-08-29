@@ -20,7 +20,7 @@
 		await youtube.disconnect();
 	};
 	const onVisibilityChange = (value: string) => {
-		settings.youtubeVisibility = value as YoutubeVisibility;
+		settings.values.youtubeVisibility = value as YoutubeVisibility;
 		settings.saveImmediately();
 	};
 </script>
@@ -58,7 +58,7 @@
 				<span class={styles.label}>Visibility</span>
 				<Select
 					class="font-mono text-sm"
-					value={settings.youtubeVisibility}
+					value={settings.values.youtubeVisibility}
 					options={visibilityOptions}
 					onChange={onVisibilityChange}
 				/>
@@ -68,7 +68,7 @@
 				<span class={styles.label}>Title</span>
 				<input
 					class={styles.input}
-					bind:value={settings.youtubeTitleTemplate}
+					bind:value={settings.values.youtubeTitleTemplate}
 					onblur={() => settings.saveImmediately()}
 				/>
 			</label>
@@ -77,7 +77,7 @@
 				<span class={styles.label}>Description</span>
 				<textarea
 					class={styles.textarea}
-					bind:value={settings.youtubeDescriptionTemplate}
+					bind:value={settings.values.youtubeDescriptionTemplate}
 					onblur={() => settings.saveImmediately()}
 				></textarea>
 			</label>

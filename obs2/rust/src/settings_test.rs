@@ -2,11 +2,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::*;
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
+fn settings_from_json(value: Value) -> AppSettings {
+    AppSettings::from_json_value(value).expect("valid settings JSON")
+}
 
 struct TestDir {
     path: PathBuf,
@@ -38,46 +42,19 @@ impl Drop for TestDir {
 }
 
 #[test]
-fn default_settings_use_five_second_pre_run_padding() {
-    assert_eq!(AppSettings::default().pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
-    assert_eq!(AppSettings::default().recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
-    assert!(!AppSettings::default().stop_replay_buffer_when_monitor_stopped);
-    assert!(!AppSettings::default().stop_replay_buffer_prompt_shown);
-    assert_eq!(AppSettings::default().monitor_design, DEFAULT_MONITOR_DESIGN);
-    assert!(!AppSettings::default().show_monitor_fps);
-    assert!(!AppSettings::default().show_developer_settings);
-    assert!(AppSettings::default().show_source_previews);
-    assert_eq!(AppSettings::default().last_used_source_name, None);
-    assert!(!AppSettings::default().welcome_modal_shown);
-    assert_eq!(AppSettings::default().update_check_interval, UpdateCheckInterval::Weekly);
-    assert_eq!(AppSettings::default().last_update_check_time, None);
-    assert_eq!(AppSettings::default().youtube_visibility, DEFAULT_YOUTUBE_VISIBILITY);
-    assert_eq!(AppSettings::default().youtube_title_template, DEFAULT_YOUTUBE_TITLE_TEMPLATE);
-    assert_eq!(AppSettings::default().youtube_description_template, DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE);
-    assert_eq!(AppSettings::from_json_value(json!({})).pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
-    assert_eq!(AppSettings::from_json_value(json!({})).recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
-    assert!(!AppSettings::from_json_value(json!({})).stop_replay_buffer_when_monitor_stopped);
-    assert!(!AppSettings::from_json_value(json!({})).stop_replay_buffer_prompt_shown);
-    assert_eq!(AppSettings::from_json_value(json!({})).monitor_design, DEFAULT_MONITOR_DESIGN);
-    assert_eq!(AppSettings::from_json_value(json!({ "monitorDesign": "debug" })).monitor_design, MonitorDesign::Debug);
-    assert!(!AppSettings::from_json_value(json!({})).show_monitor_fps);
-    assert!(!AppSettings::from_json_value(json!({})).show_developer_settings);
-    assert!(AppSettings::from_json_value(json!({})).show_source_previews);
-    assert_eq!(AppSettings::from_json_value(json!({})).last_used_source_name, None);
-    assert!(!AppSettings::from_json_value(json!({})).welcome_modal_shown);
-    assert_eq!(AppSettings::from_json_value(json!({})).update_check_interval, UpdateCheckInterval::Weekly);
-    assert_eq!(AppSettings::from_json_value(json!({})).last_update_check_time, None);
-    assert_eq!(AppSettings::from_json_value(json!({})).youtube_visibility, DEFAULT_YOUTUBE_VISIBILITY);
-    assert_eq!(AppSettings::from_json_value(json!({})).youtube_title_template, DEFAULT_YOUTUBE_TITLE_TEMPLATE);
-    assert_eq!(
-        AppSettings::from_json_value(json!({})).youtube_description_template,
-        DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE
-    );
+fn missing_fields_use_the_complete_contract_default() {
+    let defaults = AppSettings::default();
+
+    assert_eq!(settings_from_json(json!({})), defaults);
+    assert_eq!(defaults.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
+    assert_eq!(defaults.recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
+    assert!(defaults.show_source_previews);
+    assert_eq!(settings_from_json(json!({ "monitorDesign": "debug" })).monitor_design, MonitorDesign::Debug);
 }
 
 #[test]
 fn json_value_is_normalized_field_by_field() {
-    let settings = AppSettings::from_json_value(json!({
+    let settings = settings_from_json(json!({
         "stopReplayBufferWhenMonitorStopped": true,
         "stopReplayBufferPromptShown": true,
         "monitorDesign": "mission-glass",
@@ -90,13 +67,13 @@ fn json_value_is_normalized_field_by_field() {
         "recentRunLimit": 7,
         "clipFilenameTemplate": "",
         "preRunPaddingSecs": -3,
-        "postRunPaddingSecs": "2.5",
+        "postRunPaddingSecs": 2.5,
         "discordNotificationsEnabled": false,
         "discordWebhookUrl": " https://discord.example/webhook ",
         "streamingStartedMessageTemplate": "",
         "streamingStoppedMessageTemplate": "Stopped {broadcast_url}",
         "updateCheckInterval": "daily",
-        "lastUpdateCheckTime": "1234.9",
+        "lastUpdateCheckTime": 1234,
         "youtubeVisibility": "private",
         "youtubeTitleTemplate": "{level} PB",
         "youtubeDescriptionTemplate": "{time}"
@@ -128,8 +105,13 @@ fn json_value_is_normalized_field_by_field() {
 }
 
 #[test]
+fn mistyped_setting_is_rejected() {
+    assert!(AppSettings::from_json_value(json!({ "showMonitorFps": "yes" })).is_err());
+}
+
+#[test]
 fn recent_run_limit_is_clamped_to_the_saveable_clip_maximum() {
-    let settings = AppSettings::from_json_value(json!({ "recentRunLimit": 100 }));
+    let settings = settings_from_json(json!({ "recentRunLimit": 100 }));
 
     assert_eq!(settings.recent_run_limit, MAX_RECENT_RUN_LIMIT);
     assert_eq!(settings.recording_options().recent_run_limit, MAX_RECENT_RUN_LIMIT);
@@ -138,13 +120,13 @@ fn recent_run_limit_is_clamped_to_the_saveable_clip_maximum() {
 #[test]
 fn output_path_defaults_follow_obs_replay_directory_and_completed_path() {
     let replay_dir = PathBuf::from("/tmp/obs-replays");
-    let settings = AppSettings::from_json_value(json!({})).with_default_output_paths(Some(&replay_dir));
+    let settings = settings_from_json(json!({})).with_default_output_paths(Some(&replay_dir));
 
     let default_completed = replay_dir.join("GoldenEye");
     assert_eq!(settings.completed_output_path, default_completed.to_string_lossy());
 
     let custom_completed =
-        AppSettings::from_json_value(json!({ "completedOutputPath": "/runs" })).with_default_output_paths(None);
+        settings_from_json(json!({ "completedOutputPath": "/runs" })).with_default_output_paths(None);
     assert_eq!(custom_completed.completed_output_path, "/runs");
 }
 
@@ -164,7 +146,7 @@ fn store_persists_and_loads_settings_json() {
     let store = SettingsStore::load_from_path(path.clone());
 
     let saved = store
-        .replace(AppSettings::from_json_value(json!({
+        .replace(settings_from_json(json!({
             "stopReplayBufferWhenMonitorStopped": true,
             "stopReplayBufferPromptShown": true,
             "monitorDesign": "mission-glass",
@@ -209,7 +191,7 @@ fn store_updates_last_update_check_time_without_changing_other_settings() {
     let dir = TestDir::new("update-time");
     let store = SettingsStore::load_from_path(dir.join("settings.json"));
     store
-        .replace(AppSettings::from_json_value(json!({
+        .replace(settings_from_json(json!({
             "showMonitorFps": true,
             "updateCheckInterval": "daily"
         })))
@@ -227,7 +209,7 @@ fn store_updates_last_known_update_without_changing_other_settings() {
     let dir = TestDir::new("update-known");
     let store = SettingsStore::load_from_path(dir.join("settings.json"));
     store
-        .replace(AppSettings::from_json_value(json!({
+        .replace(settings_from_json(json!({
             "showMonitorFps": true,
             "updateCheckInterval": "daily"
         })))

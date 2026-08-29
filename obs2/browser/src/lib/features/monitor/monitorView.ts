@@ -10,7 +10,7 @@ import { monitorPhaseStyle, monitorPresentationPhase, type MonitorPhase } from '
 import type { MonitorWallClocks } from './monitorWallClocks.svelte';
 
 export type MonitorTransition = 'starting' | 'stopping' | null;
-export type MonitorDesign = 'signal-band' | 'mission-glass' | 'debug';
+export type { MonitorDesign } from '$lib/generated/settings';
 export type { MonitorPhase } from '$lib/stores/monitor.svelte';
 
 export interface MonitorViewProps {

@@ -937,16 +937,6 @@ fn now_iso() -> String {
     crate::template_tokens::format_iso_utc(SystemTime::now())
 }
 
-impl YoutubeVisibility {
-    fn as_youtube_str(self) -> &'static str {
-        match self {
-            YoutubeVisibility::Public => "public",
-            YoutubeVisibility::Unlisted => "unlisted",
-            YoutubeVisibility::Private => "private",
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1075,11 +1065,9 @@ mod tests {
 
     #[test]
     fn renderer_uses_browser_datetime_local_token() {
-        let settings = AppSettings {
-            youtube_title_template: "{level} at {datetime_local}".to_owned(),
-            youtube_description_template: "Achieved at {datetime_local}".to_owned(),
-            ..AppSettings::default()
-        };
+        let mut settings = AppSettings::default();
+        settings.youtube_title_template = "{level} at {datetime_local}".to_owned();
+        settings.youtube_description_template = "Achieved at {datetime_local}".to_owned();
         let metadata = clip_metadata_fixture();
 
         let (title, description) =
@@ -1091,11 +1079,9 @@ mod tests {
 
     #[test]
     fn renderer_falls_back_to_timestamp_local_for_datetime_local() {
-        let settings = AppSettings {
-            youtube_title_template: "{level}".to_owned(),
-            youtube_description_template: "Achieved at {datetime_local}".to_owned(),
-            ..AppSettings::default()
-        };
+        let mut settings = AppSettings::default();
+        settings.youtube_title_template = "{level}".to_owned();
+        settings.youtube_description_template = "Achieved at {datetime_local}".to_owned();
         let metadata = clip_metadata_fixture();
         let expected_local = RunTemplateTokens::from_clip_metadata("clip", &metadata).timestamp_local;
 
@@ -1106,11 +1092,9 @@ mod tests {
 
     #[test]
     fn renderer_falls_back_to_timestamp_local_for_blank_datetime_local() {
-        let settings = AppSettings {
-            youtube_title_template: "{level}".to_owned(),
-            youtube_description_template: "Achieved at {datetime_local}".to_owned(),
-            ..AppSettings::default()
-        };
+        let mut settings = AppSettings::default();
+        settings.youtube_title_template = "{level}".to_owned();
+        settings.youtube_description_template = "Achieved at {datetime_local}".to_owned();
         let metadata = clip_metadata_fixture();
         let expected_local = RunTemplateTokens::from_clip_metadata("clip", &metadata).timestamp_local;
 

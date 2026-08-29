@@ -34,7 +34,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     if state.reloaded_at.is_some_and(|when| when.elapsed() < UPDATE_APPLIED_NOTICE_WINDOW) {
         let settings = state.settings.get();
         let release_url = if settings.last_known_update_version.as_deref() == Some(crate::PLUGIN_VERSION) {
-            settings.last_known_update_release_url
+            settings.last_known_update_release_url.clone()
         } else {
             None
         };

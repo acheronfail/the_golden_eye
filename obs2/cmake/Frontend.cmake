@@ -92,3 +92,5 @@ else()
       )
   endif()
 endif()
+
+add_dependencies(browser_build settings_bindings)
