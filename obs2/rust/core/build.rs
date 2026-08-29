@@ -10,6 +10,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=GE_YOUTUBE_CLIENT_ID");
     println!("cargo:rerun-if-env-changed=GE_YOUTUBE_CLIENT_SECRET");
     println!("cargo:rerun-if-env-changed=GE_YOUTUBE_ENABLED");
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_EXPORT");
 
     println!("cargo:rerun-if-env-changed=OPENCV_INCLUDE_PATHS");
     println!("cargo:rerun-if-env-changed=OPENCV_LINK_PATHS");
@@ -23,6 +24,11 @@ fn main() {
     // Re-run (and regenerate the header) whenever a source file changes so the C
     // side (core.c / plugin.c) always sees the current signatures.
     emit_rerun_for_sources("src");
+
+    // Export-only builds link private OBS stubs that must never enter the C header.
+    if env::var_os("CARGO_FEATURE_EXPORT").is_some() {
+        return;
+    }
 
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let obs2_dir = crate_dir
