@@ -9,7 +9,6 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response, Result};
 use ge_clip::{ClipMetadata, RomVersion, RunStatus};
-use ge_media as ffmpeg;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
@@ -482,7 +481,7 @@ pub(crate) fn authorize_tagged_run_path(
         return Err(RunPathError::Forbidden("run clip is not in a configured run directory"));
     }
 
-    match ffmpeg::read_clip_metadata(&path) {
+    match ge_media::read_clip_metadata(&path) {
         Ok(Some(_)) => Ok(path),
         Ok(None) => Err(RunPathError::Forbidden("run clip was not created by The Golden Eye")),
         Err(err) => Err(RunPathError::Probe(err)),

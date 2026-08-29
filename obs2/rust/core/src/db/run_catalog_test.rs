@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ge_clip::{RomVersion, RunStatus};
-use ge_media as ffmpeg;
 
 use super::*;
 use crate::db::run_catalog::RunCatalog;
@@ -72,9 +71,9 @@ fn write_tagged_clip(path: &Path, status: &str, timestamp: &str) {
         fs::create_dir_all(parent).unwrap();
     }
     let input = sample_clip();
-    let full = ffmpeg::duration_secs(&input).expect("probe sample clip");
+    let full = ge_media::duration_secs(&input).expect("probe sample clip");
     let metadata = metadata(status, timestamp);
-    ffmpeg::trim_with_metadata(&input, path, 1.0, (full - 1.0).max(2.0), Some(&metadata))
+    ge_media::trim_with_metadata(&input, path, 1.0, (full - 1.0).max(2.0), Some(&metadata))
         .expect("write tagged test clip");
 }
 
@@ -99,8 +98,8 @@ fn attach_clip(dir: &TestDir, catalog: &RunCatalog, run: &RunRecord, name: &str)
         fs::create_dir_all(parent).unwrap();
     }
     let input = sample_clip();
-    let full = ffmpeg::duration_secs(&input).unwrap();
-    ffmpeg::trim_with_metadata(&input, &path, 1.0, (full - 1.0).max(2.0), Some(&run.metadata)).unwrap();
+    let full = ge_media::duration_secs(&input).unwrap();
+    ge_media::trim_with_metadata(&input, &path, 1.0, (full - 1.0).max(2.0), Some(&run.metadata)).unwrap();
     catalog
         .record_saved_clip(RunCatalogSave {
             path: path.clone(),
@@ -487,7 +486,7 @@ fn record_rename_update_and_remove_keep_catalog_in_sync() {
     let clip_path = fs::canonicalize(&clip_path).unwrap();
     let root = clip_path.parent().unwrap().to_path_buf();
     let catalog = catalog(&dir);
-    let clip_metadata = ffmpeg::read_clip_metadata(&clip_path).unwrap().unwrap();
+    let clip_metadata = ge_media::read_clip_metadata(&clip_path).unwrap().unwrap();
     let saved = catalog
         .record_saved_clip(RunCatalogSave {
             path: clip_path.clone(),
@@ -502,7 +501,7 @@ fn record_rename_update_and_remove_keep_catalog_in_sync() {
     catalog.rename_path(&clip_path, &renamed).unwrap();
     let mut updated = saved.metadata;
     updated.status = RunStatus::Failed;
-    ffmpeg::rewrite_metadata_in_place(&renamed, &updated).unwrap();
+    ge_media::rewrite_metadata_in_place(&renamed, &updated).unwrap();
     let refreshed = catalog.refresh_clip(&renamed).unwrap().unwrap();
     assert_eq!(refreshed.run_id, run_id);
 

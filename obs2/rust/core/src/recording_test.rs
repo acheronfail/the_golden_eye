@@ -364,8 +364,8 @@ fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
         .unwrap();
     let old_path = dir.join("clips/old.mov");
     fs::create_dir_all(old_path.parent().unwrap()).unwrap();
-    let duration = ffmpeg::duration_secs(&replay).unwrap();
-    ffmpeg::trim_with_metadata(&replay, &old_path, 1.0, duration - 1.0, Some(&old.metadata)).unwrap();
+    let duration = ge_media::duration_secs(&replay).unwrap();
+    ge_media::trim_with_metadata(&replay, &old_path, 1.0, duration - 1.0, Some(&old.metadata)).unwrap();
     catalog
         .record_saved_clip(RunCatalogSave {
             path: old_path.clone(),

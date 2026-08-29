@@ -12,7 +12,6 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Context;
 use ge_clip::{ClipMetadata, RunStatus};
-use ge_media as ffmpeg;
 pub use ge_settings::{
     DEFAULT_CLIP_FILENAME_TEMPLATE,
     DEFAULT_POST_RUN_PADDING_SECS,
@@ -1286,7 +1285,7 @@ fn spawn_save_and_trim(job: SaveAndTrimJob) {
 #[cfg_attr(test, allow(dead_code))]
 fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
     let input = Path::new(req.replay_path);
-    let duration = ffmpeg::duration_secs(input)?;
+    let duration = ge_media::duration_secs(input)?;
     // The file ends at ~the save moment. `start_before_save_secs` reaches back
     // to the detected start plus pre-run padding; `trim_tail_secs` removes any
     // extra delay beyond the requested post-run padding.
@@ -1322,7 +1321,7 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
         "trimming replay clip",
     );
     let clip_metadata = req.metadata;
-    ffmpeg::trim_with_metadata(input, &output, start, end, Some(&clip_metadata))?;
+    ge_media::trim_with_metadata(input, &output, start, end, Some(&clip_metadata))?;
     tracing::info!(output = %output.display(), "saved trimmed clip");
     match req.run_catalog.record_saved_clip(RunCatalogSave {
         path: output.clone(),
