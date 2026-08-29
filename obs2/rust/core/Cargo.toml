@@ -10,16 +10,6 @@ autotests = false
 # Produce a C-compatible static archive that CMake can link into the plugin.
 crate-type = ["staticlib", "rlib"]
 
-[[bin]]
-name = "test_match"
-path = "src/bin/test_match.rs"
-test = false
-
-[[bin]]
-name = "annotate_match"
-path = "src/bin/annotate_match.rs"
-test = false
-
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
@@ -51,11 +41,6 @@ ffmpeg-next = { version = "8.1.0", default-features = false, features = ["static
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native"] }
 obfstr = "0.4.5"
 libc = "0.2.186"
-# `clang-runtime` makes opencv's binding generator load libclang at runtime.
-# ffmpeg-sys-next pulls in bindgen with the `runtime` feature, which unifies
-# `clang-sys/runtime` on for the whole build; without matching it here, opencv's
-# generator panics with "libclang shared library is not loaded on this thread".
-opencv = { version = "0.98.2", features = ["clang-runtime"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "form", "native-tls", "charset", "http2", "system-proxy", "cookies"] }
 scraper = "0.24.0"
 rusqlite = { version = "0.32.1", features = ["bundled"] }
@@ -72,8 +57,12 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 zip = { version = "6.0.0", default-features = false, features = ["deflate"] }
 ge_settings = { path = "../settings" }
+ge_cv = { path = "../cv" }
+ge_game = { path = "../game" }
 
 [dev-dependencies]
 futures-util = "0.3.31"
 http-body-util = "0.1.3"
+# Core's image-based tests use OpenCV directly; production gets it through ge_cv.
+opencv = { version = "0.98.2", features = ["clang-runtime"] }
 tokio-tungstenite = "0.29.0"

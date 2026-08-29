@@ -143,7 +143,13 @@ test-rust *args:
       export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
     fi
     cd "{{ justfile_directory() }}/obs2/rust"
-    cargo test --package ge_rust --release --features test-hooks {{ args }}
+    cargo test \
+      --package ge_game \
+      --package ge_cv \
+      --package ge_rust \
+      --release \
+      --features ge_rust/test-hooks \
+      {{ args }}
 
 # runs the backend against the controllable Rust OBS host (no OBS process)
 test-integration *args:
@@ -228,6 +234,8 @@ clippy:
       cargo clippy --package ge_rust --fix -- -D warnings
     fi
 
+    cargo clippy --package ge_cv --all-targets -- -D warnings
+    cargo clippy --package ge_game --all-targets -- -D warnings
     cargo clippy --package ge_settings --all-targets --features export -- -D warnings
 
 # generate a markdown preview of what GitHub will put in the next release notes

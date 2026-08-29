@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "settings"]
+members = ["core", "cv", "game", "settings"]
 default-members = ["core"]
 resolver = "3"
 

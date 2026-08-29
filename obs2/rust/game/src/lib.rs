@@ -3,7 +3,7 @@
 
 use serde::Serialize;
 
-pub(crate) mod intro;
+pub mod intro;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]

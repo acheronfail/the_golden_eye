@@ -8,7 +8,6 @@ mod browser_dock;
 mod cv;
 mod flatpak;
 mod logging;
-pub mod matcher;
 mod monitor;
 mod paths;
 mod server;

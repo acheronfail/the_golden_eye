@@ -3,19 +3,27 @@ use std::hint::black_box;
 use std::process::ExitCode;
 use std::time::Instant;
 
-// Linking `ge_rust`'s rlib pulls in its `#[no_mangle]` FFI entry points
-// unconditionally, so this bin must resolve every OBS/bridge symbol they
-// reference even though it never calls them. See src/obs_stub.rs.
-#[path = "../obs_stub.rs"]
-mod obs_stub;
-
-use ge_rust::cv::{CaptureRegion, CvMatcher, LevelMatch, WORK_HEIGHT, detect_black_frame, detect_watch};
+use ge_cv::{CaptureRegion, CvMatcher, LevelMatch, WORK_HEIGHT, detect_black_frame, detect_watch};
 use opencv::core::{self, Mat, Rect, Size};
 use opencv::prelude::*;
 use opencv::{Result, imgcodecs, imgproc};
 use serde_json::json;
 
 const BLACK_FRAME_BENCH_ITERATIONS: usize = 250;
+
+fn env_truthy(key: &str) -> bool {
+    env::var(key)
+        .ok()
+        .is_some_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+}
+
+fn configure_runtime() {
+    ge_cv::configure(ge_cv::RuntimeConfig {
+        debug: env::var_os("GE_CV_DEBUG").is_some(),
+        timing: env::var_os("GE_CV_TIMING").is_some(),
+        threads_overridden: env::var_os("GE_CV_THREADS").is_some(),
+    });
+}
 
 fn load_bgra(path: &str) -> Result<Mat> {
     let bgr = imgcodecs::imread(path, imgcodecs::IMREAD_COLOR)?;
@@ -64,7 +72,7 @@ fn obs_capture_emulated_frame(source: &Mat, region: Option<CaptureRegion>) -> Re
     }
 }
 
-fn result_json(result: &ge_rust::cv::LevelMatch) -> serde_json::Value {
+fn result_json(result: &ge_cv::LevelMatch) -> serde_json::Value {
     json!({
         "screen": result.screen.as_str(),
         "mission": result.mission,
@@ -107,6 +115,7 @@ fn benchmark_monitor_cv_sample(matcher: &CvMatcher, frame: &Mat) -> Result<(Leve
 }
 
 fn run() -> Result<i32> {
+    configure_runtime();
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
         eprintln!("usage: {} <lang> path/to/image.{{png,bmp,...}} [templates_dir]", args[0]);
@@ -119,10 +128,10 @@ fn run() -> Result<i32> {
     // relative to this crate at compile time (mirrors GE_TEMPLATES_DIR).
     let default_templates = concat!(env!("CARGO_MANIFEST_DIR"), "/../../cv_templates");
     let templates_dir = args.get(3).map(|s| s.as_str()).unwrap_or(default_templates);
-    let diagnostics = ge_rust::config::matcher::diagnostics_enabled();
+    let diagnostics = env_truthy("GE_CV_DIAGNOSTICS");
 
     // Benchmarking hook: GE_CV_THREADS caps OpenCV's internal thread pool.
-    if let Some(n) = ge_rust::config::matcher::threads_override() {
+    if let Some(n) = env::var("GE_CV_THREADS").ok().and_then(|value| value.parse().ok()) {
         core::set_num_threads(n)?;
         eprintln!("[test_match] cv::setNumThreads({n})");
     }
@@ -138,7 +147,7 @@ fn run() -> Result<i32> {
 
     let source_image = json!({ "path": image_path, "width": bgra.cols(), "height": bgra.rows() });
 
-    let bench_capture_mode = ge_rust::config::matcher::bench_capture_mode();
+    let bench_capture_mode = env::var("GE_CV_BENCH_CAPTURE").unwrap_or_else(|_| "fixture".to_owned());
     if !matches!(bench_capture_mode.as_str(), "fixture" | "obs") {
         eprintln!("error: GE_CV_BENCH_CAPTURE must be 'fixture' or 'obs', got {bench_capture_mode:?}");
         return Ok(1);
@@ -147,16 +156,16 @@ fn run() -> Result<i32> {
     // GE_CV_BENCH=N reuses a single matcher across N matches (as the OBS monitor
     // loop does), printing each runtime to stderr so the scale-cache speedup
     // from the first frame to the rest is visible.
-    if let Some(runs) = ge_rust::config::matcher::bench_runs() {
-        let target_warmups = ge_rust::config::matcher::bench_warmups();
-        let json_output = ge_rust::config::matcher::bench_json();
-        let matcher = ge_rust::cv::CvMatcher::new(lang, templates_dir)?;
+    if let Some(runs) = env::var("GE_CV_BENCH").ok().map(|value| value.parse().unwrap_or(5)) {
+        let target_warmups = env::var("GE_CV_BENCH_WARMUPS").ok().and_then(|value| value.parse().ok()).unwrap_or(0);
+        let json_output = env_truthy("GE_CV_BENCH_JSON");
+        let matcher = CvMatcher::new(lang, templates_dir)?;
         let mut cache_warm = Vec::new();
         let mut capture_region = None;
 
         // GE_CV_BENCH_WARM=path primes the scale cache with one overlay frame
         // first, so the benched frame is matched as it would be mid-session.
-        if let Some(warm) = ge_rust::config::matcher::bench_warm_path() {
+        if let Ok(warm) = env::var("GE_CV_BENCH_WARM") {
             let wbgra = load_bgra(&warm)?;
             let warm_frame =
                 if bench_capture_mode == "obs" { obs_capture_emulated_frame(&wbgra, None)? } else { wbgra };
@@ -224,7 +233,7 @@ fn run() -> Result<i32> {
         }
     }
 
-    let matcher = ge_rust::cv::CvMatcher::new(lang, templates_dir)?.with_diagnostics(diagnostics);
+    let matcher = CvMatcher::new(lang, templates_dir)?.with_diagnostics(diagnostics);
     let result = matcher.match_level_from_bgra_frame(&bgra)?;
     let active_picture = matcher.active_picture_region(bgra.cols() as u32, bgra.rows() as u32);
     let black_frame = detect_black_frame(bgra.data_bytes()?, bgra.cols() as u32, bgra.rows() as u32, active_picture);

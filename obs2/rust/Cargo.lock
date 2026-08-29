@@ -800,6 +800,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ge_cv"
+version = "0.1.0"
+dependencies = [
+ "ge_game",
+ "opencv",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ge_game"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "ge_rust"
 version = "0.1.0"
 dependencies = [
@@ -811,6 +828,8 @@ dependencies = [
  "chrono",
  "ffmpeg-next",
  "futures-util",
+ "ge_cv",
+ "ge_game",
  "ge_settings",
  "http-body-util",
  "keyring",
