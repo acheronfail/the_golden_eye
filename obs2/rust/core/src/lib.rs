@@ -199,9 +199,9 @@ pub extern "C" fn ge_rust_set_was_reloaded(was_reloaded: bool) {
 /// Snapshot at STOPPING so a stale STOPPED event can't tear down a replacement monitor.
 static REPLAY_STOP_SHOULD_STOP_MONITOR: AtomicBool = AtomicBool::new(false);
 
-// Also included, unconditionally, by the `test_match`/`annotate_match` bin
-// crates (see src/bin/*.rs) so their builds can resolve the same symbols.
-#[cfg(test)]
+// Standalone test and contract-export executables never call OBS, but still
+// need these symbols available to satisfy strict linkers such as MSVC.
+#[cfg(any(test, feature = "export"))]
 #[path = "obs_stub.rs"]
 mod obs_stub;
 
