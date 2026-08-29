@@ -1,11 +1,9 @@
 mod browser;
 mod browser_dock;
 pub mod config;
-pub mod cv;
 mod db;
 mod ffi;
 mod ffmpeg;
-pub mod ge;
 mod http;
 mod logging;
 pub mod models;
@@ -14,7 +12,6 @@ mod settings;
 mod stream_notifier;
 mod template_tokens;
 mod the_elite;
-mod timer;
 mod update_apply;
 mod updates;
 mod youtube;
@@ -26,6 +23,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+pub use ge_cv as cv;
+pub use ge_game as ge;
 use http::{
     AppEvent,
     AppSnapshot,
@@ -79,6 +78,14 @@ fn configure_cv_template_dir() {
 
     tracing::debug!(template_dir = %template_dir.display(), "resolved bundled CV templates directory");
     cv::set_template_dir(template_dir.to_string_lossy().into_owned());
+}
+
+fn configure_cv_runtime() {
+    cv::configure(cv::RuntimeConfig {
+        debug: config::cv_debug_enabled(),
+        timing: config::cv_timing_enabled(),
+        threads_overridden: config::cv_threads_overridden(),
+    });
 }
 
 /// Ensures the OBS custom browser dock is registered during OBS module post-load.
@@ -222,6 +229,7 @@ pub extern "C" fn ge_rust_start() -> bool {
         None
     };
 
+    configure_cv_runtime();
     configure_cv_template_dir();
 
     let settings = SettingsStore::load_default();

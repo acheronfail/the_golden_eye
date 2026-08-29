@@ -1,17 +1,36 @@
-// Standalone CLI for exercising the GoldenEye level matcher outside of OBS:
-// `test_match <lang> path/to/screenshot.png [templates_dir]`. Loads the image as
-// BGRA, runs the matcher, and prints the result.
+//! GoldenEye screen, black-frame, and in-game watch detection for BGRA capture
+//! frames. The crate is independent of OBS and the plugin runtime.
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
+use ge_game as ge;
 use opencv::core::{self, Mat, Rect, Size, ToInputArray};
 use opencv::prelude::*;
-use opencv::{Result, imgcodecs, imgproc};
+use opencv::{imgcodecs, imgproc};
 use serde::Serialize;
+pub use timer::PhaseTimer;
 
-use crate::ge;
-use crate::timer::PhaseTimer;
+pub type Result<T> = opencv::Result<T>;
+
+mod timer;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RuntimeConfig {
+    pub debug: bool,
+    pub timing: bool,
+    pub threads_overridden: bool,
+}
+
+static RUNTIME_CONFIG: OnceLock<RuntimeConfig> = OnceLock::new();
+
+pub fn configure(config: RuntimeConfig) {
+    let _ = RUNTIME_CONFIG.set(config);
+}
+
+fn runtime_config() -> RuntimeConfig {
+    RUNTIME_CONFIG.get().copied().unwrap_or_default()
+}
 
 mod black_frame;
 pub use black_frame::{ActivePictureRegion, BlackFrameSignal, detect_black_frame};
@@ -53,13 +72,13 @@ where
 // Set GE_CV_DEBUG to dump intermediate match scores/detections to stderr.
 macro_rules! dbg_cv {
     ($($arg:tt)*) => {
-        if crate::config::cv_debug_enabled() { eprintln!($($arg)*); }
+        if runtime_config().debug { eprintln!($($arg)*); }
     };
 }
 
 static TEMPLATE_DIR: OnceLock<String> = OnceLock::new();
 
-pub(crate) fn set_template_dir(path: String) {
+pub fn set_template_dir(path: String) {
     let _ = TEMPLATE_DIR.set(path);
 }
 
@@ -1619,7 +1638,7 @@ impl CvMatcher {
         // Pin OpenCV's parallel backend to one thread: we drive parallelism with
         // `par_map`, so a multi-threaded backend would oversubscribe cores and
         // spike tail latency. `GE_CV_THREADS` opts out for benchmarking.
-        if !crate::config::cv_threads_overridden() {
+        if !runtime_config().threads_overridden {
             let _ = core::set_num_threads(1);
         }
 

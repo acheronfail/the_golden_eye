@@ -1,18 +1,17 @@
 use std::env;
 use std::process::ExitCode;
 
-// Linking `ge_rust`'s rlib pulls in its `#[no_mangle]` FFI entry points
-// unconditionally, so this bin must resolve every OBS/bridge symbol they
-// reference even though it never calls them. See src/obs_stub.rs.
-#[path = "../obs_stub.rs"]
-mod obs_stub;
-
 use opencv::core::Mat;
 use opencv::prelude::*;
 use opencv::{Result, imgcodecs, imgproc};
 use serde_json::json;
 
 fn run() -> Result<i32> {
+    ge_cv::configure(ge_cv::RuntimeConfig {
+        debug: env::var_os("GE_CV_DEBUG").is_some(),
+        timing: env::var_os("GE_CV_TIMING").is_some(),
+        threads_overridden: env::var_os("GE_CV_THREADS").is_some(),
+    });
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
         eprintln!("usage: {} <lang> input.png [templates_dir]", args[0]);
@@ -33,7 +32,7 @@ fn run() -> Result<i32> {
     let mut bgra = Mat::default();
     imgproc::cvt_color_def(&bgr, &mut bgra, imgproc::COLOR_BGR2BGRA)?;
 
-    let matcher = ge_rust::cv::CvMatcher::new(lang, templates_dir)?.with_diagnostics(true);
+    let matcher = ge_cv::CvMatcher::new(lang, templates_dir)?.with_diagnostics(true);
     let result = matcher.match_level_from_bgra_frame(&bgra)?;
     println!(
         "{}",

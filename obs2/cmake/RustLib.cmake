@@ -17,10 +17,9 @@ set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
 # heavy (each links the whole binary) and are compiled on demand by
 # `cargo test` in the `test-rust`/`test-integration` recipes, so building them
 # here just made every `just obs` recompile the full test suite for nothing.
-# `test_match`/`annotate_match` link `src/obs_stub.rs` directly (see that file)
-# to resolve the OBS bridge symbols they'd otherwise pull in unresolved from
-# `ge_rust_start` and friends, so `--bins` links cleanly on every platform.
-set(CARGO_BUILD_FLAGS "--package" "ge_rust" "--lib" "--bins")
+# `test_match`/`annotate_match` live in `ge_cv`, so they build without linking
+# the plugin runtime or resolving any OBS bridge symbols.
+set(CARGO_BUILD_FLAGS "--package" "ge_rust" "--package" "ge_cv" "--lib" "--bins")
 if(GE_RUST_PACKAGE_PROFILE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
   message(FATAL_ERROR "GE_RUST_PACKAGE_PROFILE requires a non-Debug CMAKE_BUILD_TYPE.")
 endif()

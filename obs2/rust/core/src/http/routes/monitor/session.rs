@@ -118,7 +118,7 @@ impl MonitorSession {
     /// Matches one BGRA frame. The matcher's scale cache makes the first overlay
     /// frame at a given resolution costlier (it searches for the scale) and every
     /// later frame at that resolution cheap (it reuses the learned scale).
-    pub fn match_frame(&self, bytes: &[u8], width: u32, height: u32) -> opencv::Result<LevelMatch> {
+    pub fn match_frame(&self, bytes: &[u8], width: u32, height: u32) -> crate::cv::Result<LevelMatch> {
         self.matcher.match_level_from_bgra_bytes(bytes, width, height)
     }
 
@@ -128,7 +128,7 @@ impl MonitorSession {
     pub fn run<S, F>(&self, source: &mut S, mut on_result: F)
     where
         S: FrameSource,
-        F: FnMut(opencv::Result<LevelMatch>),
+        F: FnMut(crate::cv::Result<LevelMatch>),
     {
         while let Some(result) = source.capture(|bytes, w, h| self.match_frame(bytes, w, h)) {
             // Once the matcher has calibrated this source's aspect, hand the

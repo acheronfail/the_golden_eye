@@ -8,10 +8,16 @@ pub struct PhaseTimer {
     enabled: bool,
 }
 
+impl Default for PhaseTimer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PhaseTimer {
     pub fn new() -> Self {
         let now = Instant::now();
-        PhaseTimer { start: now, last: now, enabled: crate::config::cv_timing_enabled() }
+        PhaseTimer { start: now, last: now, enabled: crate::runtime_config().timing }
     }
 
     pub fn start(&self) -> Instant {

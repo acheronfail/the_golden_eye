@@ -8,9 +8,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::cv::LevelMatch;
+use crate::cv::{LevelMatch, PhaseTimer};
 use crate::http::AppState;
-use crate::timer::PhaseTimer;
 
 #[derive(Deserialize)]
 pub struct Params {
