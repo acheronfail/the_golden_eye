@@ -1,0 +1,20 @@
+[package]
+name = "ge_catalog"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+test-hooks = []
+
+[dependencies]
+anyhow = "1.0.102"
+chrono = { version = "0.4.42", default-features = false, features = ["clock", "std"] }
+ge_clip = { path = "../clip" }
+ge_game = { path = "../game" }
+ge_media = { path = "../media" }
+ge_settings = { path = "../settings" }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tracing = "0.1.44"

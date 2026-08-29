@@ -8,6 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, anyhow};
 use axum::http::StatusCode;
 use base64::Engine;
+pub use ge_catalog::{UploadHistoryEntry, YoutubeAssociationSource, YoutubeMetadata};
 use ge_clip::ClipMetadata;
 use keyring::Entry;
 use reqwest::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, HeaderMap, HeaderValue, LOCATION};
@@ -307,35 +308,6 @@ fn youtube_credential_store(settings_path: &Path) -> Arc<dyn YoutubeCredentialSt
         primary,
         file: FileYoutubeCredentialStore { path: settings_path.with_file_name(TOKEN_FILE_NAME) },
     })
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UploadHistoryEntry {
-    pub path: String,
-    #[serde(flatten)]
-    pub youtube: YoutubeMetadata,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct YoutubeMetadata {
-    pub video_id: String,
-    pub video_url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub uploaded_at: Option<String>,
-    pub title: String,
-    #[serde(default)]
-    pub source: YoutubeAssociationSource,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum YoutubeAssociationSource {
-    #[default]
-    PluginUpload,
-    ManualLink,
-    TheElite,
 }
 
 #[derive(Clone)]

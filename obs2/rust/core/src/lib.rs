@@ -1,7 +1,6 @@
 mod browser;
 mod browser_dock;
 pub mod config;
-mod db;
 mod ffi;
 mod http;
 mod logging;
@@ -21,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+pub use ge_catalog as db;
 #[cfg(feature = "test-hooks")]
 use ge_clip::ClipMetadata;
 pub use ge_cv as cv;
