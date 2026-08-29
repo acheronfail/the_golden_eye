@@ -4,7 +4,7 @@ import type { LevelMatch, RecordingStatus, RunClip } from '$lib/api';
 import MonitorView from './MonitorView.svelte';
 import type { MonitorDesign } from './monitorView';
 
-const match = (screen: string, times: LevelMatch['times'] = null): LevelMatch => ({
+const match = (screen: LevelMatch['screen'], times: LevelMatch['times'] = null): LevelMatch => ({
 	screen,
 	mission: 2,
 	part: 1,

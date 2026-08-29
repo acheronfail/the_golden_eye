@@ -3,7 +3,7 @@ import type { MonitorDesign, MonitorViewProps } from '$lib/features/monitor/moni
 import { completedRun, failedRun } from '../../fixtures';
 
 export const monitorMatch = (screen: string, times: LevelMatch['times'] = null): LevelMatch => ({
-	screen,
+	screen: screen as LevelMatch['screen'],
 	mission: 2,
 	part: 1,
 	difficulty: 0,

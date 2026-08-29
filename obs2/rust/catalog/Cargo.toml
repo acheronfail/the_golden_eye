@@ -6,6 +6,7 @@ publish = false
 
 [features]
 test-hooks = []
+export = ["dep:ts-rs", "ge_clip/export"]
 
 [dependencies]
 anyhow = "1.0.102"
@@ -18,3 +19,4 @@ rusqlite = { version = "0.32.1", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 tracing = "0.1.44"
+ts-rs = { version = "12.0.1", features = ["serde-compat"], optional = true }

@@ -3,6 +3,8 @@ use axum::response::{IntoResponse, Result};
 use serde::Serialize;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
+#[cfg_attr(feature = "export", ts(rename = "ObsSource"))]
 pub struct Source {
     pub name: String,
     pub id: String,

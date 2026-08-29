@@ -212,8 +212,9 @@ test:
 
 # formats the project and runs clippy
 fmt:
-    just clippy
     just generate-settings
+    just generate-api
+    just clippy
     cd obs2/browser && npm run format:repo
     cd obs2/browser && npm run check
     cd obs2/rust && rustup run nightly cargo fmt --all --
@@ -222,6 +223,16 @@ fmt:
 # regenerates the browser settings types/defaults from the Rust contract
 generate-settings:
     cd "{{ justfile_directory() }}/obs2/rust" && cargo run --quiet --locked --package ge_settings --features export --bin export-settings -- "{{ justfile_directory() }}/obs2/browser/src/lib/generated/settings.ts"
+
+# regenerates browser API types from the Rust wire contract
+generate-api:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just configure-release
+    source "{{ justfile_directory() }}/obs2/build/rust-cargo-env.sh"
+    export BROWSER_BUNDLE="{{ justfile_directory() }}/obs2/templates/browser-dev.html.in"
+    cd "{{ justfile_directory() }}/obs2/rust"
+    cargo run --quiet --locked --package ge_rust --features export --bin export-api -- "{{ justfile_directory() }}/obs2/browser/src/lib/generated/api.ts"
 
 # runs clippy
 clippy:
@@ -233,8 +244,8 @@ clippy:
     source "$build_dir/rust-cargo-env.sh"
 
     cd "{{ justfile_directory() }}/obs2/rust"
-    if ! cargo clippy --package ge_rust -- -D warnings; then
-      cargo clippy --package ge_rust --fix -- -D warnings
+    if ! cargo clippy --package ge_rust --features export -- -D warnings; then
+      cargo clippy --package ge_rust --features export --fix -- -D warnings
     fi
 
     cargo clippy --package ge_cv --all-targets -- -D warnings

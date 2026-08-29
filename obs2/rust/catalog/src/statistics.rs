@@ -26,7 +26,9 @@ pub struct StatisticsQuery {
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct StatusCounts {
     pub total: usize,
     pub complete: usize,
@@ -48,7 +50,9 @@ impl StatusCounts {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename = "StatisticsResponse", rename_all = "camelCase"))]
 pub struct StatisticsData {
     pub range: StatisticsRange,
     pub summary: StatisticsSummary,
@@ -58,16 +62,21 @@ pub struct StatisticsData {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct StatisticsRange {
     pub from: Option<String>,
     pub to: String,
+    #[cfg_attr(feature = "export", ts(type = "StatisticsBucket"))]
     pub bucket: &'static str,
     pub time_zone: String,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct StatisticsSummary {
     pub counts: StatusCounts,
     pub total_session_seconds: f64,
@@ -75,7 +84,9 @@ pub struct StatisticsSummary {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct CombinedBestTimes {
     pub overall_seconds: i32,
     pub recorded_cells: usize,
@@ -84,8 +95,11 @@ pub struct CombinedBestTimes {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct DifficultyCombinedBest {
+    #[cfg_attr(feature = "export", ts(type = "DifficultyNumber"))]
     pub difficulty_number: i32,
     pub total_seconds: i32,
     pub recorded_levels: usize,
@@ -93,24 +107,33 @@ pub struct DifficultyCombinedBest {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct LevelCounts {
     pub level_number: Option<i32>,
     pub counts: StatusCounts,
+    #[cfg_attr(feature = "export", ts(type = "number"))]
     pub total_seconds: i64,
     pub by_difficulty: Vec<LevelDifficultyCounts>,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct LevelDifficultyCounts {
+    #[cfg_attr(feature = "export", ts(type = "DifficultyNumber | null"))]
     pub difficulty_number: Option<i32>,
     pub counts: StatusCounts,
+    #[cfg_attr(feature = "export", ts(type = "number"))]
     pub total_seconds: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct BucketCounts {
     pub start: String,
     pub end: String,
@@ -118,9 +141,12 @@ pub struct BucketCounts {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct SelectedCohort {
     pub level_number: i32,
+    #[cfg_attr(feature = "export", ts(type = "DifficultyNumber"))]
     pub difficulty_number: i32,
     pub counts: StatusCounts,
     pub buckets: Vec<BucketCounts>,
@@ -128,7 +154,9 @@ pub struct SelectedCohort {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct RunTimePoint {
     pub run_id: String,
     pub completed_at: String,
@@ -337,7 +365,9 @@ pub fn format_micros(micros: i64) -> String {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct MonitoringSessionSummary {
     pub session_id: String,
     pub started_at: String,
@@ -351,7 +381,9 @@ pub struct MonitoringSessionSummary {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct MonitoringSessionDetail {
     #[serde(flatten)]
     pub summary: MonitoringSessionSummary,
@@ -359,12 +391,15 @@ pub struct MonitoringSessionDetail {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct SessionAttempt {
     pub run_id: String,
     pub completed_at: String,
     pub elapsed_seconds: f64,
     pub level_number: Option<i32>,
+    #[cfg_attr(feature = "export", ts(type = "DifficultyNumber | null"))]
     pub difficulty_number: Option<i32>,
     pub status: RunStatus,
     pub time_seconds: Option<i32>,

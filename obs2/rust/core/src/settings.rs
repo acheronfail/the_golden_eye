@@ -106,9 +106,13 @@ struct SettingsState {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct SettingsStatus {
+    #[cfg_attr(feature = "export", ts(type = "AppSettings"))]
     pub settings: AppSettings,
+    #[cfg_attr(feature = "export", ts(type = "AppSettings"))]
     pub defaults: AppSettings,
     pub config_path: String,
     pub plugin_version: String,

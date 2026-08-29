@@ -23,6 +23,8 @@ pub struct Params {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
+#[cfg_attr(feature = "export", ts(rename = "MatchSourceResponse"))]
 pub struct MatchResponse {
     #[serde(rename = "match")]
     level_match: LevelMatch,

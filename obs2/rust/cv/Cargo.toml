@@ -9,6 +9,9 @@ name = "test_match"
 path = "src/bin/test_match.rs"
 test = false
 
+[features]
+export = ["dep:ts-rs", "ge_game/export"]
+
 [[bin]]
 name = "annotate_match"
 path = "src/bin/annotate_match.rs"
@@ -20,3 +23,4 @@ ge_game = { path = "../game" }
 opencv = { version = "0.98.2", features = ["clang-runtime"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+ts-rs = { version = "12.0.1", features = ["serde-compat"], optional = true }

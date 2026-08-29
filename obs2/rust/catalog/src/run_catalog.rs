@@ -31,7 +31,9 @@ pub struct RunCatalogRoot {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub enum RunRetentionState {
     Pending,
     Kept,
@@ -39,7 +41,9 @@ pub enum RunRetentionState {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub enum RunSort {
     #[default]
     Newest,

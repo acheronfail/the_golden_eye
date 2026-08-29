@@ -376,6 +376,7 @@ impl MatchRect {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 pub struct MatchRegion {
     pub label: String,
     pub x: i32,
@@ -386,6 +387,7 @@ pub struct MatchRegion {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 pub struct AnnotationRect {
     pub label: String,
     pub x: i32,
@@ -393,10 +395,12 @@ pub struct AnnotationRect {
     pub w: i32,
     pub h: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export", ts(optional))]
     pub score: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 pub struct AnnotationSet {
     pub id: String,
     pub label: String,
@@ -486,6 +490,8 @@ struct FoundMission {
 // mission/part/difficulty header; they are told apart by the banner word below
 // it or, for report screens, the status value. `Unknown` covers gameplay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
+#[cfg_attr(feature = "export", ts(rename_all = "lowercase"))]
 pub enum Screen {
     Unknown,
     Start,
@@ -523,6 +529,7 @@ impl Screen {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 pub struct LevelMatch {
     pub screen: Screen,
     pub mission: i32,
@@ -531,6 +538,7 @@ pub struct LevelMatch {
     /// Game language detected from language-specific static UI, when a strong
     /// signal is visible. Currently emitted on level-start briefing screens.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export", ts(optional, type = "\"en\" | \"jp\""))]
     pub detected_lang: Option<String>,
     /// The stats-screen times split into run / target / best (see [`ge::Times`]).
     /// `None` on any screen that carries no timed rows (start, report, gameplay).

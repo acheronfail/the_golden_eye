@@ -22,7 +22,9 @@ pub struct FolderPickRequest {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename = "FolderPickResult", rename_all = "camelCase"))]
 pub struct FolderPickResponse {
     cancelled: bool,
     path: Option<String>,
@@ -35,7 +37,9 @@ pub struct FolderValidateRequest {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct FolderValidation {
     expanded_path: String,
     empty: bool,

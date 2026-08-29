@@ -16,3 +16,4 @@ llama/
 AGENTS.md
 README.md
 obs2/browser/src/lib/generated/settings.ts
+obs2/browser/src/lib/generated/api.ts

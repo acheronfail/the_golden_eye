@@ -16,7 +16,7 @@
 		loop = true
 	}: { outcome: Outcome; design?: MonitorDesign; stepDurationMs?: number; loop?: boolean } = $props();
 
-	const levelMatch = (screen: string, times: LevelMatch['times'] = null): LevelMatch => ({
+	const levelMatch = (screen: LevelMatch['screen'], times: LevelMatch['times'] = null): LevelMatch => ({
 		screen,
 		mission: 2,
 		part: 1,

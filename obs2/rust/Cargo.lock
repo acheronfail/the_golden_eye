@@ -813,6 +813,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+ "ts-rs",
 ]
 
 [[package]]
@@ -821,6 +822,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "ts-rs",
 ]
 
 [[package]]
@@ -831,6 +833,7 @@ dependencies = [
  "opencv",
  "serde",
  "serde_json",
+ "ts-rs",
 ]
 
 [[package]]
@@ -838,6 +841,7 @@ name = "ge_game"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "ts-rs",
 ]
 
 [[package]]
@@ -888,6 +892,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "ts-rs",
  "zip",
 ]
 

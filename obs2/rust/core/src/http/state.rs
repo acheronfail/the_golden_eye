@@ -64,28 +64,39 @@ pub struct PendingOAuth {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct MonitorSnapshot {
     pub enabled: bool,
     #[serde(rename = "sourceName", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export", ts(optional))]
     pub source_name: Option<String>,
     #[serde(rename = "cvLanguage", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export", ts(optional, type = "\"en\" | \"jp\""))]
     pub cv_language: Option<String>,
     pub wall_clocks: MonitorWallClockState,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct MonitorWallClockState {
+    #[cfg_attr(feature = "export", ts(type = "number | null"))]
     pub session_started_at_unix_ms: Option<u64>,
+    #[cfg_attr(feature = "export", ts(type = "number"))]
     pub session_elapsed_ms: u64,
     pub session_running: bool,
+    #[cfg_attr(feature = "export", ts(type = "number | null"))]
     pub level_started_at_unix_ms: Option<u64>,
+    #[cfg_attr(feature = "export", ts(type = "number"))]
     pub level_elapsed_ms: u64,
     pub level_running: bool,
     pub level_paused: bool,
     pub level_start_reason: Option<LevelTimerStartReason>,
     pub level_timer_phase: LevelTimerPhase,
+    #[cfg_attr(feature = "export", ts(type = "number | null"))]
     pub intro_swirl_delay_ms: Option<u64>,
     pub fade_detection: Option<BlackFrameSignal>,
     #[serde(skip)]
@@ -101,14 +112,18 @@ pub struct MonitorWallClockState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub enum LevelTimerStartReason {
     Fade,
     Swirl,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub enum LevelTimerPhase {
     #[default]
     Idle,
@@ -314,7 +329,9 @@ fn unix_time_ms() -> u64 {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct AppSnapshot {
     pub monitor: MonitorSnapshot,
     #[serde(rename = "match")]
@@ -488,7 +505,9 @@ impl SharedStateStore {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub enum RunCatalogSync {
     Initial,
     Manual,
@@ -505,7 +524,9 @@ pub struct StreamMessage {
 /// Retained state is carried by `Snapshot`; the other variants are one-off
 /// events sent only to connected clients.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(tag = "type", rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub enum AppEvent {
     /// Sent once on connect: the build id of the SPA this backend serves. The
     /// SPA compares it against its own served build and reloads on mismatch, so
@@ -526,8 +547,10 @@ pub enum AppEvent {
     RecordingSaved(RecordingSaved),
     RunCatalogChanged {
         #[serde(rename = "runId", skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "export", ts(optional))]
         run_id: Option<String>,
         #[serde(rename = "saveId", skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "export", ts(optional, type = "number"))]
         save_id: Option<u64>,
     },
     /// Monitoring stopped, either from a user request or an external OBS event.
@@ -536,6 +559,7 @@ pub enum AppEvent {
     SettingsReloaded {
         #[serde(rename = "configPath")]
         config_path: String,
+        #[cfg_attr(feature = "export", ts(type = "AppSettings"))]
         settings: crate::settings::AppSettings,
     },
     /// The settings JSON file changed on disk but could not be parsed or read.
@@ -553,6 +577,7 @@ pub enum AppEvent {
         /// `last_known_update_version` matches the running version (i.e. this is
         /// the update just applied). `None` otherwise, to avoid a wrong link.
         #[serde(rename = "releaseUrl", skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "export", ts(optional))]
         release_url: Option<String>,
     },
     /// A newer release was found but downloading/verifying/staging it failed
@@ -568,7 +593,9 @@ pub enum AppEvent {
 /// Why the backend stopped an active monitor. Serialized as a plain string
 /// inside [`AppEvent::MonitorStopped`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub enum MonitorStoppedReason {
     /// A client requested `/api/v1/monitor/stop`.
     UserStopped,
@@ -578,17 +605,22 @@ pub enum MonitorStoppedReason {
 
 /// Rolling capture/processing throughput pushed while monitoring is active.
 #[derive(Debug, Clone, Copy, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct MonitorFps {
     pub processed_fps: f64,
     pub captured_fps: f64,
     pub source_fps: f64,
+    #[cfg_attr(feature = "export", ts(type = "number"))]
     pub dropped_frames: u64,
     pub health: MonitorFpsHealth,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub enum MonitorFpsHealth {
     Healthy,
     Warning,
@@ -599,7 +631,9 @@ pub enum MonitorFpsHealth {
 /// the SPA can reflect where a run is in its lifecycle. Serialized as a plain
 /// string, e.g. `"started"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub enum RecordingStatus {
     /// A run began: the replay-buffer clip's start was anchored.
     Started,
@@ -632,7 +666,9 @@ pub enum RecordingStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub enum ReplaySaveStage {
     Scheduled,
     WaitingForReplaySave,
@@ -643,9 +679,13 @@ pub enum ReplaySaveStage {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct ReplaySaveStatus {
+    #[cfg_attr(feature = "export", ts(type = "number"))]
     pub tracking_id: u64,
+    #[cfg_attr(feature = "export", ts(type = "number"))]
     pub save_id: u64,
     pub stage: ReplaySaveStage,
     pub level: String,
@@ -653,6 +693,7 @@ pub struct ReplaySaveStatus {
     pub run_status: String,
     pub estimated_duration_secs: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export", ts(optional))]
     pub error: Option<String>,
 }
 
@@ -811,9 +852,12 @@ impl RecordingStateStore {
 /// Details of a clip save that has been scheduled after a run ending was seen,
 /// pushed to clients as an [`AppEvent::RecordingSavePending`].
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct RecordingSavePending {
     /// Identifier shared with the matching [`RecordingSaved`] event.
+    #[cfg_attr(feature = "export", ts(type = "number"))]
     pub save_id: u64,
     /// Seconds until OBS replay-buffer save is requested.
     pub save_in_secs: f64,
@@ -827,30 +871,39 @@ pub struct RecordingSavePending {
     pub level: String,
     /// GoldenEye campaign level number, when known.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export", ts(optional))]
     pub level_number: Option<i32>,
     /// Human-readable difficulty label, when known.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export", ts(optional))]
     pub difficulty: Option<String>,
     /// Run time read from the stats screen, in seconds, when known.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export", ts(optional))]
     pub time_secs: Option<i32>,
     /// Target time read from the stats screen, in seconds, when present.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export", ts(optional))]
     pub target_time_secs: Option<i32>,
     /// Best time read from the stats screen, in seconds, when present.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export", ts(optional))]
     pub best_time_secs: Option<i32>,
     /// The stats-screen match the clip will be named from, when one was seen.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export", ts(optional))]
     pub stats: Option<LevelMatch>,
 }
 
 /// Details of a clip saved out of the replay buffer at the end of a run, pushed
 /// to clients as an [`AppEvent::RecordingSaved`].
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
 pub struct RecordingSaved {
     /// Identifier shared with the matching [`RecordingSavePending`] event.
+    #[cfg_attr(feature = "export", ts(type = "number"))]
     pub save_id: u64,
     /// Absolute path to the trimmed clip written for the run.
     pub path: String,
@@ -862,6 +915,7 @@ pub struct RecordingSaved {
     pub failed: bool,
     /// The stats-screen match the clip was named from, when one was seen.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export", ts(optional))]
     pub stats: Option<LevelMatch>,
 }
 
