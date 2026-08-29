@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
+use ge_clip::{ClipMetadata, RunStatus};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
@@ -18,8 +19,6 @@ use super::run_catalog::{
     RunRetentionState,
     RunSort,
 };
-use crate::ffmpeg;
-use crate::models::clip_metadata::{ClipMetadata, RunStatus};
 use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
 
 const CREATE_TABLE: &str = include_str!("sql/runs/create_table.sql");
@@ -561,7 +560,7 @@ pub fn read_from_disk(path: &Path) -> anyhow::Result<Option<IndexedRunClip>> {
     if !is_video_file(path) {
         return Ok(None);
     }
-    let Some(metadata) = ffmpeg::read_clip_metadata(path)? else {
+    let Some(metadata) = ge_media::read_clip_metadata(path)? else {
         return Ok(None);
     };
     let fs_metadata = fs::metadata(path).with_context(|| format!("reading metadata for {}", path.display()))?;
@@ -570,7 +569,7 @@ pub fn read_from_disk(path: &Path) -> anyhow::Result<Option<IndexedRunClip>> {
         path: catalog_path(path),
         size_bytes: fs_metadata.len(),
         modified: fs_metadata.modified().ok(),
-        duration_secs: ffmpeg::duration_secs(path).ok(),
+        duration_secs: ge_media::duration_secs(path).ok(),
         retention_state: RunRetentionState::parse(&metadata.retention_state),
         retention_reason: metadata.retention_reason.clone(),
         metadata,

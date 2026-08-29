@@ -1,8 +1,10 @@
 use std::time::SystemTime;
 
+use ge_clip::ClipMetadata;
+
 use crate::cv::LevelMatch;
+use crate::ge;
 use crate::ge::Level;
-use crate::{ffmpeg, ge};
 
 #[cfg(test)]
 pub const SUPPORTED_TOKENS: &[&str] = &[
@@ -75,7 +77,7 @@ impl RunTemplateTokens {
         }
     }
 
-    pub fn from_clip_metadata(stem: &str, metadata: &ffmpeg::ClipMetadata) -> Self {
+    pub fn from_clip_metadata(stem: &str, metadata: &ClipMetadata) -> Self {
         let (mission, part) = Level::from_name(&metadata.level)
             .or(metadata.level_number.and_then(Level::from_number))
             .map(|lvl| lvl.to_mission_and_part())
@@ -143,8 +145,9 @@ fn format_metadata_timestamp_local(timestamp: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use ge_clip::{RomVersion, RunStatus};
+
     use super::*;
-    use crate::models::clip_metadata::RunStatus;
 
     #[test]
     fn render_leaves_unknown_tokens() {
@@ -176,7 +179,7 @@ mod tests {
     #[test]
     fn metadata_tokens_convert_utc_timestamp_to_local() {
         let timestamp = "2026-07-18T10:30:45Z";
-        let metadata = ffmpeg::ClipMetadata {
+        let metadata = ClipMetadata {
             run_id: "run-1".to_owned(),
             timestamp: timestamp.to_owned(),
             time: Some("01:23".to_owned()),
@@ -187,7 +190,7 @@ mod tests {
             status: RunStatus::Complete,
             was_personal_best: false,
             game_language: "en".to_owned(),
-            rom_version: Some(crate::models::clip_metadata::RomVersion::NtscU),
+            rom_version: Some(RomVersion::NtscU),
             source_name: "N64 Capture".to_owned(),
             comment: "test".to_owned(),
             plugin_version: "test".to_owned(),
@@ -211,7 +214,7 @@ mod tests {
     #[test]
     fn metadata_tokens_keep_invalid_local_timestamp_fallback() {
         let timestamp = "not a timestamp";
-        let metadata = ffmpeg::ClipMetadata {
+        let metadata = ClipMetadata {
             run_id: "run-2".to_owned(),
             timestamp: timestamp.to_owned(),
             time: None,

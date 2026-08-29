@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Utc};
+use ge_clip::RunStatus;
 use serde::Serialize;
 
 use super::runs::{CombinedBestRow, MonitorSessionRow, RunStatisticFact};
-use crate::models::clip_metadata::RunStatus;
 
 pub const COMBINED_FALLBACK_SECONDS: i32 = 1023;
 

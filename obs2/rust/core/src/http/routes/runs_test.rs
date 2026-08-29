@@ -69,9 +69,9 @@ fn write_tagged_clip(path: &Path, status: &str, timestamp: &str) {
         fs::create_dir_all(parent).unwrap();
     }
     let input = sample_clip();
-    let full = ffmpeg::duration_secs(&input).expect("probe sample clip");
+    let full = ge_media::duration_secs(&input).expect("probe sample clip");
     let metadata = test_clip_metadata(status, timestamp);
-    ffmpeg::trim_with_metadata(&input, path, 1.0, (full - 1.0).max(2.0), Some(&metadata))
+    ge_media::trim_with_metadata(&input, path, 1.0, (full - 1.0).max(2.0), Some(&metadata))
         .expect("write tagged test clip");
 }
 

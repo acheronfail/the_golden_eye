@@ -8,7 +8,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use futures_util::StreamExt;
-use ge_rust::models::clip_metadata::RunStatus;
+use ge_clip::RunStatus;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 

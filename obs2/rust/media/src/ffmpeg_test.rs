@@ -1,8 +1,24 @@
+use ge_clip::{RomVersion, RunStatus};
+
 use super::*;
-use crate::models::clip_metadata::{RomVersion, RunStatus};
 
 fn sample_clip() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../test/clips/sample_clip.mov")
+}
+
+#[test]
+fn reads_legacy_clip_language_tag() {
+    let mut tags = Dictionary::new();
+    tags.set(TAG_CREATED_BY, TAG_CREATED_BY_VALUE);
+    tags.set(TAG_RUN_TIMESTAMP, "2026-07-24T12:00:00Z");
+    tags.set(TAG_STATUS, "complete");
+    tags.set(TAG_LEVEL, "Frigate");
+    tags.set(TAG_LEGACY_ROM_LANGUAGE, "jp");
+
+    let metadata = clip_metadata_from_ffmpeg_tags(&tags).unwrap();
+    assert_eq!(metadata.game_language, "jp");
+    assert_eq!(metadata.rom_version, None);
+    assert!(!metadata.was_personal_best);
 }
 
 #[test]

@@ -3,10 +3,8 @@ mod browser_dock;
 pub mod config;
 mod db;
 mod ffi;
-mod ffmpeg;
 mod http;
 mod logging;
-pub mod models;
 mod recording;
 mod settings;
 mod stream_notifier;
@@ -23,6 +21,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+#[cfg(feature = "test-hooks")]
+use ge_clip::ClipMetadata;
 pub use ge_cv as cv;
 pub use ge_game as ge;
 use http::{
@@ -99,8 +99,8 @@ pub fn ge_test_write_tagged_clip(input: &Path, output: &Path, status: &str, time
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent).expect("create tagged clip parent");
     }
-    let duration = ffmpeg::duration_secs(input).expect("probe tagged clip input");
-    let metadata = ffmpeg::ClipMetadata {
+    let duration = ge_media::duration_secs(input).expect("probe tagged clip input");
+    let metadata = ClipMetadata {
         run_id: String::new(),
         timestamp: timestamp.to_owned(),
         time: Some("02:03".to_owned()),
@@ -118,7 +118,7 @@ pub fn ge_test_write_tagged_clip(input: &Path, output: &Path, status: &str, time
         retention_state: "kept".to_owned(),
         retention_reason: Some("imported".to_owned()),
     };
-    ffmpeg::trim_with_metadata(input, output, 1.0, (duration - 1.0).max(2.0), Some(&metadata))
+    ge_media::trim_with_metadata(input, output, 1.0, (duration - 1.0).max(2.0), Some(&metadata))
         .expect("write tagged clip");
 }
 
