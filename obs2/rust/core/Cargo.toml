@@ -21,7 +21,7 @@ dev = []
 # Test-only env seams (mock YouTube endpoints, OAuth state, browser-open skip, file
 # token store) for integration tests. Enabled only by the Rust test recipes, never by
 # the CMake/package build, so it is compiled out of shipping binaries.
-test-hooks = []
+test-hooks = ["ge_catalog/test-hooks"]
 
 [build-dependencies]
 cbindgen = "0.29.3"
@@ -38,7 +38,6 @@ obfstr = "0.4.5"
 libc = "0.2.186"
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "form", "native-tls", "charset", "http2", "system-proxy", "cookies"] }
 scraper = "0.24.0"
-rusqlite = { version = "0.32.1", features = ["bundled"] }
 rfd = "0.17.2"
 semver = "1.0.28"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -56,6 +55,7 @@ ge_cv = { path = "../cv" }
 ge_game = { path = "../game" }
 ge_clip = { path = "../clip" }
 ge_media = { path = "../media" }
+ge_catalog = { path = "../catalog" }
 
 [dev-dependencies]
 futures-util = "0.3.31"
@@ -63,4 +63,5 @@ ffmpeg-next = { version = "8.1.0", default-features = false, features = ["static
 http-body-util = "0.1.3"
 # Core's image-based tests use OpenCV directly; production gets it through ge_cv.
 opencv = { version = "0.98.2", features = ["clang-runtime"] }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
 tokio-tungstenite = "0.29.0"

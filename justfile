@@ -144,6 +144,7 @@ test-rust *args:
     fi
     cd "{{ justfile_directory() }}/obs2/rust"
     cargo test \
+      --package ge_catalog \
       --package ge_clip \
       --package ge_game \
       --package ge_cv \
@@ -237,6 +238,7 @@ clippy:
     fi
 
     cargo clippy --package ge_cv --all-targets -- -D warnings
+    cargo clippy --package ge_catalog --all-targets -- -D warnings
     cargo clippy --package ge_clip --all-targets -- -D warnings
     cargo clippy --package ge_game --all-targets -- -D warnings
     cargo clippy --package ge_media --all-targets -- -D warnings

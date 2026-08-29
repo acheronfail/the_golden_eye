@@ -800,6 +800,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ge_catalog"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ge_clip",
+ "ge_game",
+ "ge_media",
+ "ge_settings",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "ge_clip"
 version = "0.1.0"
 dependencies = [
@@ -846,6 +862,7 @@ dependencies = [
  "chrono",
  "ffmpeg-next",
  "futures-util",
+ "ge_catalog",
  "ge_clip",
  "ge_cv",
  "ge_game",

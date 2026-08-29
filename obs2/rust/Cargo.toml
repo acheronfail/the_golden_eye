@@ -1,5 +1,5 @@
 [workspace]
-members = ["clip", "core", "cv", "game", "media", "settings"]
+members = ["catalog", "clip", "core", "cv", "game", "media", "settings"]
 default-members = ["core"]
 resolver = "3"
 

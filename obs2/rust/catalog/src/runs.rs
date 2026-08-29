@@ -19,7 +19,7 @@ use super::run_catalog::{
     RunRetentionState,
     RunSort,
 };
-use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
+use crate::{UploadHistoryEntry, YoutubeMetadata};
 
 const CREATE_TABLE: &str = include_str!("sql/runs/create_table.sql");
 const CREATE_STATUS_TIMESTAMP_INDEX: &str = include_str!("sql/runs/create_status_timestamp_index.sql");
@@ -283,7 +283,7 @@ pub fn insert_finalized(
             run_id,
             completed_unix_micros,
             normalized_level_number(metadata.level_number),
-            metadata.difficulty.as_deref().and_then(crate::ge::difficulty_number),
+            metadata.difficulty.as_deref().and_then(ge_game::difficulty_number),
             metadata.status.as_str(),
             metadata.time_seconds,
             metadata.retention_state,
@@ -444,7 +444,7 @@ pub fn update_metadata(conn: &Connection, run_id: &str, metadata: &ClipMetadata)
         UPDATE_METADATA,
         params![
             normalized_level_number(metadata.level_number),
-            metadata.difficulty.as_deref().and_then(crate::ge::difficulty_number),
+            metadata.difficulty.as_deref().and_then(ge_game::difficulty_number),
             metadata.status.as_str(),
             metadata.time_seconds,
             serde_json::to_string(metadata)?,
@@ -477,7 +477,7 @@ pub fn upsert_imported(conn: &Connection, clip: &IndexedRunClip, completed_unix_
             clip.run_id,
             completed_unix_micros,
             normalized_level_number(clip.metadata.level_number),
-            clip.metadata.difficulty.as_deref().and_then(crate::ge::difficulty_number),
+            clip.metadata.difficulty.as_deref().and_then(ge_game::difficulty_number),
             clip.metadata.status.as_str(),
             clip.metadata.time_seconds,
             clip.retention_state.as_str(),

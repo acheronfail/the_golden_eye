@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-hooks"))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -21,7 +21,7 @@ use super::statistics::{
     session_detail,
 };
 use super::{meta, runs};
-use crate::youtube::{UploadHistoryEntry, YoutubeMetadata};
+use crate::{UploadHistoryEntry, YoutubeMetadata};
 
 const DB_FILE_NAME: &str = "runs.sqlite";
 
@@ -148,7 +148,7 @@ pub struct RunCatalogSave {
 pub struct RunCatalog {
     conn: Mutex<Connection>,
     needs_seed: bool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     fail_create_finalized: AtomicBool,
 }
 
@@ -177,7 +177,7 @@ impl RunCatalog {
         Ok(Self {
             conn: Mutex::new(conn),
             needs_seed: !existed || reset,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-hooks"))]
             fail_create_finalized: AtomicBool::new(false),
         })
     }
@@ -225,7 +225,7 @@ impl RunCatalog {
     }
 
     pub fn recent_runs(&self, limit: usize) -> anyhow::Result<Vec<RunRecord>> {
-        runs::recent_runs(&self.lock(), limit.clamp(1, crate::recording::MAX_RECENT_RUN_LIMIT))
+        runs::recent_runs(&self.lock(), limit.clamp(1, ge_settings::MAX_RECENT_RUN_LIMIT))
     }
 
     pub fn get_run(&self, run_id: &str) -> anyhow::Result<Option<RunRecord>> {
@@ -243,7 +243,7 @@ impl RunCatalog {
         mut metadata: ClipMetadata,
         session_id: Option<&str>,
     ) -> anyhow::Result<RunRecord> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-hooks"))]
         if self.fail_create_finalized.load(Ordering::SeqCst) {
             anyhow::bail!("injected finalized-run failure");
         }
@@ -252,12 +252,12 @@ impl RunCatalog {
         let is_pb = metadata.status == RunStatus::Complete
             && metadata.time_seconds.is_some()
             && metadata.level_number.is_some_and(|value| (1..=20).contains(&value))
-            && metadata.difficulty.as_deref().and_then(crate::ge::difficulty_number).is_some()
+            && metadata.difficulty.as_deref().and_then(ge_game::difficulty_number).is_some()
             && {
                 let best = runs::best_time(
                     &conn,
                     metadata.level_number.unwrap(),
-                    crate::ge::difficulty_number(metadata.difficulty.as_deref().unwrap()).unwrap(),
+                    ge_game::difficulty_number(metadata.difficulty.as_deref().unwrap()).unwrap(),
                 )?;
                 best.is_none_or(|best| metadata.time_seconds.unwrap() < best)
             };
@@ -360,7 +360,7 @@ impl RunCatalog {
         ))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     pub fn set_fail_create_finalized(&self, fail: bool) {
         self.fail_create_finalized.store(fail, Ordering::SeqCst);
     }
@@ -464,7 +464,7 @@ impl RunCatalog {
     pub fn cleanup_recent(&self, keep_recent: usize) -> anyhow::Result<Vec<String>> {
         let conn = self.lock();
         let runs = runs::list_runs(&conn)?;
-        let keep_recent = keep_recent.clamp(1, crate::recording::MAX_RECENT_RUN_LIMIT);
+        let keep_recent = keep_recent.clamp(1, ge_settings::MAX_RECENT_RUN_LIMIT);
         let mut expired = Vec::new();
         let mut pending_clips = 0;
         for mut run in runs {

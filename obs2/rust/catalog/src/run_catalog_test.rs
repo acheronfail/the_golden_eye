@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use ge_clip::{RomVersion, RunStatus};
 
 use super::*;
-use crate::db::run_catalog::RunCatalog;
+use crate::run_catalog::RunCatalog;
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 const CREATE_SCHEMA_V2_FIXTURE: &str = include_str!("sql/runs/create_schema_v2_fixture.sql");
@@ -577,13 +577,13 @@ fn resync_refreshes_externally_rewritten_metadata() {
     assert_eq!(clips[0].metadata.timestamp, "2026-01-02T00:00:00Z");
 }
 
-fn youtube_metadata(video_id: &str) -> crate::youtube::YoutubeMetadata {
-    crate::youtube::YoutubeMetadata {
+fn youtube_metadata(video_id: &str) -> crate::YoutubeMetadata {
+    crate::YoutubeMetadata {
         video_id: video_id.to_owned(),
         video_url: format!("https://youtu.be/{video_id}"),
         uploaded_at: Some(format!("2026-01-0{}T00:00:00Z", if video_id.ends_with('1') { 1 } else { 2 })),
         title: format!("Video {video_id}"),
-        source: crate::youtube::YoutubeAssociationSource::PluginUpload,
+        source: crate::YoutubeAssociationSource::PluginUpload,
     }
 }
 
@@ -752,7 +752,7 @@ fn schema_two_migrates_difficulty_to_numbers_without_reseeding() {
 
 #[test]
 fn statistics_and_sessions_use_numeric_difficulty() {
-    use crate::db::statistics::{Bucket, StatisticsQuery};
+    use crate::statistics::{Bucket, StatisticsQuery};
 
     let dir = TestDir::new("statistics");
     let catalog = catalog(&dir);
