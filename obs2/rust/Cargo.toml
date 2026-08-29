@@ -3,6 +3,9 @@ members = ["catalog", "clip", "core", "cv", "game", "media", "settings"]
 default-members = ["core"]
 resolver = "3"
 
+[workspace.dependencies]
+ts-rs = { version = "12.0.1", features = ["serde-compat", "no-serde-warnings"] }
+
 [profile.dist]
 inherits = "release"
 # Reducing binary size. See: https://github.com/johnthagen/min-sized-rust

@@ -70,10 +70,9 @@ fn next_replay_tracking_id() -> u64 {
 
 /// Recording behaviour loaded when a monitor session starts. The saveable-clip
 /// count is updated live; other options remain fixed for the session.
-#[derive(Debug, Clone, Deserialize)]
-#[cfg_attr(feature = "export", derive(ts_rs::TS))]
+#[derive(Debug, Clone, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
-#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
+#[ts(rename_all = "camelCase")]
 pub struct RecordingOptions {
     pub completed_output_path: String,
     pub recent_run_limit: usize,

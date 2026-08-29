@@ -40,7 +40,6 @@ else()
               --locked
               --manifest-path "${CONTRACTS_WORKSPACE_DIR}/Cargo.toml"
               --package ge_settings
-              --features export
               --bin export-settings
               -- "${SETTINGS_BINDINGS}"
       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -65,7 +64,6 @@ else()
               --locked
               --manifest-path "${CONTRACTS_WORKSPACE_DIR}/Cargo.toml"
               --package ge_rust
-              --features export
               --bin export-api
               -- "${API_BINDINGS}"
       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"

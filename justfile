@@ -234,8 +234,8 @@ clippy:
     source "$build_dir/rust-cargo-env.sh"
 
     cd "{{ justfile_directory() }}/obs2/rust"
-    if ! cargo clippy --package ge_rust --features export -- -D warnings; then
-      cargo clippy --package ge_rust --features export --fix -- -D warnings
+    if ! cargo clippy --package ge_rust -- -D warnings; then
+      cargo clippy --package ge_rust --fix -- -D warnings
     fi
 
     cargo clippy --package ge_cv --all-targets -- -D warnings
@@ -243,7 +243,7 @@ clippy:
     cargo clippy --package ge_clip --all-targets -- -D warnings
     cargo clippy --package ge_game --all-targets -- -D warnings
     cargo clippy --package ge_media --all-targets -- -D warnings
-    cargo clippy --package ge_settings --all-targets --features export -- -D warnings
+    cargo clippy --package ge_settings --all-targets -- -D warnings
 
 # generate a markdown preview of what GitHub will put in the next release notes
 preview-release sha="HEAD":

@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-#[cfg(feature = "export")]
 use ts_rs::TS;
 
 pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level} - {difficulty} - {time} - {timestamp_local}";
@@ -15,10 +14,9 @@ pub const DEFAULT_YOUTUBE_TITLE_TEMPLATE: &str = "{level} - {difficulty} - {time
 pub const DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE: &str =
     "Achieved at {datetime_local}\n\nRecorded with The Golden Eye {plugin_version}.";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "export", derive(TS))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "kebab-case")]
-#[cfg_attr(feature = "export", ts(rename_all = "kebab-case"))]
+#[ts(rename_all = "kebab-case")]
 pub enum MonitorDesign {
     SignalBand,
     MissionGlass,
@@ -27,10 +25,9 @@ pub enum MonitorDesign {
 
 pub const DEFAULT_MONITOR_DESIGN: MonitorDesign = MonitorDesign::SignalBand;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "export", derive(TS))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
+#[ts(rename_all = "camelCase")]
 pub enum UpdateCheckInterval {
     Monthly,
     Weekly,
@@ -51,10 +48,9 @@ impl UpdateCheckInterval {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "export", derive(TS))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
+#[ts(rename_all = "camelCase")]
 pub enum YoutubeVisibility {
     Public,
     Unlisted,
@@ -74,10 +70,9 @@ impl YoutubeVisibility {
 pub const DEFAULT_YOUTUBE_VISIBILITY: YoutubeVisibility = YoutubeVisibility::Unlisted;
 
 /// Persisted settings shared by the Rust runtime and bundled browser app.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "export", derive(TS))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
-#[cfg_attr(feature = "export", ts(rename_all = "camelCase"))]
+#[ts(rename_all = "camelCase")]
 pub struct AppSettings {
     pub stop_replay_buffer_when_monitor_stopped: bool,
     pub stop_replay_buffer_prompt_shown: bool,
@@ -97,11 +92,11 @@ pub struct AppSettings {
     pub streaming_started_message_template: String,
     pub streaming_stopped_message_template: String,
     pub update_check_interval: UpdateCheckInterval,
-    #[cfg_attr(feature = "export", ts(type = "number | null"))]
+    #[ts(type = "number | null")]
     pub last_update_check_time: Option<u64>,
-    #[cfg_attr(feature = "export", ts(skip))]
+    #[ts(skip)]
     pub last_known_update_version: Option<String>,
-    #[cfg_attr(feature = "export", ts(skip))]
+    #[ts(skip)]
     pub last_known_update_release_url: Option<String>,
     pub auto_update_enabled: bool,
     pub youtube_visibility: YoutubeVisibility,

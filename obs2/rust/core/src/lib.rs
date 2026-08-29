@@ -1,4 +1,3 @@
-#[cfg(feature = "export")]
 mod api_contract;
 mod browser;
 mod browser_dock;
@@ -45,7 +44,6 @@ use crate::settings::{SettingsReload, SettingsStore};
 pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
 pub(crate) const UPDATER_VERSION: &str = env!("GE_UPDATER_VERSION");
 
-#[cfg(feature = "export")]
 pub use api_contract::export_api_contract;
 
 pub(crate) type ObsPathGetter = unsafe extern "C" fn(*mut c_char, usize) -> bool;
@@ -203,12 +201,6 @@ static REPLAY_STOP_SHOULD_STOP_MONITOR: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
 #[path = "obs_stub.rs"]
 mod obs_stub;
-
-// The contract exporter needs the same stubs for strict linkers such as MSVC.
-#[cfg(all(not(test), feature = "export"))]
-#[path = "obs_stub.rs"]
-/// cbindgen:ignore
-mod export_obs_stub;
 
 /// Start the HTTP server on a background tokio runtime; returns immediately.
 /// A no-op returning `true` if already running. Returns `false` if the runtime
