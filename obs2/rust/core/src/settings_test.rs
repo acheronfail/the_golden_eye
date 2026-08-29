@@ -1,0 +1,272 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{fs, io};
+
+use serde_json::{Value, json};
+
+use super::*;
+
+static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
+fn settings_from_json(value: Value) -> AppSettings {
+    AppSettings::from_json_value(value).expect("valid settings JSON")
+}
+
+struct TestDir {
+    path: PathBuf,
+}
+
+impl TestDir {
+    fn new(label: &str) -> Self {
+        loop {
+            let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+            let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("ge-settings-{label}-{}-{nanos}-{id}", std::process::id()));
+            match fs::create_dir(&path) {
+                Ok(()) => return TestDir { path },
+                Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(err) => panic!("failed to create test dir {}: {err}", path.display()),
+            }
+        }
+    }
+
+    fn join(&self, name: &str) -> PathBuf {
+        self.path.join(name)
+    }
+}
+
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+#[test]
+fn missing_fields_use_the_complete_contract_default() {
+    let defaults = AppSettings::default();
+
+    assert_eq!(settings_from_json(json!({})), defaults);
+    assert_eq!(defaults.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
+    assert_eq!(defaults.recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
+    assert!(defaults.show_source_previews);
+    assert_eq!(settings_from_json(json!({ "monitorDesign": "debug" })).monitor_design, MonitorDesign::Debug);
+}
+
+#[test]
+fn json_value_is_normalized_field_by_field() {
+    let settings = settings_from_json(json!({
+        "stopReplayBufferWhenMonitorStopped": true,
+        "stopReplayBufferPromptShown": true,
+        "monitorDesign": "mission-glass",
+        "showMonitorFps": true,
+        "showDeveloperSettings": true,
+        "showSourcePreviews": false,
+        "lastUsedSourceName": " N64 Capture ",
+        "welcomeModalShown": true,
+        "completedOutputPath": "/tmp/completed",
+        "recentRunLimit": 7,
+        "clipFilenameTemplate": "",
+        "preRunPaddingSecs": -3,
+        "postRunPaddingSecs": 2.5,
+        "discordNotificationsEnabled": false,
+        "discordWebhookUrl": " https://discord.example/webhook ",
+        "streamingStartedMessageTemplate": "",
+        "streamingStoppedMessageTemplate": "Stopped {broadcast_url}",
+        "updateCheckInterval": "daily",
+        "lastUpdateCheckTime": 1234,
+        "youtubeVisibility": "private",
+        "youtubeTitleTemplate": "{level} PB",
+        "youtubeDescriptionTemplate": "{time}"
+    }));
+
+    assert!(settings.stop_replay_buffer_when_monitor_stopped);
+    assert!(settings.stop_replay_buffer_prompt_shown);
+    assert_eq!(settings.monitor_design, MonitorDesign::MissionGlass);
+    assert!(settings.show_monitor_fps);
+    assert!(settings.show_developer_settings);
+    assert!(!settings.show_source_previews);
+    assert_eq!(settings.last_used_source_name.as_deref(), Some("N64 Capture"));
+    assert!(settings.welcome_modal_shown);
+    assert_eq!(settings.completed_output_path, "/tmp/completed");
+    assert_eq!(settings.recent_run_limit, 7);
+    assert_eq!(settings.clip_filename_template, DEFAULT_CLIP_FILENAME_TEMPLATE);
+    assert_eq!(settings.pre_run_padding_secs, 0.0);
+    assert_eq!(settings.post_run_padding_secs, 2.5);
+    assert!(!settings.discord_notifications_enabled);
+    assert_eq!(settings.discord_webhook_url, " https://discord.example/webhook ");
+    assert_eq!(settings.streaming_started_message_template, DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE);
+    assert_eq!(settings.streaming_stopped_message_template, "Stopped {broadcast_url}");
+    assert_eq!(settings.update_check_interval, UpdateCheckInterval::Daily);
+    assert_eq!(settings.last_update_check_time, Some(1234));
+
+    let notification_options = settings.notification_options();
+    assert!(!notification_options.enabled);
+    assert_eq!(notification_options.discord_webhook_url, "https://discord.example/webhook");
+}
+
+#[test]
+fn mistyped_setting_is_rejected() {
+    assert!(AppSettings::from_json_value(json!({ "showMonitorFps": "yes" })).is_err());
+}
+
+#[test]
+fn recent_run_limit_is_clamped_to_the_saveable_clip_maximum() {
+    let settings = settings_from_json(json!({ "recentRunLimit": 100 }));
+
+    assert_eq!(settings.recent_run_limit, MAX_RECENT_RUN_LIMIT);
+    assert_eq!(settings.recording_options().recent_run_limit, MAX_RECENT_RUN_LIMIT);
+}
+
+#[test]
+fn output_path_defaults_follow_obs_replay_directory_and_completed_path() {
+    let replay_dir = PathBuf::from("/tmp/obs-replays");
+    let settings = settings_from_json(json!({})).with_default_output_paths(Some(&replay_dir));
+
+    let default_completed = replay_dir.join("GoldenEye");
+    assert_eq!(settings.completed_output_path, default_completed.to_string_lossy());
+
+    let custom_completed =
+        settings_from_json(json!({ "completedOutputPath": "/runs" })).with_default_output_paths(None);
+    assert_eq!(custom_completed.completed_output_path, "/runs");
+}
+
+#[test]
+fn status_includes_backend_defaults() {
+    let dir = TestDir::new("status-defaults");
+    let store = SettingsStore::load_from_path(dir.join("settings.json"));
+    let status = store.status();
+
+    assert_eq!(status.defaults.recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
+}
+
+#[test]
+fn store_persists_and_loads_settings_json() {
+    let dir = TestDir::new("persist");
+    let path = dir.join("nested/settings.json");
+    let store = SettingsStore::load_from_path(path.clone());
+
+    let saved = store
+        .replace(settings_from_json(json!({
+            "stopReplayBufferWhenMonitorStopped": true,
+            "stopReplayBufferPromptShown": true,
+            "monitorDesign": "mission-glass",
+            "showMonitorFps": true,
+            "showDeveloperSettings": true,
+            "showSourcePreviews": false,
+            "lastUsedSourceName": "N64 Capture",
+            "welcomeModalShown": true,
+            "completedOutputPath": "/runs",
+            "recentRunLimit": 3,
+            "clipFilenameTemplate": "{level}",
+            "preRunPaddingSecs": 1.25,
+            "postRunPaddingSecs": 4,
+            "discordNotificationsEnabled": false,
+            "discordWebhookUrl": "https://discord.example/webhook",
+            "streamingStartedMessageTemplate": "Started {broadcast_url}",
+            "streamingStoppedMessageTemplate": "Stopped {broadcast_url}",
+            "updateCheckInterval": "monthly",
+            "lastUpdateCheckTime": 456
+        })))
+        .unwrap();
+
+    assert_eq!(saved.completed_output_path, "/runs");
+    assert!(saved.stop_replay_buffer_when_monitor_stopped);
+    assert!(saved.stop_replay_buffer_prompt_shown);
+    assert_eq!(saved.monitor_design, MonitorDesign::MissionGlass);
+    assert!(saved.show_monitor_fps);
+    assert!(saved.show_developer_settings);
+    assert!(!saved.show_source_previews);
+    assert_eq!(saved.last_used_source_name.as_deref(), Some("N64 Capture"));
+    assert!(saved.welcome_modal_shown);
+    assert_eq!(saved.update_check_interval, UpdateCheckInterval::Monthly);
+    assert_eq!(saved.last_update_check_time, Some(456));
+    assert!(path.exists());
+
+    let reloaded = SettingsStore::load_from_path(path).get();
+    assert_eq!(reloaded, saved);
+}
+
+#[test]
+fn store_updates_last_update_check_time_without_changing_other_settings() {
+    let dir = TestDir::new("update-time");
+    let store = SettingsStore::load_from_path(dir.join("settings.json"));
+    store
+        .replace(settings_from_json(json!({
+            "showMonitorFps": true,
+            "updateCheckInterval": "daily"
+        })))
+        .unwrap();
+
+    let saved = store.set_last_update_check_time(99).unwrap();
+
+    assert!(saved.show_monitor_fps);
+    assert_eq!(saved.update_check_interval, UpdateCheckInterval::Daily);
+    assert_eq!(saved.last_update_check_time, Some(99));
+}
+
+#[test]
+fn store_updates_last_known_update_without_changing_other_settings() {
+    let dir = TestDir::new("update-known");
+    let store = SettingsStore::load_from_path(dir.join("settings.json"));
+    store
+        .replace(settings_from_json(json!({
+            "showMonitorFps": true,
+            "updateCheckInterval": "daily"
+        })))
+        .unwrap();
+
+    let saved = store
+        .set_last_known_update("v1.2.3", "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.2.3")
+        .unwrap();
+
+    assert!(saved.show_monitor_fps);
+    assert_eq!(saved.update_check_interval, UpdateCheckInterval::Daily);
+    assert_eq!(saved.last_known_update_version, Some("v1.2.3".to_owned()));
+    assert_eq!(
+        saved.last_known_update_release_url,
+        Some("https://github.com/acheronfail/the_golden_eye/releases/tag/v1.2.3".to_owned())
+    );
+}
+
+#[test]
+fn put_settings_preserves_backend_owned_last_known_update() {
+    let dir = TestDir::new("preserve-known-update");
+    let store = SettingsStore::load_from_path(dir.join("settings.json"));
+    store.set_last_known_update("v1.2.3", "https://github.com/acheronfail/the_golden_eye/releases/tag/v1.2.3").unwrap();
+
+    let saved = store
+        .set_from_json_value_with_runtime_defaults(json!({
+            "showMonitorFps": true,
+            "updateCheckInterval": "daily",
+            "lastKnownUpdateVersion": null,
+            "lastKnownUpdateReleaseUrl": null
+        }))
+        .unwrap();
+
+    assert!(saved.show_monitor_fps);
+    assert_eq!(saved.update_check_interval, UpdateCheckInterval::Daily);
+    assert_eq!(saved.last_known_update_version, Some("v1.2.3".to_owned()));
+    assert_eq!(
+        saved.last_known_update_release_url,
+        Some("https://github.com/acheronfail/the_golden_eye/releases/tag/v1.2.3".to_owned())
+    );
+}
+
+#[test]
+fn put_settings_preserves_backend_owned_last_update_check_time() {
+    let dir = TestDir::new("preserve-update-time");
+    let store = SettingsStore::load_from_path(dir.join("settings.json"));
+    store.set_last_update_check_time(99).unwrap();
+
+    let saved = store
+        .set_from_json_value_with_runtime_defaults(json!({
+            "showMonitorFps": true,
+            "updateCheckInterval": "daily",
+            "lastUpdateCheckTime": null
+        }))
+        .unwrap();
+
+    assert!(saved.show_monitor_fps);
+    assert_eq!(saved.update_check_interval, UpdateCheckInterval::Daily);
+    assert_eq!(saved.last_update_check_time, Some(99));
+}

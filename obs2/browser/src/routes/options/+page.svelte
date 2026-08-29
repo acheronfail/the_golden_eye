@@ -83,20 +83,24 @@
 	const dangerPanelClass =
 		'grid gap-3 rounded border border-(--obs-danger) bg-[color-mix(in_srgb,var(--obs-danger)_14%,transparent)] px-4 py-4';
 	const normalizeRecentRunLimit = () => {
-		const value = Number(settings.recentRunLimit);
-		settings.recentRunLimit = Number.isFinite(value)
+		const value = Number(settings.values.recentRunLimit);
+		settings.values.recentRunLimit = Number.isFinite(value)
 			? Math.min(MAX_RECENT_RUN_LIMIT, Math.max(1, Math.trunc(value)))
 			: settings.defaults.recentRunLimit;
 	};
 
 	const normalizePreRunPadding = () => {
-		const value = Number(settings.preRunPaddingSecs);
-		settings.preRunPaddingSecs = Number.isFinite(value) ? Math.max(0, value) : settings.defaults.preRunPaddingSecs;
+		const value = Number(settings.values.preRunPaddingSecs);
+		settings.values.preRunPaddingSecs = Number.isFinite(value)
+			? Math.max(0, value)
+			: settings.defaults.preRunPaddingSecs;
 	};
 
 	const normalizePostRunPadding = () => {
-		const value = Number(settings.postRunPaddingSecs);
-		settings.postRunPaddingSecs = Number.isFinite(value) ? Math.max(0, value) : settings.defaults.postRunPaddingSecs;
+		const value = Number(settings.values.postRunPaddingSecs);
+		settings.values.postRunPaddingSecs = Number.isFinite(value)
+			? Math.max(0, value)
+			: settings.defaults.postRunPaddingSecs;
 	};
 
 	const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -109,11 +113,15 @@
 
 	const wrongClipTemplateSeparator = $derived(clipTemplateSeparator === '/' ? '\\' : '/');
 	const clipTemplateError = $derived(
-		validateClipFilenameTemplate(settings.clipFilenameTemplate, clipTemplateSeparator, wrongClipTemplateSeparator)
+		validateClipFilenameTemplate(
+			settings.values.clipFilenameTemplate,
+			clipTemplateSeparator,
+			wrongClipTemplateSeparator
+		)
 	);
 
 	const setClipFilenameTemplate = (value: string) => {
-		settings.clipFilenameTemplate = value.split(wrongClipTemplateSeparator).join(clipTemplateSeparator);
+		settings.values.clipFilenameTemplate = value.split(wrongClipTemplateSeparator).join(clipTemplateSeparator);
 	};
 
 	function validateClipFilenameTemplate(value: string, separator: string, wrongSeparator: string): string | null {
@@ -167,7 +175,7 @@
 	});
 
 	const validateOutputPath = async () => {
-		const value = settings.completedOutputPath.trim();
+		const value = settings.values.completedOutputPath.trim();
 		const seq = ++completedValidationSeq;
 
 		if (!value) {
@@ -179,7 +187,7 @@
 		completedPathValidating = true;
 		try {
 			const validation = await backend.validateFolder(value);
-			if (seq === completedValidationSeq && value === settings.completedOutputPath.trim()) {
+			if (seq === completedValidationSeq && value === settings.values.completedOutputPath.trim()) {
 				completedValidation = validation;
 			}
 		} catch (err) {
@@ -194,7 +202,7 @@
 	};
 
 	const chooseOutputPath = async () => {
-		const currentPath = settings.completedOutputPath.trim() || outputPathPlaceholder;
+		const currentPath = settings.values.completedOutputPath.trim() || outputPathPlaceholder;
 
 		pickingOutputPath = true;
 		try {
@@ -203,7 +211,7 @@
 				currentPath
 			});
 			if (!result.cancelled && result.path) {
-				settings.completedOutputPath = result.path;
+				settings.values.completedOutputPath = result.path;
 				await validateOutputPath();
 			}
 		} catch (err) {
@@ -217,7 +225,7 @@
 		validation.willCreate ? 'Ready: folder will be created' : 'Ready: folder exists';
 
 	const clearOutputPath = () => {
-		settings.completedOutputPath = '';
+		settings.values.completedOutputPath = '';
 		clearPathValidation();
 	};
 

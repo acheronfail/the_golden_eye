@@ -26,10 +26,10 @@
 		refreshReplayBuffer: () => void refreshReplayBuffer(),
 		navigate: (href, options) => void goto(href, options),
 		reportError: (message) => alert(message),
-		stopPromptShown: () => settings.stopReplayBufferPromptShown,
+		stopPromptShown: () => settings.values.stopReplayBufferPromptShown,
 		saveStopPreference: async (stopReplayBuffer) => {
-			settings.stopReplayBufferWhenMonitorStopped = stopReplayBuffer;
-			settings.stopReplayBufferPromptShown = true;
+			settings.values.stopReplayBufferWhenMonitorStopped = stopReplayBuffer;
+			settings.values.stopReplayBufferPromptShown = true;
 			await settings.saveNow();
 		}
 	});
@@ -80,7 +80,7 @@
 <svelte:window {onkeydown} />
 
 <MonitorView
-	design={settings.monitorDesign}
+	design={settings.values.monitorDesign}
 	sourceName={params.sourceName}
 	{verified}
 	{monitoring}
@@ -90,7 +90,7 @@
 	replaySaves={monitor.replaySaves}
 	match={monitor.match}
 	fps={monitor.fps}
-	showMonitorFps={settings.showMonitorFps}
+	showMonitorFps={settings.values.showMonitorFps}
 	wallClockState={monitor.wallClocks}
 	recentRuns={recentRuns.items}
 	recentRunsBusyId={recentRuns.busyRunId}

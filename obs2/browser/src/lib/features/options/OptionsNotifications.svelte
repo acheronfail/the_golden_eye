@@ -15,7 +15,7 @@
 	<label class="flex items-center gap-3">
 		<input
 			type="checkbox"
-			bind:checked={settings.discordNotificationsEnabled}
+			bind:checked={settings.values.discordNotificationsEnabled}
 			class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
 		/>
 		<span class={styles.label}>Enable Discord notifications</span>
@@ -23,13 +23,13 @@
 	<p class={styles.hint}>Enable notifications in Discord for streaming, requires a webhook URL.</p>
 </section>
 
-{#if settings.discordNotificationsEnabled}
+{#if settings.values.discordNotificationsEnabled}
 	<section class={styles.panel}>
 		<label class={styles.label} for="discord-webhook-url">Discord webhook URL</label>
 		<input
 			id="discord-webhook-url"
 			type="url"
-			bind:value={settings.discordWebhookUrl}
+			bind:value={settings.values.discordWebhookUrl}
 			placeholder="https://discord.com/api/webhooks/..."
 			autocomplete="off"
 			spellcheck="false"
@@ -42,7 +42,7 @@
 		<textarea
 			id="streaming-started-message-template"
 			rows="3"
-			bind:value={settings.streamingStartedMessageTemplate}
+			bind:value={settings.values.streamingStartedMessageTemplate}
 			placeholder={settings.defaults.streamingStartedMessageTemplate}
 			class={styles.textarea}
 		></textarea>
@@ -61,7 +61,7 @@
 		<textarea
 			id="streaming-stopped-message-template"
 			rows="3"
-			bind:value={settings.streamingStoppedMessageTemplate}
+			bind:value={settings.values.streamingStoppedMessageTemplate}
 			placeholder={settings.defaults.streamingStoppedMessageTemplate}
 			class={styles.textarea}
 		></textarea>

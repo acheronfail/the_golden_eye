@@ -116,7 +116,7 @@
 		{ href: '/statistics', label: 'Statistics' },
 		{ href: '/runs', label: 'Runs' },
 		{ href: '/options', label: 'Options' },
-		...(settings.showDeveloperSettings ? [{ href: '/developer', label: 'Developer' }] : [])
+		...(settings.values.showDeveloperSettings ? [{ href: '/developer', label: 'Developer' }] : [])
 	]);
 
 	const pluginVersion = $derived(settings.pluginVersion);
@@ -125,11 +125,13 @@
 		monitor.chromePhase ?? (activeMonitorHref ? monitorPresentationPhase(monitor.recordingState) : null)
 	);
 	const activeMonitorStyle = $derived(monitorPhaseStyleForPhase(activeMonitorPhase ?? 'complete'));
-	const showWelcomeModal = $derived(settings.loaded && settings.fileError === null && !settings.welcomeModalShown);
+	const showWelcomeModal = $derived(
+		settings.loaded && settings.fileError === null && !settings.values.welcomeModalShown
+	);
 	const manualUpdate = $derived(!showWelcomeModal && !monitor.status?.enabled ? updates.manualUpdate : null);
 
 	const dismissWelcomeModal = () => {
-		settings.welcomeModalShown = true;
+		settings.values.welcomeModalShown = true;
 	};
 </script>
 

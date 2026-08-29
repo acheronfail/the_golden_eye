@@ -143,7 +143,7 @@ test-rust *args:
       export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/test"
     fi
     cd "{{ justfile_directory() }}/obs2/rust"
-    cargo test --release --features test-hooks {{ args }}
+    cargo test --package ge_rust --release --features test-hooks {{ args }}
 
 # runs the backend against the controllable Rust OBS host (no OBS process)
 test-integration *args:
@@ -162,7 +162,7 @@ test-integration *args:
       export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/integration"
     fi
     cd "{{ justfile_directory() }}/obs2/rust"
-    cargo test --release --features test-hooks --tests -- --ignored --test-threads=1 {{ args }}
+    cargo test --package ge_rust --release --features test-hooks --tests -- --ignored --test-threads=1 {{ args }}
 
 # runs browser unit/component tests
 test-browser *args:
@@ -204,10 +204,15 @@ test:
 # formats the project and runs clippy
 fmt:
     just clippy
+    just generate-settings
     cd obs2/browser && npm run format:repo
     cd obs2/browser && npm run check
-    cd obs2/rust && rustup run nightly cargo fmt --
+    cd obs2/rust && rustup run nightly cargo fmt --all --
     find obs2 obs2/shim obs2/shim/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_rust.h -print0 | xargs -0 clang-format -style=file -i
+
+# regenerates the browser settings types/defaults from the Rust contract
+generate-settings:
+    cd "{{ justfile_directory() }}/obs2/rust" && cargo run --quiet --locked --package ge_settings --features export --bin export-settings -- "{{ justfile_directory() }}/obs2/browser/src/lib/generated/settings.ts"
 
 # runs clippy
 clippy:
@@ -219,9 +224,11 @@ clippy:
     source "$build_dir/rust-cargo-env.sh"
 
     cd "{{ justfile_directory() }}/obs2/rust"
-    if ! cargo clippy -- -D warnings; then
-      cargo clippy --fix -- -D warnings
+    if ! cargo clippy --package ge_rust -- -D warnings; then
+      cargo clippy --package ge_rust --fix -- -D warnings
     fi
+
+    cargo clippy --package ge_settings --all-targets --features export -- -D warnings
 
 # generate a markdown preview of what GitHub will put in the next release notes
 preview-release sha="HEAD":

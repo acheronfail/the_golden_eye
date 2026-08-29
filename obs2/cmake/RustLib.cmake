@@ -20,7 +20,7 @@ set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
 # `test_match`/`annotate_match` link `src/obs_stub.rs` directly (see that file)
 # to resolve the OBS bridge symbols they'd otherwise pull in unresolved from
 # `ge_rust_start` and friends, so `--bins` links cleanly on every platform.
-set(CARGO_BUILD_FLAGS "--lib" "--bins")
+set(CARGO_BUILD_FLAGS "--package" "ge_rust" "--lib" "--bins")
 if(GE_RUST_PACKAGE_PROFILE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
   message(FATAL_ERROR "GE_RUST_PACKAGE_PROFILE requires a non-Debug CMAKE_BUILD_TYPE.")
 endif()

@@ -38,7 +38,7 @@ describe('update state', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		notifications.flags = [];
-		settings.autoUpdateEnabled = false;
+		settings.values.autoUpdateEnabled = false;
 		updates.applyStatus({ phase: 'idle', available: null });
 	});
 
@@ -123,7 +123,7 @@ describe('update state', () => {
 
 	it('never downloads a manual update and keeps its release notice when auto-update is enabled', async () => {
 		const manualUpdate = { ...available, updaterVersion: 1, requiresManualInstall: true };
-		settings.autoUpdateEnabled = true;
+		settings.values.autoUpdateEnabled = true;
 		updates.applyStatus({ phase: 'available', available: manualUpdate });
 
 		expect(updates.manualUpdate).toEqual(manualUpdate);
