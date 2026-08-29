@@ -49,6 +49,7 @@ fn missing_fields_use_the_complete_contract_default() {
     assert_eq!(defaults.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
     assert_eq!(defaults.recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
     assert!(defaults.show_source_previews);
+    assert!(!defaults.auto_start_monitor_on_launch);
     assert_eq!(settings_from_json(json!({ "monitorDesign": "debug" })).monitor_design, MonitorDesign::Debug);
 }
 
@@ -62,6 +63,7 @@ fn json_value_is_normalized_field_by_field() {
         "showDeveloperSettings": true,
         "showSourcePreviews": false,
         "lastUsedSourceName": " N64 Capture ",
+        "autoStartMonitorOnLaunch": true,
         "welcomeModalShown": true,
         "completedOutputPath": "/tmp/completed",
         "recentRunLimit": 7,
@@ -86,6 +88,7 @@ fn json_value_is_normalized_field_by_field() {
     assert!(settings.show_developer_settings);
     assert!(!settings.show_source_previews);
     assert_eq!(settings.last_used_source_name.as_deref(), Some("N64 Capture"));
+    assert!(settings.auto_start_monitor_on_launch);
     assert!(settings.welcome_modal_shown);
     assert_eq!(settings.completed_output_path, "/tmp/completed");
     assert_eq!(settings.recent_run_limit, 7);

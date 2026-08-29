@@ -181,9 +181,13 @@ impl MonitorTiming {
 
 #[axum::debug_handler]
 pub async fn handle_start(State(state): State<AppState>, Json(params): Json<StartParams>) -> Result<impl IntoResponse> {
+    start_monitor(&state, params.source_name).await
+}
+
+pub(crate) async fn start_monitor(state: &AppState, source_name: String) -> Result<StatusCode> {
     // Keep the original source name for the app snapshot; it is also converted
     // to a CString below for the C capture bridge.
-    let status_source_name = params.source_name.clone();
+    let status_source_name = source_name.clone();
     let effective_settings = state.settings.get_effective();
     let catalog_state = state.clone();
     tokio::task::spawn_blocking(move || {
@@ -196,7 +200,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         recording_options.recent_run_limit.clamp(1, crate::recording::MAX_RECENT_RUN_LIMIT),
     ));
     let source_name =
-        CString::new(params.source_name).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
+        CString::new(source_name).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
     // Starting the current source is idempotent so a reconnecting frontend can
     // safely converge on backend state. A different source remains a conflict.

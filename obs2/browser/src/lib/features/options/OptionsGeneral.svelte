@@ -42,6 +42,17 @@
 
 <section class={styles.panel}>
 	<label class="flex items-center gap-3">
+		<input type="checkbox" bind:checked={settings.values.autoStartMonitorOnLaunch} class="obs-checkbox rounded" />
+		<span class={styles.label}>Start monitoring when OBS launches</span>
+	</label>
+	<p class={styles.hint}>
+		Automatically starts monitoring the last used source once OBS is ready. Nothing happens if that source is
+		unavailable.
+	</p>
+</section>
+
+<section class={styles.panel}>
+	<label class="flex items-center gap-3">
 		<input
 			type="checkbox"
 			bind:checked={settings.values.autoUpdateEnabled}

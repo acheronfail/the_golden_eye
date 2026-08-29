@@ -167,6 +167,19 @@ describe('/options', () => {
 		);
 	});
 
+	it('saves the auto-start monitor option', async () => {
+		const user = userEvent.setup();
+		render(OptionsPageHarness);
+
+		const checkbox = await screen.findByRole('checkbox', { name: /Start monitoring when OBS launches/i });
+		await waitFor(() => expect(checkbox).toBeEnabled());
+		await user.click(checkbox);
+
+		await waitFor(() =>
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ autoStartMonitorOnLaunch: true }))
+		);
+	});
+
 	it('saves the selected monitor design from recording options', async () => {
 		const user = userEvent.setup();
 		mocks.page.url = new URL('http://localhost/options?tab=recording');

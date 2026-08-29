@@ -39,7 +39,7 @@ use http::{
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
-use crate::settings::{SettingsReload, SettingsStore};
+use crate::settings::{AppSettings, SettingsReload, SettingsStore};
 
 pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
 pub(crate) const UPDATER_VERSION: &str = env!("GE_UPDATER_VERSION");
@@ -443,22 +443,41 @@ pub unsafe extern "C" fn ge_stream_notifier_start(service_settings_json: *const 
 /// to query on all supported OBS startup paths observed so far.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_frontend_finished_loading() {
-    let state = {
+    let (runtime_handle, state) = {
         let guard = match SERVER.lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),
         };
-        guard.as_ref().map(|h| h.state.clone())
-    };
-
-    let Some(state) = state else {
-        tracing::warn!("ge_frontend_finished_loading called but server is not running");
-        return;
+        match guard.as_ref() {
+            Some(handle) => (handle.runtime_handle.clone(), handle.state.clone()),
+            None => {
+                tracing::warn!("ge_frontend_finished_loading called but server is not running");
+                return;
+            }
+        }
     };
 
     state.frontend_ready_tx.send_replace(true);
-    state.snapshot.set_sources(http::collect_sources());
+    let sources = http::collect_sources();
+    state.snapshot.set_sources(sources.clone());
     refresh_runtime_snapshot(&state);
+
+    if let Some(source_name) = auto_start_monitor_source(&state.settings.get(), &sources) {
+        runtime_handle.spawn(async move {
+            if let Err(error) = http::routes::monitor::start_monitor(&state, source_name.clone()).await {
+                tracing::warn!(source_name, error = ?error, "failed to auto-start monitor");
+            }
+        });
+    }
+}
+
+fn auto_start_monitor_source(settings: &AppSettings, sources: &[http::routes::sources::Source]) -> Option<String> {
+    if !settings.auto_start_monitor_on_launch {
+        return None;
+    }
+
+    let source_name = settings.last_used_source_name.as_ref()?;
+    sources.iter().any(|source| source.name == *source_name).then(|| source_name.clone())
 }
 
 fn frontend_ready(state: &AppState) -> bool {
