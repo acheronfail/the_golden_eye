@@ -8,18 +8,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::Context;
-use serde::Serialize;
-use serde_json::Value;
-use settings_contract::{AppSettings as ContractSettings, MAX_RECENT_RUN_LIMIT};
+use ge_settings::{AppSettings as ContractSettings, MAX_RECENT_RUN_LIMIT};
 #[cfg(test)]
-use settings_contract::{
+use ge_settings::{
     DEFAULT_CLIP_FILENAME_TEMPLATE,
     DEFAULT_PRE_RUN_PADDING_SECS,
     DEFAULT_RECENT_RUN_LIMIT,
     DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE,
     MonitorDesign,
 };
-pub use settings_contract::{UpdateCheckInterval, YoutubeVisibility};
+pub use ge_settings::{UpdateCheckInterval, YoutubeVisibility};
+use serde::Serialize;
+use serde_json::Value;
 
 use crate::recording::RecordingOptions;
 

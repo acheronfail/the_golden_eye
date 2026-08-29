@@ -18,7 +18,7 @@ forwards them from `ci.yml`/`release.yml`). Empty in local builds unless exporte
   (obfuscated to prevent automated scanners, it's not real secrecy).
 - `GE_YOUTUBE_CLIENT_ID` — desktop OAuth client ID.
 
-Google/YouTube endpoints are constants in `obs2/rust/src/config/youtube.rs`.
+Google/YouTube endpoints are constants in `obs2/rust/core/src/config/youtube.rs`.
 
 Local dev:
 

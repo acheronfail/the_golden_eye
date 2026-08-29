@@ -117,7 +117,7 @@ fn run() -> Result<i32> {
     let image_path = &args[2];
     // Default to the cv_templates/ dir that ships alongside obs2/, resolved
     // relative to this crate at compile time (mirrors GE_TEMPLATES_DIR).
-    let default_templates = concat!(env!("CARGO_MANIFEST_DIR"), "/../cv_templates");
+    let default_templates = concat!(env!("CARGO_MANIFEST_DIR"), "/../../cv_templates");
     let templates_dir = args.get(3).map(|s| s.as_str()).unwrap_or(default_templates);
     let diagnostics = ge_rust::config::matcher::diagnostics_enabled();
 

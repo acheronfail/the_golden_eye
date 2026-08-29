@@ -18,7 +18,7 @@ fn write_tagged_clip(root: &Path, path: &Path, status: &str, timestamp: &str) {
 async fn schema_one_catalog_is_reset_and_existing_clips_are_reseeded_as_kept() {
     let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
         let completed = temp.join("clips");
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
         write_tagged_clip(&root, &completed.join("old.mov"), "failed", "2026-01-01T00:00:00Z");
         write_tagged_clip(&root, &completed.join("new.mov"), "complete", "2026-01-02T00:00:00Z");
         let database = run_catalog_path(temp);

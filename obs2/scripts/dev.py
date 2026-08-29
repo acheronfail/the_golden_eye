@@ -26,8 +26,14 @@ IS_LINUX = sys.platform.startswith("linux")
 ROOT = Path(__file__).resolve().parents[2]
 BUILD_DIR = ROOT / "obs2" / "build"
 PLUGIN_BUILD_DIR = ROOT / "obs2" / "build-flatpak" if IS_LINUX else BUILD_DIR
-RUST_SRC = ROOT / "obs2" / "rust" / "src"
-RUST_MANIFEST = ROOT / "obs2" / "rust" / "Cargo.toml"
+RUST_ROOT = ROOT / "obs2" / "rust"
+RUST_WATCH_PATHS = [
+    RUST_ROOT / "Cargo.toml",
+    RUST_ROOT / "core" / "Cargo.toml",
+    RUST_ROOT / "core" / "src",
+    RUST_ROOT / "settings" / "Cargo.toml",
+    RUST_ROOT / "settings" / "src",
+]
 PLUGIN_NAME = "the_golden_eye"
 DEFAULT_SERVER_PORT = (ROOT / "obs2" / "server-port.txt").read_text().strip()
 SERVER_PORT = os.environ.get("GE_SERVER_PORT", DEFAULT_SERVER_PORT)
@@ -259,13 +265,15 @@ def forward_output(
 
 
 def newest_rust_mtime() -> float:
-    newest = RUST_MANIFEST.stat().st_mtime
-    for path in RUST_SRC.rglob("*"):
-        try:
-            if path.is_file():
-                newest = max(newest, path.stat().st_mtime)
-        except FileNotFoundError:
-            pass
+    newest = 0.0
+    for watched in RUST_WATCH_PATHS:
+        paths = watched.rglob("*") if watched.is_dir() else [watched]
+        for path in paths:
+            try:
+                if path.is_file():
+                    newest = max(newest, path.stat().st_mtime)
+            except FileNotFoundError:
+                pass
     return newest
 
 

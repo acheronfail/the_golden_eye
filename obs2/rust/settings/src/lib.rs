@@ -3,14 +3,12 @@ use serde_json::Value;
 #[cfg(feature = "export")]
 use ts_rs::TS;
 
-pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str =
-    "{level} - {difficulty} - {time} - {timestamp_local}";
+pub const DEFAULT_CLIP_FILENAME_TEMPLATE: &str = "{level} - {difficulty} - {time} - {timestamp_local}";
 pub const DEFAULT_PRE_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_POST_RUN_PADDING_SECS: f64 = 5.0;
 pub const DEFAULT_RECENT_RUN_LIMIT: usize = 10;
 pub const MAX_RECENT_RUN_LIMIT: usize = 20;
-pub const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE: &str =
-    "🟢 Bond is now streaming at: {broadcast_url}";
+pub const DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE: &str = "🟢 Bond is now streaming at: {broadcast_url}";
 pub const DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE: &str =
     "🔴 Bond stopped streaming at <t:{unix_seconds}:F>: {broadcast_url}";
 pub const DEFAULT_YOUTUBE_TITLE_TEMPLATE: &str = "{level} - {difficulty} - {time}";
@@ -129,10 +127,8 @@ impl Default for AppSettings {
             post_run_padding_secs: DEFAULT_POST_RUN_PADDING_SECS,
             discord_notifications_enabled: true,
             discord_webhook_url: String::new(),
-            streaming_started_message_template: DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE
-                .to_owned(),
-            streaming_stopped_message_template: DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE
-                .to_owned(),
+            streaming_started_message_template: DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE.to_owned(),
+            streaming_stopped_message_template: DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE.to_owned(),
             update_check_interval: DEFAULT_UPDATE_CHECK_INTERVAL,
             last_update_check_time: None,
             last_known_update_version: None,
@@ -152,48 +148,29 @@ impl AppSettings {
 
     pub fn normalized(mut self) -> Self {
         let defaults = Self::default();
-        self.last_used_source_name = self
-            .last_used_source_name
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty());
+        self.last_used_source_name =
+            self.last_used_source_name.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty());
         self.recent_run_limit = self.recent_run_limit.clamp(1, MAX_RECENT_RUN_LIMIT);
         if self.clip_filename_template.is_empty() {
             self.clip_filename_template = defaults.clip_filename_template;
         }
-        self.pre_run_padding_secs =
-            non_negative_f64(self.pre_run_padding_secs, defaults.pre_run_padding_secs);
-        self.post_run_padding_secs =
-            non_negative_f64(self.post_run_padding_secs, defaults.post_run_padding_secs);
-        self.streaming_started_message_template = non_empty_template(
-            self.streaming_started_message_template,
-            defaults.streaming_started_message_template,
-        );
-        self.streaming_stopped_message_template = non_empty_template(
-            self.streaming_stopped_message_template,
-            defaults.streaming_stopped_message_template,
-        );
-        self.youtube_title_template =
-            non_empty_template(self.youtube_title_template, defaults.youtube_title_template);
-        self.youtube_description_template = non_empty_template(
-            self.youtube_description_template,
-            defaults.youtube_description_template,
-        );
+        self.pre_run_padding_secs = non_negative_f64(self.pre_run_padding_secs, defaults.pre_run_padding_secs);
+        self.post_run_padding_secs = non_negative_f64(self.post_run_padding_secs, defaults.post_run_padding_secs);
+        self.streaming_started_message_template =
+            non_empty_template(self.streaming_started_message_template, defaults.streaming_started_message_template);
+        self.streaming_stopped_message_template =
+            non_empty_template(self.streaming_stopped_message_template, defaults.streaming_stopped_message_template);
+        self.youtube_title_template = non_empty_template(self.youtube_title_template, defaults.youtube_title_template);
+        self.youtube_description_template =
+            non_empty_template(self.youtube_description_template, defaults.youtube_description_template);
         self
     }
 }
 
 fn non_negative_f64(value: f64, fallback: f64) -> f64 {
-    if value.is_finite() {
-        value.max(0.0)
-    } else {
-        fallback
-    }
+    if value.is_finite() { value.max(0.0) } else { fallback }
 }
 
 fn non_empty_template(value: String, fallback: String) -> String {
-    if value.trim().is_empty() {
-        fallback
-    } else {
-        value
-    }
+    if value.trim().is_empty() { fallback } else { value }
 }

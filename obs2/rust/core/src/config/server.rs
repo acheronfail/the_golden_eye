@@ -2,7 +2,7 @@ use super::EnvVar;
 
 static GE_SERVER_PORT: EnvVar = EnvVar::new("GE_SERVER_PORT");
 
-const DEFAULT_SERVER_PORT: &str = include_str!("../../../server-port.txt");
+const DEFAULT_SERVER_PORT: &str = include_str!("../../../../server-port.txt");
 
 /// Resolves the local HTTP server port, allowing isolated test/dev instances.
 pub(crate) fn server_port() -> u16 {

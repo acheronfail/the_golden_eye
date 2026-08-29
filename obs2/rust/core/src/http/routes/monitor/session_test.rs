@@ -10,8 +10,8 @@ const fn times(time: i32, target_time: Option<i32>, best_time: Option<i32>) -> O
 }
 
 // Templates ship alongside obs2/; screenshots live under test/screenshots-*.
-const TEMPLATES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../cv_templates");
-const SCREENSHOTS_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test");
+const TEMPLATES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../cv_templates");
+const SCREENSHOTS_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../test");
 
 /// Decodes a screenshot into a contiguous BGRA byte buffer plus dimensions,
 /// matching the layout OBS hands the matcher.

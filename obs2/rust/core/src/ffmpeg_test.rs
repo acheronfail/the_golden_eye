@@ -2,7 +2,7 @@ use super::*;
 use crate::models::clip_metadata::{RomVersion, RunStatus};
 
 fn sample_clip() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/clips/sample_clip.mov")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../test/clips/sample_clip.mov")
 }
 
 #[test]

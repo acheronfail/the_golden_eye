@@ -1,7 +1,8 @@
 # Generate the browser's settings type/defaults from the lightweight Rust
 # contract before Vite type-checks or bundles the SPA.
 
-set(SETTINGS_CONTRACT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/settings-contract")
+set(SETTINGS_WORKSPACE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
+set(SETTINGS_CONTRACT_DIR "${SETTINGS_WORKSPACE_DIR}/settings")
 set(SETTINGS_BINDINGS "${CMAKE_CURRENT_SOURCE_DIR}/browser/src/lib/generated/settings.ts")
 file(GLOB_RECURSE SETTINGS_CONTRACT_SOURCES CONFIGURE_DEPENDS
     "${SETTINGS_CONTRACT_DIR}/src/*"
@@ -21,19 +22,21 @@ else()
   add_custom_command(
       OUTPUT "${SETTINGS_BINDINGS}"
       COMMAND ${CMAKE_COMMAND} -E env
-              "CARGO_TARGET_DIR=${CMAKE_CURRENT_SOURCE_DIR}/rust/target/settings-contract"
+              "CARGO_TARGET_DIR=${SETTINGS_WORKSPACE_DIR}/target"
               "${SETTINGS_CARGO_EXECUTABLE}" run
               --quiet
               --locked
-              --manifest-path "${SETTINGS_CONTRACT_DIR}/Cargo.toml"
+              --manifest-path "${SETTINGS_WORKSPACE_DIR}/Cargo.toml"
+              --package ge_settings
               --features export
               --bin export-settings
               -- "${SETTINGS_BINDINGS}"
       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
       DEPENDS
               ${SETTINGS_CONTRACT_SOURCES}
+              "${SETTINGS_WORKSPACE_DIR}/Cargo.toml"
+              "${SETTINGS_WORKSPACE_DIR}/Cargo.lock"
               "${SETTINGS_CONTRACT_DIR}/Cargo.toml"
-              "${SETTINGS_CONTRACT_DIR}/Cargo.lock"
       COMMENT "Generating settings contract"
       VERBATIM
     )

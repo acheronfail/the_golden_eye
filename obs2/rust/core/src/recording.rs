@@ -11,14 +11,14 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Context;
-use serde::Deserialize;
-pub use settings_contract::{
+pub use ge_settings::{
     DEFAULT_CLIP_FILENAME_TEMPLATE,
     DEFAULT_POST_RUN_PADDING_SECS,
     DEFAULT_PRE_RUN_PADDING_SECS,
     DEFAULT_RECENT_RUN_LIMIT,
     MAX_RECENT_RUN_LIMIT,
 };
+use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::cv::{LevelMatch, Screen};

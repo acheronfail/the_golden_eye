@@ -21,7 +21,7 @@ fn run() -> Result<i32> {
 
     let lang = args[1].as_str();
     let input_path = &args[2];
-    let default_templates = concat!(env!("CARGO_MANIFEST_DIR"), "/../cv_templates");
+    let default_templates = concat!(env!("CARGO_MANIFEST_DIR"), "/../../cv_templates");
     let templates_dir = args.get(3).map(|s| s.as_str()).unwrap_or(default_templates);
 
     let bgr = imgcodecs::imread(input_path, imgcodecs::IMREAD_COLOR)?;

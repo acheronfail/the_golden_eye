@@ -31,7 +31,11 @@ fn main() {
     emit_rerun_for_sources("src");
 
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let obs2_dir = crate_dir.parent().expect("Rust crate should live under obs2/").to_path_buf();
+    let obs2_dir = crate_dir
+        .parent()
+        .and_then(|rust_dir| rust_dir.parent())
+        .expect("Rust core crate should live under obs2/rust/")
+        .to_path_buf();
     let core_dir = obs2_dir.join("core");
     std::fs::create_dir_all(&core_dir).expect("failed to create obs2/core directory");
     let output_file = core_dir.join("ge_rust.h");
