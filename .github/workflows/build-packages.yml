@@ -251,6 +251,7 @@ jobs:
 
     env:
       VCPKG_ROOT: C:\vcpkg
+      VCPKG_COMMIT: c3867e714dd3a51c272826eea77267876517ed99
       VCPKGRS_TRIPLET: x64-windows-static-md
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-bincache
 
@@ -269,6 +270,13 @@ jobs:
             obs2/browser/package-lock.json
             test/package-lock.json
 
+      - name: Pin vcpkg
+        shell: pwsh
+        run: |
+          git -C $env:VCPKG_ROOT fetch origin $env:VCPKG_COMMIT --depth=1
+          git -C $env:VCPKG_ROOT checkout --force $env:VCPKG_COMMIT
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+
       - name: Restore vcpkg dependencies
         id: restore-vcpkg
         uses: actions/cache/restore@v6
@@ -277,9 +285,9 @@ jobs:
             C:\vcpkg\installed
             C:\vcpkg\downloads
             .vcpkg-bincache
-          key: windows-vcpkg-${{ runner.arch }}-${{ hashFiles('obs2/cmake/OpenCVStatic.cmake', 'obs2/cmake/FFmpegStatic.cmake') }}
+          key: windows-vcpkg-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('obs2/cmake/OpenCVStatic.cmake', 'obs2/cmake/FFmpegStatic.cmake') }}
           restore-keys: |
-            windows-vcpkg-${{ runner.arch }}-
+            windows-vcpkg-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
 
       - name: Cache cargo dependencies
         uses: actions/cache@v6
