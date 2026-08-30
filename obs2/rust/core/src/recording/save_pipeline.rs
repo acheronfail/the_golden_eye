@@ -9,7 +9,7 @@ struct SaveAndTrimJob {
     completed_at: SystemTime,
     stats: Option<LevelMatch>,
     metadata: ClipMetadata,
-    options: RecordingOptions,
+    output_policy: ClipOutputPolicy,
     #[cfg_attr(test, allow(dead_code))]
     recent_run_limit: Arc<AtomicUsize>,
     event_tx: broadcast::Sender<AppEvent>,
@@ -31,7 +31,7 @@ struct TrimClipRequest<'a> {
     completed_at: SystemTime,
     stats: Option<LevelMatch>,
     metadata: ClipMetadata,
-    options: &'a RecordingOptions,
+    output_policy: &'a ClipOutputPolicy,
     recent_run_limit: usize,
     run_catalog: &'a RunCatalog,
 }
@@ -99,7 +99,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
         completed_at: job.completed_at,
         stats: job.stats,
         metadata: job.metadata,
-        options: &job.options,
+        output_policy: &job.output_policy,
         recent_run_limit: job.recent_run_limit.load(Ordering::Acquire),
         run_catalog: &job.run_catalog,
     }) {
@@ -203,7 +203,7 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
     let start = (duration - req.start_before_save_secs).max(0.0).min(end);
 
     let failed = req.status.is_failed();
-    let dir = output_dir(input, req.options);
+    let dir = output_dir(input, req.output_policy);
     ensure_output_directory(&dir)?;
     let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("replay");
     let ext = input.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
@@ -212,7 +212,7 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
         req.status,
         req.completed_at,
         req.stats.as_ref(),
-        req.options.clip_filename_template(),
+        &req.output_policy.filename_template,
     );
     let output = unique_output_path(&dir.join(append_extension(relative_path, ext)));
     if let Some(parent) = output.parent() {
@@ -276,4 +276,3 @@ fn remove_replay_file_after_trim(replay_path: &str, saved_path: &str) {
         Err(err) => tracing::warn!(path = %replay.display(), "failed to delete replay buffer source file: {err}"),
     }
 }
-

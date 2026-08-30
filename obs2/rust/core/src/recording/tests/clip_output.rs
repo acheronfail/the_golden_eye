@@ -3,15 +3,15 @@ fn output_dir_prefers_configured_path_then_replay_parent() {
     let dir = TestDir::new("output-dir");
     let input = dir.join("replay.mov");
     let completed = dir.join("completed");
-    let mut options = RecordingOptions {
+    let options = RecordingOptions {
         completed_output_path: completed.to_string_lossy().into_owned(),
         ..RecordingOptions::default()
     };
+    let policy = options.output_policy();
 
-    assert_eq!(output_dir(&input, &options), completed);
+    assert_eq!(output_dir(&input, &policy), completed);
 
-    options.completed_output_path.clear();
-    assert_eq!(output_dir(&input, &options), dir.path());
+    assert_eq!(output_dir(&input, &RecordingOptions::default().output_policy()), dir.path());
 }
 
 #[test]

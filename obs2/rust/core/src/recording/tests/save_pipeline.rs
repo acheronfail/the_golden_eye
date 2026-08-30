@@ -31,8 +31,7 @@ fn shutdown_before_pending_save_fires_waits_and_preserves_save_job() {
     assert_eq!(job.status, RunStatus::Complete);
     assert!(job.completed_at <= SystemTime::now());
     assert_eq!(job.stats.as_ref().and_then(|m| m.times).map(|times| times.time), Some(123));
-    assert_eq!(job.options.pre_run_padding_secs, 1.0);
-    assert_eq!(job.options.post_run_padding_secs, 5.0);
+    assert_eq!(job.output_policy.filename_template, DEFAULT_CLIP_FILENAME_TEMPLATE);
     assert_eq!(job.metadata.source_name, "N64 Capture");
     assert_eq!(job.metadata.game_language, "en");
     assert_eq!(job.metadata.rom_version, None);

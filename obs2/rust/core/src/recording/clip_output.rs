@@ -39,9 +39,9 @@ fn ensure_output_directory(dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn output_dir(input: &Path, options: &RecordingOptions) -> PathBuf {
-    if let Some(path) = configured_dir(&options.completed_output_path) {
-        return path;
+fn output_dir(input: &Path, policy: &ClipOutputPolicy) -> PathBuf {
+    if let Some(path) = &policy.output_directory {
+        return path.clone();
     }
     input.parent().unwrap_or_else(|| Path::new(".")).to_path_buf()
 }
@@ -172,4 +172,3 @@ fn sanitize_path_component(name: &str) -> String {
         .trim_matches(|c: char| c.is_whitespace() || c == '.')
         .to_owned()
 }
-

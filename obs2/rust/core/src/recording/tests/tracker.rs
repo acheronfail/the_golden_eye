@@ -4,20 +4,21 @@ fn padding_defaults_to_five_and_adds_the_internal_buffer_at_both_ends() {
     assert_eq!(default.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
     assert_eq!(default.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS);
     assert_eq!(default.recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
-    assert_eq!(default.pre_run_padding_secs(), DEFAULT_PRE_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
-    assert_eq!(default.post_run_padding_secs(), DEFAULT_POST_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
+    let policy = default.tracker_policy();
+    assert_eq!(policy.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
+    assert_eq!(policy.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS + MATCH_PADDING_BUFFER_SECS);
 
     // A configured value of zero still carries the internal safety buffer, so a
     // one-frame timing window can't drop the briefing or stats overlay.
     let zero =
         RecordingOptions { pre_run_padding_secs: 0.0, post_run_padding_secs: 0.0, ..RecordingOptions::default() };
-    assert_eq!(zero.pre_run_padding_secs(), MATCH_PADDING_BUFFER_SECS);
-    assert_eq!(zero.post_run_padding_secs(), MATCH_PADDING_BUFFER_SECS);
+    assert_eq!(zero.tracker_policy().pre_run_padding_secs, MATCH_PADDING_BUFFER_SECS);
+    assert_eq!(zero.tracker_policy().post_run_padding_secs, MATCH_PADDING_BUFFER_SECS);
 
     let negative =
         RecordingOptions { pre_run_padding_secs: -2.0, post_run_padding_secs: -2.0, ..RecordingOptions::default() };
-    assert_eq!(negative.pre_run_padding_secs(), MATCH_PADDING_BUFFER_SECS);
-    assert_eq!(negative.post_run_padding_secs(), MATCH_PADDING_BUFFER_SECS);
+    assert_eq!(negative.tracker_policy().pre_run_padding_secs, MATCH_PADDING_BUFFER_SECS);
+    assert_eq!(negative.tracker_policy().post_run_padding_secs, MATCH_PADDING_BUFFER_SECS);
 }
 
 #[test]
@@ -195,7 +196,7 @@ fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
         completed_at: job.completed_at,
         stats: job.stats,
         metadata: job.metadata.clone(),
-        options: &options,
+        output_policy: &options.output_policy(),
         recent_run_limit: options.recent_run_limit,
         run_catalog: &catalog,
     })
@@ -394,7 +395,7 @@ fn poll_pending_waits_for_the_padding_window_before_firing() {
     // The fire time is the run finish plus the post-run padding, independent of
     // when frames arrive; polling before it elapses is a no-op.
     let fire_at = recording.pending_fire_at().expect("pending fire time");
-    assert_eq!(fire_at, stats_at + recording.options.save_delay());
+    assert_eq!(fire_at, stats_at + recording.tracker_policy.save_delay());
     recording.poll_pending(fire_at - Duration::from_millis(1));
     assert!(recording.tracker.pending.is_some());
     recording.tracker.pending = None;
@@ -625,7 +626,7 @@ fn run_tracker_reports_start_without_application_dependencies() {
         now,
         UNIX_EPOCH,
         &match_for_screen(Screen::Start),
-        &RecordingOptions::default(),
+        RecordingOptions::default().tracker_policy(),
     );
 
     assert!(update.ensure_replay_buffer);
@@ -640,20 +641,21 @@ fn run_tracker_schedules_a_completed_run_as_a_domain_transition() {
     let options = RecordingOptions::default();
     let start = Instant::now();
     let finish = start + Duration::from_secs(12);
-    tracker.on_frame(start, UNIX_EPOCH, &match_for_screen(Screen::Start), &options);
+    let policy = options.tracker_policy();
+    tracker.on_frame(start, UNIX_EPOCH, &match_for_screen(Screen::Start), policy);
     tracker.on_frame(
         start + Duration::from_secs(10),
         UNIX_EPOCH,
         &match_for_screen(Screen::Complete),
-        &options,
+        policy,
     );
 
-    let update = tracker.on_frame(finish, UNIX_EPOCH + Duration::from_secs(12), &match_with_time(), &options);
+    let update = tracker.on_frame(finish, UNIX_EPOCH + Duration::from_secs(12), &match_with_time(), policy);
 
     assert_eq!(update.phase, Some(RecordingStatus::SavePending));
     assert!(update.pending_changed);
     let pending = tracker.pending.as_ref().expect("scheduled save");
     assert_eq!(pending.status, RunStatus::Complete);
     assert_eq!(pending.completed_at, UNIX_EPOCH + Duration::from_secs(12));
-    assert_eq!(pending.fire_at, finish + options.save_delay());
+    assert_eq!(pending.fire_at, finish + policy.save_delay());
 }

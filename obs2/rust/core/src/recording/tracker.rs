@@ -185,9 +185,9 @@ fn recording_save_pending_event(
 
 /// Build the provisional run event, reading `save_in_secs` as the time remaining
 /// until it fires. Re-sent when the voted time is refined.
-fn save_pending_event(pending: &PendingSave, options: &RecordingOptions, now: Instant) -> RecordingSavePending {
+fn save_pending_event(pending: &PendingSave, policy: RunTrackerPolicy, now: Instant) -> RecordingSavePending {
     let run_length_secs = pending.finish_at.saturating_duration_since(pending.clip_start).as_secs_f64();
-    let estimated_duration_secs = run_length_secs + options.pre_run_padding_secs() + options.post_run_padding_secs();
+    let estimated_duration_secs = run_length_secs + policy.pre_run_padding_secs + policy.post_run_padding_secs;
     recording_save_pending_event(
         pending.save_id,
         pending.fire_at.saturating_duration_since(now),
@@ -267,7 +267,7 @@ impl RunTracker {
         completed_at: SystemTime,
         clip_start: Instant,
         stats: Option<LevelMatch>,
-        options: &RecordingOptions,
+        policy: RunTrackerPolicy,
         update: &mut TrackerUpdate,
     ) {
         if let Some(previous) = self.pending.take() {
@@ -275,7 +275,7 @@ impl RunTracker {
         }
         let stats = stats.map(|m| self.canonicalize_match(m));
         let status = self.status.unwrap_or(RunStatus::Complete);
-        let save_delay = options.save_delay();
+        let save_delay = policy.save_delay();
         let save_id = self.next_save_id;
         self.next_save_id = self.next_save_id.saturating_add(1).max(1);
         self.pending = Some(PendingSave {
@@ -338,7 +338,7 @@ impl RunTracker {
         now: Instant,
         completed_at: SystemTime,
         m: &LevelMatch,
-        options: &RecordingOptions,
+        policy: RunTrackerPolicy,
     ) -> TrackerUpdate {
         let mut update = TrackerUpdate::default();
         match m.screen {
@@ -361,7 +361,7 @@ impl RunTracker {
                     if let Some(report) = self.report.take() {
                         let status = self.status.unwrap_or(RunStatus::Complete);
                         tracing::info!("stats screen skipped (report -> level select)");
-                        self.schedule_save(now, completed_at, start, Some(report), options, &mut update);
+                        self.schedule_save(now, completed_at, start, Some(report), policy, &mut update);
                         update.phase = Some(if status.is_failed() {
                             RecordingStatus::SavePending
                         } else {
@@ -404,7 +404,7 @@ impl RunTracker {
             Screen::Stats => {
                 if let Some(start) = self.clip_start.take() {
                     tracing::info!("stats detected");
-                    self.schedule_save(now, completed_at, start, Some(m.clone()), options, &mut update);
+                    self.schedule_save(now, completed_at, start, Some(m.clone()), policy, &mut update);
                     if let Some(pending) = self.pending.as_mut() {
                         let initial = pending.stats.clone().expect("stats save retains its match");
                         record_stats_vote(pending, &initial);
@@ -445,8 +445,10 @@ pub struct RecordingState {
     recording_state: RecordingStateStore,
     /// Retained replay-buffer save pipeline diagnostics.
     replay_saves: ReplaySaveStateStore,
-    /// Recording/output options fixed for this monitor session.
-    options: RecordingOptions,
+    /// Normalized timing policy fixed for this monitor session.
+    tracker_policy: RunTrackerPolicy,
+    /// Normalized clip destination and naming policy.
+    output_policy: ClipOutputPolicy,
     /// The retention count is the one recording option that can change while a
     /// monitor is running.
     recent_run_limit: Arc<AtomicUsize>,
@@ -468,12 +470,15 @@ impl RecordingState {
         run_catalog: Arc<RunCatalog>,
     ) -> Self {
         let recent_run_limit = Arc::new(AtomicUsize::new(options.recent_run_limit.clamp(1, MAX_RECENT_RUN_LIMIT)));
+        let tracker_policy = options.tracker_policy();
+        let output_policy = options.output_policy();
         RecordingState {
             tracker: RunTracker::new(session.game_language),
             event_tx,
             recording_state,
             replay_saves,
-            options,
+            tracker_policy,
+            output_policy,
             recent_run_limit,
             source_name: session.source_name,
             run_catalog,
@@ -507,7 +512,14 @@ impl RecordingState {
     #[cfg(test)]
     fn schedule_save(&mut self, now: Instant, clip_start: Instant, stats: Option<LevelMatch>) -> bool {
         let mut update = TrackerUpdate::default();
-        self.tracker.schedule_save(now, SystemTime::now(), clip_start, stats, &self.options, &mut update);
+        self.tracker.schedule_save(
+            now,
+            SystemTime::now(),
+            clip_start,
+            stats,
+            self.tracker_policy,
+            &mut update,
+        );
         for pending in update.ready {
             self.flush_ready(pending, now);
         }
@@ -521,7 +533,7 @@ impl RecordingState {
             return;
         };
         if !pending.pending_event_sent || time_changed {
-            let event = save_pending_event(pending, &self.options, now);
+            let event = save_pending_event(pending, self.tracker_policy, now);
             self.replay_saves.schedule(ReplaySaveStatus {
                 tracking_id: pending.tracking_id,
                 save_id: event.save_id,
@@ -576,9 +588,10 @@ impl RecordingState {
         }
 
         let start_before_save_secs =
-            now.saturating_duration_since(pending.clip_start).as_secs_f64() + self.options.pre_run_padding_secs();
+            now.saturating_duration_since(pending.clip_start).as_secs_f64()
+                + self.tracker_policy.pre_run_padding_secs;
         let finish_before_save_secs = now.saturating_duration_since(pending.finish_at).as_secs_f64();
-        let trim_tail_secs = (finish_before_save_secs - self.options.post_run_padding_secs()).max(0.0);
+        let trim_tail_secs = (finish_before_save_secs - self.tracker_policy.post_run_padding_secs).max(0.0);
         SaveAndTrimJob {
             tracking_id: pending.tracking_id,
             save_id: pending.save_id,
@@ -588,7 +601,7 @@ impl RecordingState {
             completed_at: pending.completed_at,
             stats: pending.stats,
             metadata: finalized.metadata,
-            options: self.options.clone(),
+            output_policy: self.output_policy.clone(),
             recent_run_limit: self.recent_run_limit.clone(),
             event_tx: self.event_tx.clone(),
             recording_state: self.recording_state.clone(),
@@ -656,7 +669,7 @@ impl RecordingState {
     /// Feed the latest matched frame (and the current time). Called once per
     /// captured frame, so it also polls the pending-save timer.
     pub fn on_frame(&mut self, now: Instant, m: &LevelMatch) {
-        let update = self.tracker.on_frame(now, SystemTime::now(), m, &self.options);
+        let update = self.tracker.on_frame(now, SystemTime::now(), m, self.tracker_policy);
         if update.ensure_replay_buffer {
             ensure_replay_buffer_running_for_recording();
         }

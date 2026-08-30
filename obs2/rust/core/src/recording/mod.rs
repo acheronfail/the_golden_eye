@@ -98,23 +98,43 @@ impl RecordingOptions {
         if value.is_finite() { value.max(0.0) } else { fallback }
     }
 
-    #[cfg_attr(test, allow(dead_code))]
-    fn clip_filename_template(&self) -> &str {
+    fn tracker_policy(&self) -> RunTrackerPolicy {
+        RunTrackerPolicy {
+            pre_run_padding_secs: Self::non_negative_secs(self.pre_run_padding_secs, 0.0) + MATCH_PADDING_BUFFER_SECS,
+            post_run_padding_secs: Self::non_negative_secs(self.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS)
+                + MATCH_PADDING_BUFFER_SECS,
+        }
+    }
+
+    fn output_policy(&self) -> ClipOutputPolicy {
         let trimmed = self.clip_filename_template.trim();
-        if trimmed.is_empty() { DEFAULT_CLIP_FILENAME_TEMPLATE } else { trimmed }
+        ClipOutputPolicy {
+            output_directory: configured_dir(&self.completed_output_path),
+            filename_template: if trimmed.is_empty() {
+                DEFAULT_CLIP_FILENAME_TEMPLATE.to_owned()
+            } else {
+                trimmed.to_owned()
+            },
+        }
     }
+}
 
-    fn pre_run_padding_secs(&self) -> f64 {
-        Self::non_negative_secs(self.pre_run_padding_secs, 0.0) + MATCH_PADDING_BUFFER_SECS
-    }
+#[derive(Debug, Clone, Copy)]
+struct RunTrackerPolicy {
+    pre_run_padding_secs: f64,
+    post_run_padding_secs: f64,
+}
 
-    fn post_run_padding_secs(&self) -> f64 {
-        Self::non_negative_secs(self.post_run_padding_secs, DEFAULT_POST_RUN_PADDING_SECS) + MATCH_PADDING_BUFFER_SECS
+impl RunTrackerPolicy {
+    fn save_delay(self) -> Duration {
+        Duration::from_secs_f64(self.post_run_padding_secs)
     }
+}
 
-    fn save_delay(&self) -> Duration {
-        Duration::from_secs_f64(self.post_run_padding_secs())
-    }
+#[derive(Debug, Clone)]
+struct ClipOutputPolicy {
+    output_directory: Option<PathBuf>,
+    filename_template: String,
 }
 
 include!("replay_buffer.rs");
