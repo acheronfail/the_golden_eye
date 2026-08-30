@@ -1,4 +1,4 @@
-use std::ffi::{CStr, CString, c_char, c_int, c_void};
+use std::ffi::{CStr, CString, c_char};
 use std::ptr;
 
 use serde_json::{Value, json};
@@ -16,7 +16,7 @@ pub fn post_load() {
         return;
     }
 
-    let config = unsafe { obs_frontend_get_user_config() };
+    let config = unsafe { crate::ffi::obs_frontend_get_user_config() };
     if config.is_null() {
         tracing::warn!("OBS user config unavailable; could not ensure custom browser dock");
         return;
@@ -24,7 +24,7 @@ pub fn post_load() {
 
     let url = crate::config::browser_dock_url();
     let existing = unsafe {
-        let ptr = config_get_string(config, DOCKS_SECTION.as_ptr().cast(), DOCKS_KEY.as_ptr().cast());
+        let ptr = crate::ffi::config_get_string(config, DOCKS_SECTION.as_ptr().cast(), DOCKS_KEY.as_ptr().cast());
         c_string(ptr)
     };
 
@@ -46,10 +46,15 @@ pub fn post_load() {
     };
 
     unsafe {
-        config_set_string(config, DOCKS_SECTION.as_ptr().cast(), DOCKS_KEY.as_ptr().cast(), output.as_ptr());
+        crate::ffi::config_set_string(
+            config,
+            DOCKS_SECTION.as_ptr().cast(),
+            DOCKS_KEY.as_ptr().cast(),
+            output.as_ptr(),
+        );
     }
 
-    let save_result = unsafe { config_save_safe(config, CONFIG_TEMP_EXT.as_ptr().cast(), ptr::null()) };
+    let save_result = unsafe { crate::ffi::config_save_safe(config, CONFIG_TEMP_EXT.as_ptr().cast(), ptr::null()) };
     if save_result != 0 {
         tracing::warn!("could not save OBS custom browser dock config");
     } else {
@@ -99,13 +104,6 @@ fn string_field_eq(value: &Value, field: &str, expected: &str) -> bool {
 
 unsafe fn c_string(ptr: *const c_char) -> Option<String> {
     if ptr.is_null() { None } else { Some(unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()) }
-}
-
-unsafe extern "C" {
-    fn obs_frontend_get_user_config() -> *mut c_void;
-    fn config_get_string(config: *mut c_void, section: *const c_char, name: *const c_char) -> *const c_char;
-    fn config_set_string(config: *mut c_void, section: *const c_char, name: *const c_char, value: *const c_char);
-    fn config_save_safe(config: *mut c_void, temp_ext: *const c_char, backup_ext: *const c_char) -> c_int;
 }
 
 #[cfg(test)]

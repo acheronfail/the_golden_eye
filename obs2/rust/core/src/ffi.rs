@@ -1,4 +1,53 @@
-use std::ffi::{c_char, c_void};
+use std::ffi::{CStr, c_char, c_int, c_void};
+use std::ptr::NonNull;
+
+/// One BGRA source frame allocated by the C bridge.
+pub struct OwnedBgraFrame {
+    ptr: NonNull<u8>,
+    width: u32,
+    height: u32,
+    len: usize,
+}
+
+impl OwnedBgraFrame {
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        // SAFETY: the C bridge allocated `len` bytes and this value owns them
+        // until Drop returns the allocation to the C allocator.
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+    }
+}
+
+impl Drop for OwnedBgraFrame {
+    fn drop(&mut self) {
+        // SAFETY: this allocation came from the C bridge's malloc and is owned
+        // exclusively by this value.
+        unsafe { free(self.ptr.as_ptr().cast()) };
+    }
+}
+
+/// Render one OBS source into an owned BGRA frame.
+pub fn capture_source_frame(source_name: &CStr) -> Option<OwnedBgraFrame> {
+    let mut width = 0;
+    let mut height = 0;
+    let ptr = unsafe { ge_obs_get_source_frame(source_name.as_ptr(), &mut width, &mut height) };
+    let ptr = NonNull::new(ptr)?;
+    let len = (width as usize).checked_mul(height as usize).and_then(|pixels| pixels.checked_mul(4));
+    let Some(len) = len.filter(|len| *len > 0) else {
+        // SAFETY: the bridge returned a non-null malloc allocation, but invalid
+        // dimensions make it unusable as a BGRA frame.
+        unsafe { free(ptr.as_ptr().cast()) };
+        return None;
+    };
+    Some(OwnedBgraFrame { ptr, width, height, len })
+}
 
 /// Opaque capture context owning reusable OBS render/stage surfaces. Create with
 /// [`ge_capture_create`], capture via [`ge_capture_get_frame`], release with
@@ -139,6 +188,11 @@ unsafe extern "C" {
     /// passed through `blog`'s `"%s"`, so any `%` it contains is literal. The
     /// bridge maps [`GeLogLevel`] to the OBS `LOG_*` level.
     pub fn ge_obs_blog(level: GeLogLevel, msg: *const c_char);
+
+    pub fn obs_frontend_get_user_config() -> *mut c_void;
+    pub fn config_get_string(config: *mut c_void, section: *const c_char, name: *const c_char) -> *const c_char;
+    pub fn config_set_string(config: *mut c_void, section: *const c_char, name: *const c_char, value: *const c_char);
+    pub fn config_save_safe(config: *mut c_void, temp_ext: *const c_char, backup_ext: *const c_char) -> c_int;
 
     /// libc `free`, used to release buffers handed back by the C bridge.
     pub fn free(ptr: *mut c_void);

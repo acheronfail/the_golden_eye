@@ -16,33 +16,15 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
     let source_name =
         CString::new(params.source).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
-    // Render the source into a BGRA buffer owned by the C side.
-    let mut width: u32 = 0;
-    let mut height: u32 = 0;
-    let frame = unsafe { crate::ffi::ge_obs_get_source_frame(source_name.as_ptr(), &mut width, &mut height) };
-    if frame.is_null() {
-        return Err((StatusCode::BAD_REQUEST, "could not capture source frame").into());
-    }
+    let frame = crate::ffi::capture_source_frame(&source_name)
+        .ok_or((StatusCode::BAD_REQUEST, "could not capture source frame"))?;
 
-    // Encode while we still own the buffer, then hand it straight back to the
-    // C allocator regardless of whether encoding succeeded.
-    let result = encode_bmp(frame, width, height);
-    unsafe { crate::ffi::free(frame.cast()) };
-
-    let bytes = result.map_err(|err| {
+    let bytes = encode_bmp_bgra(frame.bytes(), frame.width(), frame.height()).map_err(|err| {
         tracing::error!("failed to encode screenshot: {err}");
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to encode screenshot")
     })?;
 
     Ok(([(header::CONTENT_TYPE, "image/bmp")], bytes))
-}
-
-/// Copies a `width * height` BGRA buffer into a BMP-encoded byte vector.
-/// # Safety
-/// `frame` must point to at least `width * height * 4` valid bytes.
-fn encode_bmp(frame: *const u8, width: u32, height: u32) -> std::io::Result<Vec<u8>> {
-    let pixels = unsafe { std::slice::from_raw_parts(frame, (width * height * 4) as usize) };
-    encode_bmp_bgra(pixels, width, height)
 }
 
 /// Copies a `width * height` BGRA slice into a BMP-encoded byte vector.
