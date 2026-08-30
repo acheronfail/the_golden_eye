@@ -6,6 +6,12 @@ export type DifficultyNumber = 0 | 1 | 2 | 3;
 
 export type StatisticsBucket = 'day' | 'week' | 'month' | 'year';
 
+export type ActivePictureRegion = { x: number, y: number, width: number, height: number, };
+
+export type AnnotationRect = { label: string, x: number, y: number, w: number, h: number, score?: number, };
+
+export type AnnotationSet = { id: string, label: string, annotations: Array<AnnotationRect>, };
+
 export type AppEvent = { "type": "version", buildId: string, } | { "type": "snapshot", state: AppSnapshot, } | { "type": "monitorFps" } & MonitorFps | { "type": "recordingSavePending" } & RecordingSavePending | { "type": "recordingSaved" } & RecordingSaved | { "type": "runCatalogChanged", runId?: string, saveId?: number, } | { "type": "monitorStopped", reason: MonitorStoppedReason, } | { "type": "settingsReloaded", configPath: string, settings: AppSettings, } | { "type": "settingsInvalid", configPath: string, error: string, } | { "type": "updateApplied", version: string,
 /**
  * GitHub release page for `version`, but only when the persisted
@@ -14,19 +20,25 @@ export type AppEvent = { "type": "version", buildId: string, } | { "type": "snap
  */
 releaseUrl?: string, } | { "type": "updateStagingFailed", error: string, } | { "type": "youtubeUploadChanged", upload: YouTubeUploadStatus, } | { "type": "youtubeStatusChanged", status: YouTubeStatus, };
 
-export type YouTubeUploadStatus = { id: string, runId: string, path: string, fileName: string, state: YouTubeUploadState, progressBytes: number, totalBytes: number | null, progressRatio: number | null, videoId: string | null, videoUrl: string | null, error: string | null, title: string, startedAt: string, finishedAt: string | null, };
-
-export type YouTubeUploadState = "queued" | "uploading" | "processing" | "uploaded" | "failed";
-
-export type MonitorStoppedReason = "userStopped" | "replayBufferStopped";
-
 export type AppSnapshot = { monitor: MonitorSnapshot, match: LevelMatch | null, runCatalogSync: RunCatalogSync | null, recordingState: RecordingStatus | null, replaySaves: Array<ReplaySaveStatus>, sources: Array<ObsSource>, replayBuffer: ReplayBufferStatus, settingsStatus: SettingsStatus, update: UpdateStatus, };
 
-export type RunCatalogSync = "initial" | "manual";
+export type BlackFrameSignal = { detected: boolean, meanLuma: number, darkPixelPercent: number, sampleCount: number, sampleRegion: ActivePictureRegion, };
 
-export type ObsSource = { name: string, id: string, };
+export type BucketCounts = { start: string, end: string, counts: StatusCounts, };
 
-export type SettingsStatus = { settings: AppSettings, defaults: AppSettings, configPath: string, pluginVersion: string, fileError: string | null, };
+export type ClipMetadata = { runId?: string, timestamp: string, time?: string, timeSeconds?: number, level: string, levelNumber?: number, difficulty?: string, status: string, wasPersonalBest?: boolean, gameLanguage: string, romVersion?: RomVersion | null, sourceName: string, comment: string, pluginVersion: string, retentionState?: RunRetentionState, retentionReason?: string, };
+
+export type CombinedBestTimes = { overallSeconds: number, recordedCells: number, totalCells: number, byDifficulty: Array<DifficultyCombinedBest>, };
+
+export type DifficultyCombinedBest = { difficultyNumber: DifficultyNumber, totalSeconds: number, recordedLevels: number, totalLevels: number, };
+
+export type FolderPickResult = { cancelled: boolean, path: string | null, };
+
+export type FolderValidation = { expandedPath: string, empty: boolean, exists: boolean, isDirectory: boolean, writable: boolean, willCreate: boolean, error: string | null, };
+
+export type LevelCounts = { levelNumber: number | null, counts: StatusCounts, totalSeconds: number, byDifficulty: Array<LevelDifficultyCounts>, };
+
+export type LevelDifficultyCounts = { difficultyNumber: DifficultyNumber | null, counts: StatusCounts, totalSeconds: number, };
 
 export type LevelMatch = { screen: Screen, mission: number, part: number, difficulty: number,
 /**
@@ -56,55 +68,35 @@ match_regions?: Array<MatchRegion>,
  */
 annotation_sets?: Array<AnnotationSet>, runtime_ms: number, };
 
-export type MatchRegion = { label: string, x: number, y: number, w: number, h: number, score: number, };
-
-export type Screen = "unknown" | "start" | "stats" | "complete" | "failed" | "abort" | "kia" | "opts007" | "select" | "levels";
-
-export type Times = {
-/**
- * The player's completion time for the run, in seconds. Always present.
- */
-time: number,
-/**
- * The level's target (par) time in seconds, present only when the run was
- * completed on the difficulty the level's target is set for.
- */
-target_time: number | null,
-/**
- * The best recorded time for the level before this run, in seconds, present
- * only once a time has been recorded on this difficulty before.
- */
-best_time: number | null, };
-
-export type AnnotationSet = { id: string, label: string, annotations: Array<AnnotationRect>, };
-
-export type AnnotationRect = { label: string, x: number, y: number, w: number, h: number, score?: number, };
-
-export type RecordingStatus = "started" | "cancelled" | "failed" | "aborted" | "kia" | "complete" | "statsSkipped" | "savePending";
-
-export type ReplayBufferStatus = { enabled: boolean, available: boolean, active: boolean, maxSeconds: number | null, outputDirectory: string | null, defaultCompletedOutputPath: string | null, };
-
-export type UpdateStatus = { phase: UpdatePhase, available: PluginUpdate | null, };
-
-export type UpdatePhase = "idle" | "checking" | "available" | "downloading" | "staged" | "applying";
-
-export type PluginUpdate = { currentVersion: string, latestVersion: string, releaseUrl: string, updaterVersion: number, requiresManualInstall: boolean, };
-
-export type ReplaySaveStatus = { trackingId: number, saveId: number, stage: ReplaySaveStage, level: string, difficulty: string | null, runStatus: string, estimatedDurationSecs: number, error?: string, };
-
-export type ReplaySaveStage = "scheduled" | "waitingForReplaySave" | "savingReplay" | "trimming" | "completed" | "failed";
-
-export type MonitorSnapshot = { enabled: boolean, sourceName?: string, cvLanguage?: "en" | "jp", wallClocks: MonitorWallClockState, };
-
-export type MonitorWallClockState = { sessionStartedAtUnixMs: number | null, sessionElapsedMs: number, sessionRunning: boolean, levelStartedAtUnixMs: number | null, levelElapsedMs: number, levelRunning: boolean, levelPaused: boolean, levelStartReason: LevelTimerStartReason | null, levelTimerPhase: LevelTimerPhase, introSwirlDelayMs: number | null, fadeDetection: BlackFrameSignal | null, };
-
-export type BlackFrameSignal = { detected: boolean, meanLuma: number, darkPixelPercent: number, sampleCount: number, sampleRegion: ActivePictureRegion, };
-
-export type ActivePictureRegion = { x: number, y: number, width: number, height: number, };
-
 export type LevelTimerPhase = "idle" | "awaitingInitialBlack" | "awaitingFirstCutscene" | "awaitingFirstCutsceneFade" | "awaitingSecondFadeOrSwirl" | "awaitingGameplayAfterSkip" | "running" | "stopped";
 
 export type LevelTimerStartReason = "fade" | "swirl";
+
+export type ManualRunInput = { date: string, level: string, difficulty: string, time: string, gameLanguage: string, romVersion?: RomVersion, youtubeUrl?: string, };
+
+export type MatchRegion = { label: string, x: number, y: number, w: number, h: number, score: number, };
+
+export type MatchSourceResponse = { match: LevelMatch, annotationsEnabled: boolean, frameWidth: number, frameHeight: number, };
+
+export type MonitorFps = { processedFps: number, capturedFps: number, sourceFps: number, droppedFrames: number, health: MonitorFpsHealth, };
+
+export type MonitorFpsHealth = "healthy" | "warning" | "lagging";
+
+export type MonitorSnapshot = { enabled: boolean, sourceName?: string, cvLanguage?: "en" | "jp", wallClocks: MonitorWallClockState, };
+
+export type MonitorStoppedReason = "userStopped" | "replayBufferStopped";
+
+export type MonitorWallClockState = { sessionStartedAtUnixMs: number | null, sessionElapsedMs: number, sessionRunning: boolean, levelStartedAtUnixMs: number | null, levelElapsedMs: number, levelRunning: boolean, levelPaused: boolean, levelStartReason: LevelTimerStartReason | null, levelTimerPhase: LevelTimerPhase, introSwirlDelayMs: number | null, fadeDetection: BlackFrameSignal | null, };
+
+export type MonitoringSessionDetail = { attempts: Array<SessionAttempt>, sessionId: string, startedAt: string, endedAt: string | null, sourceName: string, initialCvLanguage: string | null, pluginVersion: string, endReason: string | null, counts: StatusCounts, distinctLevels: number, };
+
+export type MonitoringSessionSummary = { sessionId: string, startedAt: string, endedAt: string | null, sourceName: string, initialCvLanguage: string | null, pluginVersion: string, endReason: string | null, counts: StatusCounts, distinctLevels: number, };
+
+export type ObsSource = { name: string, id: string, };
+
+export type PluginUpdate = { currentVersion: string, latestVersion: string, releaseUrl: string, updaterVersion: number, requiresManualInstall: boolean, };
+
+export type RecordingOptions = { completedOutputPath: string, recentRunLimit: number, clipFilenameTemplate: string, preRunPaddingSecs: number, postRunPaddingSecs: number, };
 
 export type RecordingSavePending = {
 /**
@@ -156,18 +148,6 @@ bestTimeSecs?: number,
  */
 stats?: LevelMatch, };
 
-export type MonitorFps = { processedFps: number, capturedFps: number, sourceFps: number, droppedFrames: number, health: MonitorFpsHealth, };
-
-export type MonitorFpsHealth = "healthy" | "warning" | "lagging";
-
-export type YouTubeStatus = { enabled: boolean, oauthConfigured: boolean, connected: boolean, account: YouTubeAccount | null, uploads: Array<YouTubeUploadStatus>, history: Array<YouTubeUploadHistoryEntry>, };
-
-export type YouTubeAccount = { email: string | null, name: string | null, picture: string | null, };
-
-export type YouTubeUploadHistoryEntry = { path: string, videoId: string, videoUrl: string, uploadedAt?: string, title: string, source: YouTubeAssociationSource, };
-
-export type YouTubeAssociationSource = "pluginUpload" | "manualLink" | "theElite";
-
 export type RecordingSaved = {
 /**
  * Identifier shared with the matching [`RecordingSavePending`] event.
@@ -194,62 +174,82 @@ failed: boolean,
  */
 stats?: LevelMatch, };
 
-export type RunsResponse = { directories: Array<RunDirectoryScan>, clips: Array<RunClip>, requestedRun?: RunClip, total?: number, nextCursor?: string | null, };
+export type RecordingStatus = "started" | "cancelled" | "failed" | "aborted" | "kia" | "complete" | "statsSkipped" | "savePending";
 
-export type RunClip = { runId: string, path: string, fileName: string, directory: string, sizeBytes: number, modified?: string | null, durationSecs?: number | null, metadata: ClipMetadata, retentionState: RunRetentionState, retentionReason: string | null, youtube?: RunYouTubeVideo | null, };
+export type ReplayBufferStatus = { enabled: boolean, available: boolean, active: boolean, maxSeconds: number | null, outputDirectory: string | null, defaultCompletedOutputPath: string | null, };
 
-export type ClipMetadata = { runId?: string, timestamp: string, time?: string, timeSeconds?: number, level: string, levelNumber?: number, difficulty?: string, status: string, wasPersonalBest?: boolean, gameLanguage: string, romVersion?: RomVersion | null, sourceName: string, comment: string, pluginVersion: string, retentionState?: RunRetentionState, retentionReason?: string, };
+export type ReplaySaveStage = "scheduled" | "waitingForReplaySave" | "savingReplay" | "trimming" | "completed" | "failed";
+
+export type ReplaySaveStatus = { trackingId: number, saveId: number, stage: ReplaySaveStage, level: string, difficulty: string | null, runStatus: string, estimatedDurationSecs: number, error?: string, };
 
 export type RomVersion = "ntsc-u" | "ntsc-j" | "pal";
 
-export type RunRetentionState = "pending" | "kept" | "expired";
+export type RunCatalogSync = "initial" | "manual";
 
-export type RunYouTubeVideo = { videoId: string, videoUrl: string, uploadedAt?: string, title: string, source: YouTubeAssociationSource, };
-
-export type RunDirectoryScan = { kind: RunDirectoryKind, path: string, exists: boolean, error?: string | null, };
+export type RunClip = { runId: string, path: string, fileName: string, directory: string, sizeBytes: number, modified?: string | null, durationSecs?: number | null, metadata: ClipMetadata, retentionState: RunRetentionState, retentionReason: string | null, youtube?: RunYouTubeVideo | null, };
 
 export type RunDirectoryKind = "completed";
 
-export type ManualRunInput = { date: string, level: string, difficulty: string, time: string, gameLanguage: string, romVersion?: RomVersion, youtubeUrl?: string, };
+export type RunDirectoryScan = { kind: RunDirectoryKind, path: string, exists: boolean, error?: string | null, };
 
-export type TheEliteImportResponse = { imported: number, alreadyImported: number, videos: number, };
+export type RunRetentionState = "pending" | "kept" | "expired";
 
 export type RunSort = "newest" | "oldest" | "fastest" | "slowest";
 
-export type FolderPickResult = { cancelled: boolean, path: string | null, };
-
-export type FolderValidation = { expandedPath: string, empty: boolean, exists: boolean, isDirectory: boolean, writable: boolean, willCreate: boolean, error: string | null, };
-
-export type MatchSourceResponse = { match: LevelMatch, annotationsEnabled: boolean, frameWidth: number, frameHeight: number, };
-
-export type RecordingOptions = { completedOutputPath: string, recentRunLimit: number, clipFilenameTemplate: string, preRunPaddingSecs: number, postRunPaddingSecs: number, };
-
-export type StatisticsResponse = { range: StatisticsRange, summary: StatisticsSummary, byLevel: Array<LevelCounts>, overallBuckets: Array<BucketCounts>, selectedCohort: SelectedCohort | null, };
-
-export type SelectedCohort = { levelNumber: number, difficultyNumber: DifficultyNumber, counts: StatusCounts, buckets: Array<BucketCounts>, runTimes: Array<RunTimePoint>, };
+export type RunStatus = "complete" | "failed" | "abort" | "kia";
 
 export type RunTimePoint = { runId: string, completedAt: string, status: RunStatus, timeSeconds: number, };
 
-export type RunStatus = "complete" | "failed" | "abort" | "kia";
+export type RunYouTubeVideo = { videoId: string, videoUrl: string, uploadedAt?: string, title: string, source: YouTubeAssociationSource, };
 
-export type BucketCounts = { start: string, end: string, counts: StatusCounts, };
+export type RunsResponse = { directories: Array<RunDirectoryScan>, clips: Array<RunClip>, requestedRun?: RunClip, total?: number, nextCursor?: string | null, };
 
-export type StatusCounts = { total: number, complete: number, failed: number, abort: number, kia: number, };
+export type Screen = "unknown" | "start" | "stats" | "complete" | "failed" | "abort" | "kia" | "opts007" | "select" | "levels";
+
+export type SelectedCohort = { levelNumber: number, difficultyNumber: DifficultyNumber, counts: StatusCounts, buckets: Array<BucketCounts>, runTimes: Array<RunTimePoint>, };
+
+export type SessionAttempt = { runId: string, completedAt: string, elapsedSeconds: number, levelNumber: number | null, difficultyNumber: DifficultyNumber | null, status: RunStatus, timeSeconds: number | null, };
+
+export type SettingsStatus = { settings: AppSettings, defaults: AppSettings, configPath: string, pluginVersion: string, fileError: string | null, };
 
 export type StatisticsRange = { from: string | null, to: string, bucket: StatisticsBucket, timeZone: string, };
 
-export type LevelCounts = { levelNumber: number | null, counts: StatusCounts, totalSeconds: number, byDifficulty: Array<LevelDifficultyCounts>, };
-
-export type LevelDifficultyCounts = { difficultyNumber: DifficultyNumber | null, counts: StatusCounts, totalSeconds: number, };
+export type StatisticsResponse = { range: StatisticsRange, summary: StatisticsSummary, byLevel: Array<LevelCounts>, overallBuckets: Array<BucketCounts>, selectedCohort: SelectedCohort | null, };
 
 export type StatisticsSummary = { counts: StatusCounts, totalSessionSeconds: number, combinedBestTimes: CombinedBestTimes, };
 
-export type CombinedBestTimes = { overallSeconds: number, recordedCells: number, totalCells: number, byDifficulty: Array<DifficultyCombinedBest>, };
+export type StatusCounts = { total: number, complete: number, failed: number, abort: number, kia: number, };
 
-export type DifficultyCombinedBest = { difficultyNumber: DifficultyNumber, totalSeconds: number, recordedLevels: number, totalLevels: number, };
+export type TheEliteImportResponse = { imported: number, alreadyImported: number, videos: number, };
 
-export type MonitoringSessionSummary = { sessionId: string, startedAt: string, endedAt: string | null, sourceName: string, initialCvLanguage: string | null, pluginVersion: string, endReason: string | null, counts: StatusCounts, distinctLevels: number, };
+export type Times = {
+/**
+ * The player's completion time for the run, in seconds. Always present.
+ */
+time: number,
+/**
+ * The level's target (par) time in seconds, present only when the run was
+ * completed on the difficulty the level's target is set for.
+ */
+target_time: number | null,
+/**
+ * The best recorded time for the level before this run, in seconds, present
+ * only once a time has been recorded on this difficulty before.
+ */
+best_time: number | null, };
 
-export type MonitoringSessionDetail = { attempts: Array<SessionAttempt>, sessionId: string, startedAt: string, endedAt: string | null, sourceName: string, initialCvLanguage: string | null, pluginVersion: string, endReason: string | null, counts: StatusCounts, distinctLevels: number, };
+export type UpdatePhase = "idle" | "checking" | "available" | "downloading" | "staged" | "applying";
 
-export type SessionAttempt = { runId: string, completedAt: string, elapsedSeconds: number, levelNumber: number | null, difficultyNumber: DifficultyNumber | null, status: RunStatus, timeSeconds: number | null, };
+export type UpdateStatus = { phase: UpdatePhase, available: PluginUpdate | null, };
+
+export type YouTubeAccount = { email: string | null, name: string | null, picture: string | null, };
+
+export type YouTubeAssociationSource = "pluginUpload" | "manualLink" | "theElite";
+
+export type YouTubeStatus = { enabled: boolean, oauthConfigured: boolean, connected: boolean, account: YouTubeAccount | null, uploads: Array<YouTubeUploadStatus>, history: Array<YouTubeUploadHistoryEntry>, };
+
+export type YouTubeUploadHistoryEntry = { path: string, videoId: string, videoUrl: string, uploadedAt?: string, title: string, source: YouTubeAssociationSource, };
+
+export type YouTubeUploadState = "queued" | "uploading" | "processing" | "uploaded" | "failed";
+
+export type YouTubeUploadStatus = { id: string, runId: string, path: string, fileName: string, state: YouTubeUploadState, progressBytes: number, totalBytes: number | null, progressRatio: number | null, videoId: string | null, videoUrl: string | null, error: string | null, title: string, startedAt: string, finishedAt: string | null, };
