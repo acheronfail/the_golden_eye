@@ -1,14 +1,9 @@
-use std::ffi::{CStr, CString, c_char, c_int, c_void};
-use std::ptr;
+use std::ffi::CString;
 
 use serde_json::{Value, json};
 
 const DOCK_TITLE: &str = "The Golden Eye";
 const DOCK_UUID: &str = "thegoldeneyedashboard";
-
-const DOCKS_SECTION: &[u8] = b"BasicWindow\0";
-const DOCKS_KEY: &[u8] = b"ExtraBrowserDocks\0";
-const CONFIG_TEMP_EXT: &[u8] = b"tmp\0";
 
 pub fn post_load() {
     if crate::config::browser_dock_disabled() {
@@ -16,17 +11,8 @@ pub fn post_load() {
         return;
     }
 
-    let config = unsafe { obs_frontend_get_user_config() };
-    if config.is_null() {
-        tracing::warn!("OBS user config unavailable; could not ensure custom browser dock");
-        return;
-    }
-
     let url = crate::config::browser_dock_url();
-    let existing = unsafe {
-        let ptr = config_get_string(config, DOCKS_SECTION.as_ptr().cast(), DOCKS_KEY.as_ptr().cast());
-        c_string(ptr)
-    };
+    let existing = crate::obs::frontend_config_string(c"BasicWindow", c"ExtraBrowserDocks");
 
     let output = match ensure_dock_json(existing.as_deref(), DOCK_TITLE, &url, DOCK_UUID) {
         Ok(Some(output)) => output,
@@ -45,12 +31,7 @@ pub fn post_load() {
         }
     };
 
-    unsafe {
-        config_set_string(config, DOCKS_SECTION.as_ptr().cast(), DOCKS_KEY.as_ptr().cast(), output.as_ptr());
-    }
-
-    let save_result = unsafe { config_save_safe(config, CONFIG_TEMP_EXT.as_ptr().cast(), ptr::null()) };
-    if save_result != 0 {
+    if !crate::obs::set_frontend_config_string(c"BasicWindow", c"ExtraBrowserDocks", &output, c"tmp") {
         tracing::warn!("could not save OBS custom browser dock config");
     } else {
         tracing::info!(%url, "ensured OBS custom browser dock");
@@ -95,17 +76,6 @@ fn dock_matches(dock: &Value, title: &str, url: &str, uuid: &str) -> bool {
 
 fn string_field_eq(value: &Value, field: &str, expected: &str) -> bool {
     value.get(field).and_then(Value::as_str) == Some(expected)
-}
-
-unsafe fn c_string(ptr: *const c_char) -> Option<String> {
-    if ptr.is_null() { None } else { Some(unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()) }
-}
-
-unsafe extern "C" {
-    fn obs_frontend_get_user_config() -> *mut c_void;
-    fn config_get_string(config: *mut c_void, section: *const c_char, name: *const c_char) -> *const c_char;
-    fn config_set_string(config: *mut c_void, section: *const c_char, name: *const c_char, value: *const c_char);
-    fn config_save_safe(config: *mut c_void, temp_ext: *const c_char, backup_ext: *const c_char) -> c_int;
 }
 
 #[cfg(test)]

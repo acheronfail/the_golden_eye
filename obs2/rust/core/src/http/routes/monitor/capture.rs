@@ -1,4 +1,4 @@
-use std::ffi::{CString, c_void};
+use std::ffi::CString;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
@@ -7,11 +7,11 @@ use std::time::Instant;
 use crate::cv::CaptureRegion;
 
 /// A running monitor. OBS pushes captured frames into `mailbox` (keyed by the
-/// leaked `producer`); the worker `thread` matches them. Stopping unregisters
-/// the callback, closes the mailbox to wake+join the worker, then frees producer.
+/// registered `producer`); the worker `thread` matches them. Stopping drops the
+/// registration, closes the mailbox, and joins the worker.
 pub struct MonitorHandle {
     pub(super) mailbox: Arc<FrameMailbox>,
-    pub(super) producer: ProducerPtr,
+    pub(super) producer: crate::obs::RegisteredRenderCallback<ProducerCtx>,
     pub(super) thread: JoinHandle<()>,
     /// The source name this monitor uses, retained in the shared app snapshot.
     pub(super) source_name: String,
@@ -29,12 +29,6 @@ impl MonitorHandle {
     }
 }
 
-/// The leaked `ProducerCtx` pointer, made `Send` so the handle can move to the
-/// blocking teardown task. SAFETY: only dereferenced on the OBS graphics thread;
-/// freed only after `ge_obs_unregister_frame_callback` ensures no callback runs.
-pub(super) struct ProducerPtr(pub(super) *mut ProducerCtx);
-unsafe impl Send for ProducerPtr {}
-
 /// A captured BGRA frame and its dimensions, owning its pixel buffer. Frames
 /// from OBS wrap the C-`malloc`'d buffer the capture bridge returns; test frames
 /// own a `Vec`.
@@ -45,20 +39,15 @@ pub(super) struct Frame {
     pub(super) captured_at: Option<Instant>,
     pub(super) capture_ms: Option<f64>,
     pub(super) callback_interval_ms: Option<f64>,
-    pub(super) capture_timings: Option<crate::ffi::GeCaptureTimings>,
+    pub(super) capture_timings: Option<crate::obs::GeCaptureTimings>,
     pub(super) dropped_frames_total: u64,
 }
 
-// SAFETY: a `Frame` owns its buffer exclusively and never aliases the raw
-// pointer once constructed, so moving it from the producer (graphics) thread to
-// the consumer (monitor) thread through the mailbox is sound.
-unsafe impl Send for Frame {}
-
 pub(super) enum FrameBuf {
-    /// Buffer handed back by `ge_capture_get_frame`; released with the C `free`.
-    CMalloc { ptr: *mut u8, len: usize },
+    /// Buffer handed back by the safe OBS capture bridge.
+    Obs(crate::obs::OwnedBgraFrame),
     /// Owned Rust buffer (test fixtures). Only constructed in tests; the OBS
-    /// path always uses `CMalloc`.
+    /// path always uses `Obs`.
     #[cfg_attr(not(test), allow(dead_code))]
     Owned(Vec<u8>),
 }
@@ -66,20 +55,8 @@ pub(super) enum FrameBuf {
 impl FrameBuf {
     pub(super) fn as_slice(&self) -> &[u8] {
         match self {
-            // SAFETY: ptr/len describe the single contiguous BGRA buffer this
-            // frame owns exclusively until it is dropped.
-            FrameBuf::CMalloc { ptr, len } => unsafe { std::slice::from_raw_parts(*ptr, *len) },
+            FrameBuf::Obs(frame) => frame.bytes(),
             FrameBuf::Owned(bytes) => bytes,
-        }
-    }
-}
-
-impl Drop for FrameBuf {
-    fn drop(&mut self) {
-        if let FrameBuf::CMalloc { ptr, .. } = *self {
-            // SAFETY: allocated by the C capture bridge with malloc; the mailbox
-            // owns it exclusively, so it is freed exactly once here.
-            unsafe { crate::ffi::free(ptr.cast()) };
         }
     }
 }
@@ -199,18 +176,13 @@ impl FrameMailbox {
 /// capture context, source name, calibrated region, and mailbox. Boxed as the
 /// callback `param`; owns the capture context and destroys it on drop.
 pub(super) struct ProducerCtx {
-    pub(super) ctx: *mut crate::ffi::GeCaptureCtx,
+    pub(super) ctx: crate::obs::CaptureContext,
     pub(super) name: CString,
     pub(super) region: Arc<Mutex<Option<CaptureRegion>>>,
     pub(super) mailbox: Arc<FrameMailbox>,
     pub(super) timing_enabled: bool,
     pub(super) last_callback_at: Mutex<Option<Instant>>,
 }
-
-// SAFETY: see MonitorHandle -- the box is created on the start thread and
-// dropped on the stop thread, but `ctx` is only ever used on the graphics thread
-// and the two are never concurrent (registration/unregistration fence it).
-unsafe impl Send for ProducerCtx {}
 
 fn callback_interval_ms(
     enabled: bool,
@@ -227,93 +199,60 @@ fn callback_interval_ms(
     interval
 }
 
-impl Drop for ProducerCtx {
-    fn drop(&mut self) {
-        // Release the GPU surfaces created in `handle_start`. Only reached after
-        // the render callback has been unregistered, so `ctx` is unused.
-        unsafe { crate::ffi::ge_capture_destroy(self.ctx) };
-    }
-}
-
 /// OBS render callback: capture one frame of the monitored source and push it
 /// into the mailbox. Runs on the graphics thread inside a graphics context, once
 /// per rendered frame.
-pub(super) unsafe extern "C" fn ge_frame_callback(param: *mut c_void, _cx: u32, _cy: u32) {
-    // SAFETY: `param` is the `ProducerCtx` registered in `handle_start`. OBS
-    // serializes this with `ge_obs_unregister_frame_callback`, so it never runs
-    // after the monitor unregisters and frees the box.
-    let producer = unsafe { &*(param as *const ProducerCtx) };
-    let callback_interval_ms = callback_interval_ms(producer.timing_enabled, &producer.last_callback_at, Instant::now);
+impl crate::obs::RenderCallback for ProducerCtx {
+    fn render_frame(&mut self, _canvas_width: u32, _canvas_height: u32) {
+        let callback_interval_ms = callback_interval_ms(self.timing_enabled, &self.last_callback_at, Instant::now);
 
-    // Translate the matcher's learned region (if any) into the C capture
-    // transform, so the GPU crops + un-stretches at capture time -- mirrors what
-    // the old pull path did per frame.
-    let region = {
-        let guard = producer.region.lock().unwrap_or_else(|p| p.into_inner());
-        guard.map(|r| {
-            let out_height = crate::cv::WORK_HEIGHT as u32;
-            let out_width = ((out_height as f32 * r.out_aspect).round() as u32).max(1);
-            crate::ffi::GeCaptureRegion {
-                crop_x: r.crop_x,
-                crop_y: r.crop_y,
-                crop_w: r.crop_w,
-                crop_h: r.crop_h,
-                out_width,
-                out_height,
-            }
-        })
-    };
-    let region_ptr = region.as_ref().map_or(std::ptr::null(), |r| r as *const _);
-    let max_height = if region.is_some() { 0 } else { crate::cv::WORK_HEIGHT as u32 };
-
-    let mut width: u32 = 0;
-    let mut height: u32 = 0;
-    let mut capture_timings = producer.timing_enabled.then(crate::ffi::GeCaptureTimings::default);
-    let timings_ptr = capture_timings.as_mut().map_or(std::ptr::null_mut(), |timings| timings as *mut _);
-    let capture_started = producer.timing_enabled.then(Instant::now);
-    // We're already on the graphics thread inside a graphics context, so the
-    // obs_enter_graphics nested inside this call is a no-op ref-bump, not a
-    // re-lock (OBS tracks the context per thread) -- no deadlock.
-    let frame = unsafe {
-        crate::ffi::ge_capture_get_frame(
-            producer.ctx,
-            producer.name.as_ptr(),
-            max_height,
-            region_ptr,
-            &mut width,
-            &mut height,
-            timings_ptr,
-        )
-    };
-    // Null means no frame this tick: the source wasn't renderable, or (with the
-    // double-buffered context) this was the priming call that only stages.
-    if frame.is_null() {
-        return;
+        let region = {
+            let guard = self.region.lock().unwrap_or_else(|p| p.into_inner());
+            guard.map(|r| {
+                let out_height = crate::cv::WORK_HEIGHT as u32;
+                let out_width = ((out_height as f32 * r.out_aspect).round() as u32).max(1);
+                crate::obs::GeCaptureRegion {
+                    crop_x: r.crop_x,
+                    crop_y: r.crop_y,
+                    crop_w: r.crop_w,
+                    crop_h: r.crop_h,
+                    out_width,
+                    out_height,
+                }
+            })
+        };
+        let max_height = if region.is_some() { 0 } else { crate::cv::WORK_HEIGHT as u32 };
+        let mut capture_timings = self.timing_enabled.then(crate::obs::GeCaptureTimings::default);
+        let capture_started = self.timing_enabled.then(Instant::now);
+        let Some(frame) = self.ctx.capture(&self.name, max_height, region.as_ref(), capture_timings.as_mut()) else {
+            return;
+        };
+        let (captured_at, capture_ms) = if let Some(capture_started) = capture_started {
+            let captured_at = Instant::now();
+            (Some(captured_at), Some(captured_at.duration_since(capture_started).as_secs_f64() * 1000.0))
+        } else {
+            (None, None)
+        };
+        let width = frame.width();
+        let height = frame.height();
+        self.mailbox.push(Frame {
+            buf: FrameBuf::Obs(frame),
+            width,
+            height,
+            captured_at,
+            capture_ms,
+            callback_interval_ms,
+            capture_timings,
+            dropped_frames_total: 0,
+        });
     }
-    let (captured_at, capture_ms) = if let Some(capture_started) = capture_started {
-        let captured_at = Instant::now();
-        (Some(captured_at), Some(captured_at.duration_since(capture_started).as_secs_f64() * 1000.0))
-    } else {
-        (None, None)
-    };
-    let len = (width * height * 4) as usize;
-    producer.mailbox.push(Frame {
-        buf: FrameBuf::CMalloc { ptr: frame, len },
-        width,
-        height,
-        captured_at,
-        capture_ms,
-        callback_interval_ms,
-        capture_timings,
-        dropped_frames_total: 0,
-    });
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct CapturedFrameStats {
     pub(super) capture_ms: Option<f64>,
     pub(super) callback_interval_ms: Option<f64>,
-    pub(super) capture_timings: Option<crate::ffi::GeCaptureTimings>,
+    pub(super) capture_timings: Option<crate::obs::GeCaptureTimings>,
     pub(super) mailbox_wait_ms: Option<f64>,
     pub(super) dropped_frames_total: u64,
 }

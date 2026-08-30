@@ -3,7 +3,6 @@
 //! than start/stop per run. Padding is anchored to the save moment (file ends at ~now).
 
 use std::collections::{HashMap, HashSet};
-use std::ffi::{CStr, c_char};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -61,7 +60,6 @@ const REPLAY_START_RETRY_DELAY: Duration = Duration::from_millis(250);
 /// OBS can ignore a replay-buffer start issued immediately after the stopped
 /// event. Give the frontend a brief turn to finish its state transition.
 const REPLAY_STOP_SETTLE_DELAY: Duration = Duration::from_millis(400);
-const OBS_OUTPUT_PATH_BUFFER_SIZE: usize = 4096;
 static NEXT_REPLAY_TRACKING_ID: AtomicU64 = AtomicU64::new(1);
 
 fn next_replay_tracking_id() -> u64 {

@@ -107,21 +107,12 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
     let annotations_enabled = matcher.diagnostics_enabled();
     timer.lap("matcher init");
 
-    // Render the source into a BGRA buffer owned by the C side.
-    let mut width: u32 = 0;
-    let mut height: u32 = 0;
-    let frame = unsafe { crate::ffi::ge_obs_get_source_frame(source_name.as_ptr(), &mut width, &mut height) };
-    if frame.is_null() {
-        return Err((StatusCode::NOT_FOUND, "could not capture source frame").into());
-    }
+    let frame = crate::obs::capture_source_frame(&source_name)
+        .ok_or((StatusCode::NOT_FOUND, "could not capture source frame"))?;
 
     timer.lap("obs frame");
 
-    let frame_len = (width * height * 4) as usize;
-    let frame_bytes = unsafe { std::slice::from_raw_parts(frame, frame_len).to_vec() };
-    unsafe { crate::ffi::free(frame.cast()) };
-
-    let level_match = matcher.match_level_from_bgra_bytes(&frame_bytes, width, height);
+    let level_match = matcher.match_level_from_bgra_bytes(frame.bytes(), frame.width(), frame.height());
     timer.lap("cv match");
     tracing::info!(?level_match, "match result");
 
@@ -130,5 +121,10 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
         (StatusCode::INTERNAL_SERVER_ERROR, "failed to match level")
     })?;
 
-    Ok(Json(MatchResponse { level_match, annotations_enabled, frame_width: width, frame_height: height }))
+    Ok(Json(MatchResponse {
+        level_match,
+        annotations_enabled,
+        frame_width: frame.width(),
+        frame_height: frame.height(),
+    }))
 }

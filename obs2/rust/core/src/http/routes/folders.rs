@@ -10,8 +10,6 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::ffi::queue_ui_task;
-
 const PICKER_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
 #[derive(Debug, Deserialize)]
@@ -48,12 +46,6 @@ pub struct FolderValidation {
     error: Option<String>,
 }
 
-struct FolderPickTask {
-    title: String,
-    start_dir: Option<PathBuf>,
-    sender: mpsc::Sender<Option<PathBuf>>,
-}
-
 #[axum::debug_handler]
 pub async fn handle_pick(Json(req): Json<FolderPickRequest>) -> Result<impl IntoResponse> {
     let title = req.title.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "Choose folder".to_owned());
@@ -86,23 +78,15 @@ pub async fn handle_validate(Json(req): Json<FolderValidateRequest>) -> Result<i
 
 fn pick_folder_on_ui_thread(title: String, start_dir: Option<PathBuf>) -> anyhow::Result<Option<PathBuf>> {
     let (sender, receiver) = mpsc::channel();
-    let task = Box::new(FolderPickTask { title, start_dir, sender });
-    let param = Box::into_raw(task).cast();
-
-    queue_ui_task(pick_folder_task, param);
+    crate::obs::queue_ui_task(move || {
+        let mut dialog = rfd::FileDialog::new().set_title(title).set_can_create_directories(true);
+        if let Some(start_dir) = start_dir {
+            dialog = dialog.set_directory(start_dir);
+        }
+        let _ = sender.send(dialog.pick_folder());
+    });
 
     receiver.recv_timeout(PICKER_TIMEOUT).context("waiting for folder picker")
-}
-
-unsafe extern "C" fn pick_folder_task(param: *mut std::ffi::c_void) {
-    let task = unsafe { Box::from_raw(param.cast::<FolderPickTask>()) };
-    let FolderPickTask { title, start_dir, sender } = *task;
-
-    let mut dialog = rfd::FileDialog::new().set_title(title).set_can_create_directories(true);
-    if let Some(start_dir) = start_dir {
-        dialog = dialog.set_directory(start_dir);
-    }
-    let _ = sender.send(dialog.pick_folder());
 }
 
 fn validate_folder_path(raw: &str) -> FolderValidation {
