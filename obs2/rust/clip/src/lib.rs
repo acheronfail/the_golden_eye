@@ -122,6 +122,7 @@ pub struct ClipMetadata {
     #[ts(type = "string")]
     pub status: RunStatus,
     #[serde(default)]
+    #[ts(optional = nullable)]
     pub was_personal_best: bool,
     #[serde(alias = "romLanguage")]
     pub game_language: String,
@@ -131,7 +132,7 @@ pub struct ClipMetadata {
     pub comment: String,
     pub plugin_version: String,
     #[serde(default = "default_retention_state")]
-    #[ts(type = "RunRetentionState")]
+    #[ts(optional = nullable, type = "RunRetentionState")]
     pub retention_state: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]

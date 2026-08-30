@@ -541,14 +541,17 @@ pub struct LevelMatch {
     /// Raw times read off the overlay top-to-bottom, before classification (the
     /// source `times` derives from). Empty on untimed screens. Kept for the test
     /// harness; production code uses the classified `times` instead.
+    #[ts(optional = nullable)]
     pub raw_times: Vec<i32>,
     /// Optional template-match rectangles for developer tooling. These are
     /// empty unless annotation diagnostics are explicitly enabled.
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional = nullable)]
     pub match_regions: Vec<MatchRegion>,
     /// Developer-only annotation sets. The normal monitor path leaves this
     /// empty so no annotation collection work is done per frame.
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional = nullable)]
     pub annotation_sets: Vec<AnnotationSet>,
     pub runtime_ms: f64,
 }

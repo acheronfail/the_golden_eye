@@ -138,6 +138,7 @@ pub struct RunsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     total: Option<usize>,
+    #[ts(optional = nullable)]
     next_cursor: Option<String>,
 }
 
@@ -148,6 +149,7 @@ pub struct RunDirectoryScan {
     kind: RunDirectoryKind,
     path: String,
     exists: bool,
+    #[ts(optional = nullable)]
     error: Option<String>,
 }
 
@@ -168,11 +170,14 @@ pub struct RunClip {
     directory: String,
     #[ts(type = "number")]
     size_bytes: u64,
+    #[ts(optional = nullable)]
     modified: Option<String>,
+    #[ts(optional = nullable)]
     duration_secs: Option<f64>,
     metadata: ClipMetadata,
     retention_state: RunRetentionState,
     retention_reason: Option<String>,
+    #[ts(optional = nullable)]
     youtube: Option<crate::youtube::YoutubeMetadata>,
 }
 
