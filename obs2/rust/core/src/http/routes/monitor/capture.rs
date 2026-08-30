@@ -11,7 +11,7 @@ use crate::cv::CaptureRegion;
 /// registration, closes the mailbox, and joins the worker.
 pub struct MonitorHandle {
     pub(super) mailbox: Arc<FrameMailbox>,
-    pub(super) producer: crate::ffi::RegisteredRenderCallback<ProducerCtx>,
+    pub(super) producer: crate::obs::RegisteredRenderCallback<ProducerCtx>,
     pub(super) thread: JoinHandle<()>,
     /// The source name this monitor uses, retained in the shared app snapshot.
     pub(super) source_name: String,
@@ -39,13 +39,13 @@ pub(super) struct Frame {
     pub(super) captured_at: Option<Instant>,
     pub(super) capture_ms: Option<f64>,
     pub(super) callback_interval_ms: Option<f64>,
-    pub(super) capture_timings: Option<crate::ffi::GeCaptureTimings>,
+    pub(super) capture_timings: Option<crate::obs::GeCaptureTimings>,
     pub(super) dropped_frames_total: u64,
 }
 
 pub(super) enum FrameBuf {
     /// Buffer handed back by the safe OBS capture bridge.
-    Obs(crate::ffi::OwnedBgraFrame),
+    Obs(crate::obs::OwnedBgraFrame),
     /// Owned Rust buffer (test fixtures). Only constructed in tests; the OBS
     /// path always uses `Obs`.
     #[cfg_attr(not(test), allow(dead_code))]
@@ -176,7 +176,7 @@ impl FrameMailbox {
 /// capture context, source name, calibrated region, and mailbox. Boxed as the
 /// callback `param`; owns the capture context and destroys it on drop.
 pub(super) struct ProducerCtx {
-    pub(super) ctx: crate::ffi::CaptureContext,
+    pub(super) ctx: crate::obs::CaptureContext,
     pub(super) name: CString,
     pub(super) region: Arc<Mutex<Option<CaptureRegion>>>,
     pub(super) mailbox: Arc<FrameMailbox>,
@@ -202,7 +202,7 @@ fn callback_interval_ms(
 /// OBS render callback: capture one frame of the monitored source and push it
 /// into the mailbox. Runs on the graphics thread inside a graphics context, once
 /// per rendered frame.
-impl crate::ffi::RenderCallback for ProducerCtx {
+impl crate::obs::RenderCallback for ProducerCtx {
     fn render_frame(&mut self, _canvas_width: u32, _canvas_height: u32) {
         let callback_interval_ms = callback_interval_ms(self.timing_enabled, &self.last_callback_at, Instant::now);
 
@@ -211,7 +211,7 @@ impl crate::ffi::RenderCallback for ProducerCtx {
             guard.map(|r| {
                 let out_height = crate::cv::WORK_HEIGHT as u32;
                 let out_width = ((out_height as f32 * r.out_aspect).round() as u32).max(1);
-                crate::ffi::GeCaptureRegion {
+                crate::obs::GeCaptureRegion {
                     crop_x: r.crop_x,
                     crop_y: r.crop_y,
                     crop_w: r.crop_w,
@@ -222,7 +222,7 @@ impl crate::ffi::RenderCallback for ProducerCtx {
             })
         };
         let max_height = if region.is_some() { 0 } else { crate::cv::WORK_HEIGHT as u32 };
-        let mut capture_timings = self.timing_enabled.then(crate::ffi::GeCaptureTimings::default);
+        let mut capture_timings = self.timing_enabled.then(crate::obs::GeCaptureTimings::default);
         let capture_started = self.timing_enabled.then(Instant::now);
         let Some(frame) = self.ctx.capture(&self.name, max_height, region.as_ref(), capture_timings.as_mut()) else {
             return;
@@ -252,7 +252,7 @@ impl crate::ffi::RenderCallback for ProducerCtx {
 pub(super) struct CapturedFrameStats {
     pub(super) capture_ms: Option<f64>,
     pub(super) callback_interval_ms: Option<f64>,
-    pub(super) capture_timings: Option<crate::ffi::GeCaptureTimings>,
+    pub(super) capture_timings: Option<crate::obs::GeCaptureTimings>,
     pub(super) mailbox_wait_ms: Option<f64>,
     pub(super) dropped_frames_total: u64,
 }

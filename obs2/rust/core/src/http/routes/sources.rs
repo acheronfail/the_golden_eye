@@ -10,7 +10,7 @@ pub struct Source {
 }
 
 pub fn collect_sources() -> Vec<Source> {
-    crate::ffi::source_names().into_iter().map(|(name, id)| Source { name, id }).collect()
+    crate::obs::source_names().into_iter().map(|(name, id)| Source { name, id }).collect()
 }
 
 pub async fn handler() -> Result<impl IntoResponse> {

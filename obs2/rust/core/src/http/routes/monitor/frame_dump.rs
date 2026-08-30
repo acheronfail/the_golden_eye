@@ -74,7 +74,7 @@ fn flatpak_host_path(dir: &Path) -> Option<String> {
 /// runs whenever the developer switch is on, whether or not a monitor is active.
 pub struct FrameDumpHandle {
     mailbox: Arc<FrameMailbox>,
-    producer: crate::ffi::RegisteredRenderCallback<ProducerCtx>,
+    producer: crate::obs::RegisteredRenderCallback<ProducerCtx>,
     thread: JoinHandle<()>,
     source_name: String,
 }
@@ -121,7 +121,7 @@ pub(crate) fn start_frame_dump(state: &AppState, source_name: String) -> StartRe
         CString::new(source_name.clone()).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
     // Double-buffered so readback pipelines without stalling OBS's render thread.
-    let Some(ctx) = crate::ffi::CaptureContext::new(true) else {
+    let Some(ctx) = crate::obs::CaptureContext::new(true) else {
         return Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to create capture context"));
     };
 
@@ -133,7 +133,7 @@ pub(crate) fn start_frame_dump(state: &AppState, source_name: String) -> StartRe
             _ => Arc::new(Mutex::new(None)),
         }
     };
-    let producer = crate::ffi::RegisteredRenderCallback::register(ProducerCtx {
+    let producer = crate::obs::RegisteredRenderCallback::register(ProducerCtx {
         ctx,
         name,
         region,

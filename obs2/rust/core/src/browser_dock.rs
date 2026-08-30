@@ -12,7 +12,7 @@ pub fn post_load() {
     }
 
     let url = crate::config::browser_dock_url();
-    let existing = crate::ffi::frontend_config_string(c"BasicWindow", c"ExtraBrowserDocks");
+    let existing = crate::obs::frontend_config_string(c"BasicWindow", c"ExtraBrowserDocks");
 
     let output = match ensure_dock_json(existing.as_deref(), DOCK_TITLE, &url, DOCK_UUID) {
         Ok(Some(output)) => output,
@@ -31,7 +31,7 @@ pub fn post_load() {
         }
     };
 
-    if !crate::ffi::set_frontend_config_string(c"BasicWindow", c"ExtraBrowserDocks", &output, c"tmp") {
+    if !crate::obs::set_frontend_config_string(c"BasicWindow", c"ExtraBrowserDocks", &output, c"tmp") {
         tracing::warn!("could not save OBS custom browser dock config");
     } else {
         tracing::info!(%url, "ensured OBS custom browser dock");

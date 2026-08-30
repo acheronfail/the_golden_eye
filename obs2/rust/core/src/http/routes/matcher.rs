@@ -107,7 +107,7 @@ pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> 
     let annotations_enabled = matcher.diagnostics_enabled();
     timer.lap("matcher init");
 
-    let frame = crate::ffi::capture_source_frame(&source_name)
+    let frame = crate::obs::capture_source_frame(&source_name)
         .ok_or((StatusCode::NOT_FOUND, "could not capture source frame"))?;
 
     timer.lap("obs frame");

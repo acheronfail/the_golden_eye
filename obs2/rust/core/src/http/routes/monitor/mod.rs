@@ -217,7 +217,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // Reusable capture context (and GPU surfaces), created once per session and
     // destroyed with the ProducerCtx on stop. Double-buffered so readback pipelines
     // without stalling OBS's render; the first frame only primes and yields none.
-    let Some(ctx) = crate::ffi::CaptureContext::new(true) else {
+    let Some(ctx) = crate::obs::CaptureContext::new(true) else {
         tracing::error!("failed to create capture context; monitor not started");
         return Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to create capture context").into());
     };
@@ -229,7 +229,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let region = Arc::new(Mutex::new(None));
     let monitor_timing_mode = MonitorTimingMode::from_env();
 
-    let producer = crate::ffi::RegisteredRenderCallback::register(ProducerCtx {
+    let producer = crate::obs::RegisteredRenderCallback::register(ProducerCtx {
         ctx,
         name: source_name,
         region: region.clone(),
@@ -268,7 +268,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let recording_session_id = monitor_session_id.clone();
     let recording_source_name = status_source_name.clone();
     let recording_lang = DEFAULT_MONITOR_LANGUAGE.to_owned();
-    let source_fps = crate::ffi::video_fps();
+    let source_fps = crate::obs::video_fps();
     // Kept for the handle so a standalone frame dump can share the latched region.
     let handle_region = region.clone();
     let worker_recent_run_limit = recent_run_limit.clone();

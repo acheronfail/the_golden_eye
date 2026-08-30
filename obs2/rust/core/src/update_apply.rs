@@ -93,7 +93,7 @@ fn activity_is_safe_to_apply(monitor_active: bool, recording_active: bool) -> bo
 /// thread, never a tokio worker of the runtime being torn down: `ge_rust_stop()` (the
 /// reload triggers it) blocks, and tokio refuses to drop a runtime from its own worker.
 pub fn trigger_apply() {
-    std::thread::spawn(crate::ffi::trigger_core_reload);
+    std::thread::spawn(crate::obs::trigger_core_reload);
 }
 
 /// Applies a staged update immediately when the frontend is ready and runtime
@@ -383,7 +383,7 @@ impl Drop for RuntimeDataTransaction {
 
 pub fn install_staged_runtime_data() -> anyhow::Result<RuntimeDataTransaction> {
     let staged_dir = staged_dir()?;
-    let data_dir = crate::ffi::module_data_path().context("OBS module data path is unavailable during update")?;
+    let data_dir = crate::obs::module_data_path().context("OBS module data path is unavailable during update")?;
     RuntimeDataTransaction::install(&staged_dir, &data_dir)
 }
 

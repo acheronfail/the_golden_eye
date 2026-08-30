@@ -2,9 +2,9 @@ mod api_contract;
 mod browser;
 mod browser_dock;
 pub mod config;
-mod ffi;
 mod http;
 mod logging;
+mod obs;
 mod recording;
 mod settings;
 mod stream_notifier;
@@ -59,7 +59,7 @@ fn resolve_cv_template_dir(data_path: Option<&Path>) -> Option<PathBuf> {
 }
 
 fn configure_cv_template_dir() {
-    let data_path = ffi::module_data_path();
+    let data_path = obs::module_data_path();
 
     let Some(template_dir) = resolve_cv_template_dir(data_path.as_deref()) else {
         tracing::warn!(data_path = ?data_path, "OBS did not resolve the bundled CV templates directory");

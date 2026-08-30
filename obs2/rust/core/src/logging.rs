@@ -15,7 +15,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::ffi::{self, GeLogLevel};
+use crate::obs::{self, GeLogLevel};
 
 static LOGGING_INIT: Once = Once::new();
 
@@ -107,7 +107,7 @@ impl Drop for ObsWriter {
             // Skip any line with an interior NUL rather than truncate silently;
             // log lines never legitimately contain one.
             if let Ok(msg) = CString::new(line) {
-                ffi::log(self.level, &msg);
+                obs::log(self.level, &msg);
             }
         }
     }

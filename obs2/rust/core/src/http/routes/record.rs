@@ -9,7 +9,7 @@ use crate::settings::default_completed_output_path;
 #[axum::debug_handler]
 pub async fn handle_start(State(_): State<AppState>) -> Result<impl IntoResponse> {
     tracing::info!("starting recording");
-    crate::ffi::start_recording();
+    crate::obs::start_recording();
 
     Ok(StatusCode::OK)
 }
@@ -17,7 +17,7 @@ pub async fn handle_start(State(_): State<AppState>) -> Result<impl IntoResponse
 #[axum::debug_handler]
 pub async fn handle_stop(State(_): State<AppState>) -> Result<impl IntoResponse> {
     tracing::info!("stopping recording");
-    crate::ffi::stop_recording();
+    crate::obs::stop_recording();
 
     Ok(StatusCode::OK)
 }

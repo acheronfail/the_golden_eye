@@ -78,7 +78,7 @@ pub async fn handle_validate(Json(req): Json<FolderValidateRequest>) -> Result<i
 
 fn pick_folder_on_ui_thread(title: String, start_dir: Option<PathBuf>) -> anyhow::Result<Option<PathBuf>> {
     let (sender, receiver) = mpsc::channel();
-    crate::ffi::queue_ui_task(move || {
+    crate::obs::queue_ui_task(move || {
         let mut dialog = rfd::FileDialog::new().set_title(title).set_can_create_directories(true);
         if let Some(start_dir) = start_dir {
             dialog = dialog.set_directory(start_dir);

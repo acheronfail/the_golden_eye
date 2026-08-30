@@ -186,7 +186,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
         let since = begin_replay_save_request();
         job.replay_saves.transition(job.tracking_id, ReplaySaveStage::SavingReplay);
         tracing::info!("saving replay buffer");
-        crate::ffi::save_replay_buffer();
+        crate::obs::save_replay_buffer();
 
         // Block on the OBS replay-saved event (no polling); it carries the path.
         let event_path = match wait_for_replay_saved(since, REPLAY_SAVE_SLOW_WARNING, REPLAY_SAVE_TIMEOUT) {

@@ -212,29 +212,29 @@ fn wait_for_replay_buffer_active(timeout: Duration) -> bool {
 /// Whether the replay buffer is enabled in the active profile (the OBS "Enable
 /// Replay Buffer" checkbox). Distinct from [`replay_buffer_active`].
 pub fn replay_buffer_enabled() -> bool {
-    crate::ffi::replay_buffer_enabled()
+    crate::obs::replay_buffer_enabled()
 }
 
 /// Whether OBS currently exposes a replay-buffer output. This can be false even
 /// when the checkbox is enabled, for output modes where OBS disables replay
 /// buffer internally.
 pub fn replay_buffer_available() -> bool {
-    crate::ffi::replay_buffer_available()
+    crate::obs::replay_buffer_available()
 }
 
 /// Configured maximum replay-buffer duration in seconds.
 pub fn replay_buffer_max_seconds() -> Option<u64> {
-    crate::ffi::replay_buffer_max_seconds()
+    crate::obs::replay_buffer_max_seconds()
 }
 
 /// Directory OBS is configured to write replay-buffer files into.
 pub fn replay_buffer_output_directory() -> Option<PathBuf> {
-    crate::ffi::replay_buffer_output_directory()
+    crate::obs::replay_buffer_output_directory()
 }
 
 /// Whether the replay buffer output is currently running.
 pub fn replay_buffer_active() -> bool {
-    crate::ffi::replay_buffer_active()
+    crate::obs::replay_buffer_active()
 }
 
 /// Start the replay buffer if it is available and not already running.
@@ -258,7 +258,7 @@ pub fn ensure_replay_buffer_running() -> bool {
         for attempt in 1..=REPLAY_START_RETRIES {
             tracing::info!(attempt, "starting replay buffer");
             on_replay_buffer_starting();
-            crate::ffi::start_replay_buffer();
+            crate::obs::start_replay_buffer();
             if wait_for_replay_buffer_active(REPLAY_START_TIMEOUT) {
                 return true;
             }
@@ -285,6 +285,6 @@ pub fn stop_replay_buffer_if_active() {
     if replay_buffer_active() {
         tracing::info!("stopping replay buffer");
         on_replay_buffer_stopping();
-        crate::ffi::stop_replay_buffer();
+        crate::obs::stop_replay_buffer();
     }
 }
