@@ -46,19 +46,6 @@ pub(crate) const UPDATER_VERSION: &str = env!("GE_UPDATER_VERSION");
 
 pub use api_contract::export_api_contract;
 
-pub(crate) type ObsPathGetter = unsafe extern "C" fn(*mut c_char, usize) -> bool;
-
-pub(crate) fn read_obs_path(getter: ObsPathGetter) -> Option<PathBuf> {
-    let mut buffer = vec![0 as c_char; 4096];
-    let ok = unsafe { getter(buffer.as_mut_ptr(), buffer.len()) };
-    if !ok {
-        return None;
-    }
-
-    let path = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().into_owned();
-    if path.is_empty() { None } else { Some(PathBuf::from(path)) }
-}
-
 fn existing_template_dir(candidate: impl AsRef<Path>) -> Option<PathBuf> {
     let candidate = candidate.as_ref();
     if !candidate.is_dir() {
@@ -72,7 +59,7 @@ fn resolve_cv_template_dir(data_path: Option<&Path>) -> Option<PathBuf> {
 }
 
 fn configure_cv_template_dir() {
-    let data_path = read_obs_path(ffi::ge_obs_module_data_path);
+    let data_path = ffi::module_data_path();
 
     let Some(template_dir) = resolve_cv_template_dir(data_path.as_deref()) else {
         tracing::warn!(data_path = ?data_path, "OBS did not resolve the bundled CV templates directory");

@@ -212,37 +212,29 @@ fn wait_for_replay_buffer_active(timeout: Duration) -> bool {
 /// Whether the replay buffer is enabled in the active profile (the OBS "Enable
 /// Replay Buffer" checkbox). Distinct from [`replay_buffer_active`].
 pub fn replay_buffer_enabled() -> bool {
-    unsafe { crate::ffi::ge_obs_replay_buffer_enabled() }
+    crate::ffi::replay_buffer_enabled()
 }
 
 /// Whether OBS currently exposes a replay-buffer output. This can be false even
 /// when the checkbox is enabled, for output modes where OBS disables replay
 /// buffer internally.
 pub fn replay_buffer_available() -> bool {
-    unsafe { crate::ffi::ge_obs_replay_buffer_available() }
+    crate::ffi::replay_buffer_available()
 }
 
 /// Configured maximum replay-buffer duration in seconds.
 pub fn replay_buffer_max_seconds() -> Option<u64> {
-    let seconds = unsafe { crate::ffi::ge_obs_replay_buffer_max_seconds() };
-    u64::try_from(seconds).ok()
+    crate::ffi::replay_buffer_max_seconds()
 }
 
 /// Directory OBS is configured to write replay-buffer files into.
 pub fn replay_buffer_output_directory() -> Option<PathBuf> {
-    let mut buffer = vec![0 as c_char; OBS_OUTPUT_PATH_BUFFER_SIZE];
-    let ok = unsafe { crate::ffi::ge_obs_replay_buffer_output_directory(buffer.as_mut_ptr(), buffer.len()) };
-    if !ok {
-        return None;
-    }
-
-    let path = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().trim().to_owned();
-    if path.is_empty() { None } else { Some(PathBuf::from(path)) }
+    crate::ffi::replay_buffer_output_directory()
 }
 
 /// Whether the replay buffer output is currently running.
 pub fn replay_buffer_active() -> bool {
-    unsafe { crate::ffi::obs_frontend_replay_buffer_active() }
+    crate::ffi::replay_buffer_active()
 }
 
 /// Start the replay buffer if it is available and not already running.
@@ -266,7 +258,7 @@ pub fn ensure_replay_buffer_running() -> bool {
         for attempt in 1..=REPLAY_START_RETRIES {
             tracing::info!(attempt, "starting replay buffer");
             on_replay_buffer_starting();
-            unsafe { crate::ffi::obs_frontend_replay_buffer_start() };
+            crate::ffi::start_replay_buffer();
             if wait_for_replay_buffer_active(REPLAY_START_TIMEOUT) {
                 return true;
             }
@@ -293,7 +285,6 @@ pub fn stop_replay_buffer_if_active() {
     if replay_buffer_active() {
         tracing::info!("stopping replay buffer");
         on_replay_buffer_stopping();
-        unsafe { crate::ffi::obs_frontend_replay_buffer_stop() };
+        crate::ffi::stop_replay_buffer();
     }
 }
-

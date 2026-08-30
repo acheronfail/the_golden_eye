@@ -9,7 +9,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::Result;
 
-use super::capture::{FRAME_BUFFER_CAPACITY, FrameMailbox, MailboxRecv, ProducerCtx, ProducerPtr, ge_frame_callback};
+use super::capture::{FRAME_BUFFER_CAPACITY, FrameMailbox, MailboxRecv, ProducerCtx};
 use crate::http::AppState;
 
 /// Developer diagnostic: dumps each captured (matcher-input) frame to a temp
@@ -74,7 +74,7 @@ fn flatpak_host_path(dir: &Path) -> Option<String> {
 /// runs whenever the developer switch is on, whether or not a monitor is active.
 pub struct FrameDumpHandle {
     mailbox: Arc<FrameMailbox>,
-    producer: ProducerPtr,
+    producer: crate::ffi::RegisteredRenderCallback<ProducerCtx>,
     thread: JoinHandle<()>,
     source_name: String,
 }
@@ -121,10 +121,9 @@ pub(crate) fn start_frame_dump(state: &AppState, source_name: String) -> StartRe
         CString::new(source_name.clone()).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
 
     // Double-buffered so readback pipelines without stalling OBS's render thread.
-    let ctx = unsafe { crate::ffi::ge_capture_create(true) };
-    if ctx.is_null() {
+    let Some(ctx) = crate::ffi::CaptureContext::new(true) else {
         return Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to create capture context"));
-    }
+    };
 
     let mailbox = Arc::new(FrameMailbox::new(FRAME_BUFFER_CAPACITY));
     let region = {
@@ -134,15 +133,14 @@ pub(crate) fn start_frame_dump(state: &AppState, source_name: String) -> StartRe
             _ => Arc::new(Mutex::new(None)),
         }
     };
-    let producer = Box::into_raw(Box::new(ProducerCtx {
+    let producer = crate::ffi::RegisteredRenderCallback::register(ProducerCtx {
         ctx,
         name,
         region,
         mailbox: mailbox.clone(),
         timing_enabled: false,
         last_callback_at: Mutex::new(None),
-    }));
-    unsafe { crate::ffi::ge_obs_register_frame_callback(ge_frame_callback, producer.cast()) };
+    });
 
     // Write frames on a dedicated OS thread so disk I/O never runs on the OBS
     // graphics thread (the callback) and never ties up the async runtime.
@@ -168,14 +166,13 @@ pub(crate) fn start_frame_dump(state: &AppState, source_name: String) -> StartRe
         Ok(thread) => thread,
         Err(err) => {
             tracing::error!("failed to spawn frame dump thread: {err}");
-            unsafe { crate::ffi::ge_obs_unregister_frame_callback(ge_frame_callback, producer.cast()) };
-            drop(unsafe { Box::from_raw(producer) });
+            drop(producer);
             return Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to spawn frame dump thread"));
         }
     };
 
     let mut guard = state.frame_dump.lock().unwrap_or_else(|p| p.into_inner());
-    *guard = Some(FrameDumpHandle { mailbox, producer: ProducerPtr(producer), thread, source_name });
+    *guard = Some(FrameDumpHandle { mailbox, producer, thread, source_name });
     tracing::info!("frame dump started");
     Ok(())
 }
@@ -194,13 +191,11 @@ pub(crate) async fn stop_frame_dump(state: &AppState) -> bool {
 
     tokio::task::spawn_blocking(move || {
         let FrameDumpHandle { mailbox, producer, thread, source_name } = handle;
-        let producer = producer.0;
-        unsafe { crate::ffi::ge_obs_unregister_frame_callback(ge_frame_callback, producer.cast()) };
+        drop(producer);
         mailbox.close();
         if thread.join().is_err() {
             tracing::error!("frame dump thread panicked");
         }
-        drop(unsafe { Box::from_raw(producer) });
         tracing::info!(source = %source_name, "frame dump stopped");
     })
     .await

@@ -18,15 +18,7 @@ mod session;
 mod throughput;
 
 pub use capture::MonitorHandle;
-use capture::{
-    CapturedFrameStats,
-    FRAME_BUFFER_CAPACITY,
-    FrameMailbox,
-    MailboxRecv,
-    ProducerCtx,
-    ProducerPtr,
-    ge_frame_callback,
-};
+use capture::{CapturedFrameStats, FRAME_BUFFER_CAPACITY, FrameMailbox, MailboxRecv, ProducerCtx};
 pub use session::MonitorSession;
 use session::{DisplayTimeSmoother, log_level_match, switch_detected_language};
 use throughput::ThroughputMeter;
@@ -40,7 +32,7 @@ pub struct StartParams {
 }
 
 /// Frame source backed by the live OBS source: consumes the frames the render
-/// callback (`ge_frame_callback`) pushes into the shared mailbox. Capture and
+/// callback pushes into the shared mailbox. Capture and
 /// its GPU surfaces live on the producer side; this only awaits and matches.
 struct ObsSource {
     mailbox: Arc<FrameMailbox>,
@@ -225,11 +217,10 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     // Reusable capture context (and GPU surfaces), created once per session and
     // destroyed with the ProducerCtx on stop. Double-buffered so readback pipelines
     // without stalling OBS's render; the first frame only primes and yields none.
-    let ctx = unsafe { crate::ffi::ge_capture_create(true) };
-    if ctx.is_null() {
+    let Some(ctx) = crate::ffi::CaptureContext::new(true) else {
         tracing::error!("failed to create capture context; monitor not started");
         return Err((StatusCode::INTERNAL_SERVER_ERROR, "failed to create capture context").into());
-    }
+    };
 
     // Shared between the OBS producer (render callback) and the worker consumer:
     // the frame mailbox and latched capture region. Capacity 1 is drop-oldest
@@ -238,21 +229,14 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let region = Arc::new(Mutex::new(None));
     let monitor_timing_mode = MonitorTimingMode::from_env();
 
-    // Producer state handed to OBS as the render-callback param. Boxed and leaked
-    // to a raw pointer for the monitor's lifetime; reclaimed (and the capture
-    // context destroyed) in `handle_stop`.
-    let producer = Box::into_raw(Box::new(ProducerCtx {
+    let producer = crate::ffi::RegisteredRenderCallback::register(ProducerCtx {
         ctx,
         name: source_name,
         region: region.clone(),
         mailbox: mailbox.clone(),
         timing_enabled: monitor_timing_mode != MonitorTimingMode::Off,
         last_callback_at: Mutex::new(None),
-    }));
-
-    // From here on OBS pushes a captured frame into the mailbox once per rendered
-    // frame -- the push model that replaces the old capture-in-a-spin-loop.
-    unsafe { crate::ffi::ge_obs_register_frame_callback(ge_frame_callback, producer.cast()) };
+    });
 
     // Run the matcher on a dedicated OS thread so its blocking, CPU-bound work
     // never ties up the async runtime's worker threads. The session is moved
@@ -284,7 +268,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     let recording_session_id = monitor_session_id.clone();
     let recording_source_name = status_source_name.clone();
     let recording_lang = DEFAULT_MONITOR_LANGUAGE.to_owned();
-    let source_fps = unsafe { crate::ffi::ge_obs_video_fps() };
+    let source_fps = crate::ffi::video_fps();
     // Kept for the handle so a standalone frame dump can share the latched region.
     let handle_region = region.clone();
     let worker_recent_run_limit = recent_run_limit.clone();
@@ -401,9 +385,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
         Ok(thread) => thread,
         Err(err) => {
             tracing::error!("failed to spawn monitor thread: {err}");
-            // Unwind the registration and free the producer (which destroys ctx).
-            unsafe { crate::ffi::ge_obs_unregister_frame_callback(ge_frame_callback, producer.cast()) };
-            drop(unsafe { Box::from_raw(producer) });
+            drop(producer);
             if let Some(session_id) = monitor_session_id.as_deref()
                 && let Err(error) = state.run_catalog.delete_empty_monitor_session(session_id)
             {
@@ -415,7 +397,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
 
     *guard = Some(MonitorHandle {
         mailbox,
-        producer: ProducerPtr(producer),
+        producer,
         thread,
         source_name: status_source_name.clone(),
         session_id: monitor_session_id,
@@ -459,23 +441,14 @@ pub(crate) async fn stop_monitor(state: &AppState, end_reason: &'static str) -> 
     // the in-flight match finishes. Joining the thread drops the session,
     // releasing the matcher and its scale cache.
     tokio::task::spawn_blocking(move || {
-        // Destructure up front so the closure captures the Send `ProducerPtr`
-        // field, not the inner raw pointer (disjoint closure capture would reach
-        // through a `ProducerPtr(producer)` pattern). Unwrap it as a local after.
         let MonitorHandle { mailbox, producer, thread, .. } = handle;
-        let producer = producer.0;
-        // Stop new frames first. `ge_obs_unregister_frame_callback` serializes with
-        // callback invocation, so once it returns the callback is neither running
-        // nor will run again -- the ProducerCtx is then safe to free below.
-        unsafe { crate::ffi::ge_obs_unregister_frame_callback(ge_frame_callback, producer.cast()) };
+        // Dropping the registration fences callbacks before reclaiming its state.
+        drop(producer);
         // Wake the worker out of its blocking `recv` so the run loop exits.
         mailbox.close();
         if thread.join().is_err() {
             tracing::error!("monitor thread panicked");
         }
-        // Worker is done and no callback can fire: reclaim the producer, whose
-        // Drop destroys the capture context.
-        drop(unsafe { Box::from_raw(producer) });
     })
     .await
     .ok();

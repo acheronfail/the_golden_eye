@@ -1,6 +1,6 @@
 //! Tracing setup for the core.
 //!
-//! Events are logged to OBS's own log via `blog` (see [`ffi::ge_obs_blog`])
+//! Events are logged to OBS's own log via the safe OBS bridge
 //! so the core's logs land in the OBS log file on every platform.
 
 use std::ffi::CString;
@@ -107,8 +107,7 @@ impl Drop for ObsWriter {
             // Skip any line with an interior NUL rather than truncate silently;
             // log lines never legitimately contain one.
             if let Ok(msg) = CString::new(line) {
-                // SAFETY: `msg` is a valid NUL-terminated C string for this call.
-                unsafe { ffi::ge_obs_blog(self.level, msg.as_ptr()) };
+                ffi::log(self.level, &msg);
             }
         }
     }
