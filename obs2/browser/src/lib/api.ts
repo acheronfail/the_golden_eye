@@ -1,4 +1,59 @@
 import type { Settings } from '$lib/stores/settings.svelte';
+import type {
+	AppEvent,
+	AppSnapshot,
+	AnnotationRect,
+	AnnotationSet,
+	ActivePictureRegion,
+	BlackFrameSignal,
+	BucketCounts,
+	ClipMetadata,
+	DifficultyNumber,
+	FolderPickResult,
+	FolderValidation,
+	LevelMatch,
+	LevelTimerPhase,
+	LevelTimerStartReason,
+	ManualRunInput,
+	MatchSourceResponse,
+	MonitorFps,
+	MonitorSnapshot,
+	MonitorStoppedReason,
+	MonitorWallClockState,
+	MonitoringSessionDetail,
+	MonitoringSessionSummary,
+	ObsSource,
+	PluginUpdate,
+	RecordingOptions,
+	RecordingSavePending,
+	RecordingSaved,
+	RecordingStatus,
+	ReplayBufferStatus,
+	ReplaySaveStage,
+	ReplaySaveStatus,
+	RomVersion,
+	RunCatalogSync,
+	RunClip,
+	RunDirectoryScan,
+	RunRetentionState,
+	RunYouTubeVideo,
+	RunsResponse,
+	RunSort,
+	RunStatus,
+	SettingsStatus,
+	StatisticsBucket,
+	StatisticsResponse,
+	StatusCounts,
+	TheEliteImportResponse,
+	UpdatePhase,
+	UpdateStatus,
+	YouTubeAccount,
+	YouTubeAssociationSource,
+	YouTubeStatus,
+	YouTubeUploadHistoryEntry,
+	YouTubeUploadState,
+	YouTubeUploadStatus
+} from '$lib/generated/api';
 
 // In dev the SPA is Vite-served on its own port, so
 // point API calls at that absolute origin. Production serves the SPA itself, so
@@ -413,94 +468,62 @@ export class Backend {
 }
 
 export const backend = new Backend();
-export interface ObsSource {
-	name: string;
-	id: string;
-}
 
-export interface ClipMetadata {
-	runId?: string;
-	timestamp: string;
-	time?: string;
-	timeSeconds?: number;
-	level: string;
-	levelNumber?: number;
-	difficulty?: string;
-	status: string;
-	wasPersonalBest?: boolean;
-	gameLanguage: string;
-	romVersion?: RomVersion | null;
-	sourceName: string;
-	comment: string;
-	pluginVersion: string;
-	retentionState?: RunRetentionState;
-	retentionReason?: string;
-}
-
-export type RomVersion = 'ntsc-u' | 'ntsc-j' | 'pal';
-
-export interface RunDirectoryScan {
-	kind: 'completed';
-	path: string;
-	exists: boolean;
-	error?: string | null;
-}
-
-export interface RunClip {
-	runId: string;
-	path: string;
-	fileName: string;
-	directory: string;
-	sizeBytes: number;
-	modified?: string | null;
-	durationSecs?: number | null;
-	metadata: ClipMetadata;
-	retentionState: RunRetentionState;
-	retentionReason: string | null;
-	youtube?: RunYouTubeVideo | null;
-}
-
-export interface RunYouTubeVideo {
-	videoId: string;
-	videoUrl: string;
-	uploadedAt?: string;
-	title: string;
-	source: YouTubeAssociationSource;
-}
-
-export type YouTubeAssociationSource = 'pluginUpload' | 'manualLink' | 'theElite';
-
-export interface ManualRunInput {
-	date: string;
-	level: string;
-	difficulty: string;
-	time: string;
-	gameLanguage: string;
-	romVersion?: RomVersion;
-	youtubeUrl?: string;
-}
-
-export interface TheEliteImportResponse {
-	imported: number;
-	alreadyImported: number;
-	videos: number;
-}
-
-export type RunRetentionState = 'pending' | 'kept' | 'expired';
-
-export interface RunsResponse {
-	directories: RunDirectoryScan[];
-	clips: RunClip[];
-	requestedRun?: RunClip | null;
-	total?: number;
-	nextCursor?: string | null;
-}
-
-export type RunSort = 'newest' | 'oldest' | 'fastest' | 'slowest';
-
-export type RunStatus = 'complete' | 'failed' | 'abort' | 'kia';
-export type StatisticsBucket = 'day' | 'week' | 'month' | 'year';
-export type DifficultyNumber = 0 | 1 | 2 | 3;
+export type {
+	AppEvent,
+	AppSnapshot,
+	AnnotationRect,
+	AnnotationSet,
+	ActivePictureRegion,
+	BlackFrameSignal,
+	BucketCounts,
+	ClipMetadata,
+	DifficultyNumber,
+	FolderPickResult,
+	FolderValidation,
+	LevelMatch,
+	LevelTimerPhase,
+	LevelTimerStartReason,
+	ManualRunInput,
+	MatchSourceResponse,
+	MonitorFps,
+	MonitorSnapshot,
+	MonitorStoppedReason,
+	MonitorWallClockState,
+	MonitoringSessionDetail,
+	MonitoringSessionSummary,
+	ObsSource,
+	PluginUpdate,
+	RecordingOptions,
+	RecordingSavePending,
+	RecordingSaved,
+	RecordingStatus,
+	ReplayBufferStatus,
+	ReplaySaveStage,
+	ReplaySaveStatus,
+	RomVersion,
+	RunCatalogSync,
+	RunClip,
+	RunDirectoryScan,
+	RunRetentionState,
+	RunYouTubeVideo,
+	RunsResponse,
+	RunSort,
+	RunStatus,
+	SettingsStatus,
+	StatisticsBucket,
+	StatisticsResponse,
+	StatusCounts,
+	TheEliteImportResponse,
+	UpdatePhase,
+	UpdateStatus,
+	YouTubeAccount,
+	YouTubeAssociationSource,
+	YouTubeStatus,
+	YouTubeUploadHistoryEntry,
+	YouTubeUploadState,
+	YouTubeUploadStatus
+};
 
 export const DIFFICULTY_LABELS: Record<DifficultyNumber, string> = {
 	0: 'Agent',
@@ -517,91 +540,6 @@ export interface StatisticsFilters {
 	difficultyNumber?: DifficultyNumber;
 }
 
-export interface StatusCounts {
-	total: number;
-	complete: number;
-	failed: number;
-	abort: number;
-	kia: number;
-}
-
-export interface BucketCounts {
-	start: string;
-	end: string;
-	counts: StatusCounts;
-}
-
-export interface StatisticsResponse {
-	range: {
-		from: string | null;
-		to: string;
-		bucket: StatisticsBucket;
-		timeZone: string;
-	};
-	summary: {
-		counts: StatusCounts;
-		totalSessionSeconds: number;
-		combinedBestTimes: {
-			overallSeconds: number;
-			recordedCells: number;
-			totalCells: number;
-			byDifficulty: Array<{
-				difficultyNumber: 0 | 1 | 2;
-				totalSeconds: number;
-				recordedLevels: number;
-				totalLevels: number;
-			}>;
-		};
-	};
-	byLevel: Array<{
-		levelNumber: number | null;
-		counts: StatusCounts;
-		totalSeconds: number;
-		byDifficulty: Array<{
-			difficultyNumber: DifficultyNumber | null;
-			counts: StatusCounts;
-			totalSeconds: number;
-		}>;
-	}>;
-	overallBuckets: BucketCounts[];
-	selectedCohort: {
-		levelNumber: number;
-		difficultyNumber: DifficultyNumber;
-		counts: StatusCounts;
-		buckets: BucketCounts[];
-		runTimes: Array<{
-			runId: string;
-			completedAt: string;
-			status: RunStatus;
-			timeSeconds: number;
-		}>;
-	} | null;
-}
-
-export interface MonitoringSessionSummary {
-	sessionId: string;
-	startedAt: string;
-	endedAt: string | null;
-	sourceName: string;
-	initialCvLanguage: string | null;
-	pluginVersion: string;
-	endReason: 'userStopped' | 'replayBufferStopped' | 'obsShutdown' | 'coreReload' | 'interrupted' | null;
-	counts: StatusCounts;
-	distinctLevels: number;
-}
-
-export interface MonitoringSessionDetail extends MonitoringSessionSummary {
-	attempts: Array<{
-		runId: string;
-		completedAt: string;
-		elapsedSeconds: number;
-		levelNumber: number | null;
-		difficultyNumber: DifficultyNumber | null;
-		status: RunStatus;
-		timeSeconds: number | null;
-	}>;
-}
-
 export interface EditableRunMetadata {
 	gameLanguage: string;
 	romVersion: RomVersion | '';
@@ -611,302 +549,9 @@ export interface EditableRunMetadata {
 	level: string;
 }
 
-export type YouTubeUploadState = 'queued' | 'uploading' | 'processing' | 'uploaded' | 'failed';
-
-export interface YouTubeUploadStatus {
-	id: string;
-	runId: string;
-	path: string;
-	fileName: string;
-	state: YouTubeUploadState;
-	progressBytes: number;
-	totalBytes: number | null;
-	progressRatio: number | null;
-	videoId: string | null;
-	videoUrl: string | null;
-	error: string | null;
-	title: string;
-	startedAt: string;
-	finishedAt: string | null;
-}
-
-export interface YouTubeUploadHistoryEntry {
-	path: string;
-	videoId: string;
-	videoUrl: string;
-	uploadedAt?: string;
-	title: string;
-	source: YouTubeAssociationSource;
-}
-
-export interface YouTubeAccount {
-	email: string | null;
-	name: string | null;
-	picture: string | null;
-}
-
-export interface YouTubeStatus {
-	enabled: boolean;
-	oauthConfigured: boolean;
-	connected: boolean;
-	account: YouTubeAccount | null;
-	uploads: YouTubeUploadStatus[];
-	history: YouTubeUploadHistoryEntry[];
-}
-
 export interface YouTubeUploadOptions {
 	datetimeLocal?: string;
 }
-
-/** Replay-buffer status mirrors Rust `ReplayBufferStatus`. */
-export interface ReplayBufferStatus {
-	enabled: boolean;
-	available: boolean;
-	active: boolean;
-	maxSeconds: number | null;
-	outputDirectory: string | null;
-	defaultCompletedOutputPath: string | null;
-}
-
-export interface SettingsStatus {
-	settings: Settings;
-	defaults: Settings;
-	configPath: string;
-	pluginVersion: string;
-	fileError?: string | null;
-}
-
-export interface PluginUpdate {
-	currentVersion: string;
-	latestVersion: string;
-	releaseUrl: string;
-	updaterVersion: number;
-	requiresManualInstall: boolean;
-}
-
-export interface FolderPickResult {
-	cancelled: boolean;
-	path?: string | null;
-}
-
-export interface FolderValidation {
-	expandedPath: string;
-	empty: boolean;
-	exists: boolean;
-	isDirectory: boolean;
-	writable: boolean;
-	willCreate: boolean;
-	error?: string | null;
-}
-
-/** The level match the backend pushes over the monitor WebSocket. */
-export interface LevelMatch {
-	screen: string;
-	mission: number;
-	part: number;
-	difficulty: number;
-	detected_lang?: 'en' | 'jp';
-	times: {
-		time: number;
-		target_time: number | null;
-		best_time: number | null;
-	} | null;
-	raw_times?: number[];
-	match_regions?: {
-		label: string;
-		x: number;
-		y: number;
-		w: number;
-		h: number;
-		score: number;
-	}[];
-	annotation_sets?: AnnotationSet[];
-	runtime_ms: number;
-}
-
-export interface AnnotationRect {
-	label: string;
-	x: number;
-	y: number;
-	w: number;
-	h: number;
-	score?: number;
-}
-
-export interface AnnotationSet {
-	id: string;
-	label: string;
-	annotations: AnnotationRect[];
-}
-
-export interface MatchSourceResponse {
-	match: LevelMatch;
-	annotationsEnabled: boolean;
-	frameWidth: number;
-	frameHeight: number;
-}
-
-/** Details of a clip the backend saved out of the replay buffer. */
-export interface RecordingSaved {
-	saveId: number;
-	path: string;
-	replayPath: string;
-	durationSecs: number;
-	failed: boolean;
-	stats?: LevelMatch;
-}
-
-/** Details of a clip save that has been scheduled after a run ending was seen. */
-export interface RecordingSavePending {
-	saveId: number;
-	saveInSecs: number;
-	estimatedDurationSecs: number;
-	failed: boolean;
-	status: string;
-	level: string;
-	levelNumber?: number;
-	difficulty?: string;
-	timeSecs?: number;
-	targetTimeSecs?: number;
-	bestTimeSecs?: number;
-	stats?: LevelMatch;
-}
-
-/** Recording configuration stored by the Rust backend. */
-export interface RecordingOptions {
-	completedOutputPath: string;
-	recentRunLimit: number;
-	clipFilenameTemplate: string;
-	preRunPaddingSecs: number;
-	postRunPaddingSecs: number;
-}
-
-/** A transition in the recorder's per-run state. Mirrors Rust `RecordingStatus`. */
-export type RecordingStatus =
-	| 'started'
-	| 'cancelled'
-	| 'failed'
-	| 'aborted'
-	| 'kia'
-	| 'complete'
-	| 'statsSkipped'
-	| 'savePending';
-
-/** Why a failed run reached an ending screen without a clip being saved. */
-
-/** Why the backend stopped monitoring. Mirrors the Rust `MonitorStoppedReason`. */
-export type MonitorStoppedReason = 'userStopped' | 'replayBufferStopped';
-
-export interface MonitorFps {
-	processedFps: number;
-	capturedFps: number;
-	sourceFps: number;
-	droppedFrames: number;
-	health: 'healthy' | 'warning' | 'lagging';
-}
-
-/** A message pushed over the app event stream. Mirrors the Rust `AppEvent`. */
-export interface MonitorSnapshot {
-	enabled: boolean;
-	sourceName?: string;
-	cvLanguage?: 'en' | 'jp';
-	wallClocks: MonitorWallClockState;
-}
-
-export interface MonitorWallClockState {
-	sessionStartedAtUnixMs: number | null;
-	sessionElapsedMs: number;
-	sessionRunning: boolean;
-	levelStartedAtUnixMs: number | null;
-	levelElapsedMs: number;
-	levelRunning: boolean;
-	levelPaused: boolean;
-	levelStartReason: LevelTimerStartReason | null;
-	levelTimerPhase: LevelTimerPhase;
-	introSwirlDelayMs: number | null;
-	fadeDetection: BlackFrameSignal | null;
-}
-
-export type LevelTimerStartReason = 'fade' | 'swirl';
-export type LevelTimerPhase =
-	| 'idle'
-	| 'awaitingInitialBlack'
-	| 'awaitingFirstCutscene'
-	| 'awaitingFirstCutsceneFade'
-	| 'awaitingSecondFadeOrSwirl'
-	| 'awaitingGameplayAfterSkip'
-	| 'running'
-	| 'stopped';
-
-export interface BlackFrameSignal {
-	detected: boolean;
-	meanLuma: number;
-	darkPixelPercent: number;
-	sampleCount: number;
-	sampleRegion: ActivePictureRegion;
-}
-
-export interface ActivePictureRegion {
-	x: number;
-	y: number;
-	width: number;
-	height: number;
-}
-
-export interface AppSnapshot {
-	monitor: MonitorSnapshot;
-	match: LevelMatch | null;
-	runCatalogSync: RunCatalogSync | null;
-	recordingState: RecordingStatus | null;
-	replaySaves: ReplaySaveStatus[];
-	sources: ObsSource[];
-	replayBuffer: ReplayBufferStatus;
-	settingsStatus: SettingsStatus;
-	update: UpdateStatus;
-}
-
-export type RunCatalogSync = 'initial' | 'manual';
-
-export type ReplaySaveStage =
-	| 'scheduled'
-	| 'waitingForReplaySave'
-	| 'savingReplay'
-	| 'trimming'
-	| 'completed'
-	| 'failed';
-
-export interface ReplaySaveStatus {
-	trackingId: number;
-	saveId: number;
-	stage: ReplaySaveStage;
-	level: string;
-	difficulty: string | null;
-	runStatus: string;
-	estimatedDurationSecs: number;
-	error?: string;
-}
-
-export type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'staged' | 'applying';
-
-export interface UpdateStatus {
-	phase: UpdatePhase;
-	available: PluginUpdate | null;
-}
-
-export type AppEvent =
-	| { type: 'version'; buildId: string }
-	| { type: 'snapshot'; state: AppSnapshot }
-	| ({ type: 'monitorFps' } & MonitorFps)
-	| ({ type: 'recordingSavePending' } & RecordingSavePending)
-	| ({ type: 'recordingSaved' } & RecordingSaved)
-	| { type: 'runCatalogChanged'; runId?: string; saveId?: number }
-	| { type: 'monitorStopped'; reason: MonitorStoppedReason }
-	| { type: 'settingsReloaded'; configPath: string; settings: Settings }
-	| { type: 'settingsInvalid'; configPath: string; error: string }
-	| { type: 'updateApplied'; version: string; releaseUrl?: string }
-	| { type: 'updateStagingFailed'; error: string }
-	| { type: 'youtubeUploadChanged'; upload: YouTubeUploadStatus }
-	| { type: 'youtubeStatusChanged'; status: YouTubeStatus };
 
 export type MonitorStatus =
 	| { enabled: false; recordingState?: null }

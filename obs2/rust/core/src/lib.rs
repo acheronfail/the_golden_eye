@@ -1,3 +1,4 @@
+mod api_contract;
 mod browser;
 mod browser_dock;
 pub mod config;
@@ -42,6 +43,8 @@ use crate::settings::{SettingsReload, SettingsStore};
 
 pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
 pub(crate) const UPDATER_VERSION: &str = env!("GE_UPDATER_VERSION");
+
+pub use api_contract::export_api_contract;
 
 pub(crate) type ObsPathGetter = unsafe extern "C" fn(*mut c_char, usize) -> bool;
 
@@ -194,8 +197,7 @@ pub extern "C" fn ge_rust_set_was_reloaded(was_reloaded: bool) {
 /// Snapshot at STOPPING so a stale STOPPED event can't tear down a replacement monitor.
 static REPLAY_STOP_SHOULD_STOP_MONITOR: AtomicBool = AtomicBool::new(false);
 
-// Also included, unconditionally, by the `test_match`/`annotate_match` bin
-// crates (see src/bin/*.rs) so their builds can resolve the same symbols.
+// Standalone test executables never call OBS, but still need these symbols.
 #[cfg(test)]
 #[path = "obs_stub.rs"]
 mod obs_stub;

@@ -212,16 +212,17 @@ test:
 
 # formats the project and runs clippy
 fmt:
+    just generate-contracts
     just clippy
-    just generate-settings
     cd obs2/browser && npm run format:repo
     cd obs2/browser && npm run check
     cd obs2/rust && rustup run nightly cargo fmt --all --
     find obs2 obs2/shim obs2/shim/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_rust.h -print0 | xargs -0 clang-format -style=file -i
 
-# regenerates the browser settings types/defaults from the Rust contract
-generate-settings:
-    cd "{{ justfile_directory() }}/obs2/rust" && cargo run --quiet --locked --package ge_settings --features export --bin export-settings -- "{{ justfile_directory() }}/obs2/browser/src/lib/generated/settings.ts"
+# regenerates browser settings and API types from the Rust contracts
+generate-contracts:
+    just configure-release
+    cmake --build "{{ justfile_directory() }}/obs2/build" --target browser_contracts
 
 # runs clippy
 clippy:
@@ -242,7 +243,7 @@ clippy:
     cargo clippy --package ge_clip --all-targets -- -D warnings
     cargo clippy --package ge_game --all-targets -- -D warnings
     cargo clippy --package ge_media --all-targets -- -D warnings
-    cargo clippy --package ge_settings --all-targets --features export -- -D warnings
+    cargo clippy --package ge_settings --all-targets -- -D warnings
 
 # generate a markdown preview of what GitHub will put in the next release notes
 preview-release sha="HEAD":

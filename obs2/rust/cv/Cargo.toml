@@ -20,3 +20,4 @@ ge_game = { path = "../game" }
 opencv = { version = "0.98.2", features = ["clang-runtime"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+ts-rs.workspace = true

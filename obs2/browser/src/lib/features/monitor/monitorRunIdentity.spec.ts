@@ -3,7 +3,7 @@ import type { LevelMatch } from '$lib/api';
 import { monitorRunIdentityLabel, reconcileMonitorRunIdentity } from './monitorRunIdentity';
 
 const match = (screen: string, mission = -1, part = -1, difficulty = -1): LevelMatch => ({
-	screen,
+	screen: screen as LevelMatch['screen'],
 	mission,
 	part,
 	difficulty,

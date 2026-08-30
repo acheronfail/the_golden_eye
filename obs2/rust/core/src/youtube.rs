@@ -91,8 +91,9 @@ pub struct YoutubeTokens {
     pub account: Option<YoutubeAccount>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "YouTubeAccount", rename_all = "camelCase")]
 pub struct YoutubeAccount {
     pub email: Option<String>,
     pub name: Option<String>,
@@ -591,8 +592,9 @@ impl YoutubeUploadStore {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "YouTubeStatus", rename_all = "camelCase")]
 pub struct YoutubeStatus {
     pub enabled: bool,
     pub oauth_configured: bool,
@@ -602,15 +604,18 @@ pub struct YoutubeStatus {
     pub history: Vec<UploadHistoryEntry>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "YouTubeUploadStatus", rename_all = "camelCase")]
 pub struct YoutubeUploadStatus {
     pub id: String,
     pub run_id: String,
     pub path: String,
     pub file_name: String,
     pub state: YoutubeUploadState,
+    #[ts(type = "number")]
     pub progress_bytes: u64,
+    #[ts(type = "number | null")]
     pub total_bytes: Option<u64>,
     pub progress_ratio: Option<f64>,
     pub video_id: Option<String>,
@@ -618,13 +623,15 @@ pub struct YoutubeUploadStatus {
     pub error: Option<String>,
     pub title: String,
     #[serde(skip_serializing)]
+    #[ts(skip)]
     pub description: String,
     pub started_at: String,
     pub finished_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "YouTubeUploadState", rename_all = "camelCase")]
 pub enum YoutubeUploadState {
     Queued,
     Uploading,

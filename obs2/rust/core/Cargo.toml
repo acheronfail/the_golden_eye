@@ -14,6 +14,10 @@ crate-type = ["staticlib", "rlib"]
 name = "integration"
 path = "tests/integration.rs"
 
+[[bin]]
+name = "export-api"
+path = "src/bin/export_api.rs"
+
 [features]
 # Enabled by the CMake build when BROWSER_DEV=ON. Turns on permissive CORS so
 # the SPA served from the Vite dev server (a different origin) can call the API.
@@ -49,6 +53,7 @@ tower = { version = "0.5.3", features = ["util", "timeout"] }
 tower-http = { version = "0.6.11", features = ["trace", "util", "cors"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+ts-rs.workspace = true
 zip = { version = "6.0.0", default-features = false, features = ["deflate"] }
 ge_settings = { path = "../settings" }
 ge_cv = { path = "../cv" }

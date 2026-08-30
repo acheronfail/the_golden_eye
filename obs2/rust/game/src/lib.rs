@@ -279,7 +279,7 @@ pub fn shows_target(level: Level, difficulty: Difficulty) -> bool {
 
 /// The times shown on a completed-level stats screen, split out from the raw
 /// top-to-bottom list the matcher reads off the overlay.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
 pub struct Times {
     /// The player's completion time for the run, in seconds. Always present.
     pub time: i32,

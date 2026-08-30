@@ -22,7 +22,8 @@ pub struct Params {
     annotations: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
+#[ts(rename = "MatchSourceResponse")]
 pub struct MatchResponse {
     #[serde(rename = "match")]
     level_match: LevelMatch,

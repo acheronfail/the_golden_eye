@@ -2,7 +2,8 @@ use axum::Json;
 use axum::response::{IntoResponse, Result};
 use serde::Serialize;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[ts(rename = "ObsSource")]
 pub struct Source {
     pub name: String,
     pub id: String,

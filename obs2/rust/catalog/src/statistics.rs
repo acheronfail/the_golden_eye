@@ -25,8 +25,9 @@ pub struct StatisticsQuery {
     pub difficulty_number: Option<i32>,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct StatusCounts {
     pub total: usize,
     pub complete: usize,
@@ -47,8 +48,9 @@ impl StatusCounts {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "StatisticsResponse", rename_all = "camelCase")]
 pub struct StatisticsData {
     pub range: StatisticsRange,
     pub summary: StatisticsSummary,
@@ -57,25 +59,29 @@ pub struct StatisticsData {
     pub selected_cohort: Option<SelectedCohort>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct StatisticsRange {
     pub from: Option<String>,
     pub to: String,
+    #[ts(type = "StatisticsBucket")]
     pub bucket: &'static str,
     pub time_zone: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct StatisticsSummary {
     pub counts: StatusCounts,
     pub total_session_seconds: f64,
     pub combined_best_times: CombinedBestTimes,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct CombinedBestTimes {
     pub overall_seconds: i32,
     pub recorded_cells: usize,
@@ -83,52 +89,63 @@ pub struct CombinedBestTimes {
     pub by_difficulty: Vec<DifficultyCombinedBest>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct DifficultyCombinedBest {
+    #[ts(type = "DifficultyNumber")]
     pub difficulty_number: i32,
     pub total_seconds: i32,
     pub recorded_levels: usize,
     pub total_levels: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct LevelCounts {
     pub level_number: Option<i32>,
     pub counts: StatusCounts,
+    #[ts(type = "number")]
     pub total_seconds: i64,
     pub by_difficulty: Vec<LevelDifficultyCounts>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct LevelDifficultyCounts {
+    #[ts(type = "DifficultyNumber | null")]
     pub difficulty_number: Option<i32>,
     pub counts: StatusCounts,
+    #[ts(type = "number")]
     pub total_seconds: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct BucketCounts {
     pub start: String,
     pub end: String,
     pub counts: StatusCounts,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct SelectedCohort {
     pub level_number: i32,
+    #[ts(type = "DifficultyNumber")]
     pub difficulty_number: i32,
     pub counts: StatusCounts,
     pub buckets: Vec<BucketCounts>,
     pub run_times: Vec<RunTimePoint>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct RunTimePoint {
     pub run_id: String,
     pub completed_at: String,
@@ -336,8 +353,9 @@ pub fn format_micros(micros: i64) -> String {
     local_datetime(micros).to_rfc3339()
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct MonitoringSessionSummary {
     pub session_id: String,
     pub started_at: String,
@@ -350,21 +368,24 @@ pub struct MonitoringSessionSummary {
     pub distinct_levels: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct MonitoringSessionDetail {
     #[serde(flatten)]
     pub summary: MonitoringSessionSummary,
     pub attempts: Vec<SessionAttempt>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct SessionAttempt {
     pub run_id: String,
     pub completed_at: String,
     pub elapsed_seconds: f64,
     pub level_number: Option<i32>,
+    #[ts(type = "DifficultyNumber | null")]
     pub difficulty_number: Option<i32>,
     pub status: RunStatus,
     pub time_seconds: Option<i32>,

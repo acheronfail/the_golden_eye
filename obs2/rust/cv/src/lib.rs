@@ -375,7 +375,7 @@ impl MatchRect {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
 pub struct MatchRegion {
     pub label: String,
     pub x: i32,
@@ -385,7 +385,7 @@ pub struct MatchRegion {
     pub score: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
 pub struct AnnotationRect {
     pub label: String,
     pub x: i32,
@@ -393,10 +393,11 @@ pub struct AnnotationRect {
     pub w: i32,
     pub h: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub score: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
 pub struct AnnotationSet {
     pub id: String,
     pub label: String,
@@ -485,7 +486,8 @@ struct FoundMission {
 // Which overlay screen a frame shows. All but `Levels` share the
 // mission/part/difficulty header; they are told apart by the banner word below
 // it or, for report screens, the status value. `Unknown` covers gameplay.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[ts(rename_all = "lowercase")]
 pub enum Screen {
     Unknown,
     Start,
@@ -522,7 +524,7 @@ impl Screen {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
 pub struct LevelMatch {
     pub screen: Screen,
     pub mission: i32,
@@ -531,6 +533,7 @@ pub struct LevelMatch {
     /// Game language detected from language-specific static UI, when a strong
     /// signal is visible. Currently emitted on level-start briefing screens.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"en\" | \"jp\"")]
     pub detected_lang: Option<String>,
     /// The stats-screen times split into run / target / best (see [`ge::Times`]).
     /// `None` on any screen that carries no timed rows (start, report, gameplay).
@@ -538,14 +541,17 @@ pub struct LevelMatch {
     /// Raw times read off the overlay top-to-bottom, before classification (the
     /// source `times` derives from). Empty on untimed screens. Kept for the test
     /// harness; production code uses the classified `times` instead.
+    #[ts(optional = nullable)]
     pub raw_times: Vec<i32>,
     /// Optional template-match rectangles for developer tooling. These are
     /// empty unless annotation diagnostics are explicitly enabled.
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional = nullable)]
     pub match_regions: Vec<MatchRegion>,
     /// Developer-only annotation sets. The normal monitor path leaves this
     /// empty so no annotation collection work is done per frame.
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional = nullable)]
     pub annotation_sets: Vec<AnnotationSet>,
     pub runtime_ms: f64,
 }

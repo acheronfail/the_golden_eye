@@ -14,8 +14,9 @@ const RELEASES_PAGE_URL: &str = "https://github.com/acheronfail/the_golden_eye/r
 const RELEASE_URL_PREFIX: &str = "https://github.com/acheronfail/the_golden_eye/releases/";
 const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct PluginUpdate {
     pub current_version: String,
     pub latest_version: String,
@@ -24,8 +25,9 @@ pub struct PluginUpdate {
     pub requires_manual_install: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub enum UpdatePhase {
     #[default]
     Idle,
@@ -36,8 +38,9 @@ pub enum UpdatePhase {
     Applying,
 }
 
-#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct UpdateStatus {
     pub phase: UpdatePhase,
     pub available: Option<PluginUpdate>,

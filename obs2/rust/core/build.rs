@@ -10,7 +10,6 @@ fn main() {
     println!("cargo:rerun-if-env-changed=GE_YOUTUBE_CLIENT_ID");
     println!("cargo:rerun-if-env-changed=GE_YOUTUBE_CLIENT_SECRET");
     println!("cargo:rerun-if-env-changed=GE_YOUTUBE_ENABLED");
-
     println!("cargo:rerun-if-env-changed=OPENCV_INCLUDE_PATHS");
     println!("cargo:rerun-if-env-changed=OPENCV_LINK_PATHS");
     println!("cargo:rerun-if-env-changed=OPENCV_LINK_LIBS");

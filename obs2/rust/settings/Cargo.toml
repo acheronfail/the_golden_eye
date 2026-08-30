@@ -7,12 +7,8 @@ publish = false
 [[bin]]
 name = "export-settings"
 path = "src/bin/export_settings.rs"
-required-features = ["export"]
-
-[features]
-export = ["dep:ts-rs"]
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-ts-rs = { version = "12.0.1", features = ["serde-compat"], optional = true }
+ts-rs.workspace = true

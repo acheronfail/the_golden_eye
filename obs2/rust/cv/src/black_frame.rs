@@ -9,8 +9,9 @@ const MEAN_LUMA_MAX: u8 = 32;
 const DARK_PERCENT_MIN: u8 = 100;
 
 /// Pixel bounds containing the game picture in the current captured frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct ActivePictureRegion {
     pub x: u32,
     pub y: u32,
@@ -33,8 +34,9 @@ impl ActivePictureRegion {
 }
 
 /// Fixed-cost evidence used to classify a near-black capture frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct BlackFrameSignal {
     pub detected: bool,
     pub mean_luma: u8,

@@ -84,15 +84,18 @@ pub struct RunMetadataUpdateRequest {
     metadata: EditableRunMetadata,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "ManualRunInput", rename_all = "camelCase")]
 pub struct ManualRunRequest {
     date: String,
     level: String,
     difficulty: String,
     time: String,
     game_language: String,
+    #[ts(optional)]
     rom_version: Option<RomVersion>,
+    #[ts(optional)]
     youtube_url: Option<String>,
 }
 
@@ -102,16 +105,18 @@ pub struct EliteImportRequest {
     username: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "TheEliteImportResponse", rename_all = "camelCase")]
 pub struct EliteImportResponse {
     imported: usize,
     already_imported: usize,
     videos: usize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct EditableRunMetadata {
     game_language: String,
     rom_version: Option<RomVersion>,
@@ -121,46 +126,58 @@ pub struct EditableRunMetadata {
     level: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct RunsResponse {
     directories: Vec<RunDirectoryScan>,
     clips: Vec<RunClip>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     requested_run: Option<RunClip>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     total: Option<usize>,
+    #[ts(optional = nullable)]
     next_cursor: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct RunDirectoryScan {
     kind: RunDirectoryKind,
     path: String,
     exists: bool,
+    #[ts(optional = nullable)]
     error: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub enum RunDirectoryKind {
     Completed,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct RunClip {
     run_id: String,
     path: String,
     file_name: String,
     directory: String,
+    #[ts(type = "number")]
     size_bytes: u64,
+    #[ts(optional = nullable)]
     modified: Option<String>,
+    #[ts(optional = nullable)]
     duration_secs: Option<f64>,
     metadata: ClipMetadata,
     retention_state: RunRetentionState,
     retention_reason: Option<String>,
+    #[ts(optional = nullable)]
     youtube: Option<crate::youtube::YoutubeMetadata>,
 }
 

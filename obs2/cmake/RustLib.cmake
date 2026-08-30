@@ -9,8 +9,8 @@ set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
 
 # Built up as a CMake list so each flag expands to a separate cargo argument.
 #
-# `--lib --bins`, deliberately NOT `--all-targets`: a normal build (`just obs`,
-# `just make`, `just dev`) only needs the staticlib (linked into the core) plus
+# Explicit library and matcher targets, deliberately NOT `--all-targets`: a
+# normal build (`just obs`, `just make`, `just dev`) only needs the staticlib plus
 # the `test_match`/`annotate_match` bins (the `test/` frame-regression and
 # benchmark harness shell out to `target/<profile>/test_match`). It must NOT
 # also compile the integration-test crates and bench harnesses -- those are
@@ -18,8 +18,14 @@ set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
 # `cargo test` in the `test-rust`/`test-integration` recipes, so building them
 # here just made every `just obs` recompile the full test suite for nothing.
 # `test_match`/`annotate_match` live in `ge_cv`, so they build without linking
-# the plugin runtime or resolving any OBS bridge symbols.
-set(CARGO_BUILD_FLAGS "--package" "ge_rust" "--package" "ge_cv" "--lib" "--bins")
+# the plugin runtime or resolving any OBS bridge symbols. Selecting them by name
+# also keeps contract exporters out of normal builds.
+set(CARGO_BUILD_FLAGS
+    "--package" "ge_rust"
+    "--package" "ge_cv"
+    "--lib"
+    "--bin" "test_match"
+    "--bin" "annotate_match")
 if(GE_RUST_PACKAGE_PROFILE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
   message(FATAL_ERROR "GE_RUST_PACKAGE_PROFILE requires a non-Debug CMAKE_BUILD_TYPE.")
 endif()

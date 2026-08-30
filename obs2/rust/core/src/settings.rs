@@ -105,10 +105,13 @@ struct SettingsState {
     file_bytes: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct SettingsStatus {
+    #[ts(type = "AppSettings")]
     pub settings: AppSettings,
+    #[ts(type = "AppSettings")]
     pub defaults: AppSettings,
     pub config_path: String,
     pub plugin_version: String,
