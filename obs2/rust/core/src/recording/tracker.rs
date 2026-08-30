@@ -438,26 +438,9 @@ impl RunTracker {
 /// drives replay-buffer saves when runs finish. Fed via [`RecordingState::on_frame`].
 pub struct RecordingState {
     tracker: RunTracker,
-    /// Broadcasts an [`AppEvent::RecordingSaved`] to event-stream clients once a
-    /// clip is written. Cloned into each save thread.
-    event_tx: broadcast::Sender<AppEvent>,
-    /// Retained recorder phase reported in app snapshots.
-    recording_state: RecordingStateStore,
-    /// Retained replay-buffer save pipeline diagnostics.
-    replay_saves: ReplaySaveStateStore,
     /// Normalized timing policy fixed for this monitor session.
     tracker_policy: RunTrackerPolicy,
-    /// Normalized clip destination and naming policy.
-    output_policy: ClipOutputPolicy,
-    /// The retention count is the one recording option that can change while a
-    /// monitor is running.
-    recent_run_limit: Arc<AtomicUsize>,
-    /// OBS source this monitor session records from, stored in clip metadata.
-    source_name: String,
-    /// Index of saved run clips, updated after successful trims.
-    run_catalog: Arc<RunCatalog>,
-    /// Durable monitoring session associated with finalized runs from this worker.
-    monitor_session_id: Option<String>,
+    save_pipeline: SavePipeline,
 }
 
 impl RecordingState {
@@ -469,25 +452,26 @@ impl RecordingState {
         session: RecordingSessionContext,
         run_catalog: Arc<RunCatalog>,
     ) -> Self {
-        let recent_run_limit = Arc::new(AtomicUsize::new(options.recent_run_limit.clamp(1, MAX_RECENT_RUN_LIMIT)));
         let tracker_policy = options.tracker_policy();
         let output_policy = options.output_policy();
+        let tracker = RunTracker::new(session.game_language.clone());
         RecordingState {
-            tracker: RunTracker::new(session.game_language),
-            event_tx,
-            recording_state,
-            replay_saves,
+            tracker,
             tracker_policy,
-            output_policy,
-            recent_run_limit,
-            source_name: session.source_name,
-            run_catalog,
-            monitor_session_id: session.monitor_session_id,
+            save_pipeline: SavePipeline::new(
+                event_tx,
+                recording_state,
+                replay_saves,
+                output_policy,
+                options.recent_run_limit,
+                session,
+                run_catalog,
+            ),
         }
     }
 
     pub fn set_recent_run_limit_source(&mut self, source: Arc<AtomicUsize>) {
-        self.recent_run_limit = source;
+        self.save_pipeline.set_recent_run_limit_source(source);
     }
 
     /// Publish a recorder state transition to the backend-retained phase store
@@ -495,7 +479,7 @@ impl RecordingState {
     /// For `SavePending`/`StatsSkipped`, records the generation on the pending
     /// save so its completion/discard can clear that exact transition later.
     fn emit(&mut self, status: RecordingStatus) {
-        let generation = self.recording_state.set(status);
+        let generation = self.save_pipeline.recording_state.set(status);
         if matches!(status, RecordingStatus::SavePending | RecordingStatus::StatsSkipped)
             && let Some(pending) = self.tracker.pending.as_mut()
         {
@@ -533,18 +517,7 @@ impl RecordingState {
             return;
         };
         if !pending.pending_event_sent || time_changed {
-            let event = save_pending_event(pending, self.tracker_policy, now);
-            self.replay_saves.schedule(ReplaySaveStatus {
-                tracking_id: pending.tracking_id,
-                save_id: event.save_id,
-                stage: ReplaySaveStage::Scheduled,
-                level: event.level.clone(),
-                difficulty: event.difficulty.clone(),
-                run_status: event.status.clone(),
-                estimated_duration_secs: event.estimated_duration_secs,
-                error: None,
-            });
-            let _ = self.event_tx.send(AppEvent::RecordingSavePending(event));
+            self.save_pipeline.publish_pending(pending, self.tracker_policy, now);
             self.tracker.pending.as_mut().unwrap().pending_event_sent = true;
         }
     }
@@ -552,74 +525,21 @@ impl RecordingState {
     /// Build a save+trim job for the pending clip, if any, anchored to `now` as
     /// the save moment (the saved file ends at ~now, so the run is its final
     /// `elapsed` seconds). A no-op when nothing is pending.
+    #[cfg(test)]
     fn take_pending_job(&mut self, now: Instant) -> Option<SaveAndTrimJob> {
         let pending = self.tracker.pending.take()?;
-        Some(self.pending_job(pending, now))
-    }
-
-    fn pending_job(&self, pending: PendingSave, now: Instant) -> SaveAndTrimJob {
-        self.replay_saves.transition(pending.tracking_id, ReplaySaveStage::WaitingForReplaySave);
-
-        let metadata = clip_metadata(
-            pending.status,
-            pending.completed_at,
-            pending.stats.as_ref(),
-            &self.source_name,
-            &pending.game_language,
-        );
-        let (finalized, tracked) = match self.run_catalog.create_finalized_run_in_session(
-            pending.completed_at,
-            metadata.clone(),
-            self.monitor_session_id.as_deref(),
-        ) {
-            Ok(run) => (run, true),
-            Err(err) => {
-                tracing::warn!(
-                    "failed to record finalized run before saving clip; continuing with tagged clip: {err:#}"
-                );
-                (RunCatalog::untracked_finalized_run(pending.completed_at, metadata), false)
-            }
-        };
-        if tracked {
-            let _ = self.event_tx.send(AppEvent::RunCatalogChanged {
-                run_id: Some(finalized.run_id.clone()),
-                save_id: Some(pending.save_id),
-            });
-        }
-
-        let start_before_save_secs =
-            now.saturating_duration_since(pending.clip_start).as_secs_f64()
-                + self.tracker_policy.pre_run_padding_secs;
-        let finish_before_save_secs = now.saturating_duration_since(pending.finish_at).as_secs_f64();
-        let trim_tail_secs = (finish_before_save_secs - self.tracker_policy.post_run_padding_secs).max(0.0);
-        SaveAndTrimJob {
-            tracking_id: pending.tracking_id,
-            save_id: pending.save_id,
-            start_before_save_secs,
-            trim_tail_secs,
-            status: pending.status,
-            completed_at: pending.completed_at,
-            stats: pending.stats,
-            metadata: finalized.metadata,
-            output_policy: self.output_policy.clone(),
-            recent_run_limit: self.recent_run_limit.clone(),
-            event_tx: self.event_tx.clone(),
-            recording_state: self.recording_state.clone(),
-            replay_saves: self.replay_saves.clone(),
-            run_catalog: self.run_catalog.clone(),
-            phase_generation: pending.phase_generation,
-        }
+        Some(self.save_pipeline.job(pending, now, self.tracker_policy))
     }
 
     /// Save and trim the pending clip asynchronously, if any.
     fn flush_pending(&mut self, now: Instant) {
-        if let Some(job) = self.take_pending_job(now) {
-            spawn_save_and_trim(job);
+        if let Some(pending) = self.tracker.pending.take() {
+            self.save_pipeline.spawn(pending, now, self.tracker_policy);
         }
     }
 
     fn flush_ready(&self, pending: PendingSave, now: Instant) {
-        spawn_save_and_trim(self.pending_job(pending, now));
+        self.save_pipeline.spawn(pending, now, self.tracker_policy);
     }
 
     /// When the in-flight save is due to fire, or `None` when nothing is pending.
@@ -641,29 +561,22 @@ impl RecordingState {
     /// the scheduled post-run padding window before OBS is asked to save.
     #[cfg(not(test))]
     fn flush_pending_on_shutdown(&mut self) {
-        self.flush_pending_on_shutdown_with(Instant::now(), std::thread::sleep, save_and_trim);
+        if let Some(pending) = self.tracker.pending.take() {
+            self.save_pipeline.flush_on_shutdown(pending, Instant::now(), self.tracker_policy);
+        }
     }
 
+    #[cfg(test)]
     fn flush_pending_on_shutdown_with(
         &mut self,
         now: Instant,
         sleep: impl FnOnce(Duration),
         save: impl FnOnce(SaveAndTrimJob),
     ) {
-        let Some(fire_at) = self.tracker.pending.as_ref().map(|pending| pending.fire_at) else {
+        let Some(pending) = self.tracker.pending.take() else {
             return;
         };
-
-        let save_at = if fire_at > now {
-            sleep(fire_at.duration_since(now));
-            fire_at
-        } else {
-            now
-        };
-
-        if let Some(job) = self.take_pending_job(save_at) {
-            save(job);
-        }
+        self.save_pipeline.flush_on_shutdown_with(pending, now, self.tracker_policy, sleep, save);
     }
 
     /// Feed the latest matched frame (and the current time). Called once per

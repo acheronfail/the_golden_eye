@@ -1,3 +1,135 @@
+struct SavePipeline {
+    event_tx: broadcast::Sender<AppEvent>,
+    recording_state: RecordingStateStore,
+    replay_saves: ReplaySaveStateStore,
+    output_policy: ClipOutputPolicy,
+    recent_run_limit: Arc<AtomicUsize>,
+    source_name: String,
+    run_catalog: Arc<RunCatalog>,
+    monitor_session_id: Option<String>,
+}
+
+impl SavePipeline {
+    fn new(
+        event_tx: broadcast::Sender<AppEvent>,
+        recording_state: RecordingStateStore,
+        replay_saves: ReplaySaveStateStore,
+        output_policy: ClipOutputPolicy,
+        recent_run_limit: usize,
+        session: RecordingSessionContext,
+        run_catalog: Arc<RunCatalog>,
+    ) -> Self {
+        Self {
+            event_tx,
+            recording_state,
+            replay_saves,
+            output_policy,
+            recent_run_limit: Arc::new(AtomicUsize::new(recent_run_limit.clamp(1, MAX_RECENT_RUN_LIMIT))),
+            source_name: session.source_name,
+            run_catalog,
+            monitor_session_id: session.monitor_session_id,
+        }
+    }
+
+    fn set_recent_run_limit_source(&mut self, source: Arc<AtomicUsize>) {
+        self.recent_run_limit = source;
+    }
+
+    fn publish_pending(&self, pending: &PendingSave, policy: RunTrackerPolicy, now: Instant) {
+        let event = save_pending_event(pending, policy, now);
+        self.replay_saves.schedule(ReplaySaveStatus {
+            tracking_id: pending.tracking_id,
+            save_id: event.save_id,
+            stage: ReplaySaveStage::Scheduled,
+            level: event.level.clone(),
+            difficulty: event.difficulty.clone(),
+            run_status: event.status.clone(),
+            estimated_duration_secs: event.estimated_duration_secs,
+            error: None,
+        });
+        let _ = self.event_tx.send(AppEvent::RecordingSavePending(event));
+    }
+
+    fn job(&self, pending: PendingSave, now: Instant, policy: RunTrackerPolicy) -> SaveAndTrimJob {
+        self.replay_saves.transition(pending.tracking_id, ReplaySaveStage::WaitingForReplaySave);
+
+        let metadata = clip_metadata(
+            pending.status,
+            pending.completed_at,
+            pending.stats.as_ref(),
+            &self.source_name,
+            &pending.game_language,
+        );
+        let (finalized, tracked) = match self.run_catalog.create_finalized_run_in_session(
+            pending.completed_at,
+            metadata.clone(),
+            self.monitor_session_id.as_deref(),
+        ) {
+            Ok(run) => (run, true),
+            Err(err) => {
+                tracing::warn!(
+                    "failed to record finalized run before saving clip; continuing with tagged clip: {err:#}"
+                );
+                (RunCatalog::untracked_finalized_run(pending.completed_at, metadata), false)
+            }
+        };
+        if tracked {
+            let _ = self.event_tx.send(AppEvent::RunCatalogChanged {
+                run_id: Some(finalized.run_id.clone()),
+                save_id: Some(pending.save_id),
+            });
+        }
+
+        let start_before_save_secs =
+            now.saturating_duration_since(pending.clip_start).as_secs_f64() + policy.pre_run_padding_secs;
+        let finish_before_save_secs = now.saturating_duration_since(pending.finish_at).as_secs_f64();
+        let trim_tail_secs = (finish_before_save_secs - policy.post_run_padding_secs).max(0.0);
+        SaveAndTrimJob {
+            tracking_id: pending.tracking_id,
+            save_id: pending.save_id,
+            start_before_save_secs,
+            trim_tail_secs,
+            status: pending.status,
+            completed_at: pending.completed_at,
+            stats: pending.stats,
+            metadata: finalized.metadata,
+            output_policy: self.output_policy.clone(),
+            recent_run_limit: self.recent_run_limit.clone(),
+            event_tx: self.event_tx.clone(),
+            recording_state: self.recording_state.clone(),
+            replay_saves: self.replay_saves.clone(),
+            run_catalog: self.run_catalog.clone(),
+            phase_generation: pending.phase_generation,
+        }
+    }
+
+    fn spawn(&self, pending: PendingSave, now: Instant, policy: RunTrackerPolicy) {
+        spawn_save_and_trim(self.job(pending, now, policy));
+    }
+
+    #[cfg(not(test))]
+    fn flush_on_shutdown(&self, pending: PendingSave, now: Instant, policy: RunTrackerPolicy) {
+        self.flush_on_shutdown_with(pending, now, policy, std::thread::sleep, save_and_trim);
+    }
+
+    fn flush_on_shutdown_with(
+        &self,
+        pending: PendingSave,
+        now: Instant,
+        policy: RunTrackerPolicy,
+        sleep: impl FnOnce(Duration),
+        save: impl FnOnce(SaveAndTrimJob),
+    ) {
+        let save_at = if pending.fire_at > now {
+            sleep(pending.fire_at.duration_since(now));
+            pending.fire_at
+        } else {
+            now
+        };
+        save(self.job(pending, save_at, policy));
+    }
+}
+
 /// Inputs for saving the replay buffer and trimming it to the run window on a
 /// dedicated thread.
 struct SaveAndTrimJob {

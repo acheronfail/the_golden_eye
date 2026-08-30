@@ -34,7 +34,7 @@ fn start_then_level_screen_cancels_active_session_without_save() {
     assert_eq!(recording.tracker.status, None);
     assert!(recording.tracker.report.is_none());
     assert!(recording.tracker.pending.is_none());
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Cancelled));
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::Cancelled));
     assert_no_app_event(&mut events);
 }
 
@@ -51,7 +51,7 @@ fn failed_report_then_stats_schedules_failed_save() {
 
     assert_eq!(recording.tracker.status, Some(RunStatus::Failed));
     assert_eq!(recording.tracker.report.as_ref().map(|m| m.screen), Some(Screen::Failed));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Failed));
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::Failed));
 
     recording.on_frame(stats_at, &match_with_time());
 
@@ -63,14 +63,14 @@ fn failed_report_then_stats_schedules_failed_save() {
     assert_eq!(recording.tracker.clip_start, None);
     assert_eq!(recording.tracker.status, None);
     assert!(recording.tracker.report.is_none());
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
-    let replay_saves = recording.replay_saves.current();
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::SavePending));
+    let replay_saves = recording.save_pipeline.replay_saves.current();
     assert_eq!(replay_saves.len(), 1);
     assert_eq!(replay_saves[0].save_id, pending.save_id);
     assert_eq!(replay_saves[0].stage, ReplaySaveStage::Scheduled);
 
     let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
-    assert_eq!(recording.replay_saves.current()[0].stage, ReplaySaveStage::WaitingForReplaySave);
+    assert_eq!(recording.save_pipeline.replay_saves.current()[0].stage, ReplaySaveStage::WaitingForReplaySave);
     assert_eq!(job.status, RunStatus::Failed);
     assert_eq!(job.stats.as_ref().map(|m| m.screen), Some(Screen::Stats));
     assert!((job.start_before_save_secs - 22.5).abs() < f64::EPSILON);
@@ -90,7 +90,7 @@ fn complete_report_then_stats_schedules_completed_save() {
 
     assert_eq!(recording.tracker.status, Some(RunStatus::Complete));
     assert_eq!(recording.tracker.report.as_ref().map(|m| m.screen), Some(Screen::Complete));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Complete));
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::Complete));
 
     recording.on_frame(stats_at, &match_with_time());
 
@@ -102,7 +102,7 @@ fn complete_report_then_stats_schedules_completed_save() {
     assert_eq!(recording.tracker.clip_start, None);
     assert_eq!(recording.tracker.status, None);
     assert!(recording.tracker.report.is_none());
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::SavePending));
 
     let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
     assert_eq!(job.status, RunStatus::Complete);
@@ -417,7 +417,7 @@ fn complete_report_then_level_screen_saves_as_stats_skipped() {
     assert_eq!(pending.status, "complete");
     assert_eq!(pending.time_secs, None);
     assert_eq!(pending.stats.as_ref().map(|m| m.screen), Some(Screen::Complete));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::StatsSkipped));
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::StatsSkipped));
 
     let job = recording.take_pending_job(levels_at + Duration::from_secs(5)).expect("save job");
     assert_eq!(job.status, RunStatus::Complete);
@@ -440,7 +440,7 @@ fn failed_report_then_level_screen_schedules_save_without_stats_skipped() {
     assert_eq!(pending.status, "failed");
     assert_eq!(pending.time_secs, None);
     assert_eq!(pending.stats.as_ref().map(|m| m.screen), Some(Screen::Failed));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::SavePending));
 
     let job = recording.take_pending_job(levels_at + Duration::from_secs(5)).expect("save job");
     assert_eq!(job.status, RunStatus::Failed);
@@ -459,7 +459,7 @@ fn late_save_completion_does_not_clear_a_second_runs_matching_phase() {
     recording.on_frame(start, &match_for_screen(Screen::Start));
     recording.on_frame(start + Duration::from_secs(10), &match_for_screen(Screen::Complete));
     recording.on_frame(start + Duration::from_secs(12), &match_for_screen(Screen::Levels));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::StatsSkipped));
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::StatsSkipped));
     let _ = pending_save_event(&mut events);
 
     // Take run 1's job directly (as the save timer would), without going
@@ -470,26 +470,26 @@ fn late_save_completion_does_not_clear_a_second_runs_matching_phase() {
     // Run 2 starts (quick restart) and also completes, skipping stats too --
     // landing on the same `StatsSkipped` value, with a newer generation.
     recording.on_frame(start + Duration::from_secs(13), &match_for_screen(Screen::Start));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Started));
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::Started));
     recording.on_frame(start + Duration::from_secs(20), &match_for_screen(Screen::Complete));
     recording.on_frame(start + Duration::from_secs(22), &match_for_screen(Screen::Levels));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::StatsSkipped));
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::StatsSkipped));
     let _ = pending_save_event(&mut events);
-    let replay_saves = recording.replay_saves.current();
+    let replay_saves = recording.save_pipeline.replay_saves.current();
     assert_eq!(replay_saves.len(), 2);
     assert!(replay_saves.iter().any(|save| save.stage == ReplaySaveStage::WaitingForReplaySave));
     assert!(replay_saves.iter().any(|save| save.stage == ReplaySaveStage::Scheduled));
 
     // Run 1's save completes late: clearing by its own (stale) generation
     // must leave run 2's `StatsSkipped` phase untouched.
-    recording.recording_state.clear_if_generation(generation1);
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::StatsSkipped));
+    recording.save_pipeline.recording_state.clear_if_generation(generation1);
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::StatsSkipped));
 
     // Run 2's own save completing does clear it.
     let job2 = recording.take_pending_job(start + Duration::from_secs(27)).expect("run 2 save job");
     let generation2 = job2.phase_generation.expect("run 2 emitted a phase generation");
-    recording.recording_state.clear_if_generation(generation2);
-    assert_eq!(recording.recording_state.current(), None);
+    recording.save_pipeline.recording_state.clear_if_generation(generation2);
+    assert_eq!(recording.save_pipeline.recording_state.current(), None);
 }
 
 #[test]
@@ -500,11 +500,11 @@ fn complete_report_after_failure_clears_failure_and_saves_completed_stats() {
 
     recording.on_frame(start, &match_for_screen(Screen::Start));
     recording.on_frame(start + Duration::from_secs(8), &match_for_screen(Screen::Failed));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Failed));
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::Failed));
 
     recording.on_frame(start + Duration::from_secs(10), &match_for_screen(Screen::Complete));
     assert_eq!(recording.tracker.status, Some(RunStatus::Complete));
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Complete));
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::Complete));
 
     recording.on_frame(stats_at, &match_with_time());
 
@@ -530,7 +530,7 @@ fn terminal_screens_without_active_session_are_ignored() {
         assert_eq!(recording.tracker.status, None);
         assert!(recording.tracker.report.is_none());
         assert!(recording.tracker.pending.is_none());
-        assert_eq!(recording.recording_state.current(), None);
+        assert_eq!(recording.save_pipeline.recording_state.current(), None);
         assert_no_app_event(&mut events);
     }
 }
@@ -583,7 +583,7 @@ fn returning_to_difficulty_selection_cancels_a_007_launch() {
     assert_eq!(recording.tracker.clip_start, None);
     assert_eq!(recording.tracker.status, None);
     assert_eq!(recording.tracker.identity_vote.winner, None);
-    assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Cancelled));
+    assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::Cancelled));
 }
 
 #[test]
@@ -602,7 +602,7 @@ fn failure_screen_variants_emit_distinct_statuses_and_save_statuses() {
 
         assert_eq!(recording.tracker.status, Some(run_status));
         assert_eq!(recording.tracker.report.as_ref().map(|m| m.screen), Some(screen));
-        assert_eq!(recording.recording_state.current(), Some(recording_status));
+        assert_eq!(recording.save_pipeline.recording_state.current(), Some(recording_status));
 
         recording.on_frame(stats_at, &match_with_time());
 
