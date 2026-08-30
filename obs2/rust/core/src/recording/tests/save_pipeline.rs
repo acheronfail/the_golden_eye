@@ -40,7 +40,7 @@ fn shutdown_before_pending_save_fires_waits_and_preserves_save_job() {
     assert_eq!(job.recording_state.current(), None);
     assert!((job.start_before_save_secs - 17.0).abs() < f64::EPSILON);
     assert_eq!(job.trim_tail_secs, 0.0);
-    assert!(recording.pending.is_none());
+    assert!(recording.tracker.pending.is_none());
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn shutdown_after_pending_save_fire_time_flushes_without_waiting() {
     assert_eq!(job.save_id, 1);
     assert!((job.start_before_save_secs - 18.5).abs() < f64::EPSILON);
     assert_eq!(job.trim_tail_secs, 1.5);
-    assert!(recording.pending.is_none());
+    assert!(recording.tracker.pending.is_none());
 }
 
 #[test]

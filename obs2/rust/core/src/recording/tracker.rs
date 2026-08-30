@@ -210,100 +210,40 @@ impl RecordingSessionContext {
     }
 }
 
-/// Tracks one recording session as it moves through the on-screen states, and
-/// drives replay-buffer saves when runs finish. Fed via [`RecordingState::on_frame`].
-pub struct RecordingState {
-    /// When the currently-active run began, or `None` when no run is in
-    /// progress. A scheduled save lives in `pending` instead, so it survives the
-    /// active run ending.
-    clip_start: Option<Instant>,
-    /// The final report status seen during the active run. Tracked for
-    /// naming/logging; the clip is saved either way.
-    status: Option<RunStatus>,
-    /// The post-mission report screen (Complete/Failed/Abort/KIA) match, or `None`
-    /// if not reached. Presence means the run finished (so backing out still saves);
-    /// absence means abandoned. Also names the clip when the stats screen is skipped.
-    report: Option<LevelMatch>,
-    /// Majority identity observed on the active run's start/007-options screen.
-    /// This is the canonical level signal used to validate later report/stats frames.
-    identity_vote: RunIdentityVote,
-    /// A scheduled save in flight, if any. Independent of the active run: once
-    /// set it is always saved when its timer elapses, even if the user backs out
-    /// or starts another run in the meantime.
-    pending: Option<PendingSave>,
-    /// Monotonic id linking the provisional recent-run row to its finalized run.
-    next_save_id: u64,
-    /// Broadcasts an [`AppEvent::RecordingSaved`] to event-stream clients once a
-    /// clip is written. Cloned into each save thread.
-    event_tx: broadcast::Sender<AppEvent>,
-    /// Retained recorder phase reported in app snapshots.
-    recording_state: RecordingStateStore,
-    /// Retained replay-buffer save pipeline diagnostics.
-    replay_saves: ReplaySaveStateStore,
-    /// Recording/output options fixed for this monitor session.
-    options: RecordingOptions,
-    /// The retention count is the one recording option that can change while a
-    /// monitor is running.
-    recent_run_limit: Arc<AtomicUsize>,
-    /// OBS source this monitor session records from, stored in clip metadata.
-    source_name: String,
-    /// Game/template language this monitor session matches, stored in clip metadata.
-    game_language: String,
-    /// Index of saved run clips, updated after successful trims.
-    run_catalog: Arc<RunCatalog>,
-    /// Durable monitoring session associated with finalized runs from this worker.
-    monitor_session_id: Option<String>,
+#[derive(Default)]
+struct TrackerUpdate {
+    ensure_replay_buffer: bool,
+    pending_changed: bool,
+    phase: Option<RecordingStatus>,
+    ready: Vec<PendingSave>,
 }
 
-impl RecordingState {
-    pub fn new(
-        event_tx: broadcast::Sender<AppEvent>,
-        recording_state: RecordingStateStore,
-        replay_saves: ReplaySaveStateStore,
-        options: RecordingOptions,
-        session: RecordingSessionContext,
-        run_catalog: Arc<RunCatalog>,
-    ) -> Self {
-        let recent_run_limit = Arc::new(AtomicUsize::new(options.recent_run_limit.clamp(1, MAX_RECENT_RUN_LIMIT)));
-        RecordingState {
+/// Pure run-detection state. It translates matched screens into domain
+/// transitions; [`RecordingState`] applies OBS, catalog, and UI side effects.
+struct RunTracker {
+    clip_start: Option<Instant>,
+    status: Option<RunStatus>,
+    report: Option<LevelMatch>,
+    identity_vote: RunIdentityVote,
+    pending: Option<PendingSave>,
+    next_save_id: u64,
+    game_language: String,
+}
+
+impl RunTracker {
+    fn new(game_language: String) -> Self {
+        Self {
             clip_start: None,
             status: None,
             report: None,
             identity_vote: RunIdentityVote::default(),
             pending: None,
             next_save_id: 1,
-            event_tx,
-            recording_state,
-            replay_saves,
-            options,
-            recent_run_limit,
-            source_name: session.source_name,
-            game_language: session.game_language,
-            run_catalog,
-            monitor_session_id: session.monitor_session_id,
+            game_language,
         }
     }
 
-    pub fn set_recent_run_limit_source(&mut self, source: Arc<AtomicUsize>) {
-        self.recent_run_limit = source;
-    }
-
-    /// Publish a recorder state transition to the backend-retained phase store
-    /// Event-stream clients see it in the next app snapshot.
-    /// For `SavePending`/`StatsSkipped`, records the generation on the pending
-    /// save so its completion/discard can clear that exact transition later.
-    fn emit(&mut self, status: RecordingStatus) {
-        let generation = self.recording_state.set(status);
-        if matches!(status, RecordingStatus::SavePending | RecordingStatus::StatsSkipped)
-            && let Some(pending) = self.pending.as_mut()
-        {
-            pending.phase_generation = Some(generation);
-        }
-    }
-
-    /// Update the game/template language attached to future clip metadata. Used
-    /// when monitor language auto-correction detects the other game language.
-    pub fn set_game_language(&mut self, game_language: String) {
+    fn set_game_language(&mut self, game_language: String) {
         if self.game_language != game_language {
             tracing::info!(from = %self.game_language, to = %game_language, "recording game language changed");
         }
@@ -321,24 +261,31 @@ impl RecordingState {
         m
     }
 
-    /// Schedule the replay-buffer save for a finished run, ending report tracking.
-    /// `stats` names the clip (stats-screen match, or report-screen when skipped).
-    /// Any earlier pending save is flushed first so it isn't dropped.
-    fn schedule_save(&mut self, now: Instant, clip_start: Instant, stats: Option<LevelMatch>) -> bool {
-        self.flush_pending(now);
+    fn schedule_save(
+        &mut self,
+        now: Instant,
+        completed_at: SystemTime,
+        clip_start: Instant,
+        stats: Option<LevelMatch>,
+        options: &RecordingOptions,
+        update: &mut TrackerUpdate,
+    ) {
+        if let Some(previous) = self.pending.take() {
+            update.ready.push(previous);
+        }
         let stats = stats.map(|m| self.canonicalize_match(m));
         let status = self.status.unwrap_or(RunStatus::Complete);
-        let save_delay = self.options.save_delay();
+        let save_delay = options.save_delay();
         let save_id = self.next_save_id;
         self.next_save_id = self.next_save_id.saturating_add(1).max(1);
-        let pending = PendingSave {
+        self.pending = Some(PendingSave {
             tracking_id: next_replay_tracking_id(),
             save_id,
             fire_at: now + save_delay,
             clip_start,
             finish_at: now,
             status,
-            completed_at: SystemTime::now(),
+            completed_at,
             game_language: self.game_language.clone(),
             stats,
             time_vote: FieldVote::default(),
@@ -347,18 +294,230 @@ impl RecordingState {
             stats_vote_closed: false,
             pending_event_sent: false,
             phase_generation: None,
-        };
-        self.pending = Some(pending);
-        self.sync_pending_event(now, true);
+        });
+        update.pending_changed = true;
         self.status = None;
         self.report = None;
         tracing::info!(?save_delay, "recording save scheduled");
+    }
+
+    fn refine_stats_vote(&mut self, m: &LevelMatch) -> bool {
+        let Some(pending) = self.pending.as_mut() else {
+            return false;
+        };
+        if pending.time_vote.counts.is_empty() || pending.stats_vote_closed {
+            return false;
+        }
+        let expected = pending.stats.as_ref().and_then(RunIdentity::from_match);
+        let incoming = RunIdentity::from_match(m);
+        if let Some(expected) = expected {
+            let Some(incoming) = incoming else {
+                return false;
+            };
+            if expected.immediately_precedes(incoming) {
+                tracing::info!(
+                    from_mission = expected.mission,
+                    from_part = expected.part,
+                    to_mission = incoming.mission,
+                    to_part = incoming.part,
+                    "next level header appeared before stats screen cleared; closing stats vote"
+                );
+                pending.stats_vote_closed = true;
+                return false;
+            }
+            if incoming != expected {
+                tracing::debug!(?expected, ?incoming, "ignoring mismatched stats identity");
+                return false;
+            }
+        }
+        record_stats_vote(pending, m)
+    }
+
+    fn on_frame(
+        &mut self,
+        now: Instant,
+        completed_at: SystemTime,
+        m: &LevelMatch,
+        options: &RecordingOptions,
+    ) -> TrackerUpdate {
+        let mut update = TrackerUpdate::default();
+        match m.screen {
+            Screen::Start | Screen::Opts007 => {
+                if self.clip_start.is_none() {
+                    self.clip_start = Some(now);
+                    self.status = None;
+                    self.report = None;
+                    self.identity_vote = RunIdentityVote::default();
+                    update.ensure_replay_buffer = true;
+                    update.phase = Some(RecordingStatus::Started);
+                    tracing::info!("recording session started");
+                }
+                if let Some(identity) = RunIdentity::from_match(m) {
+                    self.identity_vote.record(identity);
+                }
+            }
+            Screen::Levels => {
+                if let Some(start) = self.clip_start.take() {
+                    if let Some(report) = self.report.take() {
+                        let status = self.status.unwrap_or(RunStatus::Complete);
+                        tracing::info!("stats screen skipped (report -> level select)");
+                        self.schedule_save(now, completed_at, start, Some(report), options, &mut update);
+                        update.phase = Some(if status.is_failed() {
+                            RecordingStatus::SavePending
+                        } else {
+                            RecordingStatus::StatsSkipped
+                        });
+                    } else {
+                        self.status = None;
+                        self.identity_vote = RunIdentityVote::default();
+                        update.phase = Some(RecordingStatus::Cancelled);
+                        tracing::info!("recording session abandoned (returned to level select)");
+                    }
+                }
+            }
+            Screen::Failed | Screen::Abort | Screen::Kia => {
+                if self.clip_start.is_some() {
+                    let report = self.canonicalize_match(m.clone());
+                    self.report.get_or_insert(report);
+                    if !self.status.is_some_and(RunStatus::is_failed) {
+                        self.status = run_status_from_failure_screen(m.screen);
+                        update.phase = Some(match m.screen {
+                            Screen::Failed => RecordingStatus::Failed,
+                            Screen::Abort => RecordingStatus::Aborted,
+                            Screen::Kia => RecordingStatus::Kia,
+                            _ => unreachable!("failure-screen branch received {:?}", m.screen),
+                        });
+                    }
+                }
+            }
+            Screen::Complete => {
+                if self.clip_start.is_some() {
+                    let first_report = self.report.is_none();
+                    let report = self.canonicalize_match(m.clone());
+                    self.report.get_or_insert(report);
+                    if first_report || self.status.is_some_and(RunStatus::is_failed) {
+                        self.status = Some(RunStatus::Complete);
+                        update.phase = Some(RecordingStatus::Complete);
+                    }
+                }
+            }
+            Screen::Stats => {
+                if let Some(start) = self.clip_start.take() {
+                    tracing::info!("stats detected");
+                    self.schedule_save(now, completed_at, start, Some(m.clone()), options, &mut update);
+                    if let Some(pending) = self.pending.as_mut() {
+                        let initial = pending.stats.clone().expect("stats save retains its match");
+                        record_stats_vote(pending, &initial);
+                    }
+                    update.phase = Some(RecordingStatus::SavePending);
+                } else {
+                    update.pending_changed = self.refine_stats_vote(m);
+                }
+            }
+            Screen::Select => {
+                if self.report.is_none() && self.clip_start.take().is_some() {
+                    self.status = None;
+                    self.identity_vote = RunIdentityVote::default();
+                    update.phase = Some(RecordingStatus::Cancelled);
+                    tracing::info!("recording session cancelled (returned to difficulty selection)");
+                }
+            }
+            Screen::Unknown => {}
+        }
+
+        if m.screen != Screen::Stats
+            && let Some(pending) = self.pending.as_mut()
+        {
+            pending.stats_vote_closed = true;
+        }
+        update
+    }
+}
+
+/// Tracks one recording session as it moves through the on-screen states, and
+/// drives replay-buffer saves when runs finish. Fed via [`RecordingState::on_frame`].
+pub struct RecordingState {
+    tracker: RunTracker,
+    /// Broadcasts an [`AppEvent::RecordingSaved`] to event-stream clients once a
+    /// clip is written. Cloned into each save thread.
+    event_tx: broadcast::Sender<AppEvent>,
+    /// Retained recorder phase reported in app snapshots.
+    recording_state: RecordingStateStore,
+    /// Retained replay-buffer save pipeline diagnostics.
+    replay_saves: ReplaySaveStateStore,
+    /// Recording/output options fixed for this monitor session.
+    options: RecordingOptions,
+    /// The retention count is the one recording option that can change while a
+    /// monitor is running.
+    recent_run_limit: Arc<AtomicUsize>,
+    /// OBS source this monitor session records from, stored in clip metadata.
+    source_name: String,
+    /// Index of saved run clips, updated after successful trims.
+    run_catalog: Arc<RunCatalog>,
+    /// Durable monitoring session associated with finalized runs from this worker.
+    monitor_session_id: Option<String>,
+}
+
+impl RecordingState {
+    pub fn new(
+        event_tx: broadcast::Sender<AppEvent>,
+        recording_state: RecordingStateStore,
+        replay_saves: ReplaySaveStateStore,
+        options: RecordingOptions,
+        session: RecordingSessionContext,
+        run_catalog: Arc<RunCatalog>,
+    ) -> Self {
+        let recent_run_limit = Arc::new(AtomicUsize::new(options.recent_run_limit.clamp(1, MAX_RECENT_RUN_LIMIT)));
+        RecordingState {
+            tracker: RunTracker::new(session.game_language),
+            event_tx,
+            recording_state,
+            replay_saves,
+            options,
+            recent_run_limit,
+            source_name: session.source_name,
+            run_catalog,
+            monitor_session_id: session.monitor_session_id,
+        }
+    }
+
+    pub fn set_recent_run_limit_source(&mut self, source: Arc<AtomicUsize>) {
+        self.recent_run_limit = source;
+    }
+
+    /// Publish a recorder state transition to the backend-retained phase store
+    /// Event-stream clients see it in the next app snapshot.
+    /// For `SavePending`/`StatsSkipped`, records the generation on the pending
+    /// save so its completion/discard can clear that exact transition later.
+    fn emit(&mut self, status: RecordingStatus) {
+        let generation = self.recording_state.set(status);
+        if matches!(status, RecordingStatus::SavePending | RecordingStatus::StatsSkipped)
+            && let Some(pending) = self.tracker.pending.as_mut()
+        {
+            pending.phase_generation = Some(generation);
+        }
+    }
+
+    /// Update the game/template language attached to future clip metadata. Used
+    /// when monitor language auto-correction detects the other game language.
+    pub fn set_game_language(&mut self, game_language: String) {
+        self.tracker.set_game_language(game_language);
+    }
+
+    #[cfg(test)]
+    fn schedule_save(&mut self, now: Instant, clip_start: Instant, stats: Option<LevelMatch>) -> bool {
+        let mut update = TrackerUpdate::default();
+        self.tracker.schedule_save(now, SystemTime::now(), clip_start, stats, &self.options, &mut update);
+        for pending in update.ready {
+            self.flush_ready(pending, now);
+        }
+        self.sync_pending_event(now, update.pending_changed);
         true
     }
 
     /// Show the provisional row once and refresh it when the voted time changes.
     fn sync_pending_event(&mut self, now: Instant, time_changed: bool) {
-        let Some(pending) = self.pending.as_ref() else {
+        let Some(pending) = self.tracker.pending.as_ref() else {
             return;
         };
         if !pending.pending_event_sent || time_changed {
@@ -374,7 +533,7 @@ impl RecordingState {
                 error: None,
             });
             let _ = self.event_tx.send(AppEvent::RecordingSavePending(event));
-            self.pending.as_mut().unwrap().pending_event_sent = true;
+            self.tracker.pending.as_mut().unwrap().pending_event_sent = true;
         }
     }
 
@@ -382,7 +541,11 @@ impl RecordingState {
     /// the save moment (the saved file ends at ~now, so the run is its final
     /// `elapsed` seconds). A no-op when nothing is pending.
     fn take_pending_job(&mut self, now: Instant) -> Option<SaveAndTrimJob> {
-        let pending = self.pending.take()?;
+        let pending = self.tracker.pending.take()?;
+        Some(self.pending_job(pending, now))
+    }
+
+    fn pending_job(&self, pending: PendingSave, now: Instant) -> SaveAndTrimJob {
         self.replay_saves.transition(pending.tracking_id, ReplaySaveStage::WaitingForReplaySave);
 
         let metadata = clip_metadata(
@@ -416,7 +579,7 @@ impl RecordingState {
             now.saturating_duration_since(pending.clip_start).as_secs_f64() + self.options.pre_run_padding_secs();
         let finish_before_save_secs = now.saturating_duration_since(pending.finish_at).as_secs_f64();
         let trim_tail_secs = (finish_before_save_secs - self.options.post_run_padding_secs()).max(0.0);
-        Some(SaveAndTrimJob {
+        SaveAndTrimJob {
             tracking_id: pending.tracking_id,
             save_id: pending.save_id,
             start_before_save_secs,
@@ -432,7 +595,7 @@ impl RecordingState {
             replay_saves: self.replay_saves.clone(),
             run_catalog: self.run_catalog.clone(),
             phase_generation: pending.phase_generation,
-        })
+        }
     }
 
     /// Save and trim the pending clip asynchronously, if any.
@@ -442,56 +605,23 @@ impl RecordingState {
         }
     }
 
+    fn flush_ready(&self, pending: PendingSave, now: Instant) {
+        spawn_save_and_trim(self.pending_job(pending, now));
+    }
+
     /// When the in-flight save is due to fire, or `None` when nothing is pending.
     /// The monitor loop waits on this so the save fires on time even if captured
     /// frames stop arriving (e.g. a paused source).
     pub fn pending_fire_at(&self) -> Option<Instant> {
-        self.pending.as_ref().map(|pending| pending.fire_at)
+        self.tracker.pending.as_ref().map(|pending| pending.fire_at)
     }
 
     /// Fire the scheduled save once its post-run padding window has elapsed. Safe
     /// to call on any tick (frame or idle wakeup); a no-op until then.
     pub fn poll_pending(&mut self, now: Instant) {
-        if self.pending.as_ref().is_some_and(|pending| now >= pending.fire_at) {
+        if self.tracker.pending.as_ref().is_some_and(|pending| now >= pending.fire_at) {
             self.flush_pending(now);
         }
-    }
-
-    /// Fold another stats reading into the in-flight save and reconcile the pending
-    /// row when its displayed time changes. No-op for closed votes or non-stats saves.
-    fn refine_stats_vote(&mut self, now: Instant, m: &LevelMatch) {
-        let time_changed = {
-            let Some(pending) = self.pending.as_mut() else {
-                return;
-            };
-            if pending.time_vote.counts.is_empty() || pending.stats_vote_closed {
-                return;
-            }
-            let expected = pending.stats.as_ref().and_then(RunIdentity::from_match);
-            let incoming = RunIdentity::from_match(m);
-            if let Some(expected) = expected {
-                let Some(incoming) = incoming else {
-                    return;
-                };
-                if expected.immediately_precedes(incoming) {
-                    tracing::info!(
-                        from_mission = expected.mission,
-                        from_part = expected.part,
-                        to_mission = incoming.mission,
-                        to_part = incoming.part,
-                        "next level header appeared before stats screen cleared; closing stats vote"
-                    );
-                    pending.stats_vote_closed = true;
-                    return;
-                }
-                if incoming != expected {
-                    tracing::debug!(?expected, ?incoming, "ignoring mismatched stats identity");
-                    return;
-                }
-            }
-            record_stats_vote(pending, m)
-        };
-        self.sync_pending_event(now, time_changed);
     }
 
     /// Save and trim the pending clip synchronously during shutdown, preserving
@@ -507,7 +637,7 @@ impl RecordingState {
         sleep: impl FnOnce(Duration),
         save: impl FnOnce(SaveAndTrimJob),
     ) {
-        let Some(fire_at) = self.pending.as_ref().map(|pending| pending.fire_at) else {
+        let Some(fire_at) = self.tracker.pending.as_ref().map(|pending| pending.fire_at) else {
             return;
         };
 
@@ -526,133 +656,17 @@ impl RecordingState {
     /// Feed the latest matched frame (and the current time). Called once per
     /// captured frame, so it also polls the pending-save timer.
     pub fn on_frame(&mut self, now: Instant, m: &LevelMatch) {
-        match m.screen {
-            // A run begins at the level-start briefing or the 007-options screen.
-            // A pending save from a previous run is left alone -- it fires on its
-            // own timer -- so a new run can start without disturbing it.
-            Screen::Start | Screen::Opts007 => {
-                if self.clip_start.is_none() {
-                    self.clip_start = Some(now);
-                    self.status = None;
-                    self.report = None;
-                    self.identity_vote = RunIdentityVote::default();
-                    ensure_replay_buffer_running_for_recording();
-                    tracing::info!("recording session started");
-                    self.emit(RecordingStatus::Started);
-                }
-                if let Some(identity) = RunIdentity::from_match(m) {
-                    self.identity_vote.record(identity);
-                }
-            }
-            // Returning to the mission grid. Meaning depends on whether the run
-            // reached its report screen. A pending save from an earlier run is
-            // untouched either way -- it fires on its own timer below.
-            Screen::Levels => {
-                if let Some(start) = self.clip_start.take() {
-                    if let Some(report) = self.report.take() {
-                        // Report shown, then user pressed B to the grid, bypassing stats.
-                        // Run still finished, so save on the same padding timer, named from
-                        // the report. Capture `status` first: `schedule_save` clears it.
-                        let status = self.status.unwrap_or(RunStatus::Complete);
-                        tracing::info!("stats screen skipped (report -> level select)");
-                        if self.schedule_save(now, start, Some(report)) {
-                            // Backing out to the grid is the *normal* ending for a failed
-                            // run, so don't flag "skipped stats". Only a completed run whose
-                            // stats screen was bypassed counts as skipped.
-                            self.emit(if status.is_failed() {
-                                RecordingStatus::SavePending
-                            } else {
-                                RecordingStatus::StatsSkipped
-                            });
-                        }
-                    } else {
-                        // No report screen was seen: the run was abandoned mid-play,
-                        // so there's nothing worth saving.
-                        self.status = None;
-                        self.identity_vote = RunIdentityVote::default();
-                        tracing::info!("recording session abandoned (returned to level select)");
-                        self.emit(RecordingStatus::Cancelled);
-                    }
-                }
-            }
-            // Failure report screens flag the active run and mark it reached its
-            // report screen. Emit only on the first failure frame (the screen lingers)
-            // so clients see one transition; the screen picks the status/why it ended.
-            Screen::Failed | Screen::Abort | Screen::Kia => {
-                if self.clip_start.is_some() {
-                    let report = self.canonicalize_match(m.clone());
-                    self.report.get_or_insert(report);
-                    if !self.status.is_some_and(RunStatus::is_failed) {
-                        self.status = run_status_from_failure_screen(m.screen);
-                        self.emit(match m.screen {
-                            Screen::Failed => RecordingStatus::Failed,
-                            Screen::Abort => RecordingStatus::Aborted,
-                            Screen::Kia => RecordingStatus::Kia,
-                            _ => unreachable!("failure-screen branch received {:?}", m.screen),
-                        });
-                    }
-                }
-            }
-            // The mission-complete report screen: also marks the run as reaching its
-            // report screen. Emit `Complete` once -- first clean report frame, or when
-            // it clears an earlier failure flag. Later lingering frames don't re-emit.
-            Screen::Complete => {
-                if self.clip_start.is_some() {
-                    let first_report = self.report.is_none();
-                    let report = self.canonicalize_match(m.clone());
-                    self.report.get_or_insert(report);
-                    if first_report || self.status.is_some_and(RunStatus::is_failed) {
-                        self.status = Some(RunStatus::Complete);
-                        self.emit(RecordingStatus::Complete);
-                    }
-                }
-            }
-            // The stats screen ends the run: hand it to a pending save scheduled a
-            // few seconds out (so the clip captures the overlay). Taking `clip_start`
-            // ends the run; later stats frames refine the time but don't re-schedule.
-            Screen::Stats => {
-                if let Some(start) = self.clip_start.take() {
-                    tracing::info!("stats detected");
-                    if self.schedule_save(now, start, Some(m.clone())) {
-                        // Seed the vote with this first reading; later stats frames
-                        // refine `stats` toward the most-seen time.
-                        if let Some(pending) = self.pending.as_mut() {
-                            let initial = pending.stats.clone().expect("stats save retains its match");
-                            record_stats_vote(pending, &initial);
-                        }
-                        self.emit(RecordingStatus::SavePending);
-                    }
-                } else {
-                    // Still on the stats screen with the save in flight: keep voting
-                    // the whole window so a multi-frame first misread is outvoted by
-                    // the stable reading, updating the provisional row when it changes.
-                    self.refine_stats_vote(now, m);
-                }
-            }
-            Screen::Select => {
-                // Leaving a launch screen for difficulty selection abandons the
-                // provisional run; a later launch must get a fresh anchor/identity.
-                if self.report.is_none() && self.clip_start.take().is_some() {
-                    self.status = None;
-                    self.identity_vote = RunIdentityVote::default();
-                    tracing::info!("recording session cancelled (returned to difficulty selection)");
-                    self.emit(RecordingStatus::Cancelled);
-                }
-            }
-            Screen::Unknown => {}
+        let update = self.tracker.on_frame(now, SystemTime::now(), m, &self.options);
+        if update.ensure_replay_buffer {
+            ensure_replay_buffer_running_for_recording();
         }
-
-        // Leaving the stats screen locks the vote: any later run's stats screen
-        // within the padding window must not fold into this save.
-        if m.screen != Screen::Stats
-            && let Some(pending) = self.pending.as_mut()
-        {
-            pending.stats_vote_closed = true;
+        for pending in update.ready {
+            self.flush_ready(pending, now);
         }
-
-        // Fire the scheduled save once its post-run padding window elapses,
-        // regardless of the current screen, so a pending save completes even after
-        // the user backs out or starts another run.
+        self.sync_pending_event(now, update.pending_changed);
+        if let Some(phase) = update.phase {
+            self.emit(phase);
+        }
         self.poll_pending(now);
     }
 }
@@ -667,7 +681,6 @@ impl Drop for RecordingState {
 #[cfg(test)]
 impl Drop for RecordingState {
     fn drop(&mut self) {
-        assert!(self.pending.is_none(), "test dropped RecordingState with a pending save");
+        assert!(self.tracker.pending.is_none(), "test dropped RecordingState with a pending save");
     }
 }
-

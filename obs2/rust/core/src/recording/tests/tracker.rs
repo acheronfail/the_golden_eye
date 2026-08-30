@@ -29,10 +29,10 @@ fn start_then_level_screen_cancels_active_session_without_save() {
     recording.on_frame(start + Duration::from_secs(3), &match_for_screen(Screen::Unknown));
     recording.on_frame(start + Duration::from_secs(10), &match_for_screen(Screen::Levels));
 
-    assert_eq!(recording.clip_start, None);
-    assert_eq!(recording.status, None);
-    assert!(recording.report.is_none());
-    assert!(recording.pending.is_none());
+    assert_eq!(recording.tracker.clip_start, None);
+    assert_eq!(recording.tracker.status, None);
+    assert!(recording.tracker.report.is_none());
+    assert!(recording.tracker.pending.is_none());
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Cancelled));
     assert_no_app_event(&mut events);
 }
@@ -48,8 +48,8 @@ fn failed_report_then_stats_schedules_failed_save() {
     recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Unknown));
     recording.on_frame(failed_at, &match_for_screen(Screen::Failed));
 
-    assert_eq!(recording.status, Some(RunStatus::Failed));
-    assert_eq!(recording.report.as_ref().map(|m| m.screen), Some(Screen::Failed));
+    assert_eq!(recording.tracker.status, Some(RunStatus::Failed));
+    assert_eq!(recording.tracker.report.as_ref().map(|m| m.screen), Some(Screen::Failed));
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Failed));
 
     recording.on_frame(stats_at, &match_with_time());
@@ -59,9 +59,9 @@ fn failed_report_then_stats_schedules_failed_save() {
     assert_eq!(pending.status, "failed");
     assert_eq!(pending.time_secs, Some(123));
     assert!((pending.estimated_duration_secs - 23.0).abs() < f64::EPSILON);
-    assert_eq!(recording.clip_start, None);
-    assert_eq!(recording.status, None);
-    assert!(recording.report.is_none());
+    assert_eq!(recording.tracker.clip_start, None);
+    assert_eq!(recording.tracker.status, None);
+    assert!(recording.tracker.report.is_none());
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
     let replay_saves = recording.replay_saves.current();
     assert_eq!(replay_saves.len(), 1);
@@ -87,8 +87,8 @@ fn complete_report_then_stats_schedules_completed_save() {
     recording.on_frame(start + Duration::from_secs(5), &match_for_screen(Screen::Unknown));
     recording.on_frame(complete_at, &match_for_screen(Screen::Complete));
 
-    assert_eq!(recording.status, Some(RunStatus::Complete));
-    assert_eq!(recording.report.as_ref().map(|m| m.screen), Some(Screen::Complete));
+    assert_eq!(recording.tracker.status, Some(RunStatus::Complete));
+    assert_eq!(recording.tracker.report.as_ref().map(|m| m.screen), Some(Screen::Complete));
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Complete));
 
     recording.on_frame(stats_at, &match_with_time());
@@ -98,9 +98,9 @@ fn complete_report_then_stats_schedules_completed_save() {
     assert_eq!(pending.status, "complete");
     assert_eq!(pending.time_secs, Some(123));
     assert!((pending.estimated_duration_secs - 33.0).abs() < f64::EPSILON);
-    assert_eq!(recording.clip_start, None);
-    assert_eq!(recording.status, None);
-    assert!(recording.report.is_none());
+    assert_eq!(recording.tracker.clip_start, None);
+    assert_eq!(recording.tracker.status, None);
+    assert!(recording.tracker.report.is_none());
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::SavePending));
 
     let job = recording.take_pending_job(stats_at + Duration::from_secs(5)).expect("save job");
@@ -176,7 +176,7 @@ fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
         catalog.clone(),
     );
     let now = Instant::now();
-    recording.status = Some(RunStatus::Complete);
+    recording.tracker.status = Some(RunStatus::Complete);
     assert!(recording.schedule_save(now, now - Duration::from_secs(10), Some(match_with_time())));
     let pending = pending_save_event(&mut events);
     let job = recording.take_pending_job(now + Duration::from_secs(5)).expect("catalog failure must not drop save");
@@ -219,7 +219,7 @@ fn single_stats_frame_trusts_its_reading() {
     let pending = pending_save_event(&mut events);
     assert_eq!(pending.time_secs, Some(14));
     assert_eq!(pending_stats_time(&recording), Some(14));
-    recording.pending = None;
+    recording.tracker.pending = None;
 }
 
 #[test]
@@ -242,7 +242,7 @@ fn first_stats_frame_misread_is_corrected_by_later_frames() {
     recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(14));
     assert_eq!(pending_stats_time(&recording), Some(14));
 
-    recording.pending = None;
+    recording.tracker.pending = None;
 }
 
 #[test]
@@ -257,7 +257,7 @@ fn two_stats_frames_trust_the_second_reading() {
     recording.on_frame(stats_at + Duration::from_millis(16), &stats_match(14));
 
     assert_eq!(pending_stats_time(&recording), Some(14));
-    recording.pending = None;
+    recording.tracker.pending = None;
 }
 
 #[test]
@@ -281,7 +281,7 @@ fn best_time_flicker_is_outvoted_independently_of_the_run_time() {
     assert_eq!(times.time, 28);
     assert_eq!(times.target_time, Some(300));
     assert_eq!(times.best_time, Some(28), "majority best-time wins, not the last flicker frame");
-    recording.pending = None;
+    recording.tracker.pending = None;
 }
 
 #[test]
@@ -303,7 +303,7 @@ fn run_time_flicker_does_not_disturb_the_voted_best_time() {
     assert_eq!(times.time, 123);
     assert_eq!(times.target_time, Some(100));
     assert_eq!(times.best_time, Some(130));
-    recording.pending = None;
+    recording.tracker.pending = None;
 }
 
 #[test]
@@ -332,7 +332,7 @@ fn persistent_first_frame_misread_is_outvoted_by_the_stable_reading() {
         recording.on_frame(at, &stats_match(14));
     }
     assert_eq!(pending_stats_time(&recording), Some(14));
-    recording.pending = None;
+    recording.tracker.pending = None;
 }
 
 #[test]
@@ -357,7 +357,7 @@ fn pending_event_is_reissued_when_the_voted_time_changes() {
     // A repeat of the settled reading doesn't spam another event.
     recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(14));
     assert_no_app_event(&mut events);
-    recording.pending = None;
+    recording.tracker.pending = None;
 }
 
 #[test]
@@ -377,7 +377,7 @@ fn leaving_the_stats_screen_locks_the_voted_time() {
     recording.on_frame(stats_at + Duration::from_millis(32), &stats_match(999));
 
     assert_eq!(pending_stats_time(&recording), Some(14));
-    recording.pending = None;
+    recording.tracker.pending = None;
 }
 
 #[test]
@@ -396,8 +396,8 @@ fn poll_pending_waits_for_the_padding_window_before_firing() {
     let fire_at = recording.pending_fire_at().expect("pending fire time");
     assert_eq!(fire_at, stats_at + recording.options.save_delay());
     recording.poll_pending(fire_at - Duration::from_millis(1));
-    assert!(recording.pending.is_some());
-    recording.pending = None;
+    assert!(recording.tracker.pending.is_some());
+    recording.tracker.pending = None;
 }
 
 #[test]
@@ -502,7 +502,7 @@ fn complete_report_after_failure_clears_failure_and_saves_completed_stats() {
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Failed));
 
     recording.on_frame(start + Duration::from_secs(10), &match_for_screen(Screen::Complete));
-    assert_eq!(recording.status, Some(RunStatus::Complete));
+    assert_eq!(recording.tracker.status, Some(RunStatus::Complete));
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Complete));
 
     recording.on_frame(stats_at, &match_with_time());
@@ -525,10 +525,10 @@ fn terminal_screens_without_active_session_are_ignored() {
     for screen in [Screen::Failed, Screen::Abort, Screen::Kia, Screen::Complete, Screen::Stats, Screen::Levels] {
         let m = if screen == Screen::Stats { match_with_time() } else { match_for_screen(screen) };
         recording.on_frame(now, &m);
-        assert_eq!(recording.clip_start, None);
-        assert_eq!(recording.status, None);
-        assert!(recording.report.is_none());
-        assert!(recording.pending.is_none());
+        assert_eq!(recording.tracker.clip_start, None);
+        assert_eq!(recording.tracker.status, None);
+        assert!(recording.tracker.report.is_none());
+        assert!(recording.tracker.pending.is_none());
         assert_eq!(recording.recording_state.current(), None);
         assert_no_app_event(&mut events);
     }
@@ -543,7 +543,7 @@ fn duplicate_start_frames_do_not_reset_the_session_anchor() {
 
     recording.on_frame(start, &match_for_screen(Screen::Start));
     recording.on_frame(duplicate_start, &match_for_screen(Screen::Start));
-    assert_eq!(recording.clip_start, Some(start));
+    assert_eq!(recording.tracker.clip_start, Some(start));
 
     recording.on_frame(stats_at, &match_with_time());
 
@@ -565,10 +565,10 @@ fn seven_options_launches_and_canonicalizes_the_completed_run() {
     recording.on_frame(start + Duration::from_secs(10), &stats_match(14));
 
     let pending = pending_save_event(&mut events);
-    let stats = recording.pending.as_ref().and_then(|pending| pending.stats.as_ref()).expect("pending stats");
+    let stats = recording.tracker.pending.as_ref().and_then(|pending| pending.stats.as_ref()).expect("pending stats");
     assert_eq!((stats.mission, stats.part, stats.difficulty), (1, 1, 3));
     assert_eq!(pending.difficulty.as_deref(), Some("007"));
-    recording.pending = None;
+    recording.tracker.pending = None;
 }
 
 #[test]
@@ -579,9 +579,9 @@ fn returning_to_difficulty_selection_cancels_a_007_launch() {
     recording.on_frame(start, &match_for_screen_with_identity(Screen::Opts007, 1, 1, 3));
     recording.on_frame(start + Duration::from_secs(1), &match_for_screen(Screen::Select));
 
-    assert_eq!(recording.clip_start, None);
-    assert_eq!(recording.status, None);
-    assert_eq!(recording.identity_vote.winner, None);
+    assert_eq!(recording.tracker.clip_start, None);
+    assert_eq!(recording.tracker.status, None);
+    assert_eq!(recording.tracker.identity_vote.winner, None);
     assert_eq!(recording.recording_state.current(), Some(RecordingStatus::Cancelled));
 }
 
@@ -599,8 +599,8 @@ fn failure_screen_variants_emit_distinct_statuses_and_save_statuses() {
         recording.on_frame(start, &match_for_screen(Screen::Start));
         recording.on_frame(start + Duration::from_secs(10), &match_for_screen(screen));
 
-        assert_eq!(recording.status, Some(run_status));
-        assert_eq!(recording.report.as_ref().map(|m| m.screen), Some(screen));
+        assert_eq!(recording.tracker.status, Some(run_status));
+        assert_eq!(recording.tracker.report.as_ref().map(|m| m.screen), Some(screen));
         assert_eq!(recording.recording_state.current(), Some(recording_status));
 
         recording.on_frame(stats_at, &match_with_time());
@@ -616,3 +616,44 @@ fn failure_screen_variants_emit_distinct_statuses_and_save_statuses() {
     }
 }
 
+#[test]
+fn run_tracker_reports_start_without_application_dependencies() {
+    let mut tracker = RunTracker::new("en".to_owned());
+    let now = Instant::now();
+
+    let update = tracker.on_frame(
+        now,
+        UNIX_EPOCH,
+        &match_for_screen(Screen::Start),
+        &RecordingOptions::default(),
+    );
+
+    assert!(update.ensure_replay_buffer);
+    assert_eq!(update.phase, Some(RecordingStatus::Started));
+    assert_eq!(tracker.clip_start, Some(now));
+    assert!(update.ready.is_empty());
+}
+
+#[test]
+fn run_tracker_schedules_a_completed_run_as_a_domain_transition() {
+    let mut tracker = RunTracker::new("en".to_owned());
+    let options = RecordingOptions::default();
+    let start = Instant::now();
+    let finish = start + Duration::from_secs(12);
+    tracker.on_frame(start, UNIX_EPOCH, &match_for_screen(Screen::Start), &options);
+    tracker.on_frame(
+        start + Duration::from_secs(10),
+        UNIX_EPOCH,
+        &match_for_screen(Screen::Complete),
+        &options,
+    );
+
+    let update = tracker.on_frame(finish, UNIX_EPOCH + Duration::from_secs(12), &match_with_time(), &options);
+
+    assert_eq!(update.phase, Some(RecordingStatus::SavePending));
+    assert!(update.pending_changed);
+    let pending = tracker.pending.as_ref().expect("scheduled save");
+    assert_eq!(pending.status, RunStatus::Complete);
+    assert_eq!(pending.completed_at, UNIX_EPOCH + Duration::from_secs(12));
+    assert_eq!(pending.fire_at, finish + options.save_delay());
+}

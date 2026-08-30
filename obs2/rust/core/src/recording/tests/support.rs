@@ -143,7 +143,7 @@ fn pending_stats_time(recording: &RecordingState) -> Option<i32> {
 }
 
 fn pending_stats_times(recording: &RecordingState) -> Option<Times> {
-    recording.pending.as_ref().and_then(|p| p.stats.as_ref()).and_then(|m| m.times)
+    recording.tracker.pending.as_ref().and_then(|p| p.stats.as_ref()).and_then(|m| m.times)
 }
 
 fn match_without_time() -> LevelMatch {
