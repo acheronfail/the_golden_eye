@@ -11,7 +11,6 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::{get, post, put};
-pub(crate) use routes::monitor::stop_monitor;
 pub use routes::record::ReplayBufferStatus;
 use tokio::net::{TcpListener, TcpSocket};
 use tokio::sync::oneshot;

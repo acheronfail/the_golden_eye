@@ -5,6 +5,7 @@ pub mod config;
 mod http;
 mod in_game_timer;
 mod logging;
+mod monitor;
 mod obs;
 mod recording;
 mod settings;
@@ -386,7 +387,7 @@ pub extern "C" fn ge_rust_stop() {
     // truthful session end reason for both development reloads and OBS shutdown.
     let state = handle.state.clone();
     let end_reason = if cfg!(feature = "dev") { "coreReload" } else { "obsShutdown" };
-    let _ = handle.runtime_handle.block_on(http::stop_monitor(&state, end_reason));
+    let _ = handle.runtime_handle.block_on(monitor::stop_monitor(&state, end_reason));
 
     // Signal the server to begin a graceful shutdown. The receiver may already
     // be gone if the server task exited on its own; that's fine.
@@ -586,7 +587,7 @@ pub extern "C" fn ge_replay_buffer_stopped() {
     };
 
     runtime_handle.spawn(async move {
-        if http::stop_monitor(&state, "replayBufferStopped").await {
+        if monitor::stop_monitor(&state, "replayBufferStopped").await {
             tracing::warn!("replay buffer stopped while monitoring was active; monitoring disabled");
             let _ = state.event_tx.send(AppEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped });
         }

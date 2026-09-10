@@ -14,12 +14,12 @@ pub struct MonitorHandle {
     pub(super) producer: crate::obs::RegisteredRenderCallback<ProducerCtx>,
     pub(super) thread: JoinHandle<()>,
     /// The source name this monitor uses, retained in the shared app snapshot.
-    pub(super) source_name: String,
+    pub(crate) source_name: String,
     /// Durable catalog session for this monitor lifecycle, when creation succeeded.
     pub(super) session_id: Option<String>,
     /// The latched capture transform, shared so a standalone frame dump on the
     /// same source can crop/un-stretch its frames identically to the matcher.
-    pub(super) region: Arc<Mutex<Option<CaptureRegion>>>,
+    pub(crate) region: Arc<Mutex<Option<CaptureRegion>>>,
     pub(super) recent_run_limit: Arc<AtomicUsize>,
 }
 
@@ -32,18 +32,18 @@ impl MonitorHandle {
 /// A captured BGRA frame and its dimensions, owning its pixel buffer. Frames
 /// from OBS wrap the C-`malloc`'d buffer the capture bridge returns; test frames
 /// own a `Vec`.
-pub(super) struct Frame {
-    pub(super) buf: FrameBuf,
-    pub(super) width: u32,
-    pub(super) height: u32,
-    pub(super) captured_at: Option<Instant>,
-    pub(super) capture_ms: Option<f64>,
-    pub(super) callback_interval_ms: Option<f64>,
-    pub(super) capture_timings: Option<crate::obs::GeCaptureTimings>,
-    pub(super) dropped_frames_total: u64,
+pub(crate) struct Frame {
+    pub(crate) buf: FrameBuf,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) captured_at: Option<Instant>,
+    pub(crate) capture_ms: Option<f64>,
+    pub(crate) callback_interval_ms: Option<f64>,
+    pub(crate) capture_timings: Option<crate::obs::GeCaptureTimings>,
+    pub(crate) dropped_frames_total: u64,
 }
 
-pub(super) enum FrameBuf {
+pub(crate) enum FrameBuf {
     /// Buffer handed back by the safe OBS capture bridge.
     Obs(crate::obs::OwnedBgraFrame),
     /// Owned Rust buffer (test fixtures). Only constructed in tests; the OBS
@@ -53,7 +53,7 @@ pub(super) enum FrameBuf {
 }
 
 impl FrameBuf {
-    pub(super) fn as_slice(&self) -> &[u8] {
+    pub(crate) fn as_slice(&self) -> &[u8] {
         match self {
             FrameBuf::Obs(frame) => frame.bytes(),
             FrameBuf::Owned(bytes) => bytes,
@@ -63,12 +63,12 @@ impl FrameBuf {
 
 /// How many captured frames the mailbox buffers. 1 = always match the freshest
 /// frame (drop any older unconsumed one); a larger value retains a short backlog.
-pub(super) const FRAME_BUFFER_CAPACITY: usize = 1;
+pub(crate) const FRAME_BUFFER_CAPACITY: usize = 1;
 
 /// A bounded, drop-oldest FIFO frame buffer between the OBS producer and the
 /// monitor consumer. Holds up to `capacity` frames; when full, the oldest is
 /// dropped/freed so the matcher never falls behind. `capacity == 1` is latest-wins.
-pub(super) struct FrameMailbox {
+pub(crate) struct FrameMailbox {
     /// Maximum number of buffered frames; at least 1.
     capacity: usize,
     state: Mutex<MailboxState>,
@@ -76,7 +76,7 @@ pub(super) struct FrameMailbox {
 }
 
 /// Outcome of a [`FrameMailbox::recv_until`] wait.
-pub(super) enum MailboxRecv {
+pub(crate) enum MailboxRecv {
     Frame(Frame),
     Timeout,
     Closed,
@@ -92,7 +92,7 @@ struct MailboxState {
 }
 
 impl FrameMailbox {
-    pub(super) fn new(capacity: usize) -> Self {
+    pub(crate) fn new(capacity: usize) -> Self {
         let capacity = capacity.max(1);
         FrameMailbox {
             capacity,
@@ -108,7 +108,7 @@ impl FrameMailbox {
     /// Producer: append `frame` to the buffer. When the buffer is full the oldest
     /// frame is dropped (and freed) to make room -- newest always wins. A no-op
     /// once closed.
-    pub(super) fn push(&self, mut frame: Frame) {
+    pub(crate) fn push(&self, mut frame: Frame) {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         if state.closed {
             return; // `frame` is dropped here -> its buffer is freed.
@@ -138,7 +138,7 @@ impl FrameMailbox {
     /// Consumer: like [`recv`], but wakes and returns [`MailboxRecv::Timeout`] once
     /// `deadline` passes with no frame. Lets the monitor loop poll the pending-save
     /// timer even while captured frames have stopped (e.g. a paused source).
-    pub(super) fn recv_until(&self, deadline: Option<Instant>) -> MailboxRecv {
+    pub(crate) fn recv_until(&self, deadline: Option<Instant>) -> MailboxRecv {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         loop {
             if let Some(frame) = state.frames.pop_front() {
@@ -164,7 +164,7 @@ impl FrameMailbox {
     }
 
     /// Mark the mailbox closed and wake the consumer so its `recv` returns.
-    pub(super) fn close(&self) {
+    pub(crate) fn close(&self) {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         state.closed = true;
         drop(state);
@@ -175,13 +175,13 @@ impl FrameMailbox {
 /// State the OBS render callback needs to capture a frame and hand it off:
 /// capture context, source name, calibrated region, and mailbox. Boxed as the
 /// callback `param`; owns the capture context and destroys it on drop.
-pub(super) struct ProducerCtx {
-    pub(super) ctx: crate::obs::CaptureContext,
-    pub(super) name: CString,
-    pub(super) region: Arc<Mutex<Option<CaptureRegion>>>,
-    pub(super) mailbox: Arc<FrameMailbox>,
-    pub(super) timing_enabled: bool,
-    pub(super) last_callback_at: Mutex<Option<Instant>>,
+pub(crate) struct ProducerCtx {
+    pub(crate) ctx: crate::obs::CaptureContext,
+    pub(crate) name: CString,
+    pub(crate) region: Arc<Mutex<Option<CaptureRegion>>>,
+    pub(crate) mailbox: Arc<FrameMailbox>,
+    pub(crate) timing_enabled: bool,
+    pub(crate) last_callback_at: Mutex<Option<Instant>>,
 }
 
 fn callback_interval_ms(
@@ -260,3 +260,61 @@ pub(super) struct CapturedFrameStats {
 #[cfg(test)]
 #[path = "capture_test.rs"]
 mod capture_test;
+
+/// Frame source backed by the live OBS source: consumes the frames the render
+/// callback pushes into the shared mailbox. Capture and
+/// its GPU surfaces live on the producer side; this only awaits and matches.
+pub(super) struct ObsSource {
+    pub(super) mailbox: Arc<FrameMailbox>,
+    /// The calibrated capture transform, shared with the producer callback.
+    /// Latched on first sight: fixed for the session, and re-reading after frames
+    /// arrive pre-normalized would (incorrectly) clear it.
+    pub(super) region: Arc<Mutex<Option<CaptureRegion>>>,
+}
+
+impl ObsSource {
+    pub(super) fn set_capture_region(&mut self, region: Option<CaptureRegion>) {
+        // Latch the first transform learned and keep it (see the field comment);
+        // the producer callback reads this to crop/un-stretch future captures.
+        let mut guard = self.region.lock().unwrap_or_else(|p| p.into_inner());
+        if guard.is_none()
+            && let Some(r) = region
+        {
+            tracing::info!(?r, "calibrated capture region; cropping/un-stretching on the GPU");
+            *guard = Some(r);
+        }
+    }
+
+    /// Await the next frame (matching it via `use_frame`), or wake with
+    /// [`Captured::Idle`] once `deadline` passes so the caller can poll timers even
+    /// while frames have stopped. [`Captured::Closed`] once the mailbox is closed.
+    pub(super) fn capture_with_stats_until<F, R>(&mut self, deadline: Option<Instant>, use_frame: F) -> Captured<R>
+    where
+        F: FnOnce(&[u8], u32, u32) -> R,
+    {
+        let frame = match self.mailbox.recv_until(deadline) {
+            MailboxRecv::Frame(frame) => frame,
+            MailboxRecv::Timeout => return Captured::Idle,
+            MailboxRecv::Closed => return Captured::Closed,
+        };
+        let stats = CapturedFrameStats {
+            capture_ms: frame.capture_ms,
+            callback_interval_ms: frame.callback_interval_ms,
+            capture_timings: frame.capture_timings,
+            mailbox_wait_ms: frame.captured_at.map(|at| at.elapsed().as_secs_f64() * 1000.0),
+            dropped_frames_total: frame.dropped_frames_total,
+        };
+        let result = use_frame(frame.buf.as_slice(), frame.width, frame.height);
+        Captured::Frame(result, stats)
+    }
+}
+
+/// Outcome of [`ObsSource::capture_with_stats_until`].
+pub(super) enum Captured<R> {
+    /// A frame was matched, with optional capture timing.
+    Frame(R, CapturedFrameStats),
+    /// The deadline passed with no frame; poll pending timers and wait again.
+    Idle,
+    /// The mailbox is closed and drained; the monitor loop should exit.
+    Closed,
+}

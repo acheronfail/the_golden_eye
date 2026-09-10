@@ -9,8 +9,8 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::Result;
 
-use super::capture::{FRAME_BUFFER_CAPACITY, FrameMailbox, MailboxRecv, ProducerCtx};
 use crate::http::AppState;
+use crate::monitor::capture::{FRAME_BUFFER_CAPACITY, FrameMailbox, MailboxRecv, ProducerCtx};
 
 /// Developer diagnostic: dumps each captured (matcher-input) frame to a temp
 /// directory as BMP so a live capture-card feed can be compared pixel-for-pixel
@@ -68,7 +68,7 @@ fn flatpak_host_path(dir: &Path) -> Option<String> {
     }
 }
 
-/// A running standalone frame dump. Mirrors [`MonitorHandle`]'s capture ownership
+/// A running standalone frame dump. Mirrors [`crate::monitor::MonitorHandle`]'s capture ownership
 /// (render callback + capture context + mailbox + worker thread), but its worker
 /// writes each frame to disk instead of matching. Independent of the monitor: it
 /// runs whenever the developer switch is on, whether or not a monitor is active.
@@ -178,7 +178,7 @@ pub(crate) fn start_frame_dump(state: &AppState, source_name: String) -> StartRe
 }
 
 /// Stop the active frame dump, if any. Returns `false` when none was running.
-/// Teardown mirrors [`stop_monitor`]: unregister the callback (fences further
+/// Teardown mirrors [`crate::monitor::stop_monitor`]: unregister the callback (fences further
 /// callbacks), close the mailbox to wake+join the worker, then free the producer.
 pub(crate) async fn stop_frame_dump(state: &AppState) -> bool {
     let handle = {
