@@ -167,6 +167,19 @@ describe('/options', () => {
 		);
 	});
 
+	it('saves the in-game timer option from recording settings', async () => {
+		const user = userEvent.setup();
+		mocks.page.url = new URL('http://localhost/options?tab=recording');
+		render(OptionsPageHarness);
+		const checkbox = await screen.findByRole('checkbox', { name: /Show in-game timer while monitoring/i });
+		await waitFor(() => expect(checkbox).toBeEnabled());
+		expect(checkbox).toBeChecked();
+		await user.click(checkbox);
+		await waitFor(() =>
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ showInGameTimer: false }))
+		);
+	});
+
 	it('saves the selected monitor design from recording options', async () => {
 		const user = userEvent.setup();
 		mocks.page.url = new URL('http://localhost/options?tab=recording');

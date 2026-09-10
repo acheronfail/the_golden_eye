@@ -24,6 +24,7 @@ export interface MonitorViewProps {
 	match?: LevelMatch | null;
 	fps?: MonitorFps | null;
 	showMonitorFps?: boolean;
+	showInGameTimer?: boolean;
 	wallClockState?: MonitorWallClockState | null;
 	recentRuns?: RunClip[];
 	recentRunsBusyId?: string | null;
