@@ -8,7 +8,7 @@
 		containerClass = '',
 		inactiveTimerClass = '',
 		activeLabelClass = '',
-		showInGameTimer = true,
+		showInGameTimer = false,
 		role
 	}: {
 		wallClocks: MonitorWallClockSnapshot;

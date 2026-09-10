@@ -112,7 +112,7 @@ impl Default for AppSettings {
             stop_replay_buffer_prompt_shown: false,
             monitor_design: DEFAULT_MONITOR_DESIGN,
             show_monitor_fps: false,
-            show_in_game_timer: true,
+            show_in_game_timer: false,
             show_developer_settings: false,
             show_source_previews: true,
             last_used_source_name: None,

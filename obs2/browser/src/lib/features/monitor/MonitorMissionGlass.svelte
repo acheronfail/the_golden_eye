@@ -13,7 +13,7 @@
 		match = null,
 		fps = null,
 		showMonitorFps = false,
-		showInGameTimer = true,
+		showInGameTimer = false,
 		recentRuns = [],
 		recentRunsBusyId = null,
 		recentRunsError = null,

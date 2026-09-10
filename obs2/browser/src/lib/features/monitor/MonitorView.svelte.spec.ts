@@ -47,7 +47,7 @@ const recentRun: RunClip = {
 
 describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (design) => {
 	it('shows session and level wall clocks with an immediate styled tooltip', async () => {
-		render(MonitorView, props(design, 'started', match('start')));
+		render(MonitorView, { ...props(design, 'started', match('start')), showInGameTimer: true });
 
 		const timers = screen.getByRole(design === 'signal-band' ? 'group' : 'region', {
 			name: 'Wall-clock timers'
@@ -77,7 +77,7 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 	});
 
 	it('toggles the level timer while preserving the session timer', async () => {
-		const view = render(MonitorView, { ...props(design, 'started', match('start')), showInGameTimer: false });
+		const view = render(MonitorView, props(design, 'started', match('start')));
 		expect(screen.queryByText('Time in level')).not.toBeInTheDocument();
 		expect(screen.getByText('Time in session')).toBeInTheDocument();
 		await view.rerender({ ...props(design, 'started', match('start')), showInGameTimer: true });

@@ -23,7 +23,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   "preRunPaddingSecs": 5.0,
   "recentRunLimit": 10,
   "showDeveloperSettings": false,
-  "showInGameTimer": true,
+  "showInGameTimer": false,
   "showMonitorFps": false,
   "showSourcePreviews": true,
   "stopReplayBufferPromptShown": false,

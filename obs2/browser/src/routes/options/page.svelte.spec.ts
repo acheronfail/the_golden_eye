@@ -173,10 +173,10 @@ describe('/options', () => {
 		render(OptionsPageHarness);
 		const checkbox = await screen.findByRole('checkbox', { name: /Show in-game timer while monitoring/i });
 		await waitFor(() => expect(checkbox).toBeEnabled());
-		expect(checkbox).toBeChecked();
+		expect(checkbox).not.toBeChecked();
 		await user.click(checkbox);
 		await waitFor(() =>
-			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ showInGameTimer: false }))
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ showInGameTimer: true }))
 		);
 	});
 
