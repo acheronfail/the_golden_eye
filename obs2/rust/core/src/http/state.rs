@@ -8,8 +8,10 @@ use tokio::sync::{Mutex, broadcast, oneshot, watch};
 use super::{ReplayBufferStatus, routes};
 use crate::cv::{BlackFrameSignal, LevelMatch, WatchTransition};
 
+use crate::in_game_timer::InGameTimer;
+pub use crate::in_game_timer::{LevelTimerPhase, LevelTimerStartReason};
+
 const FADE_DIAGNOSTICS_INTERVAL_MS: u64 = 250;
-const END_FADE_CONFIRMATION_MS: u64 = 250;
 
 pub struct AppStateInner {
     /// Holds the sender end of a one-shot channel while an OAuth flow is in
@@ -98,38 +100,9 @@ pub struct MonitorWallClockState {
     pub intro_swirl_delay_ms: Option<u64>,
     pub fade_detection: Option<BlackFrameSignal>,
     #[serde(skip)]
-    second_cutscene_started_at_ms: Option<u64>,
-    #[serde(skip)]
-    second_cutscene_visible: bool,
-    #[serde(skip)]
-    black_frame_active: bool,
-    #[serde(skip)]
-    end_fade_started_at_ms: Option<u64>,
+    timer: InGameTimer,
     #[serde(skip)]
     fade_diagnostics_published_at_ms: Option<u64>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub enum LevelTimerStartReason {
-    Fade,
-    Swirl,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub enum LevelTimerPhase {
-    #[default]
-    Idle,
-    AwaitingInitialBlack,
-    AwaitingFirstCutscene,
-    AwaitingFirstCutsceneFade,
-    AwaitingSecondFadeOrSwirl,
-    AwaitingGameplayAfterSkip,
-    Running,
-    Stopped,
 }
 
 impl MonitorWallClockState {
@@ -141,47 +114,24 @@ impl MonitorWallClockState {
         self.session_elapsed_ms = elapsed_ms(self.session_started_at_unix_ms, self.session_elapsed_ms, now_ms);
         self.session_started_at_unix_ms = None;
         self.session_running = false;
-        self.stop_level(now_ms);
-    }
-
-    fn reconcile_screen(&mut self, screen: crate::cv::Screen, now_ms: u64) {
-        match screen {
-            screen if screen.is_level_launch() => {
-                self.level_started_at_unix_ms = None;
-                self.level_elapsed_ms = 0;
-                self.level_running = false;
-                self.level_paused = false;
-                self.level_start_reason = None;
-                self.level_timer_phase = LevelTimerPhase::AwaitingInitialBlack;
-                self.intro_swirl_delay_ms = None;
-                self.fade_detection = None;
-                self.second_cutscene_started_at_ms = None;
-                self.second_cutscene_visible = false;
-                self.black_frame_active = false;
-                self.end_fade_started_at_ms = None;
-                self.fade_diagnostics_published_at_ms = None;
-            }
-            crate::cv::Screen::Unknown => {}
-            _ => {
-                self.stop_level(now_ms);
-            }
-        }
+        self.timer.stop_level(now_ms);
+        self.sync_timer();
     }
 
     fn reconcile_match(&mut self, level_match: &LevelMatch, now_ms: u64) {
-        self.reconcile_screen(level_match.screen, now_ms);
+        self.timer.reconcile_match(level_match, now_ms);
         if level_match.screen.is_level_launch() {
-            self.intro_swirl_delay_ms = crate::ge::Level::from_mission_and_part(level_match.mission, level_match.part)
-                .map(crate::ge::intro::swirl_delay_ms);
+            self.fade_detection = None;
+            self.fade_diagnostics_published_at_ms = None;
         }
+        self.sync_timer();
     }
 
     fn reconcile_black_frame(&mut self, signal: BlackFrameSignal, now_ms: u64) -> bool {
-        let classification_changed = signal.detected != self.black_frame_active;
-        if classification_changed {
-            self.black_frame_active = signal.detected;
-        }
-        let timer_changed = self.reconcile_level_timer(signal.detected, classification_changed, now_ms);
+        let classification_changed =
+            self.fade_detection.as_ref().is_some_and(|current| current.detected) != signal.detected;
+        let timer_changed = self.timer.observe_black_frame(signal.detected, now_ms);
+        self.sync_timer();
         let region_changed =
             self.fade_detection.as_ref().map(|current| current.sample_region) != Some(signal.sample_region);
         let diagnostics_changed = self.fade_detection != Some(signal);
@@ -196,123 +146,21 @@ impl MonitorWallClockState {
         true
     }
 
-    fn reconcile_level_timer(&mut self, black: bool, edge: bool, now_ms: u64) -> bool {
-        let previous_phase = self.level_timer_phase;
-        if let Some(deadline) = self.pending_swirl_deadline()
-            && now_ms >= deadline
-        {
-            self.start_level(deadline, LevelTimerStartReason::Swirl);
-            if edge && black {
-                self.end_fade_started_at_ms = Some(now_ms);
-            }
-            return self.level_timer_phase != previous_phase;
-        }
-
-        if self.level_timer_phase == LevelTimerPhase::Running {
-            if self.level_paused {
-                self.end_fade_started_at_ms = None;
-                return self.level_timer_phase != previous_phase;
-            }
-            if edge {
-                self.end_fade_started_at_ms = black.then_some(now_ms);
-            }
-            if black
-                && let Some(started_at) = self.end_fade_started_at_ms
-                && now_ms.saturating_sub(started_at) >= END_FADE_CONFIRMATION_MS
-            {
-                self.stop_level(started_at);
-            }
-            return self.level_timer_phase != previous_phase;
-        }
-
-        if edge {
-            match (self.level_timer_phase, black) {
-                (LevelTimerPhase::AwaitingInitialBlack, true) => {
-                    self.level_timer_phase = LevelTimerPhase::AwaitingFirstCutscene;
-                }
-                (LevelTimerPhase::AwaitingFirstCutscene, false) => {
-                    self.level_timer_phase = LevelTimerPhase::AwaitingFirstCutsceneFade;
-                }
-                (LevelTimerPhase::AwaitingFirstCutsceneFade, true) => {
-                    self.level_timer_phase = LevelTimerPhase::AwaitingSecondFadeOrSwirl;
-                    self.second_cutscene_started_at_ms = None;
-                    self.second_cutscene_visible = false;
-                }
-                (LevelTimerPhase::AwaitingSecondFadeOrSwirl, false) => {
-                    self.second_cutscene_started_at_ms = Some(now_ms);
-                    self.second_cutscene_visible = true;
-                }
-                (LevelTimerPhase::AwaitingSecondFadeOrSwirl, true) if self.second_cutscene_visible => {
-                    self.level_timer_phase = LevelTimerPhase::AwaitingGameplayAfterSkip;
-                }
-                (LevelTimerPhase::AwaitingGameplayAfterSkip, false) => {
-                    self.start_level_with_elapsed(
-                        now_ms,
-                        crate::ge::intro::SKIPPED_SWIRL_INITIAL_ELAPSED_MS,
-                        LevelTimerStartReason::Fade,
-                    );
-                }
-                _ => {}
-            }
-        }
-        self.level_timer_phase != previous_phase
-    }
-
-    fn pending_swirl_deadline(&self) -> Option<u64> {
-        if self.level_timer_phase != LevelTimerPhase::AwaitingSecondFadeOrSwirl {
-            return None;
-        }
-        let started_at = self.second_cutscene_started_at_ms?;
-        let delay = self.intro_swirl_delay_ms?;
-        Some(started_at.saturating_add(delay))
-    }
-
-    fn start_level(&mut self, now_ms: u64, reason: LevelTimerStartReason) {
-        self.start_level_with_elapsed(now_ms, 0, reason);
-    }
-
-    fn start_level_with_elapsed(&mut self, now_ms: u64, elapsed_ms: u64, reason: LevelTimerStartReason) {
-        self.level_started_at_unix_ms = Some(now_ms.saturating_sub(elapsed_ms));
-        self.level_elapsed_ms = elapsed_ms;
-        self.level_running = true;
-        self.level_paused = false;
-        self.level_start_reason = Some(reason);
-        self.level_timer_phase = LevelTimerPhase::Running;
-        self.second_cutscene_started_at_ms = None;
-        self.second_cutscene_visible = false;
-        self.end_fade_started_at_ms = None;
-    }
-
-    fn stop_level(&mut self, now_ms: u64) {
-        self.level_elapsed_ms = elapsed_ms(self.level_started_at_unix_ms, self.level_elapsed_ms, now_ms);
-        self.level_started_at_unix_ms = None;
-        self.level_running = false;
-        self.level_paused = false;
-        self.level_timer_phase = LevelTimerPhase::Stopped;
-        self.end_fade_started_at_ms = None;
-    }
-
     fn reconcile_watch_transition(&mut self, transition: WatchTransition, now_ms: u64) -> bool {
-        if self.level_timer_phase != LevelTimerPhase::Running {
-            return false;
-        }
-        match transition {
-            WatchTransition::Paused if !self.level_paused => {
-                self.level_elapsed_ms = elapsed_ms(self.level_started_at_unix_ms, self.level_elapsed_ms, now_ms);
-                self.level_started_at_unix_ms = None;
-                self.level_running = false;
-                self.level_paused = true;
-                self.end_fade_started_at_ms = None;
-                true
-            }
-            WatchTransition::Resumed if self.level_paused => {
-                self.level_started_at_unix_ms = Some(now_ms.saturating_sub(self.level_elapsed_ms));
-                self.level_running = true;
-                self.level_paused = false;
-                true
-            }
-            _ => false,
-        }
+        let changed = self.timer.reconcile_watch_transition(transition, now_ms);
+        self.sync_timer();
+        changed
+    }
+
+    fn sync_timer(&mut self) {
+        let timer = self.timer.snapshot();
+        self.level_started_at_unix_ms = timer.level_started_at_unix_ms;
+        self.level_elapsed_ms = timer.level_elapsed_ms;
+        self.level_running = timer.level_running;
+        self.level_paused = timer.level_paused;
+        self.level_start_reason = timer.level_start_reason;
+        self.level_timer_phase = timer.level_timer_phase;
+        self.intro_swirl_delay_ms = timer.intro_swirl_delay_ms;
     }
 }
 

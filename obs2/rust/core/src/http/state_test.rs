@@ -92,248 +92,6 @@ fn snapshot_event_contains_retained_app_state() {
 }
 
 #[test]
-fn monitor_wall_clocks_follow_backend_screen_transitions() {
-    let mut clocks = MonitorWallClockState::default();
-
-    clocks.start_session(1_000);
-    clocks.reconcile_screen(crate::cv::Screen::Start, 1_100);
-    clocks.reconcile_screen(crate::cv::Screen::Unknown, 1_250);
-    assert_eq!(clocks.level_started_at_unix_ms, None);
-    assert_eq!(clocks.level_elapsed_ms, 0);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::AwaitingInitialBlack);
-    assert!(!clocks.level_running);
-
-    clocks.reconcile_screen(crate::cv::Screen::Stats, 3_750);
-    assert_eq!(clocks.level_elapsed_ms, 0);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Stopped);
-    assert!(!clocks.level_running);
-
-    clocks.reconcile_screen(crate::cv::Screen::Unknown, 4_000);
-    assert_eq!(clocks.level_elapsed_ms, 0);
-    assert!(!clocks.level_running);
-
-    clocks.stop_session(5_000);
-    assert_eq!(clocks.session_elapsed_ms, 4_000);
-    assert!(!clocks.session_running);
-}
-
-#[test]
-fn monitor_wall_clock_treats_007_options_as_a_level_launch() {
-    let mut clocks = MonitorWallClockState::default();
-
-    clocks.start_session(1_000);
-    clocks.reconcile_match(&level_match(crate::cv::Screen::Opts007, 1, 1), 1_100);
-
-    assert_eq!(clocks.level_started_at_unix_ms, None);
-    assert_eq!(clocks.level_elapsed_ms, 0);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::AwaitingInitialBlack);
-    assert_eq!(clocks.intro_swirl_delay_ms, Some(crate::ge::intro::swirl_delay_ms(crate::ge::Level::Dam)));
-    assert!(!clocks.level_running);
-}
-
-#[test]
-fn monitor_wall_clock_starts_on_a_skipped_second_cutscene_and_stops_on_the_next_fade() {
-    let mut clocks = MonitorWallClockState::default();
-    let sample_region = crate::cv::ActivePictureRegion::full(640, 480);
-    let black = crate::cv::BlackFrameSignal {
-        detected: true,
-        mean_luma: 14,
-        dark_pixel_percent: 100,
-        sample_count: 576,
-        sample_region,
-    };
-    let visible = crate::cv::BlackFrameSignal {
-        detected: false,
-        mean_luma: 72,
-        dark_pixel_percent: 11,
-        sample_count: 576,
-        sample_region,
-    };
-
-    clocks.start_session(1_000);
-    clocks.reconcile_screen(crate::cv::Screen::Start, 1_100);
-    clocks.reconcile_screen(crate::cv::Screen::Unknown, 1_200);
-    clocks.reconcile_black_frame(black, 1_300);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::AwaitingFirstCutscene);
-    clocks.reconcile_black_frame(visible, 1_400);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::AwaitingFirstCutsceneFade);
-    clocks.reconcile_black_frame(black, 2_000);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::AwaitingSecondFadeOrSwirl);
-    clocks.reconcile_black_frame(visible, 2_100);
-    clocks.reconcile_black_frame(black, 2_500);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::AwaitingGameplayAfterSkip);
-    assert!(!clocks.level_running);
-    clocks.reconcile_black_frame(black, 2_800);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::AwaitingGameplayAfterSkip);
-    assert!(!clocks.level_running, "a sustained skip fade must not start the timer");
-    clocks.reconcile_black_frame(visible, 3_000);
-    assert_eq!(clocks.level_started_at_unix_ms, Some(2_800));
-    assert_eq!(clocks.level_elapsed_ms, 200);
-    assert_eq!(clocks.level_start_reason, Some(LevelTimerStartReason::Fade));
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
-    assert_eq!(clocks.fade_detection, Some(visible));
-    let json = serde_json::to_value(&clocks).unwrap();
-    assert_eq!(json["levelStartReason"], "fade");
-    assert_eq!(json["levelTimerPhase"], "running");
-    assert_eq!(json["levelElapsedMs"], 200);
-    assert_eq!(json["fadeDetection"]["meanLuma"], 72);
-    assert_eq!(json["fadeDetection"]["darkPixelPercent"], 11);
-    assert_eq!(json["fadeDetection"]["sampleRegion"]["width"], 640);
-
-    clocks.reconcile_black_frame(black, 5_000);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
-    assert!(clocks.level_running);
-    clocks.reconcile_black_frame(black, 5_250);
-    assert_eq!(clocks.level_elapsed_ms, 2_200);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Stopped);
-    assert!(!clocks.level_running);
-}
-
-#[test]
-fn monitor_wall_clock_starts_when_the_level_swirl_delay_expires() {
-    let sample_region = crate::cv::ActivePictureRegion::full(640, 480);
-    let black = crate::cv::BlackFrameSignal {
-        detected: true,
-        mean_luma: 30,
-        dark_pixel_percent: 100,
-        sample_count: 576,
-        sample_region,
-    };
-    let visible = crate::cv::BlackFrameSignal { detected: false, mean_luma: 80, dark_pixel_percent: 5, ..black };
-
-    let mut clocks = MonitorWallClockState::default();
-    clocks.start_session(1_000);
-    clocks.reconcile_match(&level_match(crate::cv::Screen::Start, 1, 2), 1_100);
-    assert_eq!(clocks.intro_swirl_delay_ms, Some(3_167));
-    clocks.reconcile_black_frame(black, 1_200);
-    clocks.reconcile_black_frame(visible, 1_300);
-    clocks.reconcile_black_frame(black, 2_000);
-    clocks.reconcile_black_frame(visible, 2_100);
-
-    clocks.reconcile_black_frame(visible, 5_266);
-    assert!(!clocks.level_running);
-    clocks.reconcile_black_frame(visible, 5_300);
-    assert_eq!(clocks.level_started_at_unix_ms, Some(5_267));
-    assert_eq!(clocks.level_elapsed_ms, 0);
-    assert_eq!(clocks.level_start_reason, Some(LevelTimerStartReason::Swirl));
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
-}
-
-#[test]
-fn sustained_black_after_the_swirl_deadline_stops_at_the_first_black_frame() {
-    let sample_region = crate::cv::ActivePictureRegion::full(640, 480);
-    let black = crate::cv::BlackFrameSignal {
-        detected: true,
-        mean_luma: 30,
-        dark_pixel_percent: 100,
-        sample_count: 576,
-        sample_region,
-    };
-    let visible = crate::cv::BlackFrameSignal { detected: false, mean_luma: 80, dark_pixel_percent: 5, ..black };
-
-    let mut clocks = MonitorWallClockState::default();
-    clocks.start_session(1_000);
-    clocks.reconcile_match(&level_match(crate::cv::Screen::Start, 1, 2), 1_100);
-    clocks.reconcile_black_frame(black, 1_200);
-    clocks.reconcile_black_frame(visible, 1_300);
-    clocks.reconcile_black_frame(black, 2_000);
-    clocks.reconcile_black_frame(visible, 2_100);
-
-    clocks.reconcile_black_frame(black, 5_300);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
-    clocks.reconcile_black_frame(black, 5_550);
-    assert_eq!(clocks.level_start_reason, Some(LevelTimerStartReason::Swirl));
-    assert_eq!(clocks.level_elapsed_ms, 33);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Stopped);
-    assert!(!clocks.level_running);
-}
-
-#[test]
-fn short_camera_black_flash_does_not_stop_the_level_timer() {
-    let sample_region = crate::cv::ActivePictureRegion::full(640, 480);
-    let black = crate::cv::BlackFrameSignal {
-        detected: true,
-        mean_luma: 7,
-        dark_pixel_percent: 100,
-        sample_count: 576,
-        sample_region,
-    };
-    let visible = crate::cv::BlackFrameSignal { detected: false, mean_luma: 80, dark_pixel_percent: 5, ..black };
-
-    let mut clocks = MonitorWallClockState::default();
-    clocks.start_session(1_000);
-    clocks.start_level(2_000, LevelTimerStartReason::Fade);
-    clocks.reconcile_black_frame(black, 5_000);
-    clocks.reconcile_black_frame(black, 5_033);
-    clocks.reconcile_black_frame(black, 5_067);
-    clocks.reconcile_black_frame(black, 5_100);
-    clocks.reconcile_black_frame(visible, 5_133);
-
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
-    assert!(clocks.level_running);
-    assert_eq!(clocks.level_started_at_unix_ms, Some(2_000));
-}
-
-#[test]
-fn watch_transitions_pause_and_resume_the_running_level_clock_at_the_observed_frames() {
-    let mut clocks = MonitorWallClockState::default();
-    clocks.start_session(1_000);
-    clocks.start_level(2_000, LevelTimerStartReason::Fade);
-
-    assert!(clocks.reconcile_watch_transition(crate::cv::WatchTransition::Paused, 3_033));
-    assert_eq!(clocks.level_elapsed_ms, 1_033);
-    assert_eq!(clocks.level_started_at_unix_ms, None);
-    assert!(!clocks.level_running);
-    assert!(clocks.level_paused);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
-
-    assert!(clocks.reconcile_watch_transition(crate::cv::WatchTransition::Resumed, 5_033));
-    assert_eq!(clocks.level_started_at_unix_ms, Some(4_000));
-    assert!(clocks.level_running);
-    assert!(!clocks.level_paused);
-
-    clocks.stop_level(6_000);
-    assert_eq!(clocks.level_elapsed_ms, 2_000);
-}
-
-#[test]
-fn black_fade_confirmation_does_not_stop_a_watch_paused_level() {
-    let sample_region = crate::cv::ActivePictureRegion::full(640, 480);
-    let black = crate::cv::BlackFrameSignal {
-        detected: true,
-        mean_luma: 7,
-        dark_pixel_percent: 100,
-        sample_count: 576,
-        sample_region,
-    };
-    let mut clocks = MonitorWallClockState::default();
-    clocks.start_session(1_000);
-    clocks.start_level(2_000, LevelTimerStartReason::Fade);
-    clocks.reconcile_watch_transition(crate::cv::WatchTransition::Paused, 3_000);
-
-    clocks.reconcile_black_frame(black, 3_100);
-    clocks.reconcile_black_frame(black, 3_500);
-
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Running);
-    assert!(clocks.level_paused);
-    assert_eq!(clocks.level_elapsed_ms, 1_000);
-}
-
-#[test]
-fn start_match_selects_the_level_intro_swirl_delay() {
-    let mut clocks = MonitorWallClockState::default();
-
-    clocks.start_session(1_000);
-    clocks.reconcile_match(&level_match(crate::cv::Screen::Start, 7, 4), 1_100);
-
-    assert_eq!(clocks.intro_swirl_delay_ms, Some(crate::ge::intro::swirl_delay_ms(crate::ge::Level::Cradle)));
-    assert_eq!(serde_json::to_value(&clocks).unwrap()["introSwirlDelayMs"], 4_567);
-
-    clocks.reconcile_match(&level_match(crate::cv::Screen::Start, -1, -1), 1_200);
-    assert_eq!(clocks.intro_swirl_delay_ms, None);
-}
-
-#[test]
 fn black_frame_diagnostics_update_immediately_for_edges_and_periodically_for_evidence() {
     let mut clocks = MonitorWallClockState::default();
     let mut signal = crate::cv::BlackFrameSignal {
@@ -353,21 +111,6 @@ fn black_frame_diagnostics_update_immediately_for_edges_and_periodically_for_evi
     signal.sample_region = crate::cv::ActivePictureRegion { x: 107, y: 0, width: 640, height: 480 };
     assert!(clocks.reconcile_black_frame(signal, 1_300));
     assert_eq!(clocks.fade_detection, Some(signal));
-}
-
-#[test]
-fn monitor_wall_clocks_reset_on_the_next_start_screen() {
-    let mut clocks = MonitorWallClockState::default();
-
-    clocks.start_session(1_000);
-    clocks.start_level(1_200, LevelTimerStartReason::Fade);
-    clocks.reconcile_screen(crate::cv::Screen::Stats, 2_200);
-    assert_eq!(clocks.level_elapsed_ms, 1_000);
-
-    clocks.reconcile_screen(crate::cv::Screen::Start, 3_000);
-    assert_eq!(clocks.level_elapsed_ms, 0);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::AwaitingInitialBlack);
-    assert!(!clocks.level_running);
 }
 
 #[test]
@@ -566,4 +309,42 @@ fn monitor_stopped_event_uses_frontend_field_names() {
 
     assert_eq!(json["type"], "monitorStopped");
     assert_eq!(json["reason"], "userStopped");
+}
+
+#[test]
+fn wall_clock_snapshot_projects_timer_and_resets_with_session() {
+    let mut clocks = MonitorWallClockState::default();
+    clocks.start_session(1_000);
+    clocks.reconcile_match(&level_match(crate::cv::Screen::Start, 1, 2), 1_100);
+    let mut signal = BlackFrameSignal {
+        detected: true,
+        mean_luma: 0,
+        dark_pixel_percent: 100,
+        sample_count: 576,
+        sample_region: crate::cv::ActivePictureRegion::full(640, 480),
+    };
+    for (time, black) in [(1_200, true), (1_300, false), (2_000, true), (2_100, false), (5_300, false)] {
+        signal.detected = black;
+        clocks.reconcile_black_frame(signal, time);
+    }
+    assert!(clocks.level_running);
+    assert_eq!(clocks.level_started_at_unix_ms, Some(5_267));
+    assert!(clocks.reconcile_watch_transition(WatchTransition::Paused, 6_000));
+    let json = serde_json::to_value(&clocks).unwrap();
+    assert_eq!(json["levelElapsedMs"], 733);
+    assert_eq!(json["levelPaused"], true);
+    assert_eq!(json["levelTimerPhase"], "running");
+    assert_eq!(json["levelStartReason"], "swirl");
+    assert_eq!(json["fadeDetection"]["sampleRegion"]["width"], 640);
+    assert_eq!(json["introSwirlDelayMs"], 3_167);
+    assert!(json.get("timer").is_none());
+    assert!(clocks.reconcile_watch_transition(WatchTransition::Resumed, 7_000));
+    clocks.stop_session(8_000);
+    assert_eq!(clocks.level_elapsed_ms, 1_733);
+    assert_eq!(clocks.session_elapsed_ms, 7_000);
+    assert!(!clocks.level_running);
+    clocks.start_session(9_000);
+    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Idle);
+    assert_eq!(clocks.level_elapsed_ms, 0);
+    assert_eq!(clocks.fade_detection, None);
 }
