@@ -46,3 +46,42 @@ async fn monitor_restart_waits_for_replay_buffer_stop_and_settle() {
     assert_eq!(calls.frame_callback_unregister, 2);
     assert_eq!(calls.capture_destroy, 2);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn monitor_start_is_idempotent_and_rejects_conflicting_sources() {
+    use reqwest::StatusCode;
+
+    use crate::support::harness::API;
+
+    let harness = Harness::start(Duration::ZERO).await;
+    let invalid = harness
+        .client
+        .post(format!("{API}/api/v1/monitor/start"))
+        .json(&serde_json::json!({"sourceName": "invalid\0source"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(invalid.text().await.unwrap(), "source name contains a null byte");
+    assert_eq!(harness.obs.calls().capture_create, 0);
+
+    harness.start_monitor().await.error_for_status().unwrap();
+    harness.start_monitor().await.error_for_status().unwrap();
+    let conflict = harness
+        .client
+        .post(format!("{API}/api/v1/monitor/start"))
+        .json(&serde_json::json!({"sourceName": "Another Capture"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(conflict.status(), StatusCode::CONFLICT);
+    assert_eq!(conflict.text().await.unwrap(), "a monitor is already running");
+    assert_eq!(harness.obs.calls().capture_create, 1);
+    assert_eq!(harness.obs.calls().frame_callback_register, 1);
+
+    harness.stop_monitor().await.error_for_status().unwrap();
+    assert_eq!(harness.stop_monitor().await.status(), StatusCode::CONFLICT);
+    assert_eq!(harness.obs.calls().capture_destroy, 1);
+    assert_eq!(harness.obs.calls().frame_callback_unregister, 1);
+}

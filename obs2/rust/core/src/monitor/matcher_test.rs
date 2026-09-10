@@ -188,7 +188,7 @@ const CASES: &[Case] = &[
     },
 ];
 
-fn assert_case(session: &MonitorSession, case: &Case) {
+fn assert_case(session: &MonitorMatcher, case: &Case) {
     let (bytes, w, h) = load_bgra(case.file);
     let m = session.match_frame(&bytes, w, h).expect("match");
     assert_eq!(m.mission, case.mission, "{} mission", case.file);
@@ -200,7 +200,7 @@ fn assert_case(session: &MonitorSession, case: &Case) {
 #[test]
 fn matches_known_frames() {
     for case in CASES {
-        let session = MonitorSession::new(case.lang, TEMPLATES_DIR).expect("session");
+        let session = MonitorMatcher::new(case.lang, TEMPLATES_DIR).expect("session");
         assert_case(&session, case);
     }
 }
@@ -214,7 +214,7 @@ fn start_screen_language_mismatch_is_detected_and_rejected() {
     ];
 
     for (configured, detected, file) in cases {
-        let session = MonitorSession::new(configured, TEMPLATES_DIR).expect("session");
+        let session = MonitorMatcher::new(configured, TEMPLATES_DIR).expect("session");
         let (bytes, w, h) = load_bgra(file);
         let m = session.match_frame(&bytes, w, h).expect("match");
         assert_eq!(m.detected_lang.as_deref(), Some(detected), "{file} detected language");
@@ -226,7 +226,7 @@ fn start_screen_language_mismatch_is_detected_and_rejected() {
 
 #[test]
 fn detected_language_switches_active_monitor_language() {
-    let mut session = MonitorSession::new("en", TEMPLATES_DIR).expect("session");
+    let mut session = MonitorMatcher::new("en", TEMPLATES_DIR).expect("session");
     let mut active_lang = "en".to_owned();
 
     let (start_b, start_w, start_h) = load_bgra("screenshots-emu/jp - start - 01 - Agent.png");
@@ -235,7 +235,7 @@ fn detected_language_switches_active_monitor_language() {
     assert_eq!(mismatch.screen, crate::cv::Screen::Unknown);
 
     let switched = switch_detected_language(&mismatch, &mut session, &mut active_lang, |lang| {
-        MonitorSession::new(lang, TEMPLATES_DIR)
+        MonitorMatcher::new(lang, TEMPLATES_DIR)
     });
 
     assert!(switched, "mismatch should switch the active matcher");
@@ -250,14 +250,14 @@ fn detected_language_switches_active_monitor_language() {
     assert_eq!(stats.times, times(97, None, Some(97)));
 
     let repeated = switch_detected_language(&mismatch, &mut session, &mut active_lang, |lang| {
-        MonitorSession::new(lang, TEMPLATES_DIR)
+        MonitorMatcher::new(lang, TEMPLATES_DIR)
     });
     assert!(!repeated, "already-active detected language should not switch again");
 }
 
 #[test]
 fn detected_language_can_switch_more_than_once_per_monitor_session() {
-    let mut session = MonitorSession::new("en", TEMPLATES_DIR).expect("session");
+    let mut session = MonitorMatcher::new("en", TEMPLATES_DIR).expect("session");
     let mut active_lang = "en".to_owned();
 
     let (en_b, en_w, en_h) = load_bgra("screenshots-emu/en - start - 01 - Agent.png");
@@ -265,7 +265,7 @@ fn detected_language_can_switch_more_than_once_per_monitor_session() {
     assert_eq!(en_detected.detected_lang.as_deref(), Some("en"));
 
     let first = switch_detected_language(&en_detected, &mut session, &mut active_lang, |lang| {
-        MonitorSession::new(lang, TEMPLATES_DIR)
+        MonitorMatcher::new(lang, TEMPLATES_DIR)
     });
     assert!(!first, "initial same-language detection should not switch");
     assert_eq!(active_lang, "en");
@@ -275,7 +275,7 @@ fn detected_language_can_switch_more_than_once_per_monitor_session() {
     assert_eq!(jp_mismatch.detected_lang.as_deref(), Some("jp"));
 
     let switched_to_jp = switch_detected_language(&jp_mismatch, &mut session, &mut active_lang, |lang| {
-        MonitorSession::new(lang, TEMPLATES_DIR)
+        MonitorMatcher::new(lang, TEMPLATES_DIR)
     });
     assert!(switched_to_jp, "language change should switch");
     assert_eq!(active_lang, "jp");
@@ -284,7 +284,7 @@ fn detected_language_can_switch_more_than_once_per_monitor_session() {
     assert_eq!(en_mismatch.detected_lang.as_deref(), Some("en"));
 
     let switched_back_to_en = switch_detected_language(&en_mismatch, &mut session, &mut active_lang, |lang| {
-        MonitorSession::new(lang, TEMPLATES_DIR)
+        MonitorMatcher::new(lang, TEMPLATES_DIR)
     });
     assert!(switched_back_to_en, "a second language change should still switch");
     assert_eq!(active_lang, "en");
@@ -298,7 +298,7 @@ fn cache_is_consistent_and_per_session() {
     let (dam_b, dam_w, dam_h) = load_bgra(dam);
     let (run_b, run_w, run_h) = load_bgra(runway);
 
-    let session = MonitorSession::new("en", TEMPLATES_DIR).expect("session");
+    let session = MonitorMatcher::new("en", TEMPLATES_DIR).expect("session");
 
     // First (cold) and second (warm, cache hit) reads of the same frame must
     // agree -- the cached scale must not change the result.
@@ -317,7 +317,7 @@ fn cache_is_consistent_and_per_session() {
 
     // A fresh session starts cold and reproduces the result exactly,
     // confirming the cache is owned per-session (cleared on stop).
-    let session2 = MonitorSession::new("en", TEMPLATES_DIR).expect("session2");
+    let session2 = MonitorMatcher::new("en", TEMPLATES_DIR).expect("session2");
     let fresh = session2.match_frame(&dam_b, dam_w, dam_h).expect("fresh");
     assert_eq!(fresh.times, times(79, None, Some(79)));
 }
@@ -332,7 +332,7 @@ fn run_processes_a_frame_stream_until_exhausted() {
     let frames: Vec<_> = files.iter().map(|f| load_bgra(f)).collect();
 
     let mut source = FixtureSource { frames, idx: 0 };
-    let session = MonitorSession::new("en", TEMPLATES_DIR).expect("session");
+    let session = MonitorMatcher::new("en", TEMPLATES_DIR).expect("session");
 
     let mut results = Vec::new();
     session.run(&mut source, |r| results.push(r.expect("match")));

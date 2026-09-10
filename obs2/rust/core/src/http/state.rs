@@ -24,7 +24,7 @@ pub struct AppStateInner {
     pub stream_message: Mutex<Option<StreamMessage>>,
     /// The currently running monitor, if any. Enforces a single monitor at a
     /// time; serializable monitor state lives in `snapshot`.
-    pub monitor: std::sync::Mutex<Option<routes::monitor::MonitorHandle>>,
+    pub monitor: std::sync::Mutex<Option<crate::monitor::MonitorHandle>>,
     /// The single retained app/session state object. New browser clients receive
     /// this on connect, then every retained-state change as a fresh snapshot.
     pub snapshot: SharedStateStore,

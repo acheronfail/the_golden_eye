@@ -75,14 +75,13 @@ pub trait FrameSource {
     fn set_capture_region(&mut self, _region: Option<CaptureRegion>) {}
 }
 
-/// A monitor session: owns the matcher (and its per-resolution scale cache) for
-/// one start/stop cycle, so dropping the session clears the cache and each start
-/// begins cold. The cache keys on source dimensions, re-learning on resolution changes.
-pub struct MonitorSession {
+/// Matcher and calibration cache for one monitor session. Recreated when the
+/// detected language changes; dropping it clears the per-resolution scale cache.
+pub struct MonitorMatcher {
     matcher: CvMatcher,
 }
 
-impl MonitorSession {
+impl MonitorMatcher {
     /// Builds a session with the given language, using the bundled CV templates
     /// directory resolved at plugin startup.
     pub fn from_env(lang: &str) -> anyhow::Result<Self> {
@@ -95,7 +94,7 @@ impl MonitorSession {
     pub fn new(lang: &str, template_dir: &str) -> anyhow::Result<Self> {
         let matcher = CvMatcher::new(lang, template_dir)
             .map_err(|err| anyhow::anyhow!("failed to init matcher: {}", err.message))?;
-        Ok(MonitorSession { matcher })
+        Ok(MonitorMatcher { matcher })
     }
 
     pub fn with_diagnostics(mut self, enabled: bool) -> Self {
@@ -142,9 +141,9 @@ impl MonitorSession {
 
 pub(super) fn switch_detected_language(
     info: &LevelMatch,
-    session: &mut MonitorSession,
+    session: &mut MonitorMatcher,
     active_lang: &mut String,
-    make_session: impl FnOnce(&str) -> anyhow::Result<MonitorSession>,
+    make_session: impl FnOnce(&str) -> anyhow::Result<MonitorMatcher>,
 ) -> bool {
     let Some(detected_lang) = info.detected_lang.as_deref().map(str::to_owned) else {
         return false;
@@ -181,5 +180,5 @@ pub(super) fn log_level_match(info: &LevelMatch) {
 }
 
 #[cfg(test)]
-#[path = "session_test.rs"]
-mod session_test;
+#[path = "matcher_test.rs"]
+mod matcher_test;
