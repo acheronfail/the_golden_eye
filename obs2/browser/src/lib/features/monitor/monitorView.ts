@@ -33,7 +33,11 @@ export interface MonitorViewProps {
 	onStop: () => void;
 }
 
-export type MonitorDesignProps = MonitorViewProps & { wallClocks: MonitorWallClocks };
+export type MonitorDesignProps = MonitorViewProps & {
+	wallClocks: MonitorWallClocks;
+	showInGameTimer: boolean;
+	showMonitorFps: boolean;
+};
 
 export interface MonitorPresentation {
 	waitingForObs: boolean;

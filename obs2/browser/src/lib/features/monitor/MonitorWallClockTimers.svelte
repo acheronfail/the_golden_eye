@@ -8,14 +8,14 @@
 		containerClass = '',
 		inactiveTimerClass = '',
 		activeLabelClass = '',
-		showInGameTimer = false,
+		showInGameTimer,
 		role
 	}: {
 		wallClocks: MonitorWallClockSnapshot;
 		containerClass?: string;
 		inactiveTimerClass?: string;
 		activeLabelClass?: string;
-		showInGameTimer?: boolean;
+		showInGameTimer: boolean;
 		role?: 'group';
 	} = $props();
 

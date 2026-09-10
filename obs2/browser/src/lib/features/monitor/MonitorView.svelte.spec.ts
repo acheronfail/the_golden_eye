@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import type { LevelMatch, RecordingStatus, RunClip } from '$lib/api';
+import { DEFAULT_SETTINGS } from '$lib/generated/settings';
 import MonitorView from './MonitorView.svelte';
 import type { MonitorDesign } from './monitorView';
 
@@ -77,11 +78,13 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 	});
 
 	it('toggles the level timer while preserving the session timer', async () => {
-		const view = render(MonitorView, props(design, 'started', match('start')));
+		const view = render(MonitorView, { ...props(design, 'started', match('start')), showInGameTimer: false });
 		expect(screen.queryByText('Time in level')).not.toBeInTheDocument();
 		expect(screen.getByText('Time in session')).toBeInTheDocument();
 		await view.rerender({ ...props(design, 'started', match('start')), showInGameTimer: true });
 		expect(screen.getByText('Time in level')).toBeInTheDocument();
+		await view.rerender({ ...props(design, 'started', match('start')), showInGameTimer: undefined });
+		expect(screen.queryByText('Time in level') !== null).toBe(DEFAULT_SETTINGS.showInGameTimer);
 	});
 
 	it('uses the neutral OBS-transition palette while verifying the source', () => {

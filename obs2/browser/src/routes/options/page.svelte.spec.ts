@@ -140,6 +140,7 @@ describe('/options', () => {
 	});
 
 	it('saves to the backend after updating an option', async () => {
+		settings.values.stopReplayBufferWhenMonitorStopped = false;
 		const user = userEvent.setup();
 		render(OptionsPageHarness);
 
@@ -155,6 +156,7 @@ describe('/options', () => {
 	});
 
 	it('saves the monitor FPS display option', async () => {
+		settings.values.showMonitorFps = false;
 		const user = userEvent.setup();
 		render(OptionsPageHarness);
 
@@ -168,6 +170,7 @@ describe('/options', () => {
 	});
 
 	it('saves the in-game timer option from recording settings', async () => {
+		settings.values.showInGameTimer = false;
 		const user = userEvent.setup();
 		mocks.page.url = new URL('http://localhost/options?tab=recording');
 		render(OptionsPageHarness);

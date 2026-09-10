@@ -6,7 +6,7 @@
 		title: 'Monitor/Shared display',
 		component: MonitorSharedDisplayStory,
 		parameters: { layout: 'fullscreen' },
-		args: { variant: 'mission-glass', timesAvailable: true, timersRunning: true }
+		args: { variant: 'mission-glass', timesAvailable: true, timersRunning: true, showInGameTimer: true }
 	});
 </script>
 

@@ -6,12 +6,12 @@
 		variant,
 		timesAvailable = true,
 		timersRunning = true,
-		showInGameTimer = true
+		showInGameTimer
 	}: {
 		variant: 'mission-glass' | 'signal-band';
 		timesAvailable?: boolean;
 		timersRunning?: boolean;
-		showInGameTimer?: boolean;
+		showInGameTimer: boolean;
 	} = $props();
 
 	const match = $derived<LevelMatch>({
