@@ -61,10 +61,10 @@ impl RunLibrary {
         params: RunsParams,
         cursor: Option<RunCursor>,
     ) -> anyhow::Result<RunsResponse> {
-        let seeded = self.seed_if_needed(&settings);
+        let seeded = self.seed_if_needed(settings);
         if params.refresh && !seeded {
             self.snapshot.set_run_catalog_sync(Some(RunCatalogSync::Manual));
-            let result = refresh_catalog_from_settings(&self.catalog, &settings);
+            let result = refresh_catalog_from_settings(&self.catalog, settings);
             self.snapshot.set_run_catalog_sync(None);
             result?;
         }
@@ -80,7 +80,7 @@ impl RunLibrary {
             min_time_seconds: params.min_time_seconds,
             max_time_seconds: params.max_time_seconds,
         };
-        let mut response = list_configured_run_page(&settings, &self.catalog, &query);
+        let mut response = list_configured_run_page(settings, &self.catalog, &query);
         if let Some(run_id) = params.run_id
             && !response.clips.iter().any(|clip| clip.run_id == run_id)
             && let Some(run) = self.catalog.get_run(&run_id)?

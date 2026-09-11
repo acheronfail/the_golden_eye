@@ -37,7 +37,7 @@ pub(crate) fn match_image(lang: &str, annotations: bool, body: &[u8]) -> Result<
         tracing::error!("CV template directory is not set");
         return Err(MatchError::MissingTemplates);
     };
-    let matcher = crate::cv::CvMatcher::new(&lang, &template_dir)
+    let matcher = crate::cv::CvMatcher::new(lang, &template_dir)
         .map_err(|err| {
             tracing::error!("failed to init matcher: {err}");
             MatchError::MatcherUnavailable
@@ -45,7 +45,7 @@ pub(crate) fn match_image(lang: &str, annotations: bool, body: &[u8]) -> Result<
         .with_diagnostics(annotations);
     let annotations_enabled = matcher.diagnostics_enabled();
 
-    let (level_match, width, height) = matcher.match_level_from_encoded_image(&body).map_err(|err| {
+    let (level_match, width, height) = matcher.match_level_from_encoded_image(body).map_err(|err| {
         tracing::error!("failed to decode/match uploaded image: {err}");
         MatchError::InvalidImage
     })?;
@@ -61,7 +61,7 @@ pub(crate) fn match_source(source: String, lang: &str, annotations: bool) -> Res
         tracing::error!("CV template directory is not set");
         return Err(MatchError::MissingTemplates);
     };
-    let matcher = crate::cv::CvMatcher::new(&lang, &template_dir).map_err(|err| {
+    let matcher = crate::cv::CvMatcher::new(lang, &template_dir).map_err(|err| {
         tracing::error!("failed to init matcher: {err}");
         MatchError::MatcherUnavailable
     })?;

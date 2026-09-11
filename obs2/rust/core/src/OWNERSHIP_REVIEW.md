@@ -75,8 +75,8 @@ follow the workflow without tracing unrelated features, rather than whether the 
   linker reports local dependency objects targeting macOS 26.2 against a 26.0 target.
 - `just test-rust --lib -- --skip keyring_store_round_trips_tokens`: 247 passed. The OS keyring
   round-trip test is excluded from this unattended run.
-- `just test-integration`: 41 passed. Fake-OBS coverage includes monitor lifecycle, replay saves, settings,
-  update application, catalog operations, and mocked YouTube OAuth/uploads.
+- `just test-integration`: 41 passed. Fake-OBS coverage includes monitor lifecycle, replay saves,
+  settings, update application, catalog operations, and mocked YouTube OAuth/uploads.
 - `npm run check`: zero errors and warnings. `npm run test`: 430 tests passed, including Storybook
   in Chromium.
 - Browser-generated contracts and the generated C header are unchanged. `git diff --check` passes.

@@ -234,10 +234,7 @@ clippy:
     source "$build_dir/rust-cargo-env.sh"
 
     cd "{{ justfile_directory() }}/obs2/rust"
-    if ! cargo clippy --package ge_rust -- -D warnings; then
-      cargo clippy --package ge_rust --fix -- -D warnings
-    fi
-
+    cargo clippy --package ge_rust -- -D warnings
     cargo clippy --package ge_cv --all-targets -- -D warnings
     cargo clippy --package ge_catalog --all-targets -- -D warnings
     cargo clippy --package ge_clip --all-targets -- -D warnings
