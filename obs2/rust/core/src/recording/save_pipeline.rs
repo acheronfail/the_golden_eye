@@ -1,7 +1,99 @@
-struct SavePipeline {
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+#[cfg(not(test))]
+use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant, SystemTime};
+
+use ge_clip::{ClipMetadata, RunStatus};
+use tokio::sync::broadcast;
+
+use super::clip_output::{
+    ClipOutputPolicy,
+    append_extension,
+    clip_metadata,
+    clip_relative_path,
+    ensure_output_directory,
+    output_dir,
+    unique_output_path,
+};
+#[cfg(not(test))]
+use super::replay_buffer::{
+    REPLAY_SAVE_SERIALIZE,
+    ReplaySaveWait,
+    begin_replay_save_request,
+    replay_buffer_output_directory,
+    wait_for_replay_saved,
+};
+use super::tracker::{PendingSave, RunTrackerPolicy};
+use super::{MAX_RECENT_RUN_LIMIT, RecordingSessionContext};
+use crate::cv::LevelMatch;
+use crate::db::run_catalog::{RunCatalog, RunCatalogSave};
+use crate::ge;
+use crate::http::{
+    AppEvent,
+    RecordingSavePending,
+    RecordingSaved,
+    RecordingStateStore,
+    ReplaySaveStage,
+    ReplaySaveStateStore,
+    ReplaySaveStatus,
+};
+
+/// A replay save taking this long is unusual, but OBS can still complete it.
+/// Keep ownership of the request so a late identity-less event remains attached
+/// to the correct run.
+#[cfg(not(test))]
+const REPLAY_SAVE_SLOW_WARNING: Duration = Duration::from_secs(20);
+/// Avoid blocking all later saves forever if OBS never sends a completion event.
+#[cfg(not(test))]
+const REPLAY_SAVE_TIMEOUT: Duration = Duration::from_secs(120);
+fn recording_save_pending_event(
+    save_id: u64,
+    save_delay: Duration,
+    estimated_duration_secs: f64,
+    status: RunStatus,
+    stats: Option<&LevelMatch>,
+) -> RecordingSavePending {
+    let level_info = stats.and_then(|m| ge::level_info(m.mission, m.part));
+    let times = stats.and_then(|m| m.times);
+
+    RecordingSavePending {
+        save_id,
+        save_in_secs: save_delay.as_secs_f64(),
+        estimated_duration_secs,
+        failed: status.is_failed(),
+        status: status.as_str().to_owned(),
+        level: level_info.map(|info| info.name.to_owned()).unwrap_or_else(|| "unknown".to_owned()),
+        level_number: level_info.map(|info| info.number),
+        difficulty: stats.and_then(|m| ge::difficulty_name(m.difficulty)).map(str::to_owned),
+        time_secs: times.map(|t| t.time),
+        target_time_secs: times.and_then(|t| t.target_time),
+        best_time_secs: times.and_then(|t| t.best_time),
+        stats: stats.cloned(),
+    }
+}
+
+/// Build the provisional run event, reading `save_in_secs` as the time remaining
+/// until it fires. Re-sent when the voted time is refined.
+fn save_pending_event(pending: &PendingSave, policy: RunTrackerPolicy, now: Instant) -> RecordingSavePending {
+    let run_length_secs = pending.finish_at.saturating_duration_since(pending.clip_start).as_secs_f64();
+    let estimated_duration_secs = run_length_secs + policy.pre_run_padding_secs + policy.post_run_padding_secs;
+    recording_save_pending_event(
+        pending.save_id,
+        pending.fire_at.saturating_duration_since(now),
+        estimated_duration_secs,
+        pending.status,
+        pending.stats.as_ref(),
+    )
+}
+
+pub(super) struct SavePipeline {
     event_tx: broadcast::Sender<AppEvent>,
-    recording_state: RecordingStateStore,
-    replay_saves: ReplaySaveStateStore,
+    pub(super) recording_state: RecordingStateStore,
+    pub(super) replay_saves: ReplaySaveStateStore,
     output_policy: ClipOutputPolicy,
     recent_run_limit: Arc<AtomicUsize>,
     source_name: String,
@@ -10,7 +102,7 @@ struct SavePipeline {
 }
 
 impl SavePipeline {
-    fn new(
+    pub(super) fn new(
         event_tx: broadcast::Sender<AppEvent>,
         recording_state: RecordingStateStore,
         replay_saves: ReplaySaveStateStore,
@@ -31,11 +123,11 @@ impl SavePipeline {
         }
     }
 
-    fn set_recent_run_limit_source(&mut self, source: Arc<AtomicUsize>) {
+    pub(super) fn set_recent_run_limit_source(&mut self, source: Arc<AtomicUsize>) {
         self.recent_run_limit = source;
     }
 
-    fn publish_pending(&self, pending: &PendingSave, policy: RunTrackerPolicy, now: Instant) {
+    pub(super) fn publish_pending(&self, pending: &PendingSave, policy: RunTrackerPolicy, now: Instant) {
         let event = save_pending_event(pending, policy, now);
         self.replay_saves.schedule(ReplaySaveStatus {
             tracking_id: pending.tracking_id,
@@ -50,7 +142,7 @@ impl SavePipeline {
         let _ = self.event_tx.send(AppEvent::RecordingSavePending(event));
     }
 
-    fn job(&self, pending: PendingSave, now: Instant, policy: RunTrackerPolicy) -> SaveAndTrimJob {
+    pub(super) fn job(&self, pending: PendingSave, now: Instant, policy: RunTrackerPolicy) -> SaveAndTrimJob {
         self.replay_saves.transition(pending.tracking_id, ReplaySaveStage::WaitingForReplaySave);
 
         let metadata = clip_metadata(
@@ -103,16 +195,16 @@ impl SavePipeline {
         }
     }
 
-    fn spawn(&self, pending: PendingSave, now: Instant, policy: RunTrackerPolicy) {
+    pub(super) fn spawn(&self, pending: PendingSave, now: Instant, policy: RunTrackerPolicy) {
         spawn_save_and_trim(self.job(pending, now, policy));
     }
 
     #[cfg(not(test))]
-    fn flush_on_shutdown(&self, pending: PendingSave, now: Instant, policy: RunTrackerPolicy) {
+    pub(super) fn flush_on_shutdown(&self, pending: PendingSave, now: Instant, policy: RunTrackerPolicy) {
         self.flush_on_shutdown_with(pending, now, policy, std::thread::sleep, save_and_trim);
     }
 
-    fn flush_on_shutdown_with(
+    pub(super) fn flush_on_shutdown_with(
         &self,
         pending: PendingSave,
         now: Instant,
@@ -132,25 +224,25 @@ impl SavePipeline {
 
 /// Inputs for saving the replay buffer and trimming it to the run window on a
 /// dedicated thread.
-struct SaveAndTrimJob {
-    tracking_id: u64,
-    save_id: u64,
-    start_before_save_secs: f64,
-    trim_tail_secs: f64,
-    status: RunStatus,
-    completed_at: SystemTime,
-    stats: Option<LevelMatch>,
-    metadata: ClipMetadata,
-    output_policy: ClipOutputPolicy,
+pub(super) struct SaveAndTrimJob {
+    pub(super) tracking_id: u64,
+    pub(super) save_id: u64,
+    pub(super) start_before_save_secs: f64,
+    pub(super) trim_tail_secs: f64,
+    pub(super) status: RunStatus,
+    pub(super) completed_at: SystemTime,
+    pub(super) stats: Option<LevelMatch>,
+    pub(super) metadata: ClipMetadata,
+    pub(super) output_policy: ClipOutputPolicy,
     #[cfg_attr(test, allow(dead_code))]
-    recent_run_limit: Arc<AtomicUsize>,
-    event_tx: broadcast::Sender<AppEvent>,
-    recording_state: RecordingStateStore,
-    replay_saves: ReplaySaveStateStore,
+    pub(super) recent_run_limit: Arc<AtomicUsize>,
+    pub(super) event_tx: broadcast::Sender<AppEvent>,
+    pub(super) recording_state: RecordingStateStore,
+    pub(super) replay_saves: ReplaySaveStateStore,
     #[cfg_attr(test, allow(dead_code))]
-    run_catalog: Arc<RunCatalog>,
+    pub(super) run_catalog: Arc<RunCatalog>,
     /// See [`PendingSave::phase_generation`].
-    phase_generation: Option<u64>,
+    pub(super) phase_generation: Option<u64>,
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -408,3 +500,7 @@ fn remove_replay_file_after_trim(replay_path: &str, saved_path: &str) {
         Err(err) => tracing::warn!(path = %replay.display(), "failed to delete replay buffer source file: {err}"),
     }
 }
+
+#[cfg(test)]
+#[path = "tests/save_pipeline.rs"]
+mod tests;

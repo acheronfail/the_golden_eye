@@ -1,4 +1,21 @@
-fn clip_metadata(
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+use anyhow::Context;
+use ge_clip::{ClipMetadata, RunStatus};
+
+use super::DEFAULT_CLIP_FILENAME_TEMPLATE;
+use crate::cv::LevelMatch;
+use crate::ge;
+use crate::template_tokens::{RunTemplateTokens, format_iso_utc, format_time};
+
+#[derive(Debug, Clone)]
+pub(super) struct ClipOutputPolicy {
+    pub(super) output_directory: Option<PathBuf>,
+    pub(super) filename_template: String,
+}
+
+pub(super) fn clip_metadata(
     status: RunStatus,
     completed_at: SystemTime,
     stats: Option<&LevelMatch>,
@@ -28,7 +45,7 @@ fn clip_metadata(
     }
 }
 
-fn ensure_output_directory(dir: &Path) -> anyhow::Result<()> {
+pub(super) fn ensure_output_directory(dir: &Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(dir).with_context(|| format!("creating output directory {}", dir.display()))?;
 
     let metadata = std::fs::metadata(dir).with_context(|| format!("checking output directory {}", dir.display()))?;
@@ -39,14 +56,14 @@ fn ensure_output_directory(dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn output_dir(input: &Path, policy: &ClipOutputPolicy) -> PathBuf {
+pub(super) fn output_dir(input: &Path, policy: &ClipOutputPolicy) -> PathBuf {
     if let Some(path) = &policy.output_directory {
         return path.clone();
     }
     input.parent().unwrap_or_else(|| Path::new(".")).to_path_buf()
 }
 
-fn configured_dir(value: &str) -> Option<PathBuf> {
+pub(super) fn configured_dir(value: &str) -> Option<PathBuf> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return None;
@@ -68,7 +85,7 @@ fn expand_home(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-fn unique_output_path(path: &Path) -> PathBuf {
+pub(super) fn unique_output_path(path: &Path) -> PathBuf {
     if !path.exists() {
         return path.to_path_buf();
     }
@@ -91,7 +108,7 @@ fn unique_output_path(path: &Path) -> PathBuf {
 /// Build an output path from the configured template and matched level info.
 /// Collisions are handled by [`unique_output_path`], so terse templates remain
 /// safe even when multiple runs render to the same relative path.
-fn clip_relative_path(
+pub(super) fn clip_relative_path(
     stem: &str,
     status: RunStatus,
     completed_at: SystemTime,
@@ -124,7 +141,7 @@ fn render_clip_template(
 }
 
 #[cfg_attr(test, allow(dead_code))]
-fn append_extension(mut path: PathBuf, ext: &str) -> PathBuf {
+pub(super) fn append_extension(mut path: PathBuf, ext: &str) -> PathBuf {
     if ext.is_empty() {
         return path;
     }
@@ -161,7 +178,7 @@ fn wrong_platform_separator() -> char {
     if std::path::MAIN_SEPARATOR == '/' { '\\' } else { '/' }
 }
 
-fn sanitize_path_component(name: &str) -> String {
+pub(super) fn sanitize_path_component(name: &str) -> String {
     name.chars()
         .map(|c| match c {
             '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
@@ -172,3 +189,7 @@ fn sanitize_path_component(name: &str) -> String {
         .trim_matches(|c: char| c.is_whitespace() || c == '.')
         .to_owned()
 }
+
+#[cfg(test)]
+#[path = "tests/clip_output.rs"]
+mod tests;

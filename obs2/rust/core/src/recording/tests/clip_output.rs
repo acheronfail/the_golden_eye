@@ -1,3 +1,10 @@
+use std::time::{Duration, UNIX_EPOCH};
+
+use super::*;
+use crate::recording::RecordingOptions;
+use crate::recording::test_support::*;
+use crate::template_tokens::format_iso_local;
+
 #[test]
 fn output_dir_prefers_configured_path_then_replay_parent() {
     let dir = TestDir::new("output-dir");

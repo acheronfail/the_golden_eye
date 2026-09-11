@@ -1,3 +1,18 @@
+use std::path::PathBuf;
+use std::sync::{Condvar, Mutex};
+use std::time::{Duration, Instant};
+
+/// How long a monitor start should wait for OBS to finish an in-progress replay
+/// buffer stop before giving up.
+const REPLAY_STOP_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a monitor start should wait for OBS to make the replay buffer active
+/// after `obs_frontend_replay_buffer_start`.
+const REPLAY_START_TIMEOUT: Duration = Duration::from_secs(2);
+const REPLAY_START_RETRIES: usize = 4;
+const REPLAY_START_RETRY_DELAY: Duration = Duration::from_millis(250);
+/// OBS can ignore a replay-buffer start issued immediately after the stopped
+/// event. Give the frontend a brief turn to finish its state transition.
+const REPLAY_STOP_SETTLE_DELAY: Duration = Duration::from_millis(400);
 /// The latest replay-saved event, published by the OBS frontend callback and
 /// awaited by the save thread.
 struct ReplaySaved {
@@ -18,7 +33,7 @@ static REPLAY_SAVED_CV: Condvar = Condvar::new();
 /// event has no identity, so two in flight could both wake on it and trim the same
 /// file. Only the request + wait need it (one at a time), not the subsequent trim.
 #[cfg(not(test))]
-static REPLAY_SAVE_SERIALIZE: Mutex<()> = Mutex::new(());
+pub(super) static REPLAY_SAVE_SERIALIZE: Mutex<()> = Mutex::new(());
 
 struct ReplayBufferLifecycle {
     starting: bool,
@@ -105,21 +120,21 @@ pub fn on_replay_buffer_stopped() {
 /// Register a pending plugin save and return the generation to wait past.
 /// Incrementing before the save call (so an immediate event still counts as ours)
 /// lets [`on_replay_saved`] tell our saves from the user's manual ones.
-fn begin_replay_save_request() -> u64 {
+pub(super) fn begin_replay_save_request() -> u64 {
     let mut guard = REPLAY_SAVED.lock().unwrap_or_else(|p| p.into_inner());
     guard.pending_requests = guard.pending_requests.saturating_add(1);
     guard.generation
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum ReplaySaveWait {
+pub(super) enum ReplaySaveWait {
     Saved(Option<String>),
     TimedOut,
 }
 
 /// Block until a replay-saved event newer than `since` arrives. A slow save is
 /// warned about without abandoning it; only the hard timeout releases ownership.
-fn wait_for_replay_saved(since: u64, slow_warning: Duration, timeout: Duration) -> ReplaySaveWait {
+pub(super) fn wait_for_replay_saved(since: u64, slow_warning: Duration, timeout: Duration) -> ReplaySaveWait {
     let start = Instant::now();
     let mut warned = false;
     let mut guard = REPLAY_SAVED.lock().unwrap_or_else(|p| p.into_inner());
@@ -271,12 +286,12 @@ pub fn ensure_replay_buffer_running() -> bool {
 }
 
 #[cfg(not(test))]
-fn ensure_replay_buffer_running_for_recording() -> bool {
+pub(super) fn ensure_replay_buffer_running_for_recording() -> bool {
     ensure_replay_buffer_running()
 }
 
 #[cfg(test)]
-fn ensure_replay_buffer_running_for_recording() -> bool {
+pub(super) fn ensure_replay_buffer_running_for_recording() -> bool {
     true
 }
 
@@ -288,3 +303,7 @@ pub fn stop_replay_buffer_if_active() {
         crate::obs::stop_replay_buffer();
     }
 }
+
+#[cfg(test)]
+#[path = "tests/replay_buffer.rs"]
+mod tests;

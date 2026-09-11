@@ -1,3 +1,5 @@
+use super::*;
+
 #[test]
 fn replay_save_wait_keeps_ownership_after_the_slow_warning() {
     let since = begin_replay_save_request();
