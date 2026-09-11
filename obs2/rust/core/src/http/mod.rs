@@ -1,6 +1,4 @@
 pub(crate) mod routes;
-mod state;
-
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
@@ -11,24 +9,16 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::{get, post, put};
-pub use routes::record::ReplayBufferStatus;
 use tokio::net::{TcpListener, TcpSocket};
 use tokio::sync::oneshot;
 use tower::ServiceBuilder;
 use tower_http::BoxError;
 
+use crate::app::AppState;
+
 const API_REQUEST_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
-pub use state::*;
-pub const OAUTH_CALLBACK_PATH: &str = "/oauth/callback";
-
-pub fn collect_sources() -> Vec<routes::sources::Source> {
-    routes::sources::collect_sources()
-}
-
-pub fn current_replay_buffer_status() -> routes::record::ReplayBufferStatus {
-    routes::record::current_replay_buffer_status()
-}
+use crate::youtube_uploads::OAUTH_CALLBACK_PATH;
 
 /// Logs each request as it arrives and again once a response is produced.
 async fn log_requests(req: Request, next: Next) -> Response {

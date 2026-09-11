@@ -37,15 +37,15 @@ pub fn export_api_contract(output: &Path) {
         };
     }
 
-    export_root!(crate::http::AppEvent);
-    export_root!(crate::http::routes::runs::RunsResponse);
-    export_root!(crate::http::routes::runs::ManualRunRequest);
-    export_root!(crate::http::routes::runs::EliteImportResponse);
+    export_root!(crate::app::AppEvent);
+    export_root!(crate::run_library::RunsResponse);
+    export_root!(crate::run_library::ManualRunRequest);
+    export_root!(crate::run_library::EliteImportResponse);
     export_root!(ge_catalog::run_catalog::RunSort);
-    export_root!(crate::http::routes::folders::FolderPickResponse);
-    export_root!(crate::http::routes::folders::FolderValidation);
-    export_root!(crate::http::routes::matcher::MatchResponse);
-    export_root!(crate::recording::RecordingOptions);
+    export_root!(crate::desktop::folders::FolderPickResponse);
+    export_root!(crate::desktop::folders::FolderValidation);
+    export_root!(crate::capture_tools::matching::MatchResponse);
+    export_root!(crate::run_monitoring::RecordingOptions);
     export_root!(ge_catalog::statistics::StatisticsData);
     export_root!(ge_catalog::statistics::MonitoringSessionSummary);
     export_root!(ge_catalog::statistics::MonitoringSessionDetail);

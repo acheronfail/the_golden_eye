@@ -2,6 +2,7 @@ mod support;
 
 mod completed_clip;
 mod failed_clip;
+mod frame_dump;
 mod frontend_ready;
 mod game_language_switching;
 mod match_upload;

@@ -163,3 +163,32 @@ async fn idle_monitor_publishes_lifecycle_before_requests_complete() {
         assert_eq!(clocks["levelTimerPhase"], "stopped");
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn unexpected_replay_stop_ends_monitoring_and_publishes_its_reason() {
+    let harness = Harness::start(Duration::ZERO).await;
+    let mut events = harness.connect_event_stream().await;
+    harness.start_monitor().await.error_for_status().unwrap();
+    crate::support::test_obs::obs_frontend_replay_buffer_stop();
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some(message) = events.next().await {
+            let message = message.expect("event stream message");
+            let Ok(text) = message.to_text() else { continue };
+            let event: Value = serde_json::from_str(text).expect("JSON event");
+            if event["type"] == "monitorStopped" {
+                assert_eq!(event["reason"], "replayBufferStopped");
+                return;
+            }
+        }
+        panic!("event stream ended before monitor stopped");
+    })
+    .await
+    .expect("monitor stopped notification");
+    assert_eq!(harness.obs.calls().frame_callback_unregister, 1);
+    assert_eq!(harness.obs.calls().capture_destroy, 1);
+    let mut reconnected = harness.connect_event_stream().await;
+    let snapshot = next_app_snapshot(&mut reconnected, "stopped monitor").await;
+    assert_eq!(snapshot["state"]["monitor"]["enabled"], false);
+}

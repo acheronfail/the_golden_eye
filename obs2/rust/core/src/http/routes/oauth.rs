@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse};
 use serde::Deserialize;
 
-use crate::http::AppState;
+use crate::app::AppState;
 
 #[derive(Deserialize)]
 pub struct OAuthQuery {
@@ -13,24 +13,22 @@ pub struct OAuthQuery {
 
 #[axum::debug_handler]
 pub async fn handle_callback(State(state): State<AppState>, Query(query): Query<OAuthQuery>) -> impl IntoResponse {
-    if let Some(code) = query.code {
-        let mut pending = state.oauth_pending.lock().await;
-        if let Some(pending_oauth) = pending.take() {
-            if query.state.as_deref() != Some(pending_oauth.state.as_str()) {
-                return oauth_error(StatusCode::BAD_REQUEST, "OAuth state did not match.");
-            }
-            let _ = pending_oauth.tx.send(code);
-            Html(oauth_page(
-                "Authorisation complete",
-                "Authorisation was completed successfully. You can now close this page and return to The Golden Eye.",
-                true,
-            ))
-            .into_response()
-        } else {
-            oauth_error(StatusCode::BAD_REQUEST, "No pending OAuth flow was found.")
+    match state.youtube.accept_oauth_callback(query.code, query.state).await {
+        Ok(()) => Html(oauth_page(
+            "Authorisation complete",
+            "Authorisation was completed successfully. You can now close this page and return to The Golden Eye.",
+            true,
+        ))
+        .into_response(),
+        Err(error) => {
+            use crate::youtube_uploads::CallbackError;
+            let message = match error {
+                CallbackError::MissingCode => "OAuth code was not found in the request.",
+                CallbackError::NoPendingFlow => "No pending OAuth flow was found.",
+                CallbackError::StateMismatch => "OAuth state did not match.",
+            };
+            oauth_error(StatusCode::BAD_REQUEST, message)
         }
-    } else {
-        oauth_error(StatusCode::BAD_REQUEST, "OAuth code was not found in the request.")
     }
 }
 

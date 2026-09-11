@@ -5,6 +5,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::Deserialize;
 
+use crate::app::AppState;
 use crate::db::statistics::{
     Bucket,
     MonitoringSessionDetail,
@@ -12,7 +13,6 @@ use crate::db::statistics::{
     StatisticsData,
     StatisticsQuery,
 };
-use crate::http::AppState;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

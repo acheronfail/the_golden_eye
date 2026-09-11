@@ -5,7 +5,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use tokio::sync::{broadcast, watch};
 
-use crate::http::{AppEvent, AppState};
+use crate::app::{AppEvent, AppState};
 
 const UPDATE_APPLIED_NOTICE_WINDOW: Duration = Duration::from_secs(60);
 
@@ -105,7 +105,7 @@ async fn send_event(socket: &mut WebSocket, event: &AppEvent) -> Result<(), axum
 
 async fn send_current_snapshot(
     socket: &mut WebSocket,
-    rx: &mut watch::Receiver<crate::http::AppSnapshot>,
+    rx: &mut watch::Receiver<crate::app::AppSnapshot>,
 ) -> Result<(), axum::Error> {
     let state = Box::new(rx.borrow_and_update().clone());
     send_event(socket, &AppEvent::Snapshot { state }).await
