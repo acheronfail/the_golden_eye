@@ -18,12 +18,13 @@ use tokio::sync::broadcast;
 
 use crate::cv::LevelMatch;
 use crate::db::run_catalog::RunCatalog;
-use crate::http::{AppEvent, RecordingStateStore, RecordingStatus, ReplaySaveStateStore};
+use crate::http::{AppEvent, ReplaySaveStateStore};
 
 mod clip_output;
 mod replay_buffer;
 mod replay_coordinator;
 mod save_pipeline;
+mod status;
 mod tracker;
 
 use clip_output::{ClipOutputPolicy, configured_dir};
@@ -45,6 +46,7 @@ pub use replay_buffer::{
 #[cfg(test)]
 use save_pipeline::SaveAndTrimJob;
 use save_pipeline::SavePipeline;
+pub use status::{RecordingStateStore, RecordingStatus};
 #[cfg(test)]
 use tracker::TrackerUpdate;
 use tracker::{PendingSave, RunTracker, RunTrackerPolicy};

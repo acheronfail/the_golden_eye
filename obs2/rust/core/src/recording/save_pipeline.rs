@@ -30,11 +30,11 @@ use crate::http::{
     AppEvent,
     RecordingSavePending,
     RecordingSaved,
-    RecordingStateStore,
     ReplaySaveStage,
     ReplaySaveStateStore,
     ReplaySaveStatus,
 };
+use crate::recording::RecordingStateStore;
 
 /// A replay save taking this long is unusual, but OBS can still complete it.
 /// Keep ownership of the request so a late identity-less event remains attached

@@ -6,9 +6,9 @@ use std::time::{Duration, Instant, SystemTime};
 
 use ge_clip::RunStatus;
 
+use super::RecordingStatus;
 use crate::cv::{LevelMatch, Screen};
 use crate::ge;
-use crate::http::RecordingStatus;
 
 static NEXT_REPLAY_TRACKING_ID: AtomicU64 = AtomicU64::new(1);
 

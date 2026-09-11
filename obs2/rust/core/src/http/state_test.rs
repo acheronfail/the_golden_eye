@@ -268,35 +268,6 @@ fn replay_save_store_retains_pipeline_transitions() {
 }
 
 #[test]
-fn recording_state_store_updates_snapshot_without_receivers() {
-    let snapshot = SharedStateStore::new(test_snapshot());
-    let rx = snapshot.subscribe();
-    let store = RecordingStateStore::new(snapshot.clone());
-    drop(rx);
-
-    store.set(RecordingStatus::Started);
-    assert_eq!(store.current(), Some(RecordingStatus::Started));
-    assert_eq!(snapshot.current().recording_state, Some(RecordingStatus::Started));
-
-    // A stale generation (superseded by a later transition) must not clear
-    // the phase, even though its captured value matches the current one.
-    let stale_generation = store.set(RecordingStatus::SavePending);
-    store.set(RecordingStatus::Started);
-    store.clear_if_generation(stale_generation);
-    assert_eq!(store.current(), Some(RecordingStatus::Started));
-
-    // The current generation clears normally.
-    let current_generation = store.set(RecordingStatus::SavePending);
-    store.clear_if_generation(current_generation);
-    assert_eq!(store.current(), None);
-
-    store.set(RecordingStatus::Started);
-    store.clear();
-    assert_eq!(store.current(), None);
-    assert_eq!(snapshot.current().recording_state, None);
-}
-
-#[test]
 fn monitor_stopped_event_uses_frontend_field_names() {
     let event = AppEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped };
     let json = serde_json::to_value(event).unwrap();
