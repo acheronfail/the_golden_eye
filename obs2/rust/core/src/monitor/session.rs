@@ -1,10 +1,10 @@
 //! Coordinates frame detection, recording, and retained monitor updates.
 
 use std::sync::atomic::Ordering;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use super::capture::{Captured, ObsSource};
-use super::clocks::MonitorClockStore;
+use super::events::{MonitorEvent, MonitorEvents, unix_time_ms};
 use super::matcher::{DisplayTimeSmoother, MonitorMatcher, log_level_match, switch_detected_language};
 use super::throughput::ThroughputMeter;
 use super::timing::MonitorTiming;
@@ -14,7 +14,6 @@ use crate::http::{AppEvent, AppState};
 use crate::recording::RecordingState;
 
 pub(super) struct MonitorSession {
-    clocks: MonitorClockStore,
     matcher: MonitorMatcher,
     recording: RecordingState,
     state: AppState,
@@ -35,10 +34,8 @@ impl MonitorSession {
         state: AppState,
         source_fps: f64,
         timing_mode: MonitorTimingMode,
-        clocks: MonitorClockStore,
     ) -> Self {
         Self {
-            clocks,
             matcher,
             recording,
             state,
@@ -53,7 +50,7 @@ impl MonitorSession {
         }
     }
 
-    pub(super) fn run(mut self, mut source: ObsSource) {
+    pub(super) fn run(mut self, mut source: ObsSource, events: &mut MonitorEvents) {
         loop {
             let diagnostics_enabled = self.state.monitor_annotations_enabled.load(Ordering::Acquire);
             if diagnostics_enabled != self.last_diagnostics_enabled {
@@ -67,12 +64,7 @@ impl MonitorSession {
             let deadline = self.recording.pending_fire_at();
             let (result, black_frame, watch_signal, observed_at_unix_ms, match_ms, stats) = match source
                 .capture_with_stats_until(deadline, |bytes, w, h| {
-                    let observed_at_unix_ms = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis()
-                        .try_into()
-                        .unwrap_or(u64::MAX);
+                    let observed_at_unix_ms = unix_time_ms();
                     let match_started = self.monitor_timing.enabled().then(Instant::now);
                     let result = self.matcher.match_frame(bytes, w, h);
                     let active_picture = self.matcher.active_picture_region(w, h);
@@ -121,7 +113,7 @@ impl MonitorSession {
                     if changed {
                         log_level_match(&display);
                         self.last = Some(display.clone());
-                        self.clocks.observe_match(display);
+                        events.handle(MonitorEvent::MatchObserved(display), unix_time_ms());
                     }
                 }
                 Err(e) => {
@@ -130,12 +122,12 @@ impl MonitorSession {
                 }
             }
             if let Some(signal) = black_frame {
-                self.clocks.observe_black_frame(signal);
+                events.handle(MonitorEvent::BlackFrameObserved(signal), unix_time_ms());
             }
             if let Some(signal) = watch_signal
                 && let Some(transition) = self.watch_detector.observe(signal).transition
             {
-                self.clocks.observe_watch_transition(transition, observed_at_unix_ms);
+                events.handle(MonitorEvent::WatchChanged(transition), observed_at_unix_ms);
             }
         }
         tracing::info!("monitor loop exiting");

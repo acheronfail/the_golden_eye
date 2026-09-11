@@ -9,6 +9,7 @@ use crate::http::AppState;
 
 pub(crate) mod capture;
 mod clocks;
+mod events;
 mod matcher;
 mod session;
 mod throughput;
@@ -16,7 +17,7 @@ mod timing;
 
 pub(crate) use capture::MonitorHandle;
 use capture::{FRAME_BUFFER_CAPACITY, FrameMailbox, ObsSource, ProducerCtx};
-use clocks::MonitorClockStore;
+use events::{MonitorEvent, MonitorEvents, unix_time_ms};
 use matcher::MonitorMatcher;
 use session::MonitorSession;
 
@@ -103,8 +104,8 @@ pub(crate) fn start_monitor(state: &AppState, status_source_name: String) -> Res
     let source_fps = crate::obs::video_fps();
     let handle_region = region.clone();
     let worker_state = state.clone();
-    let clocks = MonitorClockStore::new(state.snapshot.clone());
-    let worker_clocks = clocks.clone();
+    let worker_source_name = status_source_name.clone();
+    let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
     let worker_recent_run_limit = recent_run_limit.clone();
     let recording_context = crate::recording::RecordingSessionContext::new(
         status_source_name.clone(),
@@ -112,6 +113,7 @@ pub(crate) fn start_monitor(state: &AppState, status_source_name: String) -> Res
         monitor_session_id.clone(),
     );
     let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
+        let mut events = MonitorEvents::new(worker_state.snapshot.clone());
         let mut recording = crate::recording::RecordingState::new(
             worker_state.event_tx.clone(),
             worker_state.recording_state.clone(),
@@ -121,8 +123,18 @@ pub(crate) fn start_monitor(state: &AppState, status_source_name: String) -> Res
             run_catalog,
         );
         recording.set_recent_run_limit_source(worker_recent_run_limit);
-        MonitorSession::new(session, recording, worker_state, source_fps, monitor_timing_mode, worker_clocks)
-            .run(ObsSource { mailbox: worker_mailbox, region });
+        let session = MonitorSession::new(session, recording, worker_state, source_fps, monitor_timing_mode);
+        events.handle(
+            MonitorEvent::SessionStarted {
+                source_name: worker_source_name,
+                language: DEFAULT_MONITOR_LANGUAGE.to_owned(),
+            },
+            unix_time_ms(),
+        );
+        let _ = started_tx.send(());
+        session.run(ObsSource { mailbox: worker_mailbox, region }, &mut events);
+        // The session has drained captured frames and flushed recording work.
+        events.handle(MonitorEvent::SessionStopped, unix_time_ms());
     });
     let thread = match thread {
         Ok(thread) => thread,
@@ -138,6 +150,17 @@ pub(crate) fn start_monitor(state: &AppState, status_source_name: String) -> Res
         }
     };
 
+    // A successful start response guarantees publication, even with no captured frames.
+    if started_rx.recv().is_err() {
+        drop(producer);
+        mailbox.close();
+        let _ = thread.join();
+        if let Some(session_id) = monitor_session_id.as_deref() {
+            let _ = state.run_catalog.delete_empty_monitor_session(session_id);
+        }
+        return Err(StartError::WorkerUnavailable);
+    }
+
     *guard = Some(MonitorHandle {
         mailbox,
         producer,
@@ -146,9 +169,7 @@ pub(crate) fn start_monitor(state: &AppState, status_source_name: String) -> Res
         session_id: monitor_session_id,
         region: handle_region,
         recent_run_limit,
-        clocks: clocks.clone(),
     });
-    clocks.start_session(status_source_name, DEFAULT_MONITOR_LANGUAGE.to_owned());
     state.snapshot.set_replay_buffer(crate::http::current_replay_buffer_status());
     tracing::info!("monitor started");
 
@@ -168,7 +189,6 @@ pub(crate) async fn stop_monitor(state: &AppState, end_reason: &'static str) -> 
     };
 
     let session_id = handle.session_id.clone();
-    let clocks = handle.clocks.clone();
     let session_ended_at = SystemTime::now();
 
     // Tear down on a blocking thread so we don't stall the async runtime while
@@ -195,9 +215,7 @@ pub(crate) async fn stop_monitor(state: &AppState, end_reason: &'static str) -> 
         tracing::warn!("failed to close monitoring session {session_id}: {err:#}");
     }
 
-    // Clear retained monitor/match/recording state so all clients receive one
-    // backend-owned snapshot reflecting the stopped session.
-    clocks.stop_session();
+    // The worker has published its final monitor snapshot; clear the retained recording phase.
     state.recording_state.clear();
 
     if state.settings.get().stop_replay_buffer_when_monitor_stopped {

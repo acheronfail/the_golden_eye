@@ -134,3 +134,32 @@ async fn render_until_snapshot(
         assert!(Instant::now() < deadline, "timed out waiting for {label}; last snapshot: {last}");
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn idle_monitor_publishes_lifecycle_before_requests_complete() {
+    let harness = Harness::start(Duration::ZERO).await;
+    for _ in 0..2 {
+        harness.start_monitor().await.error_for_status().unwrap();
+        // Reconnect after the response: inspect the first retained snapshot,
+        // without rendering frames or waiting for a later state transition.
+        let mut ws = harness.connect_event_stream().await;
+        let started = next_app_snapshot(&mut ws, "acknowledged start").await;
+        let clocks = &started["state"]["monitor"]["wallClocks"];
+        assert_eq!(started["state"]["monitor"]["enabled"], true);
+        assert_eq!(clocks["sessionRunning"], true);
+        assert!(clocks["sessionStartedAtUnixMs"].is_number());
+        assert_eq!(clocks["sessionElapsedMs"], 0);
+        assert_eq!(clocks["levelTimerPhase"], "idle");
+        assert!(started["state"]["match"].is_null());
+
+        harness.stop_monitor().await.error_for_status().unwrap();
+        let mut ws = harness.connect_event_stream().await;
+        let stopped = next_app_snapshot(&mut ws, "acknowledged stop").await;
+        let clocks = &stopped["state"]["monitor"]["wallClocks"];
+        assert_eq!(stopped["state"]["monitor"]["enabled"], false);
+        assert_eq!(clocks["sessionRunning"], false);
+        assert!(clocks["sessionStartedAtUnixMs"].is_null());
+        assert_eq!(clocks["levelTimerPhase"], "stopped");
+    }
+}
