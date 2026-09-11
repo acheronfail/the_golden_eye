@@ -2,8 +2,6 @@
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
-#[cfg(test)]
-use std::time::Duration;
 use std::time::{Instant, SystemTime};
 
 pub use ge_settings::{
@@ -21,35 +19,24 @@ use crate::db::run_catalog::RunCatalog;
 use crate::http::{AppEvent, ReplaySaveStateStore};
 
 mod clip_output;
-mod replay_buffer;
-mod replay_coordinator;
+pub(crate) mod replay_buffer;
 mod save_pipeline;
 mod status;
 mod tracker;
 
 use clip_output::{ClipOutputPolicy, configured_dir};
-use replay_buffer::ensure_replay_buffer_running_for_recording;
-pub use replay_buffer::{
-    ensure_replay_buffer_running,
-    on_replay_buffer_started,
-    on_replay_buffer_starting,
-    on_replay_buffer_stopped,
-    on_replay_buffer_stopping,
-    on_replay_saved,
+use save_pipeline::SavePipeline;
+pub(crate) use status::RecordingStateEvent;
+pub use status::{RecordingStateStore, RecordingStatus};
+use tracker::{PendingSave, RunTracker, RunTrackerPolicy};
+
+pub use crate::obs::{
     replay_buffer_active,
     replay_buffer_available,
     replay_buffer_enabled,
     replay_buffer_max_seconds,
     replay_buffer_output_directory,
-    stop_replay_buffer_if_active,
 };
-#[cfg(test)]
-use save_pipeline::SaveAndTrimJob;
-use save_pipeline::SavePipeline;
-pub use status::{RecordingStateStore, RecordingStatus};
-#[cfg(test)]
-use tracker::TrackerUpdate;
-use tracker::{PendingSave, RunTracker, RunTrackerPolicy};
 
 /// Internal safety margin added to both the pre- and post-run padding, on top of
 /// the user's configured values and hidden from them, so a single-frame timing
@@ -120,8 +107,14 @@ impl RecordingSessionContext {
     }
 }
 
+pub(crate) enum RecordingEvent<'a> {
+    FrameMatched { matched: &'a LevelMatch, now: Instant },
+    LanguageChanged(String),
+    DeadlineReached(Instant),
+}
+
 /// Tracks one recording session as it moves through the on-screen states, and
-/// drives replay-buffer saves when runs finish. Fed via [`RecordingState::on_frame`].
+/// drives replay-buffer saves when runs finish. Fed via [`RecordingState::handle`].
 pub struct RecordingState {
     tracker: RunTracker,
     /// Normalized timing policy fixed for this monitor session.
@@ -156,38 +149,41 @@ impl RecordingState {
         }
     }
 
+    pub(crate) fn handle(&mut self, event: RecordingEvent<'_>) {
+        match event {
+            RecordingEvent::FrameMatched { matched, now } => {
+                let update = self.tracker.on_frame(now, SystemTime::now(), matched, self.tracker_policy);
+                if update.ensure_replay_buffer {
+                    #[cfg(not(test))]
+                    replay_buffer::REPLAY_BUFFER.ensure_replay_buffer_running();
+                }
+                for pending in update.ready {
+                    self.flush_ready(pending, now);
+                }
+                self.sync_pending_event(now, update.pending_changed);
+                if let Some(phase) = update.phase {
+                    self.emit(phase);
+                }
+                self.poll_pending(now);
+            }
+            RecordingEvent::LanguageChanged(language) => self.tracker.set_game_language(language),
+            RecordingEvent::DeadlineReached(now) => self.poll_pending(now),
+        }
+    }
+
     pub fn set_recent_run_limit_source(&mut self, source: Arc<AtomicUsize>) {
         self.save_pipeline.set_recent_run_limit_source(source);
     }
 
-    /// Publish a recorder state transition to the backend-retained phase store
-    /// Event-stream clients see it in the next app snapshot.
-    /// For `SavePending`/`StatsSkipped`, records the generation on the pending
-    /// save so its completion/discard can clear that exact transition later.
+    /// Publish the phase and attach its generation to the pending save, so a late
+    /// completion clears only its own transition.
     fn emit(&mut self, status: RecordingStatus) {
-        let generation = self.save_pipeline.recording_state.set(status);
+        let generation = self.save_pipeline.recording_state.handle(RecordingStateEvent::PhaseChanged(status));
         if matches!(status, RecordingStatus::SavePending | RecordingStatus::StatsSkipped)
             && let Some(pending) = self.tracker.pending.as_mut()
         {
             pending.phase_generation = Some(generation);
         }
-    }
-
-    /// Update the game/template language attached to future clip metadata. Used
-    /// when monitor language auto-correction detects the other game language.
-    pub fn set_game_language(&mut self, game_language: String) {
-        self.tracker.set_game_language(game_language);
-    }
-
-    #[cfg(test)]
-    fn schedule_save(&mut self, now: Instant, clip_start: Instant, stats: Option<LevelMatch>) -> bool {
-        let mut update = TrackerUpdate::default();
-        self.tracker.schedule_save(now, SystemTime::now(), clip_start, stats, self.tracker_policy, &mut update);
-        for pending in update.ready {
-            self.flush_ready(pending, now);
-        }
-        self.sync_pending_event(now, update.pending_changed);
-        true
     }
 
     /// Show the provisional row once and refresh it when the voted time changes.
@@ -199,15 +195,6 @@ impl RecordingState {
             self.save_pipeline.publish_pending(pending, self.tracker_policy, now);
             self.tracker.pending.as_mut().unwrap().pending_event_sent = true;
         }
-    }
-
-    /// Build a save+trim job for the pending clip, if any, anchored to `now` as
-    /// the save moment (the saved file ends at ~now, so the run is its final
-    /// `elapsed` seconds). A no-op when nothing is pending.
-    #[cfg(test)]
-    fn take_pending_job(&mut self, now: Instant) -> Option<SaveAndTrimJob> {
-        let pending = self.tracker.pending.take()?;
-        Some(self.save_pipeline.job(pending, now, self.tracker_policy))
     }
 
     /// Save and trim the pending clip asynchronously, if any.
@@ -230,7 +217,7 @@ impl RecordingState {
 
     /// Fire the scheduled save once its post-run padding window has elapsed. Safe
     /// to call on any tick (frame or idle wakeup); a no-op until then.
-    pub fn poll_pending(&mut self, now: Instant) {
+    fn poll_pending(&mut self, now: Instant) {
         if self.tracker.pending.as_ref().is_some_and(|pending| now >= pending.fire_at) {
             self.flush_pending(now);
         }
@@ -243,36 +230,6 @@ impl RecordingState {
         if let Some(pending) = self.tracker.pending.take() {
             self.save_pipeline.flush_on_shutdown(pending, Instant::now(), self.tracker_policy);
         }
-    }
-
-    #[cfg(test)]
-    fn flush_pending_on_shutdown_with(
-        &mut self,
-        now: Instant,
-        sleep: impl FnOnce(Duration),
-        save: impl FnOnce(SaveAndTrimJob),
-    ) {
-        let Some(pending) = self.tracker.pending.take() else {
-            return;
-        };
-        self.save_pipeline.flush_on_shutdown_with(pending, now, self.tracker_policy, sleep, save);
-    }
-
-    /// Feed the latest matched frame (and the current time). Called once per
-    /// captured frame, so it also polls the pending-save timer.
-    pub fn on_frame(&mut self, now: Instant, m: &LevelMatch) {
-        let update = self.tracker.on_frame(now, SystemTime::now(), m, self.tracker_policy);
-        if update.ensure_replay_buffer {
-            ensure_replay_buffer_running_for_recording();
-        }
-        for pending in update.ready {
-            self.flush_ready(pending, now);
-        }
-        self.sync_pending_event(now, update.pending_changed);
-        if let Some(phase) = update.phase {
-            self.emit(phase);
-        }
-        self.poll_pending(now);
     }
 }
 
@@ -292,4 +249,4 @@ impl Drop for RecordingState {
 
 #[cfg(test)]
 #[path = "tests/support.rs"]
-mod test_support;
+pub(crate) mod test_support;

@@ -20,7 +20,7 @@ use super::clip_output::{
     unique_output_path,
 };
 #[cfg(not(test))]
-use super::replay_buffer::{ReplaySaveWait, acquire_replay_save, replay_buffer_output_directory};
+use super::replay_buffer::{REPLAY_BUFFER, ReplaySaveWait};
 use super::tracker::{PendingSave, RunTrackerPolicy};
 use super::{MAX_RECENT_RUN_LIMIT, RecordingSessionContext};
 use crate::cv::LevelMatch;
@@ -34,6 +34,8 @@ use crate::http::{
     ReplaySaveStateStore,
     ReplaySaveStatus,
 };
+#[cfg(not(test))]
+use crate::obs::replay_buffer_output_directory;
 use crate::recording::RecordingStateStore;
 
 /// A replay save taking this long is unusual, but OBS can still complete it.
@@ -261,7 +263,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
     // races this one for OBS's identity-less saved event; released before the
     // trim, which is slow and safe to run concurrently on its own file.
     let resolved = {
-        let mut save = acquire_replay_save();
+        let mut save = REPLAY_BUFFER.acquire_save();
         // Snapshot the replay dir before saving so we can tell which file our save
         // wrote by what newly appears -- otherwise a user manual-save in this same
         // window could have us trim (and delete) their file instead of ours.
@@ -339,7 +341,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
             // Clear only this save's own phase transition, not the current value,
             // which a quick-restarted run may legitimately share for its own save.
             if let Some(generation) = job.phase_generation {
-                job.recording_state.clear_if_generation(generation);
+                job.recording_state.handle(super::RecordingStateEvent::SaveFinished(generation));
             }
         }
         Err(err) => {

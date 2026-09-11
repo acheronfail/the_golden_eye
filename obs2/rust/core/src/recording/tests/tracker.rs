@@ -415,13 +415,13 @@ fn late_save_completion_does_not_clear_a_second_runs_matching_phase() {
 
     // Run 1's save completes late: clearing by its own (stale) generation
     // must leave run 2's `StatsSkipped` phase untouched.
-    recording.save_pipeline.recording_state.clear_if_generation(generation1);
+    recording.save_pipeline.recording_state.handle(crate::recording::RecordingStateEvent::SaveFinished(generation1));
     assert_eq!(recording.save_pipeline.recording_state.current(), Some(RecordingStatus::StatsSkipped));
 
     // Run 2's own save completing does clear it.
     let job2 = recording.take_pending_job(start + Duration::from_secs(27)).expect("run 2 save job");
     let generation2 = job2.phase_generation.expect("run 2 emitted a phase generation");
-    recording.save_pipeline.recording_state.clear_if_generation(generation2);
+    recording.save_pipeline.recording_state.handle(crate::recording::RecordingStateEvent::SaveFinished(generation2));
     assert_eq!(recording.save_pipeline.recording_state.current(), None);
 }
 

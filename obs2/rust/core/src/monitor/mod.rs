@@ -47,10 +47,10 @@ pub(crate) fn start_monitor(state: &AppState, status_source_name: String) -> Res
         return if handle.source_name == status_source_name { Ok(()) } else { Err(StartError::AlreadyRunning) };
     }
 
-    if !crate::recording::ensure_replay_buffer_running() {
+    if !crate::recording::replay_buffer::REPLAY_BUFFER.ensure_replay_buffer_running() {
         return Err(StartError::ReplayBufferUnavailable);
     }
-    state.recording_state.clear();
+    state.recording_state.handle(crate::recording::RecordingStateEvent::Reset);
 
     // Build the session (and its fresh, empty scale cache) up front so any
     // configuration error surfaces as a failed request rather than a thread that
@@ -113,7 +113,6 @@ pub(crate) fn start_monitor(state: &AppState, status_source_name: String) -> Res
         monitor_session_id.clone(),
     );
     let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
-        let mut events = MonitorEvents::new(worker_state.snapshot.clone());
         let mut recording = crate::recording::RecordingState::new(
             worker_state.event_tx.clone(),
             worker_state.recording_state.clone(),
@@ -123,7 +122,8 @@ pub(crate) fn start_monitor(state: &AppState, status_source_name: String) -> Res
             run_catalog,
         );
         recording.set_recent_run_limit_source(worker_recent_run_limit);
-        let session = MonitorSession::new(session, recording, worker_state, source_fps, monitor_timing_mode);
+        let mut events = MonitorEvents::new(worker_state.snapshot.clone(), recording);
+        let session = MonitorSession::new(session, worker_state, source_fps, monitor_timing_mode);
         events.handle(
             MonitorEvent::SessionStarted {
                 source_name: worker_source_name,
@@ -133,7 +133,8 @@ pub(crate) fn start_monitor(state: &AppState, status_source_name: String) -> Res
         );
         let _ = started_tx.send(());
         session.run(ObsSource { mailbox: worker_mailbox, region }, &mut events);
-        // The session has drained captured frames and flushed recording work.
+        // Flush pending saves before measuring the final session/level time.
+        events.handle(MonitorEvent::SessionStopping, unix_time_ms());
         events.handle(MonitorEvent::SessionStopped, unix_time_ms());
     });
     let thread = match thread {
@@ -216,10 +217,10 @@ pub(crate) async fn stop_monitor(state: &AppState, end_reason: &'static str) -> 
     }
 
     // The worker has published its final monitor snapshot; clear the retained recording phase.
-    state.recording_state.clear();
+    state.recording_state.handle(crate::recording::RecordingStateEvent::Reset);
 
     if state.settings.get().stop_replay_buffer_when_monitor_stopped {
-        crate::recording::stop_replay_buffer_if_active();
+        crate::recording::replay_buffer::REPLAY_BUFFER.stop_replay_buffer_if_active();
         state.snapshot.set_replay_buffer(crate::http::current_replay_buffer_status());
     }
 

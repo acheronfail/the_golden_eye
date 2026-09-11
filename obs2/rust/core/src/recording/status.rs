@@ -44,6 +44,14 @@ pub enum RecordingStatus {
     SavePending,
 }
 
+#[derive(Debug)]
+pub(crate) enum RecordingStateEvent {
+    PhaseChanged(RecordingStatus),
+    Reset,
+    SaveFinished(u64),
+    Expired(u64),
+}
+
 /// Retained recorder phase shared by the monitor worker and app snapshot.
 /// Transient phases are cleared here so the backend owns the same lifecycle the
 /// UI displays.
@@ -73,72 +81,44 @@ impl RecordingStateStore {
         self.lock_state().status
     }
 
-    /// Set the retained phase, returning the generation this write landed on.
-    /// Pass it to [`Self::clear_if_generation`] to later clear *this* transition
-    /// specifically, rather than whatever the phase happens to be by then.
-    pub fn set(&self, status: RecordingStatus) -> u64 {
-        let generation = {
+    /// Apply and publish under one lock so concurrent completions cannot reorder snapshots.
+    /// The returned generation identifies this phase for later completion or expiry.
+    pub(crate) fn handle(&self, event: RecordingStateEvent) -> u64 {
+        let (generation, expires_after) = {
             let mut state = self.lock_state();
+            let next = match event {
+                RecordingStateEvent::PhaseChanged(status) => Some(status),
+                RecordingStateEvent::Reset => None,
+                RecordingStateEvent::SaveFinished(generation) | RecordingStateEvent::Expired(generation) => {
+                    if state.generation != generation {
+                        return state.generation;
+                    }
+                    None
+                }
+            };
             let previous = state.status;
             state.generation += 1;
-            state.status = Some(status);
-            self.snapshot.set_recording_state(state.status);
-            tracing::info!(?previous, new = ?status, generation = state.generation, "recording phase set");
-            state.generation
+            state.status = next;
+            self.snapshot.set_recording_state(next);
+            tracing::info!(?event, ?previous, ?next, generation = state.generation, "recording phase updated");
+            let expires_after = match next {
+                Some(RecordingStatus::Cancelled) => Some(Self::CANCELLED_LINGER),
+                Some(RecordingStatus::SavePending | RecordingStatus::StatsSkipped) => Some(Self::SAVE_TIMEOUT),
+                _ => None,
+            };
+            (state.generation, expires_after)
         };
-
-        match status {
-            RecordingStatus::Cancelled => {
-                self.clear_after(generation, Self::CANCELLED_LINGER);
+        if let Some(duration) = expires_after {
+            let store = self.clone();
+            let spawned = std::thread::Builder::new().name("ge-recording-state-timeout".to_owned()).spawn(move || {
+                std::thread::sleep(duration);
+                store.handle(RecordingStateEvent::Expired(generation));
+            });
+            if let Err(err) = spawned {
+                tracing::error!("failed to spawn recording-state timeout thread: {err}");
             }
-            RecordingStatus::SavePending | RecordingStatus::StatsSkipped => {
-                self.clear_after(generation, Self::SAVE_TIMEOUT);
-            }
-            RecordingStatus::Started
-            | RecordingStatus::Failed
-            | RecordingStatus::Aborted
-            | RecordingStatus::Kia
-            | RecordingStatus::Complete => {}
         }
-
         generation
-    }
-
-    pub fn clear(&self) {
-        let mut state = self.lock_state();
-        let previous = state.status;
-        state.generation += 1;
-        state.status = None;
-        self.snapshot.set_recording_state(state.status);
-        tracing::info!(?previous, generation = state.generation, "recording phase cleared");
-    }
-
-    fn clear_after(&self, generation: u64, duration: Duration) {
-        let store = self.clone();
-        let spawned = std::thread::Builder::new().name("ge-recording-state-timeout".to_owned()).spawn(move || {
-            std::thread::sleep(duration);
-            store.clear_if_generation(generation);
-        });
-        if let Err(err) = spawned {
-            tracing::error!("failed to spawn recording-state timeout thread: {err}");
-        }
-    }
-
-    /// Clear only this generation, preventing a late save or timeout from
-    /// clearing a newer run's phase, even when both have the same status.
-    pub fn clear_if_generation(&self, generation: u64) {
-        let mut state = self.lock_state();
-        if state.generation == generation {
-            let previous = state.status;
-            state.generation += 1;
-            state.status = None;
-            self.snapshot.set_recording_state(state.status);
-            tracing::info!(
-                ?previous,
-                cleared_generation = generation,
-                "recording phase cleared (timed out / save done)"
-            );
-        }
     }
 
     fn lock_state(&self) -> std::sync::MutexGuard<'_, RecordingStateInner> {

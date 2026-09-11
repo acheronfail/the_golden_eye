@@ -9,7 +9,7 @@ fn replay_save_wait_keeps_ownership_after_the_slow_warning() {
             || {
                 scope.spawn(|| {
                     std::thread::sleep(Duration::from_millis(30));
-                    coordinator.on_replay_saved(Some("/replays/late.mp4".to_owned()));
+                    coordinator.handle(ReplayEvent::Saved(Some("/replays/late.mp4".to_owned())));
                 });
             },
             Duration::from_millis(5),
@@ -22,10 +22,10 @@ fn replay_save_wait_keeps_ownership_after_the_slow_warning() {
 #[test]
 fn immediate_completion_is_registered_before_the_obs_call() {
     let coordinator = ReplayCoordinator::new();
-    coordinator.on_replay_saved(Some("/replays/manual.mp4".to_owned()));
+    coordinator.handle(ReplayEvent::Saved(Some("/replays/manual.mp4".to_owned())));
     let mut save = coordinator.acquire_save();
     let result = save.save_and_wait(
-        || coordinator.on_replay_saved(Some("/replays/plugin.mp4".to_owned())),
+        || coordinator.handle(ReplayEvent::Saved(Some("/replays/plugin.mp4".to_owned()))),
         Duration::ZERO,
         Duration::ZERO,
     );
@@ -37,7 +37,7 @@ fn timeout_releases_request_ownership_and_ignores_later_manual_saves() {
     let coordinator = ReplayCoordinator::new();
     let mut save = coordinator.acquire_save();
     assert_eq!(save.save_and_wait(|| {}, Duration::ZERO, Duration::ZERO), ReplaySaveWait::TimedOut);
-    coordinator.on_replay_saved(Some("/replays/manual.mp4".to_owned()));
+    coordinator.handle(ReplayEvent::Saved(Some("/replays/manual.mp4".to_owned())));
     // An unrelated callback must not supply a completion to a later plugin save.
     assert_eq!(save.save_and_wait(|| {}, Duration::ZERO, Duration::ZERO), ReplaySaveWait::TimedOut);
     assert_eq!(coordinator.saved.lock().unwrap().generation, 0);
@@ -53,7 +53,7 @@ fn save_permit_serializes_through_file_identification_then_releases() {
         let mut first = coordinator.acquire_save();
         assert_eq!(
             first.save_and_wait(
-                || coordinator.on_replay_saved(Some("first.mp4".to_owned())),
+                || coordinator.handle(ReplayEvent::Saved(Some("first.mp4".to_owned()))),
                 Duration::ZERO,
                 Duration::ZERO,
             ),
@@ -64,7 +64,7 @@ fn save_permit_serializes_through_file_identification_then_releases() {
             attempt_tx.send(()).unwrap();
             let mut second = coordinator.acquire_save();
             let result = second.save_and_wait(
-                || coordinator.on_replay_saved(Some("second.mp4".to_owned())),
+                || coordinator.handle(ReplayEvent::Saved(Some("second.mp4".to_owned()))),
                 Duration::ZERO,
                 Duration::ZERO,
             );
@@ -83,17 +83,17 @@ fn save_permit_serializes_through_file_identification_then_releases() {
 #[test]
 fn stopping_blocks_restart_and_stopped_retains_the_settle_deadline() {
     let coordinator = ReplayCoordinator::new();
-    coordinator.on_replay_buffer_starting();
-    coordinator.on_replay_buffer_started();
-    coordinator.on_replay_buffer_stopping();
+    coordinator.handle(ReplayEvent::Starting);
+    coordinator.handle(ReplayEvent::Started);
+    coordinator.handle(ReplayEvent::Stopping);
     assert!(!coordinator.wait_for_replay_buffer_not_stopping(Duration::ZERO));
     let before_stop = Instant::now();
-    coordinator.on_replay_buffer_stopped();
+    coordinator.handle(ReplayEvent::Stopped);
     let stopped_at = coordinator.lifecycle.lock().unwrap().last_stopped_at.unwrap();
     assert!(stopped_at >= before_stop);
     assert!(coordinator.wait_for_replay_buffer_not_stopping(Duration::ZERO));
     assert!(stopped_at.elapsed() >= REPLAY_STOP_SETTLE_DELAY);
-    coordinator.on_replay_buffer_starting();
-    coordinator.on_replay_buffer_started();
+    coordinator.handle(ReplayEvent::Starting);
+    coordinator.handle(ReplayEvent::Started);
     assert!(coordinator.lifecycle.lock().unwrap().last_stopped_at.is_none());
 }

@@ -31,6 +31,7 @@ use tokio::sync::oneshot;
 pub use {ge_catalog as db, ge_cv as cv, ge_game as ge};
 
 use crate::recording::RecordingStateStore;
+use crate::recording::replay_buffer::{REPLAY_BUFFER, ReplayEvent};
 use crate::settings::{SettingsReload, SettingsStore};
 
 pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
@@ -519,14 +520,14 @@ pub unsafe extern "C" fn ge_replay_buffer_saved(path: *const c_char) {
         let s = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
         if s.is_empty() { None } else { Some(s) }
     };
-    recording::on_replay_saved(path);
+    REPLAY_BUFFER.handle(ReplayEvent::Saved(path));
 }
 
 /// Called from the OBS frontend event callback on
 /// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTING`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_starting() {
-    recording::on_replay_buffer_starting();
+    REPLAY_BUFFER.handle(ReplayEvent::Starting);
     refresh_replay_buffer_snapshot();
 }
 
@@ -534,7 +535,7 @@ pub extern "C" fn ge_replay_buffer_starting() {
 /// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTED`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_started() {
-    recording::on_replay_buffer_started();
+    REPLAY_BUFFER.handle(ReplayEvent::Started);
     refresh_replay_buffer_snapshot();
 }
 
@@ -547,7 +548,7 @@ pub extern "C" fn ge_replay_buffer_stopping() {
         guard.as_ref().is_some_and(|handle| handle.state.monitor.lock().unwrap_or_else(|p| p.into_inner()).is_some())
     };
     REPLAY_STOP_SHOULD_STOP_MONITOR.store(monitor_active, Ordering::Release);
-    recording::on_replay_buffer_stopping();
+    REPLAY_BUFFER.handle(ReplayEvent::Stopping);
     refresh_replay_buffer_snapshot();
 }
 
@@ -555,7 +556,7 @@ pub extern "C" fn ge_replay_buffer_stopping() {
 /// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPED`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_stopped() {
-    recording::on_replay_buffer_stopped();
+    REPLAY_BUFFER.handle(ReplayEvent::Stopped);
     refresh_replay_buffer_snapshot();
 
     if !REPLAY_STOP_SHOULD_STOP_MONITOR.swap(false, Ordering::AcqRel) {

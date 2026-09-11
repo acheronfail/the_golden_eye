@@ -8,24 +8,24 @@ fn recording_state_store_updates_snapshot_without_receivers() {
     let store = RecordingStateStore::new(snapshot.clone());
     drop(rx);
 
-    store.set(RecordingStatus::Started);
+    store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::Started));
     assert_eq!(store.current(), Some(RecordingStatus::Started));
     assert_eq!(snapshot.current().recording_state, Some(RecordingStatus::Started));
 
     // A stale generation (superseded by a later transition) must not clear
     // the phase, even though its captured value matches the current one.
-    let stale_generation = store.set(RecordingStatus::SavePending);
-    store.set(RecordingStatus::Started);
-    store.clear_if_generation(stale_generation);
+    let stale_generation = store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::SavePending));
+    store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::Started));
+    store.handle(crate::recording::RecordingStateEvent::SaveFinished(stale_generation));
     assert_eq!(store.current(), Some(RecordingStatus::Started));
 
     // The current generation clears normally.
-    let current_generation = store.set(RecordingStatus::SavePending);
-    store.clear_if_generation(current_generation);
+    let current_generation = store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::SavePending));
+    store.handle(crate::recording::RecordingStateEvent::SaveFinished(current_generation));
     assert_eq!(store.current(), None);
 
-    store.set(RecordingStatus::Started);
-    store.clear();
+    store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::Started));
+    store.handle(RecordingStateEvent::Reset);
     assert_eq!(store.current(), None);
     assert_eq!(snapshot.current().recording_state, None);
 }
@@ -34,12 +34,12 @@ fn recording_state_store_updates_snapshot_without_receivers() {
 fn stale_completion_cannot_clear_a_newer_identical_status() {
     let snapshot = test_snapshot_store();
     let store = RecordingStateStore::new(snapshot.clone());
-    let first = store.set(RecordingStatus::Started);
-    let second = store.set(RecordingStatus::Started);
-    store.clear_if_generation(first);
+    let first = store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::Started));
+    let second = store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::Started));
+    store.handle(crate::recording::RecordingStateEvent::SaveFinished(first));
     assert_eq!(store.current(), Some(RecordingStatus::Started));
     assert_eq!(snapshot.current().recording_state, Some(RecordingStatus::Started));
-    store.clear_if_generation(second);
+    store.handle(crate::recording::RecordingStateEvent::SaveFinished(second));
     assert_eq!(store.current(), None);
     assert_eq!(snapshot.current().recording_state, None);
 }
@@ -50,7 +50,7 @@ async fn cancelled_phase_expires_and_publishes_the_cleared_status() {
     let store = RecordingStateStore::new(snapshot.clone());
     let mut updates = snapshot.subscribe();
     let started_at = std::time::Instant::now();
-    store.set(RecordingStatus::Cancelled);
+    store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::Cancelled));
     assert_eq!(updates.borrow_and_update().recording_state, Some(RecordingStatus::Cancelled));
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -64,5 +64,18 @@ async fn cancelled_phase_expires_and_publishes_the_cleared_status() {
     .expect("cancelled status should expire");
     assert!(started_at.elapsed() >= RecordingStateStore::CANCELLED_LINGER);
     assert_eq!(store.current(), None);
+    assert_eq!(snapshot.current().recording_state, None);
+}
+
+#[test]
+fn expiry_from_before_a_reset_cannot_clear_the_new_session() {
+    let snapshot = test_snapshot_store();
+    let store = RecordingStateStore::new(snapshot.clone());
+    let old = store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::Started));
+    store.handle(RecordingStateEvent::Reset);
+    let current = store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::Started));
+    store.handle(RecordingStateEvent::Expired(old));
+    assert_eq!(snapshot.current().recording_state, Some(RecordingStatus::Started));
+    store.handle(RecordingStateEvent::Expired(current));
     assert_eq!(snapshot.current().recording_state, None);
 }

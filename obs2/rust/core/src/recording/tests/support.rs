@@ -1,10 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
 use super::clip_output::sanitize_path_component;
+use super::save_pipeline::SaveAndTrimJob;
+use super::tracker::TrackerUpdate;
 use super::{RecordingOptions, RecordingSessionContext, RecordingState};
 use crate::cv::{LevelMatch, Screen};
 use crate::ge::Times;
@@ -54,7 +56,7 @@ impl Drop for TestDir {
     }
 }
 
-pub(super) fn test_run_catalog(label: &str) -> Arc<crate::db::run_catalog::RunCatalog> {
+pub(crate) fn test_run_catalog(label: &str) -> Arc<crate::db::run_catalog::RunCatalog> {
     let dir = TestDir::new(label);
     let path = dir.path.join("runs.sqlite");
     std::mem::forget(dir);
@@ -224,4 +226,39 @@ pub(super) fn pending_save_event(events: &mut tokio::sync::broadcast::Receiver<A
 
 pub(super) fn assert_no_app_event(events: &mut tokio::sync::broadcast::Receiver<AppEvent>) {
     assert!(matches!(events.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)));
+}
+
+impl RecordingState {
+    pub(super) fn schedule_save(&mut self, now: Instant, clip_start: Instant, stats: Option<LevelMatch>) -> bool {
+        let mut update = TrackerUpdate::default();
+        self.tracker.schedule_save(now, SystemTime::now(), clip_start, stats, self.tracker_policy, &mut update);
+        for pending in update.ready {
+            self.flush_ready(pending, now);
+        }
+        self.sync_pending_event(now, update.pending_changed);
+        true
+    }
+
+    pub(super) fn take_pending_job(&mut self, now: Instant) -> Option<SaveAndTrimJob> {
+        let pending = self.tracker.pending.take()?;
+        Some(self.save_pipeline.job(pending, now, self.tracker_policy))
+    }
+
+    pub(super) fn flush_pending_on_shutdown_with(
+        &mut self,
+        now: Instant,
+        sleep: impl FnOnce(Duration),
+        save: impl FnOnce(SaveAndTrimJob),
+    ) {
+        let Some(pending) = self.tracker.pending.take() else {
+            return;
+        };
+        self.save_pipeline.flush_on_shutdown_with(pending, now, self.tracker_policy, sleep, save);
+    }
+}
+
+impl RecordingState {
+    pub(super) fn on_frame(&mut self, now: Instant, matched: &LevelMatch) {
+        self.handle(super::RecordingEvent::FrameMatched { matched, now });
+    }
 }

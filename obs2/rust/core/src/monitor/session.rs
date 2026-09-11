@@ -11,11 +11,9 @@ use super::timing::MonitorTiming;
 use crate::config::MonitorTimingMode;
 use crate::cv::{LevelMatch, WatchDetector, detect_black_frame, detect_watch};
 use crate::http::{AppEvent, AppState};
-use crate::recording::RecordingState;
 
 pub(super) struct MonitorSession {
     matcher: MonitorMatcher,
-    recording: RecordingState,
     state: AppState,
     active_lang: String,
     last: Option<LevelMatch>,
@@ -30,14 +28,12 @@ pub(super) struct MonitorSession {
 impl MonitorSession {
     pub(super) fn new(
         matcher: MonitorMatcher,
-        recording: RecordingState,
         state: AppState,
         source_fps: f64,
         timing_mode: MonitorTimingMode,
     ) -> Self {
         Self {
             matcher,
-            recording,
             state,
             active_lang: super::DEFAULT_MONITOR_LANGUAGE.to_owned(),
             last: None,
@@ -61,7 +57,7 @@ impl MonitorSession {
             // Wake by the pending save's fire time even if no frame arrives, so a
             // paused/stalled source can't stall (and eventually roll out of the
             // replay buffer) a scheduled save.
-            let deadline = self.recording.pending_fire_at();
+            let deadline = events.pending_fire_at();
             let (result, black_frame, watch_signal, observed_at_unix_ms, match_ms, stats) = match source
                 .capture_with_stats_until(deadline, |bytes, w, h| {
                     let observed_at_unix_ms = unix_time_ms();
@@ -77,7 +73,7 @@ impl MonitorSession {
                     (result, black_frame, watch_signal, observed_at_unix_ms, match_ms, stats)
                 }
                 Captured::Idle => {
-                    self.recording.poll_pending(Instant::now());
+                    events.handle(MonitorEvent::SaveDeadlineReached(Instant::now()), unix_time_ms());
                     continue;
                 }
                 Captured::Closed => break,
@@ -99,21 +95,20 @@ impl MonitorSession {
                     if switch_detected_language(&info, &mut self.matcher, &mut self.active_lang, |lang| {
                         Ok(MonitorMatcher::from_env(lang)?.with_diagnostics(diagnostics_enabled))
                     }) {
-                        self.state.snapshot.set_monitor_language(self.active_lang.clone());
-                        self.recording.set_game_language(self.active_lang.clone());
+                        events.handle(MonitorEvent::LanguageChanged(self.active_lang.clone()), unix_time_ms());
                         self.last = None;
                     }
 
                     // The recorder votes over raw per-frame readings itself, so it
                     // must see the unsmoothed match; only the live display is voted.
-                    self.recording.on_frame(now, &info);
+                    events.handle(MonitorEvent::RawMatchObserved { matched: &info, now }, unix_time_ms());
                     let mut display = info;
                     display.times = self.display_smoother.smooth(&display);
                     let changed = self.last.as_ref().is_none_or(|prev| !prev.same_state(&display));
                     if changed {
                         log_level_match(&display);
                         self.last = Some(display.clone());
-                        events.handle(MonitorEvent::MatchObserved(display), unix_time_ms());
+                        events.handle(MonitorEvent::DisplayMatchObserved(display), unix_time_ms());
                     }
                 }
                 Err(e) => {
