@@ -22,6 +22,7 @@ use crate::http::{AppEvent, RecordingStateStore, RecordingStatus, ReplaySaveStat
 
 mod clip_output;
 mod replay_buffer;
+mod replay_coordinator;
 mod save_pipeline;
 mod tracker;
 
