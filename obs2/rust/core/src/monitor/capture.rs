@@ -10,6 +10,7 @@ use crate::cv::CaptureRegion;
 /// registered `producer`); the worker `thread` matches them. Stopping drops the
 /// registration, closes the mailbox, and joins the worker.
 pub struct MonitorHandle {
+    pub(super) clocks: super::clocks::MonitorClockStore,
     pub(super) mailbox: Arc<FrameMailbox>,
     pub(super) producer: crate::obs::RegisteredRenderCallback<ProducerCtx>,
     pub(super) thread: JoinHandle<()>,

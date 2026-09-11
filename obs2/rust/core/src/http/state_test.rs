@@ -1,20 +1,5 @@
 use super::*;
 
-fn level_match(screen: crate::cv::Screen, mission: i32, part: i32) -> LevelMatch {
-    LevelMatch {
-        screen,
-        mission,
-        part,
-        difficulty: 0,
-        detected_lang: None,
-        times: None,
-        raw_times: Vec::new(),
-        match_regions: Vec::new(),
-        annotation_sets: Vec::new(),
-        runtime_ms: 0.0,
-    }
-}
-
 #[test]
 fn monitor_version_event_uses_frontend_field_name() {
     let event = AppEvent::Version { build_id: "abc123".to_owned() };
@@ -89,28 +74,6 @@ fn snapshot_event_contains_retained_app_state() {
     assert_eq!(json["state"]["settingsStatus"]["configPath"], "/tmp/settings.json");
     assert_eq!(json["state"]["update"]["phase"], "available");
     assert_eq!(json["state"]["update"]["available"]["latestVersion"], "1.1.0");
-}
-
-#[test]
-fn black_frame_diagnostics_update_immediately_for_edges_and_periodically_for_evidence() {
-    let mut clocks = MonitorWallClockState::default();
-    let mut signal = crate::cv::BlackFrameSignal {
-        detected: false,
-        mean_luma: 80,
-        dark_pixel_percent: 4,
-        sample_count: 576,
-        sample_region: crate::cv::ActivePictureRegion::full(854, 480),
-    };
-
-    assert!(clocks.reconcile_black_frame(signal, 1_000));
-    signal.mean_luma = 70;
-    assert!(!clocks.reconcile_black_frame(signal, 1_100));
-    assert!(clocks.reconcile_black_frame(signal, 1_250));
-    assert_eq!(clocks.fade_detection, Some(signal));
-
-    signal.sample_region = crate::cv::ActivePictureRegion { x: 107, y: 0, width: 640, height: 480 };
-    assert!(clocks.reconcile_black_frame(signal, 1_300));
-    assert_eq!(clocks.fade_detection, Some(signal));
 }
 
 #[test]
@@ -217,7 +180,7 @@ async fn snapshot_store_does_not_notify_for_noop_writes() {
     snapshot.set_sources(snapshot.current().sources);
     assert!(tokio::time::timeout(Duration::from_millis(10), rx.changed()).await.is_err());
 
-    snapshot.set_monitor_stopped();
+    snapshot.set_monitor_stopped(MonitorWallClockState::default());
     assert!(tokio::time::timeout(Duration::from_millis(100), rx.changed()).await.unwrap().is_ok());
 
     snapshot.set_update_status(crate::updates::UpdateStatus {
@@ -235,10 +198,10 @@ fn monitor_snapshot_tracks_and_clears_the_active_cv_language() {
     snapshot.set_monitor_language("jp".to_owned());
     assert_eq!(snapshot.current().monitor.cv_language.as_deref(), Some("jp"));
 
-    snapshot.set_monitor_stopped();
+    snapshot.set_monitor_stopped(MonitorWallClockState::default());
     assert_eq!(snapshot.current().monitor.cv_language, None);
 
-    snapshot.set_monitor_running("N64 Capture".to_owned(), "en".to_owned());
+    snapshot.set_monitor_running("N64 Capture".to_owned(), "en".to_owned(), MonitorWallClockState::default());
     assert_eq!(snapshot.current().monitor.cv_language.as_deref(), Some("en"));
 }
 
@@ -283,39 +246,25 @@ fn monitor_stopped_event_uses_frontend_field_names() {
 }
 
 #[test]
-fn wall_clock_snapshot_projects_timer_and_resets_with_session() {
-    let mut clocks = MonitorWallClockState::default();
-    clocks.start_session(1_000);
-    clocks.reconcile_match(&level_match(crate::cv::Screen::Start, 1, 2), 1_100);
-    let mut signal = BlackFrameSignal {
-        detected: true,
-        mean_luma: 0,
-        dark_pixel_percent: 100,
-        sample_count: 576,
-        sample_region: crate::cv::ActivePictureRegion::full(640, 480),
+fn publishing_a_match_does_not_infer_timer_transitions() {
+    let snapshot = SharedStateStore::new(test_snapshot());
+    let clocks = MonitorWallClockState {
+        level_elapsed_ms: 321,
+        level_timer_phase: LevelTimerPhase::Stopped,
+        ..MonitorWallClockState::default()
     };
-    for (time, black) in [(1_200, true), (1_300, false), (2_000, true), (2_100, false), (5_300, false)] {
-        signal.detected = black;
-        clocks.reconcile_black_frame(signal, time);
-    }
-    assert!(clocks.level_running);
-    assert_eq!(clocks.level_started_at_unix_ms, Some(5_267));
-    assert!(clocks.reconcile_watch_transition(WatchTransition::Paused, 6_000));
-    let json = serde_json::to_value(&clocks).unwrap();
-    assert_eq!(json["levelElapsedMs"], 733);
-    assert_eq!(json["levelPaused"], true);
-    assert_eq!(json["levelTimerPhase"], "running");
-    assert_eq!(json["levelStartReason"], "swirl");
-    assert_eq!(json["fadeDetection"]["sampleRegion"]["width"], 640);
-    assert_eq!(json["introSwirlDelayMs"], 3_167);
-    assert!(json.get("timer").is_none());
-    assert!(clocks.reconcile_watch_transition(WatchTransition::Resumed, 7_000));
-    clocks.stop_session(8_000);
-    assert_eq!(clocks.level_elapsed_ms, 1_733);
-    assert_eq!(clocks.session_elapsed_ms, 7_000);
-    assert!(!clocks.level_running);
-    clocks.start_session(9_000);
-    assert_eq!(clocks.level_timer_phase, LevelTimerPhase::Idle);
-    assert_eq!(clocks.level_elapsed_ms, 0);
-    assert_eq!(clocks.fade_detection, None);
+    let level_match = LevelMatch {
+        screen: crate::cv::Screen::Start,
+        mission: 1,
+        part: 2,
+        difficulty: 0,
+        detected_lang: None,
+        times: None,
+        raw_times: vec![],
+        match_regions: vec![],
+        annotation_sets: vec![],
+        runtime_ms: 0.0,
+    };
+    snapshot.set_match(Some(level_match), clocks.clone());
+    assert_eq!(snapshot.current().monitor.wall_clocks, clocks);
 }
