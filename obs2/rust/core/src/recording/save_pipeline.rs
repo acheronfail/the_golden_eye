@@ -20,13 +20,7 @@ use super::clip_output::{
     unique_output_path,
 };
 #[cfg(not(test))]
-use super::replay_buffer::{
-    REPLAY_SAVE_SERIALIZE,
-    ReplaySaveWait,
-    begin_replay_save_request,
-    replay_buffer_output_directory,
-    wait_for_replay_saved,
-};
+use super::replay_buffer::{ReplaySaveWait, acquire_replay_save, replay_buffer_output_directory};
 use super::tracker::{PendingSave, RunTrackerPolicy};
 use super::{MAX_RECENT_RUN_LIMIT, RecordingSessionContext};
 use crate::cv::LevelMatch;
@@ -267,21 +261,21 @@ fn save_and_trim(job: SaveAndTrimJob) {
     // races this one for OBS's identity-less saved event; released before the
     // trim, which is slow and safe to run concurrently on its own file.
     let resolved = {
-        let _serialize = REPLAY_SAVE_SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+        let mut save = acquire_replay_save();
         // Snapshot the replay dir before saving so we can tell which file our save
         // wrote by what newly appears -- otherwise a user manual-save in this same
         // window could have us trim (and delete) their file instead of ours.
         let before = output_directory.as_deref().map(snapshot_replay_files);
-        // Register the request (and snapshot the generation to wait past) before
-        // triggering the save, so we only wake on the event this save produces and
-        // `on_replay_saved` can distinguish it from the user's own manual saves.
-        let since = begin_replay_save_request();
-        job.replay_saves.transition(job.tracking_id, ReplaySaveStage::SavingReplay);
-        tracing::info!("saving replay buffer");
-        crate::obs::save_replay_buffer();
-
-        // Block on the OBS replay-saved event (no polling); it carries the path.
-        let event_path = match wait_for_replay_saved(since, REPLAY_SAVE_SLOW_WARNING, REPLAY_SAVE_TIMEOUT) {
+        // Registration precedes the OBS call, including when it completes synchronously.
+        let event_path = match save.save_and_wait(
+            || {
+                job.replay_saves.transition(job.tracking_id, ReplaySaveStage::SavingReplay);
+                tracing::info!("saving replay buffer");
+                crate::obs::save_replay_buffer();
+            },
+            REPLAY_SAVE_SLOW_WARNING,
+            REPLAY_SAVE_TIMEOUT,
+        ) {
             ReplaySaveWait::Saved(path) => path,
             ReplaySaveWait::TimedOut => {
                 tracing::error!(?REPLAY_SAVE_TIMEOUT, "replay buffer save did not complete in time");
