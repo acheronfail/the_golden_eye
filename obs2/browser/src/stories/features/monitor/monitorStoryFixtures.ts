@@ -1,4 +1,4 @@
-import type { LevelMatch, RunClip } from '$lib/api';
+import type { LevelMatch, MonitorWallClockState, RunClip } from '$lib/api';
 import type { MonitorDesign, MonitorViewProps } from '$lib/features/monitor/monitorView';
 import { completedRun, failedRun } from '../../fixtures';
 
@@ -14,14 +14,29 @@ export const monitorMatch = (screen: string, times: LevelMatch['times'] = null):
 
 export type MonitorStoryArgs = MonitorViewProps & { design?: MonitorDesign };
 
+export const monitorClockState: MonitorWallClockState = {
+	sessionStartedAtUnixMs: null,
+	sessionElapsedMs: 0,
+	sessionRunning: false,
+	levelStartedAtUnixMs: null,
+	levelElapsedMs: 0,
+	levelRunning: false,
+	levelPaused: false,
+	levelStartReason: null,
+	levelTimerPhase: 'idle',
+	introSwirlDelayMs: null,
+	fadeDetection: null
+};
+
 // Shared across every monitor-state story; each state file overrides the
 // state-specific fields and renders one story per design.
-export const monitorBaseArgs: MonitorStoryArgs = {
+export const monitorBaseArgs: MonitorStoryArgs & { wallClockState: MonitorWallClockState } = {
 	sourceName: 'N64 Capture',
 	verified: true,
 	monitoring: true,
 	recordingState: null,
 	match: monitorMatch('unknown'),
+	wallClockState: { ...monitorClockState, sessionRunning: true },
 	onStop: () => {}
 };
 

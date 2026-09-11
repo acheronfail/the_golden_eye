@@ -25,9 +25,10 @@
 	$effect(() => {
 		if (props.wallClockState) {
 			wallClocks.sync(props.wallClockState);
-		} else {
-			wallClocks.reconcile(props.monitoring, props.match?.screen ?? null);
 		}
+	});
+
+	$effect(() => {
 		runIdentity = reconcileMonitorRunIdentity(
 			untrack(() => runIdentity),
 			props.match

@@ -7,7 +7,12 @@
 		title: 'Monitor/Monitor states/Recording',
 		component: MonitorView,
 		parameters: { layout: 'fullscreen' },
-		args: { ...monitorBaseArgs, recordingState: 'started', match: match('start') }
+		args: {
+			...monitorBaseArgs,
+			recordingState: 'started',
+			match: match('start'),
+			wallClockState: { ...monitorBaseArgs.wallClockState, levelTimerPhase: 'awaitingInitialBlack' }
+		}
 	});
 </script>
 

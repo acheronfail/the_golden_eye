@@ -7,7 +7,12 @@
 		title: 'Monitor/Monitor states/Cancelled',
 		component: MonitorView,
 		parameters: { layout: 'fullscreen' },
-		args: { ...monitorBaseArgs, recordingState: 'cancelled', match: match('level select') }
+		args: {
+			...monitorBaseArgs,
+			wallClockState: { ...monitorBaseArgs.wallClockState, levelTimerPhase: 'stopped' },
+			recordingState: 'cancelled',
+			match: match('level select')
+		}
 	});
 </script>
 

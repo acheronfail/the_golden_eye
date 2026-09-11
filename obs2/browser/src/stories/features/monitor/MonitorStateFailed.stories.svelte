@@ -7,7 +7,12 @@
 		title: 'Monitor/Monitor states/Failed',
 		component: MonitorView,
 		parameters: { layout: 'fullscreen' },
-		args: { ...monitorBaseArgs, recordingState: 'failed', match: match('failed') }
+		args: {
+			...monitorBaseArgs,
+			wallClockState: { ...monitorBaseArgs.wallClockState, levelTimerPhase: 'stopped' },
+			recordingState: 'failed',
+			match: match('failed')
+		}
 	});
 </script>
 

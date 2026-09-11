@@ -14,6 +14,7 @@
 		parameters: { layout: 'fullscreen' },
 		args: {
 			...monitorBaseArgs,
+			wallClockState: { ...monitorBaseArgs.wallClockState, levelTimerPhase: 'stopped' },
 			recordingState: 'complete',
 			match: match('stats', { time: 58, target_time: 65, best_time: 61 }),
 			recentRuns: longMonitorRecentRuns

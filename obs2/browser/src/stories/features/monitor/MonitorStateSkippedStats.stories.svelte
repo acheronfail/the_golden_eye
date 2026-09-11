@@ -7,7 +7,12 @@
 		title: 'Monitor/Monitor states/Skipped stats',
 		component: MonitorView,
 		parameters: { layout: 'fullscreen' },
-		args: { ...monitorBaseArgs, recordingState: 'statsSkipped', match: match('level select') }
+		args: {
+			...monitorBaseArgs,
+			wallClockState: { ...monitorBaseArgs.wallClockState, levelTimerPhase: 'stopped' },
+			recordingState: 'statsSkipped',
+			match: match('level select')
+		}
 	});
 </script>
 

@@ -7,7 +7,12 @@
 		title: 'Monitor/Monitor states/Saving clip',
 		component: MonitorView,
 		parameters: { layout: 'fullscreen' },
-		args: { ...monitorBaseArgs, recordingState: 'savePending', match: match('stats') }
+		args: {
+			...monitorBaseArgs,
+			wallClockState: { ...monitorBaseArgs.wallClockState, levelTimerPhase: 'stopped' },
+			recordingState: 'savePending',
+			match: match('stats')
+		}
 	});
 </script>
 

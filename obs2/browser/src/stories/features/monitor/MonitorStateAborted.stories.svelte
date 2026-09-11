@@ -7,7 +7,12 @@
 		title: 'Monitor/Monitor states/Aborted',
 		component: MonitorView,
 		parameters: { layout: 'fullscreen' },
-		args: { ...monitorBaseArgs, recordingState: 'aborted', match: match('abort') }
+		args: {
+			...monitorBaseArgs,
+			wallClockState: { ...monitorBaseArgs.wallClockState, levelTimerPhase: 'stopped' },
+			recordingState: 'aborted',
+			match: match('abort')
+		}
 	});
 </script>
 

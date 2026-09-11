@@ -7,7 +7,12 @@
 		title: 'Monitor/Monitor states/Starting monitor',
 		component: MonitorView,
 		parameters: { layout: 'fullscreen' },
-		args: { ...monitorBaseArgs, monitoring: false, transition: 'starting' }
+		args: {
+			...monitorBaseArgs,
+			monitoring: false,
+			wallClockState: { ...monitorBaseArgs.wallClockState, sessionRunning: false },
+			transition: 'starting'
+		}
 	});
 </script>
 

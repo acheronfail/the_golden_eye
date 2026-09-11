@@ -39,43 +39,9 @@ export class MonitorWallClocks {
 
 	private sessionStartedAt: number | null = null;
 	private levelStartedAt: number | null = null;
-	private previousMonitoring = false;
-	private previousScreen: string | null = null;
 	private animationFrame: number | null = null;
 
 	constructor(private readonly clock: AnimationClock = browserClock) {}
-
-	reconcile(monitoring: boolean, screen: string | null): void {
-		const now = this.clock.now();
-		const normalizedScreen = screen?.trim().toLowerCase() ?? null;
-
-		if (monitoring && !this.previousMonitoring) {
-			this.sessionElapsedMs = 0;
-			this.sessionStartedAt = now;
-			this.sessionRunning = true;
-			this.levelElapsedMs = 0;
-			this.levelStartedAt = null;
-			this.levelRunning = false;
-			this.levelPaused = false;
-			this.levelStartReason = null;
-			this.levelTimerPhase = 'idle';
-			this.introSwirlDelayMs = null;
-			this.fadeDetection = null;
-			this.previousScreen = null;
-		} else if (!monitoring && this.previousMonitoring) {
-			this.tick(now);
-			this.sessionRunning = false;
-			this.sessionStartedAt = null;
-			this.stopLevel(now);
-		}
-
-		if (monitoring && normalizedScreen !== this.previousScreen) {
-			this.reconcileScreen(normalizedScreen, now);
-			this.previousScreen = normalizedScreen;
-		}
-		this.previousMonitoring = monitoring;
-		this.ensureAnimation();
-	}
 
 	sync(state: MonitorWallClockState): void {
 		const now = this.clock.now();
@@ -101,8 +67,6 @@ export class MonitorWallClocks {
 		this.introSwirlDelayMs = state.introSwirlDelayMs;
 		this.fadeDetection = state.fadeDetection;
 		this.levelStartedAt = state.levelRunning ? now - this.levelElapsedMs : null;
-		this.previousMonitoring = state.sessionRunning;
-		this.previousScreen = null;
 		this.ensureAnimation();
 	}
 
@@ -123,31 +87,6 @@ export class MonitorWallClocks {
 	destroy(): void {
 		if (this.animationFrame != null) this.clock.cancelFrame(this.animationFrame);
 		this.animationFrame = null;
-	}
-
-	private reconcileScreen(screen: string | null, now: number): void {
-		if (screen === 'start' || screen === 'opts007') {
-			this.levelElapsedMs = 0;
-			this.levelStartedAt = null;
-			this.levelRunning = false;
-			this.levelPaused = false;
-			this.levelStartReason = null;
-			this.levelTimerPhase = 'awaitingInitialBlack';
-			this.introSwirlDelayMs = null;
-			this.fadeDetection = null;
-			return;
-		}
-		if (screen !== 'unknown') {
-			this.stopLevel(now);
-		}
-	}
-
-	private stopLevel(now: number): void {
-		if (this.levelRunning) this.levelElapsedMs = this.elapsedSince(this.levelStartedAt, now);
-		this.levelRunning = false;
-		this.levelPaused = false;
-		this.levelStartedAt = null;
-		this.levelTimerPhase = 'stopped';
 	}
 
 	private tick(now: number): void {
