@@ -5,11 +5,13 @@
 	let {
 		variant,
 		timesAvailable = true,
-		timersRunning = true
+		timersRunning = true,
+		showInGameTimer
 	}: {
 		variant: 'mission-glass' | 'signal-band';
 		timesAvailable?: boolean;
 		timersRunning?: boolean;
+		showInGameTimer: boolean;
 	} = $props();
 
 	const match = $derived<LevelMatch>({
@@ -51,5 +53,6 @@
 	recordingState="started"
 	{match}
 	{wallClockState}
+	{showInGameTimer}
 	onStop={() => {}}
 />

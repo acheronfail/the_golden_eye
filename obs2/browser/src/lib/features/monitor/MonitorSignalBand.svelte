@@ -12,7 +12,8 @@
 		recordingState = null,
 		match = null,
 		fps = null,
-		showMonitorFps = false,
+		showMonitorFps,
+		showInGameTimer,
 		recentRuns = [],
 		recentRunsBusyId = null,
 		recentRunsError = null,
@@ -81,11 +82,11 @@
 		<div class="min-w-0">
 			<MonitorWallClockTimers
 				{wallClocks}
+				{showInGameTimer}
 				role="group"
 				containerClass="mb-[clamp(1rem,3cqh,2rem)] grid max-w-[34rem] grid-cols-2 gap-[clamp(1rem,5cqw,3rem)] font-mono [&_small]:text-[clamp(0.54rem,2cqw,0.68rem)] [&_small]:tracking-[0.14em] [&_small]:uppercase [&_strong]:text-[clamp(1.15rem,5cqw,2rem)] [&_strong]:font-medium [&_strong]:tracking-[-0.04em] [&_strong]:[font-variant-numeric:tabular-nums] [&>div]:grid [&>div]:gap-0.5 [@container(max-height:42rem)]:mb-2 [@container(max-height:42rem)]:[&_strong]:text-[clamp(1rem,4cqw,1.45rem)]"
 				inactiveTimerClass="text-(--obs-text-dim)"
 				activeLabelClass="text-(--monitor-accent)"
-				levelLabelClass="w-fit cursor-help"
 			/>
 			<MonitorHero
 				{verified}

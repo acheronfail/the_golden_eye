@@ -31,6 +31,21 @@
 </section>
 
 <section class={styles.panel}>
+	<label class="flex items-center gap-3">
+		<input
+			type="checkbox"
+			bind:checked={settings.values.showInGameTimer}
+			class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
+		/>
+		<span class={styles.label}>Show in-game timer while monitoring</span>
+	</label>
+	<p class={styles.hint}>
+		The in-game timer is "best effort", since GoldenEye's timer is not consistent and changes depending on various
+		factors.
+	</p>
+</section>
+
+<section class={styles.panel}>
 	<label class={styles.label} for="clip-filename-template">Clip filename template</label>
 	<input
 		id="clip-filename-template"

@@ -12,7 +12,8 @@
 		recordingState = null,
 		match = null,
 		fps = null,
-		showMonitorFps = false,
+		showMonitorFps,
+		showInGameTimer,
 		recentRuns = [],
 		recentRunsBusyId = null,
 		recentRunsError = null,
@@ -85,10 +86,10 @@
 	>
 		<MonitorWallClockTimers
 			{wallClocks}
+			{showInGameTimer}
 			containerClass="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--monitor-accent)_24%,var(--obs-border-soft))] bg-[color-mix(in_srgb,var(--monitor-accent)_18%,var(--obs-border-muted))] font-mono shadow-[0_0.75rem_2.5rem_rgb(0_0_0_/_18%)] [&_small]:text-[clamp(0.52rem,2cqw,0.65rem)] [&_small]:tracking-[0.12em] [&_small]:uppercase [&_strong]:text-[clamp(1rem,4.6cqw,1.55rem)] [&_strong]:font-medium [&_strong]:tracking-[-0.035em] [&_strong]:[font-variant-numeric:tabular-nums] [&>div]:grid [&>div]:gap-0.5 [&>div]:bg-[rgb(37_41_52_/_78%)] [&>div]:px-[clamp(0.75rem,3cqw,1.35rem)] [&>div]:py-[clamp(0.55rem,1.5cqh,0.8rem)] [@container(max-height:42rem)]:[&_strong]:text-[clamp(0.75rem,3cqw,0.95rem)] [@container(max-height:42rem)]:[&>div]:py-1 [@container(max-height:58rem)]:[&_strong]:text-[clamp(0.82rem,2.8cqw,1.1rem)] [@container(max-height:58rem)]:[&>div]:py-1.5"
 			inactiveTimerClass="text-(--obs-text-dim)"
 			activeLabelClass="text-(--monitor-accent)"
-			levelLabelClass="w-fit cursor-help"
 		/>
 		<MonitorHero
 			{verified}

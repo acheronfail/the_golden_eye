@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import type { LevelMatch, RecordingStatus, RunClip } from '$lib/api';
+import { DEFAULT_SETTINGS } from '$lib/generated/settings';
 import MonitorView from './MonitorView.svelte';
 import type { MonitorDesign } from './monitorView';
 
@@ -47,7 +48,7 @@ const recentRun: RunClip = {
 
 describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (design) => {
 	it('shows session and level wall clocks with an immediate styled tooltip', async () => {
-		render(MonitorView, props(design, 'started', match('start')));
+		render(MonitorView, { ...props(design, 'started', match('start')), showInGameTimer: true });
 
 		const timers = screen.getByRole(design === 'signal-band' ? 'group' : 'region', {
 			name: 'Wall-clock timers'
@@ -56,7 +57,8 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 		expect(timers).toHaveTextContent('Time in level');
 		expect(timers).toHaveTextContent('00:00:000');
 		const levelTimerLabel = screen.getByText('Time in level');
-		const levelTimerTrigger = levelTimerLabel.parentElement?.parentElement;
+		const levelTimerTrigger = screen.getByRole('button', { name: /Time in level/ });
+		expect(levelTimerTrigger.querySelector('strong')).toHaveTextContent('00:00:000');
 		expect(levelTimerTrigger).toHaveClass('cursor-help');
 		expect(levelTimerLabel).not.toHaveAttribute('title');
 		expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
@@ -73,6 +75,16 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 		expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
 		expect(timers.querySelector('[data-running="true"]')).not.toBeNull();
 		expect(timers.querySelector('[data-running="false"]')).not.toBeNull();
+	});
+
+	it('toggles the level timer while preserving the session timer', async () => {
+		const view = render(MonitorView, { ...props(design, 'started', match('start')), showInGameTimer: false });
+		expect(screen.queryByText('Time in level')).not.toBeInTheDocument();
+		expect(screen.getByText('Time in session')).toBeInTheDocument();
+		await view.rerender({ ...props(design, 'started', match('start')), showInGameTimer: true });
+		expect(screen.getByText('Time in level')).toBeInTheDocument();
+		await view.rerender({ ...props(design, 'started', match('start')), showInGameTimer: undefined });
+		expect(screen.queryByText('Time in level') !== null).toBe(DEFAULT_SETTINGS.showInGameTimer);
 	});
 
 	it('uses the neutral OBS-transition palette while verifying the source', () => {
@@ -172,6 +184,7 @@ describe('debug monitor', () => {
 		};
 		const view = render(MonitorView, {
 			...props('debug', 'complete', levelMatch),
+			showInGameTimer: false,
 			sourceName: 'N64 Capture',
 			cvLanguage: 'jp',
 			replaySaves: [
