@@ -1,3 +1,10 @@
+use std::cell::RefCell;
+use std::time::UNIX_EPOCH;
+
+use super::*;
+use crate::recording::test_support::*;
+use crate::recording::*;
+
 #[test]
 fn shutdown_before_pending_save_fires_waits_and_preserves_save_job() {
     let options =
@@ -150,4 +157,79 @@ fn resolve_saved_replay_recovers_a_single_new_file_when_obs_omits_the_path() {
     assert_eq!(resolved.path, ours.to_string_lossy());
     assert!(resolved.safe_to_delete);
     assert!(resolve_saved_replay(None, vec![]).is_none());
+}
+
+#[test]
+fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
+    let dir = TestDir::new("catalog-failure-save");
+    let catalog = Arc::new(crate::db::run_catalog::RunCatalog::open(dir.join("runs.sqlite")).unwrap());
+    let replay = sample_clip();
+    let old = catalog
+        .create_finalized_run(
+            UNIX_EPOCH + Duration::from_secs(1),
+            clip_metadata(
+                RunStatus::Failed,
+                UNIX_EPOCH + Duration::from_secs(1),
+                Some(&match_with_time()),
+                "N64 Capture",
+                "en",
+            ),
+        )
+        .unwrap();
+    let old_path = dir.join("clips/old.mov");
+    fs::create_dir_all(old_path.parent().unwrap()).unwrap();
+    let duration = ge_media::duration_secs(&replay).unwrap();
+    ge_media::trim_with_metadata(&replay, &old_path, 1.0, duration - 1.0, Some(&old.metadata)).unwrap();
+    catalog
+        .record_saved_clip(RunCatalogSave {
+            path: old_path.clone(),
+            duration_secs: Some(duration - 2.0),
+            metadata: old.metadata,
+        })
+        .unwrap();
+    catalog.set_fail_create_finalized(true);
+    let (event_tx, mut events) = tokio::sync::broadcast::channel(8);
+    let options = RecordingOptions {
+        completed_output_path: dir.join("clips").to_string_lossy().into_owned(),
+        recent_run_limit: 1,
+        ..RecordingOptions::default()
+    };
+    let snapshot = test_snapshot_store();
+    let mut recording = RecordingState::new(
+        event_tx,
+        RecordingStateStore::new(snapshot.clone()),
+        ReplaySaveStateStore::new(snapshot),
+        options.clone(),
+        RecordingSessionContext::new("N64 Capture".to_owned(), "en".to_owned(), None),
+        catalog.clone(),
+    );
+    let now = Instant::now();
+    assert!(recording.schedule_save(now, now - Duration::from_secs(10), Some(match_with_time())));
+    let pending = pending_save_event(&mut events);
+    let job = recording.take_pending_job(now + Duration::from_secs(5)).expect("catalog failure must not drop save");
+    assert_eq!(job.save_id, pending.save_id);
+    assert!(!job.metadata.run_id.is_empty());
+    assert_no_app_event(&mut events);
+    assert!(old_path.exists(), "lowering the retention limit alone must not delete clips");
+
+    catalog.set_fail_create_finalized(false);
+    let saved = trim_clip(TrimClipRequest {
+        save_id: job.save_id,
+        replay_path: replay.to_str().unwrap(),
+        start_before_save_secs: 2.0,
+        trim_tail_secs: 0.0,
+        status: job.status,
+        completed_at: job.completed_at,
+        stats: job.stats,
+        metadata: job.metadata.clone(),
+        output_policy: &options.output_policy(),
+        recent_run_limit: options.recent_run_limit,
+        run_catalog: &catalog,
+    })
+    .expect("save tagged clip");
+
+    assert!(Path::new(&saved.path).is_file());
+    assert!(!old_path.exists(), "retention cleanup should run after the new clip is attached");
+    let recovered = catalog.get_run(&job.metadata.run_id).unwrap().expect("saved clip should recreate catalog row");
+    assert!(recovered.clip.is_some());
 }

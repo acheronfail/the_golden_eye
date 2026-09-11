@@ -1,3 +1,33 @@
+//! Run detection and stats voting; returns transitions for recording to apply.
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant, SystemTime};
+
+use ge_clip::RunStatus;
+
+use crate::cv::{LevelMatch, Screen};
+use crate::ge;
+use crate::http::RecordingStatus;
+
+static NEXT_REPLAY_TRACKING_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_replay_tracking_id() -> u64 {
+    NEXT_REPLAY_TRACKING_ID.fetch_add(1, Ordering::Relaxed)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct RunTrackerPolicy {
+    pub(super) pre_run_padding_secs: f64,
+    pub(super) post_run_padding_secs: f64,
+}
+
+impl RunTrackerPolicy {
+    fn save_delay(self) -> Duration {
+        Duration::from_secs_f64(self.post_run_padding_secs)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct RunIdentity {
     mission: i32,
@@ -56,26 +86,26 @@ impl RunIdentityVote {
 /// A scheduled save that *will* happen, captured in full when the stats screen is
 /// seen. Decoupled from the active-run state: once scheduled it owns all it needs,
 /// so backing out or starting another run can't drop it -- it fires on its own timer.
-struct PendingSave {
+pub(super) struct PendingSave {
     /// Core-lifetime unique id for retained replay pipeline diagnostics.
-    tracking_id: u64,
+    pub(super) tracking_id: u64,
     /// Identifier shared by the pending and saved WebSocket events.
-    save_id: u64,
+    pub(super) save_id: u64,
     /// When the post-run padding window elapses and we save the buffer.
-    fire_at: Instant,
+    pub(super) fire_at: Instant,
     /// When the run began -- the anchor for where the trimmed clip starts.
-    clip_start: Instant,
+    pub(super) clip_start: Instant,
     /// When the run ending was detected -- the anchor for post-run padding.
-    finish_at: Instant,
+    pub(super) finish_at: Instant,
     /// The final report status seen for the run (for naming/logging).
-    status: RunStatus,
+    pub(super) status: RunStatus,
     /// Wall-clock time when the run ending was detected.
-    completed_at: SystemTime,
+    pub(super) completed_at: SystemTime,
     /// Game/template language active when this save was scheduled.
-    game_language: String,
+    pub(super) game_language: String,
     /// The stats-screen match, kept for naming the output clip. Its `times` are
     /// overwritten with the per-field vote winners as stats frames arrive.
-    stats: Option<LevelMatch>,
+    pub(super) stats: Option<LevelMatch>,
     /// Independent per-field vote over the stats times, so a look-alike-digit
     /// misread on one field (often the dimmer best-time row) can't corrupt the
     /// others. Empty for saves not scheduled off the stats screen.
@@ -87,11 +117,11 @@ struct PendingSave {
     stats_vote_closed: bool,
     /// Whether the provisional recent-run event has been sent for this save.
     /// It is refreshed only when the voted time changes.
-    pending_event_sent: bool,
+    pub(super) pending_event_sent: bool,
     /// The phase-store generation of this save's own `SavePending`/`StatsSkipped`
     /// transition, if it emitted one. Its completion/discard clears exactly that
     /// transition, not a quick-restarted run's identical-looking phase.
-    phase_generation: Option<u64>,
+    pub(super) phase_generation: Option<u64>,
 }
 
 /// Frame-count vote for one stats-time field. The most-seen value wins, ties
@@ -157,81 +187,28 @@ fn run_status_from_failure_screen(screen: Screen) -> Option<RunStatus> {
     }
 }
 
-fn recording_save_pending_event(
-    save_id: u64,
-    save_delay: Duration,
-    estimated_duration_secs: f64,
-    status: RunStatus,
-    stats: Option<&LevelMatch>,
-) -> RecordingSavePending {
-    let level_info = stats.and_then(|m| ge::level_info(m.mission, m.part));
-    let times = stats.and_then(|m| m.times);
-
-    RecordingSavePending {
-        save_id,
-        save_in_secs: save_delay.as_secs_f64(),
-        estimated_duration_secs,
-        failed: status.is_failed(),
-        status: status.as_str().to_owned(),
-        level: level_info.map(|info| info.name.to_owned()).unwrap_or_else(|| "unknown".to_owned()),
-        level_number: level_info.map(|info| info.number),
-        difficulty: stats.and_then(|m| ge::difficulty_name(m.difficulty)).map(str::to_owned),
-        time_secs: times.map(|t| t.time),
-        target_time_secs: times.and_then(|t| t.target_time),
-        best_time_secs: times.and_then(|t| t.best_time),
-        stats: stats.cloned(),
-    }
-}
-
-/// Build the provisional run event, reading `save_in_secs` as the time remaining
-/// until it fires. Re-sent when the voted time is refined.
-fn save_pending_event(pending: &PendingSave, policy: RunTrackerPolicy, now: Instant) -> RecordingSavePending {
-    let run_length_secs = pending.finish_at.saturating_duration_since(pending.clip_start).as_secs_f64();
-    let estimated_duration_secs = run_length_secs + policy.pre_run_padding_secs + policy.post_run_padding_secs;
-    recording_save_pending_event(
-        pending.save_id,
-        pending.fire_at.saturating_duration_since(now),
-        estimated_duration_secs,
-        pending.status,
-        pending.stats.as_ref(),
-    )
-}
-
-/// Metadata shared by runs finalized during one monitoring session.
-pub struct RecordingSessionContext {
-    source_name: String,
-    game_language: String,
-    monitor_session_id: Option<String>,
-}
-
-impl RecordingSessionContext {
-    pub fn new(source_name: String, game_language: String, monitor_session_id: Option<String>) -> Self {
-        Self { source_name, game_language, monitor_session_id }
-    }
-}
-
 #[derive(Default)]
-struct TrackerUpdate {
-    ensure_replay_buffer: bool,
-    pending_changed: bool,
-    phase: Option<RecordingStatus>,
-    ready: Vec<PendingSave>,
+pub(super) struct TrackerUpdate {
+    pub(super) ensure_replay_buffer: bool,
+    pub(super) pending_changed: bool,
+    pub(super) phase: Option<RecordingStatus>,
+    pub(super) ready: Vec<PendingSave>,
 }
 
 /// Pure run-detection state. It translates matched screens into domain
-/// transitions; [`RecordingState`] applies OBS, catalog, and UI side effects.
-struct RunTracker {
+/// transitions; [`super::RecordingState`] applies OBS, catalog, and UI side effects.
+pub(super) struct RunTracker {
     clip_start: Option<Instant>,
     status: Option<RunStatus>,
     report: Option<LevelMatch>,
     identity_vote: RunIdentityVote,
-    pending: Option<PendingSave>,
+    pub(super) pending: Option<PendingSave>,
     next_save_id: u64,
     game_language: String,
 }
 
 impl RunTracker {
-    fn new(game_language: String) -> Self {
+    pub(super) fn new(game_language: String) -> Self {
         Self {
             clip_start: None,
             status: None,
@@ -243,7 +220,7 @@ impl RunTracker {
         }
     }
 
-    fn set_game_language(&mut self, game_language: String) {
+    pub(super) fn set_game_language(&mut self, game_language: String) {
         if self.game_language != game_language {
             tracing::info!(from = %self.game_language, to = %game_language, "recording game language changed");
         }
@@ -261,7 +238,7 @@ impl RunTracker {
         m
     }
 
-    fn schedule_save(
+    pub(super) fn schedule_save(
         &mut self,
         now: Instant,
         completed_at: SystemTime,
@@ -333,7 +310,7 @@ impl RunTracker {
         record_stats_vote(pending, m)
     }
 
-    fn on_frame(
+    pub(super) fn on_frame(
         &mut self,
         now: Instant,
         completed_at: SystemTime,
@@ -434,179 +411,6 @@ impl RunTracker {
     }
 }
 
-/// Tracks one recording session as it moves through the on-screen states, and
-/// drives replay-buffer saves when runs finish. Fed via [`RecordingState::on_frame`].
-pub struct RecordingState {
-    tracker: RunTracker,
-    /// Normalized timing policy fixed for this monitor session.
-    tracker_policy: RunTrackerPolicy,
-    save_pipeline: SavePipeline,
-}
-
-impl RecordingState {
-    pub fn new(
-        event_tx: broadcast::Sender<AppEvent>,
-        recording_state: RecordingStateStore,
-        replay_saves: ReplaySaveStateStore,
-        options: RecordingOptions,
-        session: RecordingSessionContext,
-        run_catalog: Arc<RunCatalog>,
-    ) -> Self {
-        let tracker_policy = options.tracker_policy();
-        let output_policy = options.output_policy();
-        let tracker = RunTracker::new(session.game_language.clone());
-        RecordingState {
-            tracker,
-            tracker_policy,
-            save_pipeline: SavePipeline::new(
-                event_tx,
-                recording_state,
-                replay_saves,
-                output_policy,
-                options.recent_run_limit,
-                session,
-                run_catalog,
-            ),
-        }
-    }
-
-    pub fn set_recent_run_limit_source(&mut self, source: Arc<AtomicUsize>) {
-        self.save_pipeline.set_recent_run_limit_source(source);
-    }
-
-    /// Publish a recorder state transition to the backend-retained phase store
-    /// Event-stream clients see it in the next app snapshot.
-    /// For `SavePending`/`StatsSkipped`, records the generation on the pending
-    /// save so its completion/discard can clear that exact transition later.
-    fn emit(&mut self, status: RecordingStatus) {
-        let generation = self.save_pipeline.recording_state.set(status);
-        if matches!(status, RecordingStatus::SavePending | RecordingStatus::StatsSkipped)
-            && let Some(pending) = self.tracker.pending.as_mut()
-        {
-            pending.phase_generation = Some(generation);
-        }
-    }
-
-    /// Update the game/template language attached to future clip metadata. Used
-    /// when monitor language auto-correction detects the other game language.
-    pub fn set_game_language(&mut self, game_language: String) {
-        self.tracker.set_game_language(game_language);
-    }
-
-    #[cfg(test)]
-    fn schedule_save(&mut self, now: Instant, clip_start: Instant, stats: Option<LevelMatch>) -> bool {
-        let mut update = TrackerUpdate::default();
-        self.tracker.schedule_save(
-            now,
-            SystemTime::now(),
-            clip_start,
-            stats,
-            self.tracker_policy,
-            &mut update,
-        );
-        for pending in update.ready {
-            self.flush_ready(pending, now);
-        }
-        self.sync_pending_event(now, update.pending_changed);
-        true
-    }
-
-    /// Show the provisional row once and refresh it when the voted time changes.
-    fn sync_pending_event(&mut self, now: Instant, time_changed: bool) {
-        let Some(pending) = self.tracker.pending.as_ref() else {
-            return;
-        };
-        if !pending.pending_event_sent || time_changed {
-            self.save_pipeline.publish_pending(pending, self.tracker_policy, now);
-            self.tracker.pending.as_mut().unwrap().pending_event_sent = true;
-        }
-    }
-
-    /// Build a save+trim job for the pending clip, if any, anchored to `now` as
-    /// the save moment (the saved file ends at ~now, so the run is its final
-    /// `elapsed` seconds). A no-op when nothing is pending.
-    #[cfg(test)]
-    fn take_pending_job(&mut self, now: Instant) -> Option<SaveAndTrimJob> {
-        let pending = self.tracker.pending.take()?;
-        Some(self.save_pipeline.job(pending, now, self.tracker_policy))
-    }
-
-    /// Save and trim the pending clip asynchronously, if any.
-    fn flush_pending(&mut self, now: Instant) {
-        if let Some(pending) = self.tracker.pending.take() {
-            self.save_pipeline.spawn(pending, now, self.tracker_policy);
-        }
-    }
-
-    fn flush_ready(&self, pending: PendingSave, now: Instant) {
-        self.save_pipeline.spawn(pending, now, self.tracker_policy);
-    }
-
-    /// When the in-flight save is due to fire, or `None` when nothing is pending.
-    /// The monitor loop waits on this so the save fires on time even if captured
-    /// frames stop arriving (e.g. a paused source).
-    pub fn pending_fire_at(&self) -> Option<Instant> {
-        self.tracker.pending.as_ref().map(|pending| pending.fire_at)
-    }
-
-    /// Fire the scheduled save once its post-run padding window has elapsed. Safe
-    /// to call on any tick (frame or idle wakeup); a no-op until then.
-    pub fn poll_pending(&mut self, now: Instant) {
-        if self.tracker.pending.as_ref().is_some_and(|pending| now >= pending.fire_at) {
-            self.flush_pending(now);
-        }
-    }
-
-    /// Save and trim the pending clip synchronously during shutdown, preserving
-    /// the scheduled post-run padding window before OBS is asked to save.
-    #[cfg(not(test))]
-    fn flush_pending_on_shutdown(&mut self) {
-        if let Some(pending) = self.tracker.pending.take() {
-            self.save_pipeline.flush_on_shutdown(pending, Instant::now(), self.tracker_policy);
-        }
-    }
-
-    #[cfg(test)]
-    fn flush_pending_on_shutdown_with(
-        &mut self,
-        now: Instant,
-        sleep: impl FnOnce(Duration),
-        save: impl FnOnce(SaveAndTrimJob),
-    ) {
-        let Some(pending) = self.tracker.pending.take() else {
-            return;
-        };
-        self.save_pipeline.flush_on_shutdown_with(pending, now, self.tracker_policy, sleep, save);
-    }
-
-    /// Feed the latest matched frame (and the current time). Called once per
-    /// captured frame, so it also polls the pending-save timer.
-    pub fn on_frame(&mut self, now: Instant, m: &LevelMatch) {
-        let update = self.tracker.on_frame(now, SystemTime::now(), m, self.tracker_policy);
-        if update.ensure_replay_buffer {
-            ensure_replay_buffer_running_for_recording();
-        }
-        for pending in update.ready {
-            self.flush_ready(pending, now);
-        }
-        self.sync_pending_event(now, update.pending_changed);
-        if let Some(phase) = update.phase {
-            self.emit(phase);
-        }
-        self.poll_pending(now);
-    }
-}
-
-#[cfg(not(test))]
-impl Drop for RecordingState {
-    fn drop(&mut self) {
-        self.flush_pending_on_shutdown();
-    }
-}
-
 #[cfg(test)]
-impl Drop for RecordingState {
-    fn drop(&mut self) {
-        assert!(self.tracker.pending.is_none(), "test dropped RecordingState with a pending save");
-    }
-}
+#[path = "tests/tracker.rs"]
+mod tests;
