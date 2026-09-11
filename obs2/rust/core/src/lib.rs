@@ -3,6 +3,7 @@ mod browser;
 mod browser_dock;
 pub mod config;
 mod http;
+mod in_game_timer;
 mod logging;
 mod obs;
 mod recording;
