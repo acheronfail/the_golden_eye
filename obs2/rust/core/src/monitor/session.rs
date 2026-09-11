@@ -4,6 +4,7 @@ use std::sync::atomic::Ordering;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use super::capture::{Captured, ObsSource};
+use super::clocks::MonitorClockStore;
 use super::matcher::{DisplayTimeSmoother, MonitorMatcher, log_level_match, switch_detected_language};
 use super::throughput::ThroughputMeter;
 use super::timing::MonitorTiming;
@@ -13,6 +14,7 @@ use crate::http::{AppEvent, AppState};
 use crate::recording::RecordingState;
 
 pub(super) struct MonitorSession {
+    clocks: MonitorClockStore,
     matcher: MonitorMatcher,
     recording: RecordingState,
     state: AppState,
@@ -33,8 +35,10 @@ impl MonitorSession {
         state: AppState,
         source_fps: f64,
         timing_mode: MonitorTimingMode,
+        clocks: MonitorClockStore,
     ) -> Self {
         Self {
+            clocks,
             matcher,
             recording,
             state,
@@ -117,7 +121,7 @@ impl MonitorSession {
                     if changed {
                         log_level_match(&display);
                         self.last = Some(display.clone());
-                        self.state.snapshot.set_match(Some(display));
+                        self.clocks.observe_match(display);
                     }
                 }
                 Err(e) => {
@@ -126,12 +130,12 @@ impl MonitorSession {
                 }
             }
             if let Some(signal) = black_frame {
-                self.state.snapshot.observe_black_frame(signal);
+                self.clocks.observe_black_frame(signal);
             }
             if let Some(signal) = watch_signal
                 && let Some(transition) = self.watch_detector.observe(signal).transition
             {
-                self.state.snapshot.observe_watch_transition(transition, observed_at_unix_ms);
+                self.clocks.observe_watch_transition(transition, observed_at_unix_ms);
             }
         }
         tracing::info!("monitor loop exiting");

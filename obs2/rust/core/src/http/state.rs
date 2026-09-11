@@ -1,17 +1,14 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde::Serialize;
 use tokio::sync::{Mutex, broadcast, oneshot, watch};
 
 use super::{ReplayBufferStatus, routes};
-use crate::cv::{BlackFrameSignal, LevelMatch, WatchTransition};
-use crate::in_game_timer::InGameTimer;
+use crate::cv::{BlackFrameSignal, LevelMatch};
 pub use crate::in_game_timer::{LevelTimerPhase, LevelTimerStartReason};
 use crate::recording::{RecordingStateStore, RecordingStatus};
-
-const FADE_DIAGNOSTICS_INTERVAL_MS: u64 = 250;
 
 pub struct AppStateInner {
     /// Holds the sender end of a one-shot channel while an OAuth flow is in
@@ -99,77 +96,6 @@ pub struct MonitorWallClockState {
     #[ts(type = "number | null")]
     pub intro_swirl_delay_ms: Option<u64>,
     pub fade_detection: Option<BlackFrameSignal>,
-    #[serde(skip)]
-    timer: InGameTimer,
-    #[serde(skip)]
-    fade_diagnostics_published_at_ms: Option<u64>,
-}
-
-impl MonitorWallClockState {
-    fn start_session(&mut self, now_ms: u64) {
-        *self = Self { session_started_at_unix_ms: Some(now_ms), session_running: true, ..Self::default() };
-    }
-
-    fn stop_session(&mut self, now_ms: u64) {
-        self.session_elapsed_ms = elapsed_ms(self.session_started_at_unix_ms, self.session_elapsed_ms, now_ms);
-        self.session_started_at_unix_ms = None;
-        self.session_running = false;
-        self.timer.stop_level(now_ms);
-        self.sync_timer();
-    }
-
-    fn reconcile_match(&mut self, level_match: &LevelMatch, now_ms: u64) {
-        self.timer.reconcile_match(level_match, now_ms);
-        if level_match.screen.is_level_launch() {
-            self.fade_detection = None;
-            self.fade_diagnostics_published_at_ms = None;
-        }
-        self.sync_timer();
-    }
-
-    fn reconcile_black_frame(&mut self, signal: BlackFrameSignal, now_ms: u64) -> bool {
-        let classification_changed =
-            self.fade_detection.as_ref().is_some_and(|current| current.detected) != signal.detected;
-        let timer_changed = self.timer.observe_black_frame(signal.detected, now_ms);
-        self.sync_timer();
-        let region_changed =
-            self.fade_detection.as_ref().map(|current| current.sample_region) != Some(signal.sample_region);
-        let diagnostics_changed = self.fade_detection != Some(signal);
-        let diagnostics_due = self
-            .fade_diagnostics_published_at_ms
-            .is_none_or(|published_at| now_ms.saturating_sub(published_at) >= FADE_DIAGNOSTICS_INTERVAL_MS);
-        if !(timer_changed || classification_changed || region_changed || diagnostics_changed && diagnostics_due) {
-            return false;
-        }
-        self.fade_detection = Some(signal);
-        self.fade_diagnostics_published_at_ms = Some(now_ms);
-        true
-    }
-
-    fn reconcile_watch_transition(&mut self, transition: WatchTransition, now_ms: u64) -> bool {
-        let changed = self.timer.reconcile_watch_transition(transition, now_ms);
-        self.sync_timer();
-        changed
-    }
-
-    fn sync_timer(&mut self) {
-        let timer = self.timer.snapshot();
-        self.level_started_at_unix_ms = timer.level_started_at_unix_ms;
-        self.level_elapsed_ms = timer.level_elapsed_ms;
-        self.level_running = timer.level_running;
-        self.level_paused = timer.level_paused;
-        self.level_start_reason = timer.level_start_reason;
-        self.level_timer_phase = timer.level_timer_phase;
-        self.intro_swirl_delay_ms = timer.intro_swirl_delay_ms;
-    }
-}
-
-fn elapsed_ms(started_at_ms: Option<u64>, frozen_ms: u64, now_ms: u64) -> u64 {
-    started_at_ms.map_or(frozen_ms, |started_at_ms| now_ms.saturating_sub(started_at_ms))
-}
-
-fn unix_time_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis().try_into().unwrap_or(u64::MAX)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
@@ -209,16 +135,12 @@ impl SharedStateStore {
         self.lock_state().clone()
     }
 
-    pub fn set_monitor_running(&self, source_name: String, cv_language: String) {
-        let now_ms = unix_time_ms();
+    pub fn set_monitor_running(&self, source_name: String, cv_language: String, clocks: MonitorWallClockState) {
         self.update(|state| {
             state.monitor.enabled = true;
             state.monitor.source_name = Some(source_name);
             state.monitor.cv_language.get_or_insert(cv_language);
-            state.monitor.wall_clocks.start_session(now_ms);
-            if let Some(level_match) = state.level_match.as_ref() {
-                state.monitor.wall_clocks.reconcile_match(level_match, now_ms);
-            }
+            state.monitor.wall_clocks = clocks;
         });
     }
 
@@ -226,10 +148,9 @@ impl SharedStateStore {
         self.update(|state| state.monitor.cv_language = Some(cv_language));
     }
 
-    pub fn set_monitor_stopped(&self) {
-        let now_ms = unix_time_ms();
+    pub fn set_monitor_stopped(&self, clocks: MonitorWallClockState) {
         self.update(|state| {
-            state.monitor.wall_clocks.stop_session(now_ms);
+            state.monitor.wall_clocks = clocks;
             state.monitor.enabled = false;
             state.monitor.source_name = None;
             state.monitor.cv_language = None;
@@ -238,41 +159,15 @@ impl SharedStateStore {
         });
     }
 
-    pub fn set_match(&self, level_match: Option<LevelMatch>) {
-        let now_ms = unix_time_ms();
+    pub fn set_match(&self, level_match: Option<LevelMatch>, clocks: MonitorWallClockState) {
         self.update(|state| {
-            if state.monitor.enabled
-                && let Some(level_match) = level_match.as_ref()
-            {
-                state.monitor.wall_clocks.reconcile_match(level_match, now_ms);
-            }
             state.level_match = level_match;
+            state.monitor.wall_clocks = clocks;
         });
     }
 
-    pub fn observe_black_frame(&self, signal: BlackFrameSignal) {
-        let now_ms = unix_time_ms();
-        let next = {
-            let mut state = self.lock_state();
-            if !state.monitor.enabled || !state.monitor.wall_clocks.reconcile_black_frame(signal, now_ms) {
-                return;
-            }
-            state.clone()
-        };
-        self.tx.send_replace(next);
-    }
-
-    pub fn observe_watch_transition(&self, transition: WatchTransition, observed_at_unix_ms: u64) {
-        let next = {
-            let mut state = self.lock_state();
-            if !state.monitor.enabled
-                || !state.monitor.wall_clocks.reconcile_watch_transition(transition, observed_at_unix_ms)
-            {
-                return;
-            }
-            state.clone()
-        };
-        self.tx.send_replace(next);
+    pub fn set_monitor_wall_clocks(&self, clocks: MonitorWallClockState) {
+        self.update(|state| state.monitor.wall_clocks = clocks);
     }
 
     pub fn set_run_catalog_sync(&self, run_catalog_sync: Option<RunCatalogSync>) {
