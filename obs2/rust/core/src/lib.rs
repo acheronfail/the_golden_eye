@@ -23,24 +23,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub use ge_catalog as db;
 #[cfg(feature = "test-hooks")]
 use ge_clip::ClipMetadata;
-pub use ge_cv as cv;
-pub use ge_game as ge;
-use http::{
-    AppEvent,
-    AppSnapshot,
-    AppState,
-    AppStateInner,
-    MonitorSnapshot,
-    MonitorStoppedReason,
-    RecordingStateStore,
-    SharedStateStore,
-};
+use http::{AppEvent, AppSnapshot, AppState, AppStateInner, MonitorSnapshot, MonitorStoppedReason, SharedStateStore};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
+pub use {ge_catalog as db, ge_cv as cv, ge_game as ge};
 
+use crate::recording::RecordingStateStore;
 use crate::settings::{SettingsReload, SettingsStore};
 
 pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");

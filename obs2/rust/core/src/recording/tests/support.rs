@@ -13,10 +13,10 @@ use crate::http::{
     AppSnapshot,
     MonitorSnapshot,
     RecordingSavePending,
-    RecordingStateStore,
     ReplaySaveStateStore,
     SharedStateStore,
 };
+use crate::recording::RecordingStateStore;
 use crate::template_tokens::format_iso_local;
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
