@@ -152,7 +152,7 @@ const LANGUAGE_START_REGION: (f64, f64, f64, f64) = (0.68, 0.035, 0.30, 0.35);
 // The mission-select grid carries none of the shared header colons, so the gate
 // rejects it. It is instead recognized by its film-strip divider (static, en/jp
 // identical); strongest match above this threshold classifies it as `Levels`.
-const LEVELS_THRESHOLD: f64 = 0.68;
+const LEVELS_THRESHOLD: f64 = 0.70;
 // (x, y, w, h) as fractions of the frame: a band over the left half of the film
 // strip spanning the first two inter-row dividers. Two give redundancy (the
 // crosshair can cover one); a tight band keeps the match cheap.
@@ -160,10 +160,9 @@ const LEVELS_REGION: (f64, f64, f64, f64) = (0.04, 0.20, 0.52, 0.42);
 
 // Correlation needed to accept an individual digit/colon glyph.
 const GLYPH_THRESHOLD: f64 = 0.78;
-// Colon correlation required to anchor a mission-number search. Higher than the
-// glyph threshold: real header colons clear it, but the tiny colon template
-// won't match background texture (each false hit is expensive).
-const COLON_ANCHOR_THRESHOLD: f64 = 0.86;
+// Match the header gate's colon threshold: GPU-downscaled HDMI captures can
+// fall below 0.86. The adjacent digit must still clear its own glyph threshold.
+const COLON_ANCHOR_THRESHOLD: f64 = 0.84;
 // The entry gate admits a frame only with two header colons AND at least one
 // confident match. Thresholds sit low (0.8s / 0.85) to admit blurry composite/
 // HDMI grabs yet reject gameplay; any non-stats frame that slips in reads no times.
@@ -599,9 +598,8 @@ fn load_template(dir: &str, lang: &str, name: &str) -> Result<Mat> {
     // where '/' is a literal char, so `format!("{dir}/...")` would silently miss
     // every template. `Path::join` uses the native separator and stays correct.
     let path = std::path::Path::new(dir).join(format!("{lang}-{name}.png"));
-    // Some templates are intentionally absent for a language (e.g. jp has no
-    // difficulty-select banner). Skip the read to avoid a spurious OpenCV
-    // warning; an empty Mat means "no template" to every caller.
+    // Skip missing templates without an OpenCV warning; an empty Mat means
+    // "no template" to every caller.
     if !path.exists() {
         return Ok(Mat::default());
     }
@@ -631,8 +629,8 @@ fn blurred(tmpl: &Mat) -> Result<Mat> {
 
 // Returns `tmpl` resized by `scale` then softened to match blurry sources.
 fn scaled(tmpl: &Mat, scale: f64) -> Result<Mat> {
-    // A missing template loads as an empty Mat (e.g. jp has no difficulty-select
-    // banner); resizing it would assert, so pass it through untouched.
+    // A missing template loads as an empty Mat; resizing it would assert,
+    // so pass it through untouched.
     if tmpl.empty() {
         return tmpl.try_clone();
     }
@@ -1245,12 +1243,17 @@ fn find_times_band(
         colons.len(),
         times.iter().map(|t| (t.x, t.y, t.seconds)).collect::<Vec<_>>()
     );
-    let line_bucket = digit_h as f64 * 0.5;
-    times.sort_by(|a, b| {
-        let ra = (a.y as f64 / line_bucket).round() as i32;
-        let rb = (b.y as f64 / line_bucket).round() as i32;
-        if ra != rb { ra.cmp(&rb) } else { a.x.cmp(&b.x) }
-    });
+    // Group rows by proximity before sorting left-to-right. Absolute y buckets
+    // can split one row when two colon detections differ by just one pixel.
+    times.sort_by_key(|time| time.y);
+    let mut row_start = 0;
+    while row_start < times.len() {
+        let row_y = times[row_start].y;
+        let row_end =
+            row_start + times[row_start..].partition_point(|time| (time.y - row_y) as f64 <= digit_h as f64 * 0.5);
+        times[row_start..row_end].sort_by_key(|time| time.x);
+        row_start = row_end;
+    }
 
     // A time-colon can register twice when a side-lobe peak survives suppression,
     // yielding a duplicate time. Collapse times whose colons sit within a glyph;

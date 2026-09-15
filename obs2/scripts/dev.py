@@ -29,10 +29,12 @@ PLUGIN_BUILD_DIR = ROOT / "obs2" / "build-flatpak" if IS_LINUX else BUILD_DIR
 RUST_ROOT = ROOT / "obs2" / "rust"
 RUST_WATCH_PATHS = [
     RUST_ROOT / "Cargo.toml",
-    RUST_ROOT / "core" / "Cargo.toml",
-    RUST_ROOT / "core" / "src",
-    RUST_ROOT / "settings" / "Cargo.toml",
-    RUST_ROOT / "settings" / "src",
+    RUST_ROOT / "Cargo.lock",
+    *(
+        path
+        for manifest in sorted(RUST_ROOT.glob("*/Cargo.toml"))
+        for path in (manifest, manifest.parent / "src")
+    ),
 ]
 PLUGIN_NAME = "the_golden_eye"
 DEFAULT_SERVER_PORT = (ROOT / "obs2" / "server-port.txt").read_text().strip()
