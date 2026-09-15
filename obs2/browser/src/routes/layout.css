@@ -139,6 +139,11 @@
 			sans-serif;
 	}
 
+	html:has([data-minimal-overlay]),
+	body:has([data-minimal-overlay]) {
+		@apply min-w-0 bg-transparent;
+	}
+
 	::selection {
 		@apply bg-(--obs-gold) text-[#111318];
 	}
