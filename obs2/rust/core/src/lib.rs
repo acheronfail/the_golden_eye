@@ -21,11 +21,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+pub use ge_catalog as db;
 #[cfg(feature = "test-hooks")]
 use ge_clip::ClipMetadata;
+pub use ge_cv as cv;
+pub use ge_game as ge;
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
-pub use {ge_catalog as db, ge_cv as cv, ge_game as ge};
 
 use crate::app::AppState;
 use crate::run_monitoring::StopReason;
