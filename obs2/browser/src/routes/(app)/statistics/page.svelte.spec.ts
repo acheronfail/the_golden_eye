@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { statisticsFixture } from '../../stories/features/statistics/statisticsFixtures';
+import { statisticsFixture } from '../../../stories/features/statistics/statisticsFixtures';
 import { STATISTICS_PREFERENCES_STORAGE_KEY } from '$lib/features/statistics/statisticsPreferences';
 import StatisticsPage from './+page.svelte';
 
