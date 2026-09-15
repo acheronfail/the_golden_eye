@@ -438,11 +438,6 @@
 	{/if}
 
 	{#if imageData}
-		<ScreenshotDatasetControls
-			{imageData}
-			language={screenshotLang}
-			streaming={Boolean(screenshottingSource)}
-			close={clearImageData}
-		/>
+		<ScreenshotDatasetControls {imageData} streaming={Boolean(screenshottingSource)} close={clearImageData} />
 	{/if}
 </div>

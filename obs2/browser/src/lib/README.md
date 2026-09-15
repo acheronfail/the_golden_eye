@@ -12,6 +12,9 @@ calculations, and tests together instead of separating them into catch-all techn
 - `developer/` contains developer-only UI and logic.
 - `test/`, `assets/`, and `api.ts` contain shared infrastructure, static assets, and API contracts.
 
+The socket store owns connection and typed dispatch. Settings and YouTube stores own their state
+updates and notification policies.
+
 Feature directories stay flat by default. Give a complex component its own PascalCase directory only
 when it has meaningful private children or implementation modules, as `ui/Chart/` and
 `features/monitor/KiaDeathOverlay/` do.

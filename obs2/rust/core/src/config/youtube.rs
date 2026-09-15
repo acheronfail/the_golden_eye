@@ -78,7 +78,7 @@ impl YoutubeEndpoints {
             token_url: TOKEN_URL.to_owned(),
             upload_url: UPLOAD_URL.to_owned(),
             userinfo_url: USERINFO_URL.to_owned(),
-            redirect_uri: super::loopback_http_url(crate::http::OAUTH_CALLBACK_PATH),
+            redirect_uri: super::loopback_http_url(crate::youtube_uploads::OAUTH_CALLBACK_PATH),
         }
     }
 
@@ -120,7 +120,7 @@ pub(crate) mod test_hooks {
             userinfo_url: USERINFO_URL_OVERRIDE.string().unwrap_or_else(|| USERINFO_URL.to_owned()),
             redirect_uri: REDIRECT_URI_OVERRIDE
                 .string()
-                .unwrap_or_else(|| super::super::loopback_http_url(crate::http::OAUTH_CALLBACK_PATH)),
+                .unwrap_or_else(|| super::super::loopback_http_url(crate::youtube_uploads::OAUTH_CALLBACK_PATH)),
         }
     }
 

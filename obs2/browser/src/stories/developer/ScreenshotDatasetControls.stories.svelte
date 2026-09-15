@@ -10,11 +10,10 @@
 		component: ScreenshotDatasetControls,
 		args: {
 			imageData: preview,
-			language: 'en',
 			close: () => {}
 		}
 	});
 </script>
 
-<Story name="English" />
-<Story name="Japanese streaming" args={{ language: 'jp', streaming: true }} />
+<Story name="Default" />
+<Story name="Streaming" args={{ streaming: true }} />

@@ -4,8 +4,8 @@ use axum::extract::State;
 use axum::http::header;
 use axum::response::{IntoResponse, Result};
 
+use crate::app::AppState;
 use crate::config;
-use crate::http::AppState;
 
 // The bundled web app, built by cmake.
 const APP_BUNDLE_HTML: &str = include_str!(env!("BROWSER_BUNDLE"));

@@ -21,7 +21,7 @@ pub use ge_settings::{UpdateCheckInterval, YoutubeVisibility};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::recording::RecordingOptions;
+use crate::run_monitoring::RecordingOptions;
 
 pub(crate) const SETTINGS_FILE_NAME: &str = "settings.json";
 pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "GoldenEye";
@@ -346,7 +346,7 @@ fn parse_settings_bytes(path: &Path, bytes: Option<&[u8]>) -> anyhow::Result<App
 }
 
 fn apply_runtime_output_path_defaults(settings: AppSettings) -> AppSettings {
-    let replay_output_dir = crate::recording::replay_buffer_output_directory();
+    let replay_output_dir = crate::run_monitoring::replay_buffer_output_directory();
     settings.with_default_output_paths(replay_output_dir.as_deref())
 }
 

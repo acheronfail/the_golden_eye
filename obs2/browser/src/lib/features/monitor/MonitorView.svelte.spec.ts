@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
-import type { LevelMatch, RecordingStatus, RunClip } from '$lib/api';
+import type { LevelMatch, MonitorWallClockState, RecordingStatus, RunClip } from '$lib/api';
 import { DEFAULT_SETTINGS } from '$lib/generated/settings';
 import MonitorView from './MonitorView.svelte';
 import type { MonitorDesign } from './monitorView';
@@ -15,12 +15,27 @@ const match = (screen: LevelMatch['screen'], times: LevelMatch['times'] = null):
 	runtime_ms: 8.4
 });
 
+const wallClockState: MonitorWallClockState = {
+	sessionStartedAtUnixMs: null,
+	sessionElapsedMs: 0,
+	sessionRunning: true,
+	levelStartedAtUnixMs: null,
+	levelElapsedMs: 0,
+	levelRunning: false,
+	levelPaused: false,
+	levelStartReason: null,
+	levelTimerPhase: 'awaitingInitialBlack',
+	introSwirlDelayMs: null,
+	fadeDetection: null
+};
+
 const props = (design: MonitorDesign, recordingState: RecordingStatus | null, levelMatch: LevelMatch) => ({
 	design,
 	verified: true,
 	monitoring: true,
 	recordingState,
 	match: levelMatch,
+	wallClockState,
 	onStop: () => {}
 });
 
@@ -75,6 +90,42 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 		expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
 		expect(timers.querySelector('[data-running="true"]')).not.toBeNull();
 		expect(timers.querySelector('[data-running="false"]')).not.toBeNull();
+	});
+
+	it('keeps backend timer state when monitoring and detected screens change', async () => {
+		const snapshot: MonitorWallClockState = {
+			...wallClockState,
+			sessionRunning: false,
+			levelElapsedMs: 2_500,
+			levelPaused: true,
+			levelTimerPhase: 'running'
+		};
+		const view = render(MonitorView, {
+			...props(design, 'started', match('unknown')),
+			wallClockState: snapshot,
+			showInGameTimer: true
+		});
+		const levelTimer = screen.getByRole('button', { name: /Time in level/ });
+		expect(levelTimer.querySelector('strong')).toHaveTextContent('00:02:500');
+		await view.rerender({
+			...props(design, null, match('start')),
+			monitoring: false,
+			wallClockState: snapshot,
+			showInGameTimer: true
+		});
+		expect(levelTimer.querySelector('strong')).toHaveTextContent('00:02:500');
+	});
+
+	it('keeps timers idle before the first backend snapshot', () => {
+		const view = render(MonitorView, {
+			...props(design, 'started', match('start')),
+			wallClockState: null,
+			showInGameTimer: true
+		});
+		expect(view.container.querySelector('[data-running="true"]')).toBeNull();
+		expect(screen.getByRole('button', { name: /Time in level/ }).querySelector('strong')).toHaveTextContent(
+			'00:00:000'
+		);
 	});
 
 	it('toggles the level timer while preserving the session timer', async () => {

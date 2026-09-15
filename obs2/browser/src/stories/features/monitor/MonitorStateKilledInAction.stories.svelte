@@ -7,7 +7,12 @@
 		title: 'Monitor/Monitor states/Killed in action',
 		component: MonitorView,
 		parameters: { layout: 'fullscreen' },
-		args: { ...monitorBaseArgs, recordingState: 'kia', match: match('kia') }
+		args: {
+			...monitorBaseArgs,
+			wallClockState: { ...monitorBaseArgs.wallClockState, levelTimerPhase: 'stopped' },
+			recordingState: 'kia',
+			match: match('kia')
+		}
 	});
 </script>
 

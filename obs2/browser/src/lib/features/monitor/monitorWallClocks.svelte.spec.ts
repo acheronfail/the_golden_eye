@@ -1,3 +1,4 @@
+import type { MonitorWallClockState } from '$lib/api';
 import { describe, expect, it } from 'vitest';
 import { formatWallClockTime, MonitorWallClocks, type AnimationClock } from './monitorWallClocks.svelte';
 
@@ -25,98 +26,57 @@ class FakeAnimationClock implements AnimationClock {
 	}
 }
 
+const idleState: MonitorWallClockState = {
+	sessionStartedAtUnixMs: null,
+	sessionElapsedMs: 0,
+	sessionRunning: false,
+	levelStartedAtUnixMs: null,
+	levelElapsedMs: 0,
+	levelRunning: false,
+	levelPaused: false,
+	levelStartReason: null,
+	levelTimerPhase: 'idle',
+	introSwirlDelayMs: null,
+	fadeDetection: null
+};
+
 describe('MonitorWallClocks', () => {
-	it('counts session wall time from the monitoring rising edge and preserves it when stopped', () => {
+	it('stays idle until a backend snapshot arrives', () => {
 		const clock = new FakeAnimationClock();
 		const timers = new MonitorWallClocks(clock);
+		clock.advance(5_000);
+		expect(timers.snapshot()).toMatchObject({
+			sessionElapsedMs: 0,
+			sessionRunning: false,
+			levelElapsedMs: 0,
+			levelTimerPhase: 'idle'
+		});
+	});
 
-		timers.reconcile(false, null);
-		expect(timers.snapshot()).toMatchObject({ sessionElapsedMs: 0, sessionRunning: false });
-
-		timers.reconcile(true, 'unknown');
-		clock.advance(61_234);
-		expect(timers.snapshot()).toMatchObject({ sessionElapsedMs: 61_234, sessionRunning: true });
-
-		timers.reconcile(false, 'unknown');
+	it('uses backend elapsed time when stopping and resetting a session', () => {
+		const clock = new FakeAnimationClock();
+		const timers = new MonitorWallClocks(clock);
+		timers.sync({ ...idleState, sessionRunning: true, sessionElapsedMs: 1_000 });
 		clock.advance(2_000);
-		expect(timers.snapshot()).toMatchObject({ sessionElapsedMs: 61_234, sessionRunning: false });
+		expect(timers.sessionElapsedMs).toBe(3_000);
+		timers.sync({ ...idleState, sessionElapsedMs: 2_750 });
+		clock.advance(2_000);
+		expect(timers.sessionElapsedMs).toBe(2_750);
+		expect(timers.sessionRunning).toBe(false);
+		timers.sync({ ...idleState, sessionRunning: true });
+		expect(timers.sessionElapsedMs).toBe(0);
 	});
 
-	it('keeps fallback level time at zero while backend fade state is unavailable', () => {
+	it('does not advance the timer phase while waiting for backend fade detection', () => {
 		const clock = new FakeAnimationClock();
 		const timers = new MonitorWallClocks(clock);
-
-		timers.reconcile(true, 'start');
-		clock.advance(500);
+		timers.sync({ ...idleState, sessionRunning: true, levelTimerPhase: 'awaitingInitialBlack' });
+		clock.advance(10_000);
 		expect(timers.snapshot()).toMatchObject({
 			levelElapsedMs: 0,
 			levelRunning: false,
 			levelTimerPhase: 'awaitingInitialBlack'
 		});
-
-		timers.reconcile(true, 'unknown');
-		clock.advance(2_345);
-		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 0, levelRunning: false });
-
-		timers.reconcile(true, 'stats');
-		clock.advance(1_000);
-		expect(timers.snapshot()).toMatchObject({
-			levelElapsedMs: 0,
-			levelRunning: false,
-			levelTimerPhase: 'stopped'
-		});
-
-		timers.reconcile(true, 'unknown');
-		clock.advance(1_000);
-		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 0, levelRunning: false });
-	});
-
-	it('accepts the title-cased screen values emitted by the production matcher', () => {
-		const clock = new FakeAnimationClock();
-		const timers = new MonitorWallClocks(clock);
-
-		timers.reconcile(true, 'Start');
-		timers.reconcile(true, 'Unknown');
-		clock.advance(1_250);
-
-		expect(timers.snapshot()).toMatchObject({
-			levelElapsedMs: 0,
-			levelRunning: false,
-			levelTimerPhase: 'awaitingInitialBlack'
-		});
-	});
-
-	it('treats the title-cased 007 options screen as a launch screen', () => {
-		const clock = new FakeAnimationClock();
-		const timers = new MonitorWallClocks(clock);
-
-		timers.reconcile(true, 'Opts007');
-		clock.advance(1_250);
-
-		expect(timers.snapshot()).toMatchObject({
-			levelElapsedMs: 0,
-			levelRunning: false,
-			levelTimerPhase: 'awaitingInitialBlack'
-		});
-	});
-
-	it('stays stopped when a known level screen follows start and resets on the next start', () => {
-		const clock = new FakeAnimationClock();
-		const timers = new MonitorWallClocks(clock);
-
-		timers.reconcile(true, 'start');
-		timers.reconcile(true, 'level');
-		timers.reconcile(true, 'unknown');
-		clock.advance(900);
-		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 0, levelRunning: false });
-
-		timers.reconcile(true, 'start');
-		timers.reconcile(true, 'unknown');
-		clock.advance(400);
-		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 0, levelRunning: false });
-
-		timers.reconcile(true, 'start');
-		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 0, levelRunning: false });
 	});
 
 	it('seeds running and stopped timers from backend timestamps after a reload', () => {
@@ -210,6 +170,17 @@ describe('MonitorWallClocks', () => {
 			levelPaused: true,
 			levelTimerPhase: 'running'
 		});
+		timers.sync({
+			...idleState,
+			sessionRunning: true,
+			levelElapsedMs: 2_500,
+			levelStartedAtUnixMs: clock.wallTime - 2_500,
+			levelRunning: true,
+			levelTimerPhase: 'running',
+			levelStartReason: 'fade'
+		});
+		clock.advance(1_000);
+		expect(timers.snapshot()).toMatchObject({ levelElapsedMs: 3_500, levelRunning: true, levelPaused: false });
 	});
 });
 

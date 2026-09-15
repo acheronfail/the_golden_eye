@@ -1,6 +1,3 @@
-use std::ffi::CString;
-use std::sync::atomic::Ordering;
-
 use axum::Json;
 use axum::body::Bytes;
 use axum::extract::{Query, State};
@@ -8,8 +5,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::cv::{LevelMatch, PhaseTimer};
-use crate::http::AppState;
+use crate::app::AppState;
+use crate::capture_tools::matching::{self, MatchError, MatchResponse};
 
 #[derive(Deserialize)]
 pub struct Params {
@@ -20,19 +17,6 @@ pub struct Params {
     /// Whether to include developer annotation sets in the match result.
     #[serde(default)]
     annotations: bool,
-}
-
-#[derive(Serialize, ts_rs::TS)]
-#[ts(rename = "MatchSourceResponse")]
-pub struct MatchResponse {
-    #[serde(rename = "match")]
-    level_match: LevelMatch,
-    #[serde(rename = "annotationsEnabled")]
-    annotations_enabled: bool,
-    #[serde(rename = "frameWidth")]
-    frame_width: u32,
-    #[serde(rename = "frameHeight")]
-    frame_height: u32,
 }
 
 #[derive(Deserialize)]
@@ -50,7 +34,7 @@ pub async fn handle_annotations(
     State(state): State<AppState>,
     Json(params): Json<AnnotationParams>,
 ) -> Json<AnnotationResponse> {
-    state.monitor_annotations_enabled.store(params.annotations, Ordering::Release);
+    state.monitor.set_annotations_enabled(params.annotations);
     Json(AnnotationResponse { annotations_enabled: params.annotations })
 }
 
@@ -63,68 +47,26 @@ pub struct UploadParams {
     annotations: bool,
 }
 
-/// Matches an image uploaded in the request body (PNG/BMP), for the developer
-/// tool's drag-and-drop frame inspector. Coordinates in the result/annotations
-/// are in the uploaded image's pixel space.
 pub async fn handle_upload(Query(params): Query<UploadParams>, body: Bytes) -> Result<Json<MatchResponse>> {
-    if body.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "empty image body").into());
-    }
-    let Some(template_dir) = crate::cv::template_dir() else {
-        tracing::error!("CV template directory is not set");
-        return Err((StatusCode::INTERNAL_SERVER_ERROR, "CV template directory is not set").into());
-    };
-    let matcher = crate::cv::CvMatcher::new(&params.lang, &template_dir)
-        .map_err(|err| {
-            tracing::error!("failed to init matcher: {err}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher")
-        })?
-        .with_diagnostics(params.annotations);
-    let annotations_enabled = matcher.diagnostics_enabled();
-
-    let (level_match, width, height) = matcher.match_level_from_encoded_image(&body).map_err(|err| {
-        tracing::error!("failed to decode/match uploaded image: {err}");
-        (StatusCode::BAD_REQUEST, "could not decode the uploaded image")
-    })?;
-
-    Ok(Json(MatchResponse { level_match, annotations_enabled, frame_width: width, frame_height: height }))
+    matching::match_image(&params.lang, params.annotations, &body)
+        .map(Json)
+        .map_err(|error| match_error_response(error).into())
 }
 
 pub async fn handler(Query(params): Query<Params>) -> Result<impl IntoResponse> {
-    let source_name =
-        CString::new(params.source).map_err(|_| (StatusCode::BAD_REQUEST, "source name contains a null byte"))?;
+    matching::match_source(params.source, &params.lang, params.annotations)
+        .map(Json)
+        .map_err(|error| match_error_response(error).into())
+}
 
-    let mut timer = PhaseTimer::new();
-    let Some(template_dir) = crate::cv::template_dir() else {
-        tracing::error!("CV template directory is not set");
-        return Err((StatusCode::INTERNAL_SERVER_ERROR, "CV template directory is not set").into());
-    };
-    let matcher = crate::cv::CvMatcher::new(&params.lang, &template_dir).map_err(|err| {
-        tracing::error!("failed to init matcher: {err}");
-        (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher")
-    })?;
-    let matcher = matcher.with_diagnostics(params.annotations);
-    let annotations_enabled = matcher.diagnostics_enabled();
-    timer.lap("matcher init");
-
-    let frame = crate::obs::capture_source_frame(&source_name)
-        .ok_or((StatusCode::NOT_FOUND, "could not capture source frame"))?;
-
-    timer.lap("obs frame");
-
-    let level_match = matcher.match_level_from_bgra_bytes(frame.bytes(), frame.width(), frame.height());
-    timer.lap("cv match");
-    tracing::info!(?level_match, "match result");
-
-    let level_match = level_match.map_err(|err| {
-        tracing::error!("failed to match level: {err}");
-        (StatusCode::INTERNAL_SERVER_ERROR, "failed to match level")
-    })?;
-
-    Ok(Json(MatchResponse {
-        level_match,
-        annotations_enabled,
-        frame_width: frame.width(),
-        frame_height: frame.height(),
-    }))
+fn match_error_response(error: MatchError) -> (StatusCode, &'static str) {
+    match error {
+        MatchError::EmptyImage => (StatusCode::BAD_REQUEST, "empty image body"),
+        MatchError::InvalidSource => (StatusCode::BAD_REQUEST, "source name contains a null byte"),
+        MatchError::MissingTemplates => (StatusCode::INTERNAL_SERVER_ERROR, "CV template directory is not set"),
+        MatchError::MatcherUnavailable => (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher"),
+        MatchError::InvalidImage => (StatusCode::BAD_REQUEST, "could not decode the uploaded image"),
+        MatchError::CaptureUnavailable => (StatusCode::NOT_FOUND, "could not capture source frame"),
+        MatchError::MatchFailed => (StatusCode::INTERNAL_SERVER_ERROR, "failed to match level"),
+    }
 }

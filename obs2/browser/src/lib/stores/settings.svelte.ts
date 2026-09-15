@@ -1,3 +1,9 @@
+import {
+	addNotificationFlag,
+	dismissNotificationFlag,
+	dismissNotificationFlagsByKey,
+	replaceNotificationFlag
+} from '$lib/stores/notifications.svelte';
 import { browser } from '$app/environment';
 import { backend, type SettingsStatus } from '$lib/api';
 import {
@@ -58,6 +64,7 @@ export const settings = new (class {
 
 	private savePromise: Promise<void> | null = null;
 	private saveQueued = false;
+	private errorNotificationId: number | null = null;
 
 	recordingOptions: RecordingOptions = $derived({
 		completedOutputPath: this.values.completedOutputPath.trim(),
@@ -124,6 +131,48 @@ export const settings = new (class {
 			this.saveQueued = false;
 			if (this.dirty) await this.saveNow();
 		}
+	}
+
+	handleSnapshot(status: SettingsStatus): void {
+		if (this.dirty) return;
+		this.applyStatus(status);
+		if (this.fileError) this.showSettingsError(this.fileError);
+		else this.dismissSettingsError();
+	}
+
+	handleReloaded(next: AppSettings, configPath: string): void {
+		this.applyReloaded(next, configPath);
+		this.dismissSettingsError();
+		addNotificationFlag({ title: 'Config reloaded', detail: configPath, tone: 'success' });
+	}
+
+	handleInvalid(error: string, configPath: string): void {
+		this.applyInvalid(error, configPath);
+		this.showSettingsError(error);
+	}
+
+	private dismissSettingsError(): void {
+		dismissNotificationFlagsByKey('settings-config-error');
+		if (this.errorNotificationId !== null) {
+			dismissNotificationFlag(this.errorNotificationId);
+			this.errorNotificationId = null;
+		}
+	}
+
+	private showSettingsError(error: string): void {
+		const notification = {
+			key: 'settings-config-error',
+			title: 'Config file invalid',
+			detail: error,
+			meta: 'Click here to open options.',
+			tone: 'error' as const,
+			sticky: true,
+			href: '/options'
+		};
+		if (this.errorNotificationId !== null && replaceNotificationFlag(this.errorNotificationId, notification)) {
+			return;
+		}
+		this.errorNotificationId = addNotificationFlag(notification).id;
 	}
 
 	applyStatus(status: SettingsStatus): void {

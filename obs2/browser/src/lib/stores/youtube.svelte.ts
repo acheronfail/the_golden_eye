@@ -1,3 +1,4 @@
+import { addNotificationFlag } from '$lib/stores/notifications.svelte';
 import {
 	backend,
 	type YouTubeStatus,
@@ -37,6 +38,7 @@ export const youtube = new (class {
 	account = $state<YouTubeAccount | null>(null);
 	uploads = $state<YouTubeUploadStatus[]>([]);
 	history = $state<YouTubeUploadHistoryEntry[]>([]);
+	private notifiedFailedIds = new Set<string>();
 
 	async load(): Promise<void> {
 		this.loading = true;
@@ -121,6 +123,22 @@ export const youtube = new (class {
 		this.uploads = status.uploads;
 		this.history = status.history;
 		this.loaded = true;
+	}
+
+	handleUploadChanged(upload: YouTubeUploadStatus): void {
+		this.applyUpload(upload);
+		if (upload.state === 'failed' && !this.notifiedFailedIds.has(upload.id)) {
+			this.notifiedFailedIds.add(upload.id);
+			addNotificationFlag({
+				key: `youtube-upload-${upload.id}`,
+				title: 'YouTube upload failed',
+				detail: upload.title || upload.fileName,
+				meta: 'Click here to view the run.',
+				tone: 'error' as const,
+				timeoutMs: 8000,
+				href: `/runs?runId=${encodeURIComponent(upload.runId)}`
+			});
+		}
 	}
 
 	applyUpload(status: YouTubeUploadStatus): void {

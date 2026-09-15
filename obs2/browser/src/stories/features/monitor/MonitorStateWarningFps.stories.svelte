@@ -11,6 +11,7 @@
 			...monitorBaseArgs,
 			recordingState: 'started',
 			match: match('start'),
+			wallClockState: { ...monitorBaseArgs.wallClockState, levelTimerPhase: 'awaitingInitialBlack' },
 			showMonitorFps: true,
 			fps: { processedFps: 59, capturedFps: 60, sourceFps: 60, droppedFrames: 1, health: 'warning' }
 		}

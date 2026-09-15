@@ -25,7 +25,7 @@ export interface MonitorViewProps {
 	fps?: MonitorFps | null;
 	showMonitorFps?: boolean;
 	showInGameTimer?: boolean;
-	wallClockState?: MonitorWallClockState | null;
+	wallClockState: MonitorWallClockState | null;
 	recentRuns?: RunClip[];
 	recentRunsBusyId?: string | null;
 	recentRunsError?: string | null;
@@ -69,7 +69,7 @@ export const monitorPresentation = ({
 	recordingState = null,
 	match = null,
 	fps = null
-}: MonitorViewProps): MonitorPresentation => {
+}: Omit<MonitorViewProps, 'wallClockState'>): MonitorPresentation => {
 	const waitingForObs = transition !== null;
 	const transitionCopy = transition === null ? null : TRANSITION_COPY[transition];
 	const title = waitingForObs ? 'waiting for OBS' : monitorPhaseStyle(recordingState).title;

@@ -32,3 +32,12 @@ pub use frontend::{
 pub use logging::{GeLogLevel, log};
 pub use raw::{GeCaptureRegion, GeCaptureTimings};
 pub use task::queue_ui_task;
+
+mod replay_status;
+mod sources;
+pub use replay_status::{ReplayBufferStatus, current_replay_buffer_status};
+pub use sources::{Source, collect_sources};
+
+pub(crate) mod browser_dock;
+
+pub(crate) mod frame_capture;

@@ -7,7 +7,12 @@
 		title: 'Monitor/Monitor states/Verifying source',
 		component: MonitorView,
 		parameters: { layout: 'fullscreen' },
-		args: { ...monitorBaseArgs, verified: false, monitoring: false }
+		args: {
+			...monitorBaseArgs,
+			verified: false,
+			monitoring: false,
+			wallClockState: { ...monitorBaseArgs.wallClockState, sessionRunning: false }
+		}
 	});
 </script>
 

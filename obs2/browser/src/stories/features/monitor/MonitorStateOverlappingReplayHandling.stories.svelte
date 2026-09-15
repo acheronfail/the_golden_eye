@@ -13,6 +13,7 @@
 			...monitorBaseArgs,
 			recordingState: 'started',
 			match: match('start'),
+			wallClockState: { ...monitorBaseArgs.wallClockState, levelTimerPhase: 'awaitingInitialBlack' },
 			replaySaves: [
 				{
 					trackingId: 43,

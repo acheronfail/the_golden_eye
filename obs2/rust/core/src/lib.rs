@@ -1,18 +1,18 @@
 mod api_contract;
-mod browser;
-mod browser_dock;
+mod app;
+mod capture_tools;
 pub mod config;
+mod desktop;
 mod http;
 mod logging;
 mod obs;
-mod recording;
+mod plugin_updates;
+mod run_library;
+mod run_monitoring;
 mod settings;
-mod stream_notifier;
+mod streaming_notifications;
 mod template_tokens;
-mod the_elite;
-mod update_apply;
-mod updates;
-mod youtube;
+mod youtube_uploads;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -26,20 +26,13 @@ pub use ge_catalog as db;
 use ge_clip::ClipMetadata;
 pub use ge_cv as cv;
 pub use ge_game as ge;
-use http::{
-    AppEvent,
-    AppSnapshot,
-    AppState,
-    AppStateInner,
-    MonitorSnapshot,
-    MonitorStoppedReason,
-    RecordingStateStore,
-    SharedStateStore,
-};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
-use crate::settings::{SettingsReload, SettingsStore};
+use crate::app::AppState;
+use crate::run_monitoring::StopReason;
+use crate::run_monitoring::replay_buffer::{REPLAY_BUFFER, ReplayEvent};
+use crate::settings::SettingsStore;
 
 pub(crate) const PLUGIN_VERSION: &str = env!("GE_PLUGIN_VERSION");
 pub(crate) const UPDATER_VERSION: &str = env!("GE_UPDATER_VERSION");
@@ -81,7 +74,7 @@ fn configure_cv_runtime() {
 /// Ensures the OBS custom browser dock is registered during OBS module post-load.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_browser_dock_post_load() {
-    browser_dock::post_load();
+    obs::browser_dock::post_load();
 }
 
 #[cfg(feature = "test-hooks")]
@@ -125,7 +118,7 @@ struct ServerHandle {
 
 /// Global handle to the running server. `None` when the server is stopped.
 static SERVER: Mutex<Option<ServerHandle>> = Mutex::new(None);
-static PENDING_RUNTIME_DATA: Mutex<Option<update_apply::RuntimeDataTransaction>> = Mutex::new(None);
+static PENDING_RUNTIME_DATA: Mutex<Option<plugin_updates::installation::RuntimeDataTransaction>> = Mutex::new(None);
 
 #[derive(Clone)]
 struct UpdatePaths {
@@ -165,25 +158,12 @@ pub unsafe extern "C" fn ge_rust_set_update_paths(core_path: *const c_char, stag
 /// `reloaded_at` so a client can be told "the plugin just updated".
 static WAS_RELOADED: AtomicBool = AtomicBool::new(false);
 
-fn initial_update_status(was_reloaded: bool, staged_update_present: bool) -> updates::UpdateStatus {
-    if !was_reloaded && staged_update_present {
-        updates::UpdateStatus { phase: updates::UpdatePhase::Staged, available: None }
-    } else {
-        updates::UpdateStatus::default()
-    }
-}
-
 /// Called by the C core (`ge_core_load`) to report whether this load followed
 /// a reload (an applied update) rather than a cold OBS start or a rollback.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_rust_set_was_reloaded(was_reloaded: bool) {
     WAS_RELOADED.store(was_reloaded, Ordering::Release);
 }
-/// Whether OBS began its replay-buffer stop while a monitor was still active.
-/// Intentional shutdown removes the monitor first; an unexpected OBS stop doesn't.
-/// Snapshot at STOPPING so a stale STOPPED event can't tear down a replacement monitor.
-static REPLAY_STOP_SHOULD_STOP_MONITOR: AtomicBool = AtomicBool::new(false);
-
 // Standalone test executables never call OBS, but still need these symbols.
 #[cfg(test)]
 #[path = "obs_stub.rs"]
@@ -207,7 +187,7 @@ pub extern "C" fn ge_rust_start() -> bool {
 
     let was_reloaded = WAS_RELOADED.load(Ordering::Acquire);
     let data_transaction = if was_reloaded {
-        match update_apply::install_staged_runtime_data() {
+        match plugin_updates::installation::install_staged_runtime_data() {
             Ok(transaction) => Some(transaction),
             Err(error) => {
                 tracing::error!("failed to install staged runtime data: {error:#}");
@@ -221,7 +201,7 @@ pub extern "C" fn ge_rust_start() -> bool {
     configure_cv_runtime();
     configure_cv_template_dir();
 
-    let settings = SettingsStore::load_default();
+    let settings = Arc::new(SettingsStore::load_default());
     let catalog_was_missing = !crate::db::run_catalog::RunCatalog::exists_for_settings(settings.path());
     let run_catalog = match crate::db::run_catalog::RunCatalog::open_for_settings(settings.path()) {
         Ok(catalog) => Arc::new(catalog),
@@ -256,48 +236,7 @@ pub extern "C" fn ge_rust_start() -> bool {
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
-    let snapshot = SharedStateStore::new(AppSnapshot {
-        monitor: MonitorSnapshot {
-            enabled: false,
-            source_name: None,
-            cv_language: None,
-            wall_clocks: http::MonitorWallClockState::default(),
-        },
-        level_match: None,
-        run_catalog_sync: None,
-        recording_state: None,
-        replay_saves: Vec::new(),
-        sources: Vec::new(),
-        replay_buffer: http::ReplayBufferStatus::unknown(),
-        settings_status: settings.status_without_runtime_defaults(),
-        // During a reload the shim removes the consumed staged directory only
-        // after this new core starts, so it must not be advertised as pending.
-        update: initial_update_status(was_reloaded, update_apply::has_staged_update()),
-    });
-    // One-off monitor events (recording saved, ...). Capacity bounds how far a
-    // slow client can lag before it drops events; the worker ignores send errors,
-    // so a full/empty channel never blocks frame processing.
-    let (event_tx, _) = tokio::sync::broadcast::channel(64);
-    let (frontend_ready_tx, _) = tokio::sync::watch::channel(was_reloaded);
-    let recording_state = RecordingStateStore::new(snapshot.clone());
-    let replay_saves = http::ReplaySaveStateStore::new(snapshot.clone());
-    let state = Arc::new(AppStateInner {
-        oauth_pending: tokio::sync::Mutex::new(None),
-        youtube: youtube::YoutubeUploadStore::new(settings.path(), run_catalog.clone()),
-        stream_message: tokio::sync::Mutex::new(None),
-        monitor: std::sync::Mutex::new(None),
-        snapshot,
-        event_tx,
-        recording_state,
-        replay_saves,
-        monitor_annotations_enabled: AtomicBool::new(false),
-        frame_dump: std::sync::Mutex::new(None),
-        frontend_ready_tx,
-        run_catalog,
-        run_catalog_needs_seed: Mutex::new(catalog_needs_seed),
-        settings,
-        reloaded_at: was_reloaded.then(std::time::Instant::now),
-    });
+    let state = app::build_state(settings, run_catalog, catalog_needs_seed, was_reloaded);
 
     if let Some(transaction) = data_transaction {
         let mut pending = PENDING_RUNTIME_DATA.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -318,9 +257,9 @@ pub extern "C" fn ge_rust_start() -> bool {
             tracing::error!("http server exited with error: {error}");
         }
     });
-    runtime.spawn(watch_settings_file(state.clone()));
-    runtime.spawn(updates::check_for_updates_on_startup(state.clone()));
-    runtime.spawn(update_apply::auto_apply_when_safe(state.clone()));
+    runtime.spawn(app::watch_settings_file(state.clone()));
+    runtime.spawn(state.updates.clone().check_for_updates_on_startup());
+    runtime.spawn(state.updates.clone().auto_apply_when_safe());
 
     tracing::info!("server started");
 
@@ -337,30 +276,6 @@ pub extern "C" fn ge_rust_commit_update() {
         transaction.commit();
     } else {
         tracing::warn!("ge_rust_commit_update called without a pending runtime data transaction");
-    }
-}
-
-async fn watch_settings_file(state: AppState) {
-    let mut interval = tokio::time::interval(Duration::from_secs(1));
-    loop {
-        interval.tick().await;
-        match state.settings.reload_from_disk_if_changed() {
-            SettingsReload::Unchanged => {}
-            SettingsReload::Reloaded(settings) => {
-                state.snapshot.set_settings_status(state.settings.status_without_runtime_defaults());
-                let _ = state.event_tx.send(AppEvent::SettingsReloaded {
-                    config_path: state.settings.path().to_string_lossy().into_owned(),
-                    settings: *settings,
-                });
-            }
-            SettingsReload::Invalid(error) => {
-                state.snapshot.set_settings_status(state.settings.status_without_runtime_defaults());
-                let _ = state.event_tx.send(AppEvent::SettingsInvalid {
-                    config_path: state.settings.path().to_string_lossy().into_owned(),
-                    error,
-                });
-            }
-        }
     }
 }
 
@@ -384,8 +299,9 @@ pub extern "C" fn ge_rust_stop() {
     // Join any active monitor before the shim unloads this core, and persist a
     // truthful session end reason for both development reloads and OBS shutdown.
     let state = handle.state.clone();
-    let end_reason = if cfg!(feature = "dev") { "coreReload" } else { "obsShutdown" };
-    let _ = handle.runtime_handle.block_on(http::stop_monitor(&state, end_reason));
+    let end_reason = if cfg!(feature = "dev") { StopReason::CoreReload } else { StopReason::ObsShutdown };
+    handle.runtime_handle.block_on(state.frame_dump.stop());
+    let _ = handle.runtime_handle.block_on(state.monitor.stop(end_reason));
 
     // Signal the server to begin a graceful shutdown. The receiver may already
     // be gone if the server task exited on its own; that's fine.
@@ -432,7 +348,7 @@ pub unsafe extern "C" fn ge_stream_notifier_start(service_settings_json: *const 
         cstr.to_string_lossy().into_owned()
     };
 
-    runtime_handle.spawn(stream_notifier::run(state, settings_json));
+    runtime_handle.spawn(async move { state.notifications.start(settings_json).await });
 }
 
 /// Called from the C core when OBS emits `OBS_FRONTEND_EVENT_FINISHED_LOADING`.
@@ -454,7 +370,7 @@ pub extern "C" fn ge_frontend_finished_loading() {
     };
 
     state.frontend_ready_tx.send_replace(true);
-    state.snapshot.set_sources(http::collect_sources());
+    state.snapshot.set_sources(obs::collect_sources());
     refresh_runtime_snapshot(&state);
 }
 
@@ -465,7 +381,7 @@ fn frontend_ready(state: &AppState) -> bool {
 fn refresh_runtime_snapshot(state: &AppState) {
     if frontend_ready(state) {
         state.snapshot.set_settings_status(state.settings.status());
-        state.snapshot.set_replay_buffer(http::current_replay_buffer_status());
+        state.snapshot.set_replay_buffer(obs::current_replay_buffer_status());
     } else {
         state.snapshot.set_settings_status(state.settings.status_without_runtime_defaults());
     }
@@ -495,7 +411,7 @@ pub extern "C" fn ge_sources_changed() {
         return;
     }
 
-    state.snapshot.set_sources(http::collect_sources());
+    state.snapshot.set_sources(obs::collect_sources());
 }
 
 fn refresh_replay_buffer_snapshot() {
@@ -509,7 +425,7 @@ fn refresh_replay_buffer_snapshot() {
     if let Some(state) = state
         && frontend_ready(&state)
     {
-        state.snapshot.set_replay_buffer(http::current_replay_buffer_status());
+        state.snapshot.set_replay_buffer(obs::current_replay_buffer_status());
     }
 }
 
@@ -527,14 +443,14 @@ pub unsafe extern "C" fn ge_replay_buffer_saved(path: *const c_char) {
         let s = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
         if s.is_empty() { None } else { Some(s) }
     };
-    recording::on_replay_saved(path);
+    REPLAY_BUFFER.handle(ReplayEvent::Saved(path));
 }
 
 /// Called from the OBS frontend event callback on
 /// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTING`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_starting() {
-    recording::on_replay_buffer_starting();
+    REPLAY_BUFFER.handle(ReplayEvent::Starting);
     refresh_replay_buffer_snapshot();
 }
 
@@ -542,7 +458,7 @@ pub extern "C" fn ge_replay_buffer_starting() {
 /// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTED`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_started() {
-    recording::on_replay_buffer_started();
+    REPLAY_BUFFER.handle(ReplayEvent::Started);
     refresh_replay_buffer_snapshot();
 }
 
@@ -550,12 +466,13 @@ pub extern "C" fn ge_replay_buffer_started() {
 /// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPING`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_stopping() {
-    let monitor_active = {
+    {
         let guard = SERVER.lock().unwrap_or_else(|p| p.into_inner());
-        guard.as_ref().is_some_and(|handle| handle.state.monitor.lock().unwrap_or_else(|p| p.into_inner()).is_some())
-    };
-    REPLAY_STOP_SHOULD_STOP_MONITOR.store(monitor_active, Ordering::Release);
-    recording::on_replay_buffer_stopping();
+        if let Some(handle) = guard.as_ref() {
+            handle.state.monitor.replay_buffer_stopping();
+        }
+    }
+    REPLAY_BUFFER.handle(ReplayEvent::Stopping);
     refresh_replay_buffer_snapshot();
 }
 
@@ -563,12 +480,8 @@ pub extern "C" fn ge_replay_buffer_stopping() {
 /// `OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPED`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_replay_buffer_stopped() {
-    recording::on_replay_buffer_stopped();
+    REPLAY_BUFFER.handle(ReplayEvent::Stopped);
     refresh_replay_buffer_snapshot();
-
-    if !REPLAY_STOP_SHOULD_STOP_MONITOR.swap(false, Ordering::AcqRel) {
-        return;
-    }
 
     let (runtime_handle, state) = {
         let guard = match SERVER.lock() {
@@ -584,12 +497,11 @@ pub extern "C" fn ge_replay_buffer_stopped() {
         }
     };
 
-    runtime_handle.spawn(async move {
-        if http::stop_monitor(&state, "replayBufferStopped").await {
-            tracing::warn!("replay buffer stopped while monitoring was active; monitoring disabled");
-            let _ = state.event_tx.send(AppEvent::MonitorStopped { reason: MonitorStoppedReason::ReplayBufferStopped });
-        }
-    });
+    if state.monitor.take_replay_stop_request() {
+        runtime_handle.spawn(async move {
+            state.monitor.stop(StopReason::ReplayBufferStopped).await;
+        });
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -608,7 +520,7 @@ pub extern "C" fn ge_stream_notifier_stop() {
         }
     };
 
-    runtime_handle.spawn(stream_notifier::stop(state));
+    runtime_handle.spawn(async move { state.notifications.stop().await });
 }
 
 #[cfg(test)]

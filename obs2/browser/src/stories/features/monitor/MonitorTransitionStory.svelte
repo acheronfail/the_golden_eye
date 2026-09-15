@@ -1,12 +1,15 @@
 <script lang="ts">
-	import type { LevelMatch, RecordingStatus } from '$lib/api';
+	import type { LevelMatch, MonitorWallClockState, RecordingStatus } from '$lib/api';
 	import MonitorView, { type MonitorDesign } from '$lib/features/monitor/MonitorView.svelte';
+
+	import { monitorClockState } from './monitorStoryFixtures';
 
 	type Outcome = 'complete' | 'aborted' | 'kia';
 	type TransitionStep = {
 		label: string;
 		recordingState: RecordingStatus | null;
 		match: LevelMatch;
+		wallClockState: MonitorWallClockState;
 	};
 
 	let {
@@ -28,14 +31,53 @@
 
 	const outcomeScreen = $derived(outcome === 'aborted' ? 'abort' : outcome);
 	const steps = $derived<TransitionStep[]>([
-		{ label: 'waiting', recordingState: null, match: levelMatch('unknown') },
-		{ label: 'recording', recordingState: 'started', match: levelMatch('start') },
-		{ label: 'recording', recordingState: 'started', match: levelMatch('unknown') },
-		{ label: outcome, recordingState: outcome, match: levelMatch(outcomeScreen) },
+		{
+			label: 'waiting',
+			recordingState: null,
+			match: levelMatch('unknown'),
+			wallClockState: { ...monitorClockState, sessionRunning: true }
+		},
+		{
+			label: 'recording',
+			recordingState: 'started',
+			match: levelMatch('start'),
+			wallClockState: { ...monitorClockState, sessionRunning: true, levelTimerPhase: 'awaitingInitialBlack' }
+		},
+		{
+			label: 'recording',
+			recordingState: 'started',
+			match: levelMatch('unknown'),
+			wallClockState: {
+				...monitorClockState,
+				sessionRunning: true,
+				levelRunning: true,
+				levelStartReason: 'fade',
+				levelTimerPhase: 'running'
+			}
+		},
+		{
+			label: outcome,
+			recordingState: outcome,
+			match: levelMatch(outcomeScreen),
+			wallClockState: {
+				...monitorClockState,
+				sessionRunning: true,
+				levelElapsedMs: stepDurationMs,
+				levelStartReason: 'fade',
+				levelTimerPhase: 'stopped'
+			}
+		},
 		{
 			label: 'stats',
 			recordingState: 'savePending',
-			match: levelMatch('stats', { time: outcome === 'complete' ? 58 : 37, target_time: 65, best_time: 61 })
+			match: levelMatch('stats', { time: outcome === 'complete' ? 58 : 37, target_time: 65, best_time: 61 }),
+			wallClockState: {
+				...monitorClockState,
+				sessionRunning: true,
+				levelElapsedMs: stepDurationMs,
+				levelStartReason: 'fade',
+				levelTimerPhase: 'stopped'
+			}
 		}
 	]);
 
@@ -74,6 +116,7 @@
 			monitoring={true}
 			recordingState={step.recordingState}
 			match={step.match}
+			wallClockState={step.wallClockState}
 			onStop={() => {}}
 		/>
 	</div>
