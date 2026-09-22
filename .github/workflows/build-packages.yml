@@ -150,17 +150,32 @@ jobs:
       - name: Run Integration tests
         run: just test-integration
 
+      - name: Prepare real OBS tests
+        timeout-minutes: 5
+        run: |
+          obs_runtime_dir="$(mktemp -d "${RUNNER_TEMP}/obs-runtime.XXXXXX")"
+          echo "XDG_RUNTIME_DIR=${obs_runtime_dir}" >> "$GITHUB_ENV"
+          export XDG_RUNTIME_DIR="$obs_runtime_dir"
+          just test-obs-harness
+          just _flatpak-build stage-obs-run-data
+
       - name: Run real OBS tests
         timeout-minutes: 15
         run: |
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24' \
-            just test-obs --software-renderer --repeat 3
+          xvfb-run -a -s '-screen 0 1920x1080x24' dbus-run-session -- \
+            node --experimental-strip-types frame_tests/obs/run.ts --software-renderer --repeat 3
+
+      - name: Build real OBS upgrade fixtures
+        timeout-minutes: 30
+        run: just test-obs-upgrade --build-only
 
       - name: Run real OBS upgrade tests
-        timeout-minutes: 30
+        timeout-minutes: 5
         run: |
-          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24' \
-            just test-obs-upgrade --software-renderer
+          builds=(obs2/build/obs-upgrade-builds-*)
+          test "${#builds[@]}" -eq 1
+          xvfb-run -a -s '-screen 0 1920x1080x24' dbus-run-session -- \
+            node --experimental-strip-types frame_tests/obs/upgrade.ts "${builds[0]}" --software-renderer
 
       - name: Upload real OBS test results
         if: ${{ always() }}
@@ -169,7 +184,12 @@ jobs:
           name: real-obs-test-results-linux-${{ runner.arch }}
           path: |
             obs2/build/real-obs-*/
-            obs2/build/obs-upgrade-*/
+            obs2/build/obs-upgrade-*/builds.json
+            !obs2/build/real-obs-*/**/plugins/**
+            !obs2/build/real-obs-*/**/plugins-data/**
+            !obs2/build/real-obs-*/**/cache/**
+            !obs2/build/real-obs-*/**/*.zip
+            !obs2/build/real-obs-*/**/*.so
           if-no-files-found: ignore
           retention-days: 7
 
