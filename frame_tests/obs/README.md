@@ -85,17 +85,17 @@ Rebuild after compiler or dependency changes. `--build-only` prepares a pair wit
 Normal build caches reuse unchanged dependencies. This dedicated suite remains separate from `just test` and `just test-obs`.
 No CI workflow runs it yet. The version transition covers current code with two versions, not compatibility with older implementations or schemas.
 
-### Known rollback regression
+### Rollback recovery
 
-Run `just test-obs --rollback-regression` to include the failing rollback case. It is excluded from the default suite until the production fix lands.
-This test packages the existing loader failure fixture, which passes symbol checks but rejects core startup.
-The loader restores the original core, and matching works, but replay status remains stale after monitoring stops.
-The restored runtime waits for OBS's startup event, which already occurred. The case times out and exits nonzero.
-The runner still closes OBS and continues the remaining cases in a fresh session.
+The default suite includes rollback recovery. A fixture passes the loader's symbol checks but rejects core startup.
+The test requires the original core and templates, preserved settings and runs, and a fresh source snapshot.
+It then matches a frame, saves a replay, and stops monitoring and the replay buffer.
+No successful-update notice may appear during recovery. The next case applies a valid update in the same OBS session.
 
-A separate production change must restore frontend readiness without sending a false update notice.
-The fixture fails before Rust starts, so this case does not exercise rollback after a provisional data replacement.
-The capture and same-build update cases passed on macOS. The new A-to-B suite still needs validation there.
+The fixture fails before Rust starts. Smaller loader and runtime tests cover replacement failure, provisional startup, and commit-gated notices.
+The u2 loader contract fixes this regression and requires a full manual installation for existing u1 users.
+See [the migration guide](../../docs/dev/auto-update.md) for details.
+The updated recovery cases still need validation on macOS.
 
 ## Isolation and timing
 

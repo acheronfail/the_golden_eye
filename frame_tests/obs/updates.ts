@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import path from "node:path";
+import { playRun } from "./media.ts";
 import type { ObsHarness } from "./harness.ts";
 import type { Scenario } from "./suite.ts";
 
@@ -26,17 +27,26 @@ export const rollbackScenario: Scenario<ObsHarness> = {
     const before = await digest(h.corePath);
     const runs = await h.api("/api/v1/runs");
     const eventStart = h.events.length;
+    const templateHash = await digest(path.join(h.dataDirectory, "cv_templates/en-colon.png"));
+    await h.fixture("Update rollback", "screenshots-emu/en - start - 01 - Secret Agent.png");
     await stage(h, "rollback");
+    const settings = (await h.api("/api/v1/settings/status")).settings;
     await h.reload(() => h.api("/api/v1/updates/apply", {}), "rolled back to the running version");
     assert.equal(await digest(h.corePath), before);
     await absent(h.stagedDirectory);
     await absent(path.join(h.dataDirectory, "obs-update-test.txt"));
     assert.deepEqual(await h.api("/api/v1/runs"), runs);
-    await h.fixture("Update rollback", "screenshots-emu/en - start - 01 - Secret Agent.png");
+    assert.deepEqual((await h.api("/api/v1/settings/status")).settings, settings);
+    assert.equal(
+      await digest(path.join(h.dataDirectory, "cv_templates/en-colon.png")),
+      templateHash,
+    );
+    assert(h.snapshot.sources.some((source: any) => source.name === "Update rollback"));
     await h.startMonitor("Update rollback");
     await h.expectMatch("Start", 1, 1, 1);
     await h.stopMonitor();
     await h.removeSource("Update rollback");
+    await playRun(h, "Rollback replay", "rt4kce-completed.mp4", 28, "complete");
     assert(
       !h.events.slice(eventStart).some((event) => event.type === "updateApplied"),
       "rollback must not announce a successful update",

@@ -36,6 +36,10 @@ set_target_properties(ge_fixture_bad PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${GE_FIXTURE_DIR}"
 )
 
+add_library(ge_fixture_legacy SHARED fixture.c)
+target_compile_definitions(ge_fixture_legacy PRIVATE GE_FIXTURE_GENERATION=1 GE_FIXTURE_LEGACY=1)
+set_target_properties(ge_fixture_legacy PROPERTIES PREFIX "" LIBRARY_OUTPUT_DIRECTORY "${GE_FIXTURE_DIR}" RUNTIME_OUTPUT_DIRECTORY "${GE_FIXTURE_DIR}")
+
 if(WIN32)
     set(GE_RELOAD_PLATFORM_SRC ../reload_win32.c)
 else()
@@ -51,13 +55,14 @@ add_executable(ge_loader_reload_tests
 target_include_directories(ge_loader_reload_tests PRIVATE .. .)
 target_compile_definitions(ge_loader_reload_tests PRIVATE GE_LOADER_TESTING=1)
 target_link_libraries(ge_loader_reload_tests PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
-add_dependencies(ge_loader_reload_tests ge_fixture_v1 ge_fixture_v2 ge_fixture_bad)
+add_dependencies(ge_loader_reload_tests ge_fixture_v1 ge_fixture_v2 ge_fixture_bad ge_fixture_legacy)
 
 add_test(NAME loader_reload
     COMMAND ge_loader_reload_tests
             "$<TARGET_FILE:ge_fixture_v1>"
             "$<TARGET_FILE:ge_fixture_v2>"
             "$<TARGET_FILE:ge_fixture_bad>"
+            "$<TARGET_FILE:ge_fixture_legacy>"
 )
 
 # dynlib.c's own dlopen/dlsym/dlclose/self-path contract, including failure

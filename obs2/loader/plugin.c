@@ -208,7 +208,7 @@ bool obs_module_load(void) {
   }
 
   char err[256];
-  if (!ge_core_open(g_canonical_path, g_canonical_path, g_staged_dir, obs_current_module(), /*is_reload=*/false,
+  if (!ge_core_open(g_canonical_path, g_canonical_path, g_staged_dir, obs_current_module(), GE_CORE_COLD_START,
                     ge_reload_worker_request, &g_handle, err, sizeof(err))) {
     GE_LOG(LOG_ERROR, "core failed to load; plugin disabled: %s", err);
     ge_reload_worker_stop();

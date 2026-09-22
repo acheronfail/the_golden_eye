@@ -27,8 +27,18 @@ pub struct AppStateInner {
     pub runs: Arc<crate::run_library::RunLibrary>,
     /// Plugin-owned user settings, loaded from and persisted to JSON.
     pub settings: Arc<crate::settings::SettingsStore>,
-    /// Update reload time, used for a brief notice to newly connected clients.
-    pub reloaded_at: Option<std::time::Instant>,
+    /// Successful commit time, used for a brief notice to newly connected clients.
+    pub update_committed_at: std::sync::Mutex<Option<std::time::Instant>>,
 }
 
 pub type AppState = Arc<AppStateInner>;
+
+impl AppStateInner {
+    pub fn update_applied_event(&self) -> AppEvent {
+        let settings = self.settings.get();
+        let version = settings.last_known_update_version.as_deref().map(|v| v.strip_prefix('v').unwrap_or(v));
+        let release_url =
+            if version == Some(crate::PLUGIN_VERSION) { settings.last_known_update_release_url.clone() } else { None };
+        AppEvent::UpdateApplied { version: crate::PLUGIN_VERSION.to_owned(), release_url }
+    }
+}

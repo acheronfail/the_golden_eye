@@ -36,8 +36,8 @@ int main(int argc, char **argv) {
   ge_dynlib_handle dl = ge_dynlib_open(fixture_v1);
   CHECK(dl != NULL, "ge_dynlib_open should succeed for an existing shared library: %s", ge_dynlib_error());
   if (dl) {
-    void *load_sym = ge_dynlib_symbol(dl, "ge_core_load");
-    CHECK(load_sym != NULL, "ge_dynlib_symbol should resolve ge_core_load, which fixture.c exports");
+    void *load_sym = ge_dynlib_symbol(dl, "ge_core_load_v2");
+    CHECK(load_sym != NULL, "ge_dynlib_symbol should resolve ge_core_load_v2, which fixture.c exports");
 
     void *missing_sym = ge_dynlib_symbol(dl, "ge_this_symbol_does_not_exist");
     CHECK(missing_sym == NULL, "ge_dynlib_symbol should return NULL for a symbol the library doesn't export");

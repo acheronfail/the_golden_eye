@@ -152,16 +152,14 @@ pub unsafe extern "C" fn ge_runtime_set_update_paths(core_path: *const c_char, s
         Some(UpdatePaths { core: PathBuf::from(core), staged_dir: PathBuf::from(staged_dir) });
 }
 
-/// Whether *this* core load followed a successful update apply, set by
-/// `ge_runtime_set_was_reloaded` before `ge_runtime_start()`. Read once into
-/// `reloaded_at` so a client can be told "the plugin just updated".
-static WAS_RELOADED: AtomicBool = AtomicBool::new(false);
+static FRONTEND_READY_ON_LOAD: AtomicBool = AtomicBool::new(false);
+static APPLYING_UPDATE: AtomicBool = AtomicBool::new(false);
 
-/// Called by the C core (`ge_core_load`) to report whether this load followed
-/// a reload (an applied update) rather than a cold OBS start or a rollback.
+/// The C core separates frontend readiness from provisional update startup.
 #[unsafe(no_mangle)]
-pub extern "C" fn ge_runtime_set_was_reloaded(was_reloaded: bool) {
-    WAS_RELOADED.store(was_reloaded, Ordering::Release);
+pub extern "C" fn ge_runtime_set_load_context(frontend_ready: bool, applying_update: bool) {
+    FRONTEND_READY_ON_LOAD.store(frontend_ready, Ordering::Release);
+    APPLYING_UPDATE.store(applying_update, Ordering::Release);
 }
 // Standalone test executables never call OBS, but still need these symbols.
 #[cfg(test)]
@@ -184,8 +182,9 @@ pub extern "C" fn ge_runtime_start() -> bool {
         return true;
     }
 
-    let was_reloaded = WAS_RELOADED.load(Ordering::Acquire);
-    let data_transaction = if was_reloaded {
+    let applying_update = APPLYING_UPDATE.load(Ordering::Acquire);
+    let frontend_ready = FRONTEND_READY_ON_LOAD.load(Ordering::Acquire);
+    let data_transaction = if applying_update {
         match plugin_updates::installation::install_staged_runtime_data() {
             Ok(transaction) => Some(transaction),
             Err(error) => {
@@ -235,7 +234,7 @@ pub extern "C" fn ge_runtime_start() -> bool {
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
-    let state = app::build_state(settings, run_catalog, catalog_needs_seed, was_reloaded);
+    let state = app::build_state(settings, run_catalog, catalog_needs_seed, frontend_ready, applying_update);
 
     if let Some(transaction) = data_transaction {
         let mut pending = PENDING_RUNTIME_DATA.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -273,6 +272,14 @@ pub extern "C" fn ge_runtime_commit_update() {
     let transaction = PENDING_RUNTIME_DATA.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
     if let Some(transaction) = transaction {
         transaction.commit();
+        let state = SERVER.lock().unwrap_or_else(|p| p.into_inner()).as_ref().map(|server| server.state.clone());
+        if let Some(state) = state {
+            let mut committed = state.update_committed_at.lock().unwrap_or_else(|p| p.into_inner());
+            if committed.is_none() {
+                *committed = Some(std::time::Instant::now());
+                let _ = state.event_tx.send(state.update_applied_event());
+            }
+        }
     } else {
         tracing::warn!("ge_runtime_commit_update called without a pending runtime data transaction");
     }

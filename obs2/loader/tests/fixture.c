@@ -2,6 +2,7 @@
 // ge_fixture_v1/v2 (GE_FIXTURE_GENERATION 1/2) and ge_fixture_bad (gen 99,
 // GE_FIXTURE_LOAD_FAILS so ge_core_load returns false). Implements the core ABI reload.c drives.
 
+#include "../reload.h"
 #include "fixture_common.h"
 
 #include <stdbool.h>
@@ -12,12 +13,21 @@
 #define GE_EXPORT __attribute__((visibility("default")))
 #endif
 
-typedef void (*ge_request_reload_fn)(void);
+#ifdef GE_FIXTURE_LEGACY
+#define ge_core_load_v2 ge_core_load
+#endif
 
-GE_EXPORT bool ge_core_load(void *module_arg, const char *canonical_path, const char *staged_dir, bool is_reload,
-                            ge_request_reload_fn request_reload) {
+GE_EXPORT bool ge_core_load_v2(void *module_arg, const char *canonical_path, const char *staged_dir,
+                               ge_core_load_reason reason, ge_request_reload_fn request_reload) {
   (void)module_arg;
-  (void)is_reload;
+  const char *reason_path = getenv("GE_FIXTURE_REASON_OUT");
+  if (reason_path) {
+    FILE *file = fopen(reason_path, "w");
+    if (file) {
+      fprintf(file, "%d", (int)reason);
+      fclose(file);
+    }
+  }
   (void)request_reload;
   ge_fixture_record_canonical(canonical_path);
   ge_fixture_record_staged(staged_dir);

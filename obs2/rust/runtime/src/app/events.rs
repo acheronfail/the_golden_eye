@@ -52,7 +52,7 @@ pub enum AppEvent {
     },
     /// Sent once when a client connects shortly after this core was loaded via
     /// an applied update (dev hot-reload or a real auto-update), so the SPA
-    /// can show a one-off "plugin updated" notice. See `AppStateInner::reloaded_at`.
+    /// can show a one-off "plugin updated" notice. See `AppStateInner::update_committed_at`.
     UpdateApplied {
         version: String,
         /// GitHub release page for `version`, but only when the persisted

@@ -18,7 +18,11 @@ pub async fn handle_ws(State(state): State<AppState>, ws: WebSocketUpgrade) -> R
 
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let mut snapshots = state.snapshot.subscribe();
-    let mut events = state.event_tx.subscribe();
+    // Subscribe and read commit time together so a racing commit produces one notice.
+    let (mut events, committed_at) = {
+        let committed = state.update_committed_at.lock().unwrap_or_else(|p| p.into_inner());
+        (state.event_tx.subscribe(), *committed)
+    };
 
     let version = AppEvent::Version { build_id: crate::http::routes::index::BUILD_ID.clone() };
     if send_event(&mut socket, &version).await.is_err() {
@@ -31,22 +35,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
 
     // A one-off "plugin updated" notice for clients connecting shortly after
     // an applied update. The grace period prevents stale notices in later tabs.
-    if state.reloaded_at.is_some_and(|when| when.elapsed() < UPDATE_APPLIED_NOTICE_WINDOW) {
-        let settings = state.settings.get();
-        let release_url = if settings
-            .last_known_update_version
-            .as_deref()
-            .map(|version| version.strip_prefix('v').unwrap_or(version))
-            == Some(crate::PLUGIN_VERSION)
-        {
-            settings.last_known_update_release_url.clone()
-        } else {
-            None
-        };
-        let applied = AppEvent::UpdateApplied { version: crate::PLUGIN_VERSION.to_owned(), release_url };
-        if send_event(&mut socket, &applied).await.is_err() {
-            return;
-        }
+    if committed_at.is_some_and(|when| when.elapsed() < UPDATE_APPLIED_NOTICE_WINDOW)
+        && send_event(&mut socket, &state.update_applied_event()).await.is_err()
+    {
+        return;
     }
 
     loop {

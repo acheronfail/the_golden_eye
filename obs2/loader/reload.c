@@ -10,8 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef bool (*ge_core_load_fn)(void *module_arg, const char *canonical_path, const char *staged_dir, bool is_reload,
-                                ge_request_reload_fn request_reload);
+typedef bool (*ge_core_load_fn)(void *module_arg, const char *canonical_path, const char *staged_dir,
+                                ge_core_load_reason reason, ge_request_reload_fn request_reload);
 typedef void (*ge_core_post_load_fn)(void);
 typedef void (*ge_core_commit_update_fn)(void);
 typedef void (*ge_core_unload_fn)(void);
@@ -118,7 +118,7 @@ static ge_core_handle *open_handle(const char *canonical_path, char *err, size_t
     return NULL;
   }
 
-  ge_core_load_fn load = (ge_core_load_fn)ge_dynlib_symbol(dl, "ge_core_load");
+  ge_core_load_fn load = (ge_core_load_fn)ge_dynlib_symbol(dl, "ge_core_load_v2");
   ge_core_post_load_fn post_load = (ge_core_post_load_fn)ge_dynlib_symbol(dl, "ge_core_post_load");
   ge_core_commit_update_fn commit_update = (ge_core_commit_update_fn)ge_dynlib_symbol(dl, "ge_core_commit_update");
   ge_core_unload_fn unload = (ge_core_unload_fn)ge_dynlib_symbol(dl, "ge_core_unload");
@@ -158,15 +158,15 @@ static void free_handle(ge_core_handle *handle) {
 }
 
 bool ge_core_open(const char *load_path, const char *canonical_path, const char *staged_dir, void *module_arg,
-                  bool is_reload, ge_request_reload_fn request_reload, ge_core_handle **out_handle, char *err,
-                  size_t err_size) {
+                  ge_core_load_reason reason, ge_request_reload_fn request_reload, ge_core_handle **out_handle,
+                  char *err, size_t err_size) {
   ge_core_handle *handle = open_handle(load_path, err, err_size);
   if (!handle) {
     return false;
   }
 
-  if (!handle->load(module_arg, canonical_path, staged_dir, is_reload, request_reload)) {
-    set_err(err, err_size, "ge_core_load() returned false for '%s'", canonical_path);
+  if (!handle->load(module_arg, canonical_path, staged_dir, reason, request_reload)) {
+    set_err(err, err_size, "ge_core_load_v2() returned false for '%s'", canonical_path);
     free_handle(handle);
     return false;
   }
@@ -244,7 +244,7 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
   fclose(probe);
 
   /* Precheck: confirm the staged binary at least loads and resolves its
-   * entry points, without calling ge_core_load, while the old core is still
+   * entry points, without calling ge_core_load_v2, while the old core is still
    * fully alive and untouched. */
   char precheck_err[256];
   ge_core_handle *precheck = open_handle(staged_lib, precheck_err, sizeof(precheck_err));
@@ -263,7 +263,7 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
 
   ge_core_handle *fresh = NULL;
   char open_err[256];
-  if (ge_core_open(staged_lib, canonical_path, staged_dir, module_arg, /*is_reload=*/true, request_reload, &fresh,
+  if (ge_core_open(staged_lib, canonical_path, staged_dir, module_arg, GE_CORE_APPLY_UPDATE, request_reload, &fresh,
                    open_err, sizeof(open_err))) {
     char sync_err[256] = {0};
     if (replace_core(staged_lib, canonical_path, sync_err, sizeof(sync_err))) {
@@ -283,7 +283,7 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
   /* The canonical core is unchanged. Reopen it after Rust has rolled back any
    * provisional runtime data held by the failed new core. */
   char rollback_err[256];
-  if (!ge_core_open(canonical_path, canonical_path, staged_dir, module_arg, /*is_reload=*/false, request_reload, handle,
+  if (!ge_core_open(canonical_path, canonical_path, staged_dir, module_arg, GE_CORE_ROLLBACK, request_reload, handle,
                     rollback_err, sizeof(rollback_err))) {
     set_err(err, err_size, "staged core failed to load (%s); rollback also failed (%s)", open_err, rollback_err);
     return false;
