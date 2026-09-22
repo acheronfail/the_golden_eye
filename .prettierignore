@@ -7,12 +7,9 @@ obs2/browser/playwright-report/
 obs2/browser/test-results/
 obs2/build/
 obs2/build-flatpak/
-obs2/shim/tests/build/
+obs2/loader/tests/build/
 obs2/vendor/
 obs2/rust/target/
-esp32-input-monitor/.pio/
-models/
-llama/
 AGENTS.md
 README.md
 obs2/browser/src/lib/generated/settings.ts

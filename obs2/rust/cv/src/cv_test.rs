@@ -1,4 +1,10 @@
+use opencv::core::{self, Mat, Rect};
+use opencv::prelude::*;
+use opencv::{imgcodecs, imgproc};
+
 use super::*;
+use crate::calibration::detect_active_picture;
+use crate::match_result::reject_untrusted_screen;
 
 const TEMPLATES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../cv_templates");
 
@@ -72,7 +78,8 @@ fn black_frame_detection_samples_only_the_active_picture() {
 }
 
 fn black_frame_fixture(name: &str) -> BlackFrameSignal {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../test/screenshots-rt4kce").join(name);
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests/screenshots-rt4kce").join(name);
     let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
     let mut bgra = Mat::default();
     imgproc::cvt_color_def(&bgr, &mut bgra, imgproc::COLOR_BGR2BGRA).unwrap();
@@ -112,7 +119,7 @@ fn rt4kce_cutscene_sequence_has_exactly_three_black_frame_edges() {
 }
 
 fn watch_fixture_path(name: &str) -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../test/screenshots-yt-rt4kce").join(name)
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests/screenshots-yt-rt4kce").join(name)
 }
 
 fn watch_fixture(name: &str) -> WatchSignal {
@@ -256,7 +263,7 @@ fn active_picture_detection_finds_bars_on_every_edge() {
 fn pillarboxed_fixture_separates_active_picture_from_matcher_geometry() {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../test/screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png"
+        "/../../../frame_tests/screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png"
     );
     let matcher = CvMatcher::new("en", TEMPLATES_DIR).unwrap();
     let bytes = std::fs::read(path).unwrap();
@@ -276,7 +283,7 @@ fn pillarboxed_fixture_separates_active_picture_from_matcher_geometry() {
 fn match_level_from_encoded_image_decodes_and_matches() {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../test/screenshots-rt4kce/en - stats - 3 - Agent - 0028_0500_0028 - flicker-004.png"
+        "/../../../frame_tests/screenshots-rt4kce/en - stats - 3 - Agent - 0028_0500_0028 - flicker-004.png"
     );
     let bytes = std::fs::read(path).expect("read fixture");
     let matcher = CvMatcher::new("en", TEMPLATES_DIR).expect("matcher");
@@ -293,7 +300,7 @@ fn level_match(screen: Screen, mission: i32, part: i32, difficulty: i32, raw_tim
         part,
         difficulty,
         detected_lang: None,
-        times: ge::Times::classify(mission, part, difficulty, &raw_times),
+        times: ge_game::Times::classify(mission, part, difficulty, &raw_times),
         raw_times,
         match_regions: Vec::new(),
         annotation_sets: Vec::new(),
@@ -313,7 +320,7 @@ fn overlay_screens_with_complete_markers_remain_trusted() {
     ];
 
     for (screen, raw_times) in cases {
-        let mut result = level_match(screen, 1, 1, ge::Difficulty::Agent.number(), raw_times);
+        let mut result = level_match(screen, 1, 1, ge_game::Difficulty::Agent.number(), raw_times);
 
         reject_untrusted_screen(&mut result);
 
@@ -324,7 +331,8 @@ fn overlay_screens_with_complete_markers_remain_trusted() {
 #[test]
 fn overlay_screens_are_rejected_when_any_required_marker_is_missing() {
     let screens = [Screen::Start, Screen::Stats, Screen::Complete, Screen::Failed, Screen::Abort, Screen::Kia];
-    let marker_cases = [(-1, 1, ge::Difficulty::Agent.number()), (1, -1, ge::Difficulty::Agent.number()), (1, 1, -1)];
+    let marker_cases =
+        [(-1, 1, ge_game::Difficulty::Agent.number()), (1, -1, ge_game::Difficulty::Agent.number()), (1, 1, -1)];
 
     for screen in screens {
         for (mission, part, difficulty) in marker_cases {
@@ -342,7 +350,7 @@ fn overlay_screens_are_rejected_when_any_required_marker_is_missing() {
 
 #[test]
 fn stats_screen_is_rejected_without_a_readable_run_time() {
-    let mut result = level_match(Screen::Stats, 1, 1, ge::Difficulty::Agent.number(), Vec::new());
+    let mut result = level_match(Screen::Stats, 1, 1, ge_game::Difficulty::Agent.number(), Vec::new());
 
     reject_untrusted_screen(&mut result);
 
@@ -351,7 +359,7 @@ fn stats_screen_is_rejected_without_a_readable_run_time() {
 
 #[test]
 fn stats_screen_is_rejected_when_the_start_tab_is_visible() {
-    let mut result = level_match(Screen::Stats, 1, 1, ge::Difficulty::Agent.number(), vec![62]);
+    let mut result = level_match(Screen::Stats, 1, 1, ge_game::Difficulty::Agent.number(), vec![62]);
     result.detected_lang = Some("jp".to_owned());
 
     reject_untrusted_screen(&mut result);

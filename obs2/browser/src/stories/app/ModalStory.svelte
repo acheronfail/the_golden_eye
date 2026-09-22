@@ -2,7 +2,7 @@
 	import ModalDialog from '$lib/ui/ModalDialog.svelte';
 	import ReadClipsDialog from '$lib/features/runs/ReadClipsDialog.svelte';
 	import ReplayBufferStopDialog from '$lib/features/monitor/ReplayBufferStopDialog.svelte';
-	import ResetSettingsDialog from '$lib/features/options/ResetSettingsDialog.svelte';
+	import ResetSettingsDialog from '$lib/features/settings/ResetSettingsDialog.svelte';
 	import RunCatalogSyncDialog from '$lib/features/runs/RunCatalogSyncDialog.svelte';
 	import WelcomeDialog from '$lib/features/onboarding/WelcomeDialog.svelte';
 

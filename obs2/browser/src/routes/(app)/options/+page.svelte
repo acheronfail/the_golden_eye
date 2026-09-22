@@ -8,12 +8,12 @@
 	import { replayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import Select from '$lib/ui/Select.svelte';
 	import { MAX_RECENT_RUN_LIMIT, settings } from '$lib/stores/settings.svelte';
-	import OptionsGeneral from '$lib/features/options/OptionsGeneral.svelte';
-	import OptionsNotifications from '$lib/features/options/OptionsNotifications.svelte';
-	import OptionsRecording from '$lib/features/options/OptionsRecording.svelte';
-	import OptionsYouTube from '$lib/features/options/OptionsYouTube.svelte';
-	import ResetSettingsDialog from '$lib/features/options/ResetSettingsDialog.svelte';
-	import { optionsClasses, type RecordingOptionsView } from '$lib/features/options/optionsView';
+	import SettingsGeneral from '$lib/features/settings/SettingsGeneral.svelte';
+	import SettingsNotifications from '$lib/features/settings/SettingsNotifications.svelte';
+	import SettingsRecording from '$lib/features/settings/SettingsRecording.svelte';
+	import SettingsYouTube from '$lib/features/settings/SettingsYouTube.svelte';
+	import ResetSettingsDialog from '$lib/features/settings/ResetSettingsDialog.svelte';
+	import { settingsClasses, type RecordingSettingsView } from '$lib/features/settings/settingsView';
 	import { youtube } from '$lib/stores/youtube.svelte';
 
 	type OptionsTab = 'general' | 'recording' | 'notifications' | 'youtube';
@@ -79,7 +79,7 @@
 		selectTab(value as OptionsTab);
 	};
 
-	const { panel: panelClass, label: labelClass, hint: hintClass, pathButton: pathButtonClass } = optionsClasses;
+	const { panel: panelClass, label: labelClass, hint: hintClass, pathButton: pathButtonClass } = settingsClasses;
 	const dangerPanelClass =
 		'grid gap-3 rounded border border-(--obs-danger) bg-[color-mix(in_srgb,var(--obs-danger)_14%,transparent)] px-4 py-4';
 	const normalizeRecentRunLimit = () => {
@@ -264,7 +264,7 @@
 		}
 	};
 
-	let recordingOptionsView = $derived<RecordingOptionsView>({
+	let recordingSettingsView = $derived<RecordingSettingsView>({
 		template: {
 			separator: clipTemplateSeparator,
 			error: clipTemplateError,
@@ -335,13 +335,13 @@
 
 	<fieldset disabled={!settings.canEdit} class="flex flex-col gap-4 border-0 p-0">
 		{#if activeTab === 'general'}
-			<OptionsGeneral />
+			<SettingsGeneral />
 		{:else if activeTab === 'recording'}
-			<OptionsRecording view={recordingOptionsView} />
+			<SettingsRecording view={recordingSettingsView} />
 		{:else if activeTab === 'notifications'}
-			<OptionsNotifications />
+			<SettingsNotifications />
 		{:else if activeTab === 'youtube'}
-			<OptionsYouTube />
+			<SettingsYouTube />
 		{/if}
 	</fieldset>
 

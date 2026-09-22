@@ -19,7 +19,7 @@ if(BROWSER_DEV)
   # Generate the redirect stand-in and point the embedded bundle at it.
   set(BROWSER_BUNDLE "${CMAKE_CURRENT_BINARY_DIR}/browser-dev.html")
   configure_file(
-        "${CMAKE_CURRENT_SOURCE_DIR}/templates/browser-dev.html.in"
+        "${CMAKE_CURRENT_SOURCE_DIR}/build_templates/browser-dev.html.in"
         "${BROWSER_BUNDLE}"
         @ONLY
     )

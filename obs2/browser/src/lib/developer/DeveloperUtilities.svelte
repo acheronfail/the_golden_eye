@@ -2,7 +2,7 @@
 	import { backend, type AnnotationSet, type LevelMatch } from '$lib/api';
 	import AnnotationOverlay from './AnnotationOverlay.svelte';
 	import ScreenshotDatasetControls from './ScreenshotDatasetControls.svelte';
-	import { triggerKiaDeathOverlay } from './effects';
+	import { triggerKiaDeathOverlay } from './kiaPreview';
 	import { onDestroy } from 'svelte';
 
 	const knownVideoSourceIds = [

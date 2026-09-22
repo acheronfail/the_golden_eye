@@ -1,31 +1,12 @@
-# Setup
+# Native OBS plugin
 
-```sh
-# install rustup
-# install nodejs (version from .nvmrc)
+Follow [CONTRIBUTING.md](../CONTRIBUTING.md) for system prerequisites, setup, commands, and tests.
+Run all root commands from the repository root, including `just setup`, `just dev`, and `just check`.
 
-# macos dependencies
-xcode-select --install
-brew install just cmake wget simde nasm
+## Find the code
 
-# installs all dependencies
-just setup
-```
-
-Now that's complete, you can:
-
-```sh
-# run OBS with the plugin
-just obs
-
-# run OBS with the browser dev server + hot-reloading the core into the
-# running OBS session on Rust changes, no restart needed (see obs2/scripts/dev.py)
-just dev
-```
-
-# Understanding the plugin
-
-Start with the [Rust ownership map](rust/core/src/README.md) to find feature workflows and adapters.
-The [run-monitoring map](rust/core/src/run_monitoring/README.md) points to the run state machine,
-in-game timer, and session lifecycle. The [frontend map](browser/src/lib/README.md) describes UI
-ownership.
+- [Runtime ownership](rust/runtime/src/README.md): plugin workflows and native adapters.
+- [CV ownership](rust/cv/README.md): calibration, templates, and frame matching.
+- [Run monitoring](rust/runtime/src/run_monitoring/README.md): run transitions and recording.
+- [Browser ownership](browser/src/lib/README.md): dock components and state.
+- [Update contract](../docs/dev/auto-update.md): the resident loader and replaceable core.

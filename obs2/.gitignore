@@ -2,4 +2,4 @@ build/
 build-flatpak/
 vendor/obs/
 rust/target/
-ge_rust.h
+ge_runtime.h

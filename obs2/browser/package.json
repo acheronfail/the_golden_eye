@@ -13,8 +13,10 @@
 		"lint": "prettier --check .",
 		"format": "prettier --write .",
 		"format:repo": "prettier --write --ignore-path ../../.prettierignore \"../../**/*.{js,cjs,mjs,jsx,ts,tsx,svelte,css,html,md}\"",
-		"test:unit": "vitest",
-		"test": "npm run test:unit -- --run",
+		"format:repo:check": "prettier --check --ignore-path ../../.prettierignore \"../../**/*.{js,cjs,mjs,jsx,ts,tsx,svelte,css,html,md}\"",
+		"test:unit": "vitest --project server --project client",
+		"test:storybook": "node scripts/check-test-browser.mjs && vitest --project storybook",
+		"test": "npm run test:unit -- --run && npm run test:storybook -- --run",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build"
 	},

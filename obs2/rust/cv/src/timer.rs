@@ -17,7 +17,7 @@ impl Default for PhaseTimer {
 impl PhaseTimer {
     pub fn new() -> Self {
         let now = Instant::now();
-        PhaseTimer { start: now, last: now, enabled: crate::runtime_config().timing }
+        PhaseTimer { start: now, last: now, enabled: crate::config::runtime_config().timing }
     }
 
     pub fn start(&self) -> Instant {

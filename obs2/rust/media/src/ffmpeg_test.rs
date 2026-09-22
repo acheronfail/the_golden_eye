@@ -3,7 +3,7 @@ use ge_clip::{RomVersion, RunStatus};
 use super::*;
 
 fn sample_clip() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../test/clips/sample_clip.mov")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests/clips/sample_clip.mov")
 }
 
 #[test]

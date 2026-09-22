@@ -47,7 +47,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             obs2/browser/package-lock.json
-            test/package-lock.json
+            frame_tests/package-lock.json
 
       - name: Cache static dependencies
         uses: actions/cache@v6
@@ -91,27 +91,19 @@ jobs:
           sudo flatpak install -y flathub com.obsproject.Studio
           sudo flatpak install -y flathub "$(flatpak info --show-sdk com.obsproject.Studio)"
 
-      - name: Set up Rust
-        run: |
-          rustup toolchain install 1.96.0 --profile minimal --component clippy
-          rustup toolchain install nightly --profile minimal --component rustfmt
-
       - name: Set up repository
         run: just setup
 
-      - name: Install Storybook test browser
-        run: cd obs2/browser && npx playwright install --with-deps chromium
-
-      - name: Check formatting
+      - name: Check source and generated contracts
         run: |
-          just fmt
+          just check
           git diff --exit-code
 
       - name: Build Release
         run: just make-release
 
-      - name: Run shim reload tests
-        run: just test-shim
+      - name: Run loader reload tests
+        run: just test-loader
 
       - name: Run frame regression tests
         run: just test-cv
@@ -121,7 +113,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: frame-regression-test-results-linux-${{ runner.arch }}
-          path: test/test_results.json
+          path: frame_tests/test_results.json
           if-no-files-found: ignore
 
       - name: Build Linux package
@@ -179,7 +171,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             obs2/browser/package-lock.json
-            test/package-lock.json
+            frame_tests/package-lock.json
 
       - name: Cache static dependencies
         uses: actions/cache@v6
@@ -208,14 +200,11 @@ jobs:
           brew untap --force aws/tap || true
           brew install cmake just nasm simde
 
-      - name: Set up Rust
-        run: rustup toolchain install 1.96.0 --profile minimal
-
       - name: Set up repository
         run: just setup
 
-      - name: Run shim reload tests
-        run: just test-shim
+      - name: Run loader reload tests
+        run: just test-loader
 
       - name: Run frame regression tests
         run: just test-cv
@@ -268,7 +257,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             obs2/browser/package-lock.json
-            test/package-lock.json
+            frame_tests/package-lock.json
 
       - name: Pin vcpkg
         shell: pwsh
@@ -300,13 +289,6 @@ jobs:
             obs2/rust/target/**/release/deps
             obs2/rust/target/**/release/incremental
           key: Windows-${{ runner.arch }}-cargo-build-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}
-
-      - name: Set up Rust
-        shell: pwsh
-        run: |
-          rustup set profile minimal
-          rustup toolchain install 1.96.0 --profile minimal --no-self-update
-          rustup default 1.96.0
 
       - name: Install system dependencies
         shell: pwsh
@@ -353,13 +335,6 @@ jobs:
             .vcpkg-bincache
           key: ${{ steps.restore-vcpkg.outputs.cache-primary-key }}
 
-      - name: Set up repository
-        shell: bash
-        run: |
-          just obs-headers
-          cd obs2/browser && npm install
-          cd ../../test && npm install
-
       # Runs vcvarsall once and persists the resulting environment (INCLUDE,
       # LIB, LIBPATH, PATH, etc.) via $GITHUB_ENV for every later step in this
       # job -- `set`'s own "NAME=value" per-line output format happens to be
@@ -399,9 +374,13 @@ jobs:
           echo BINDGEN_EXTRA_CLANG_ARGS=!CLANGARGS!>> "%GITHUB_ENV%"
           endlocal
 
-      - name: Run shim reload tests
+      - name: Set up repository
         shell: bash
-        run: just test-shim
+        run: just setup
+
+      - name: Run loader reload tests
+        shell: bash
+        run: just test-loader
 
       - name: Run frame regression tests
         shell: bash
