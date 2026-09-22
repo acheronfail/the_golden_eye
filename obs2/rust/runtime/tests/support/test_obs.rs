@@ -19,6 +19,15 @@ pub struct Frame {
     pub bgra: Vec<u8>,
 }
 
+#[derive(Clone, Debug)]
+pub struct CaptureAttempt {
+    pub source_size: Option<(u32, u32)>,
+    pub max_height: u32,
+    pub crop: Option<[f32; 4]>,
+    pub requested_size: Option<(u32, u32)>,
+    pub output_size: Option<(u32, u32)>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Calls {
     pub queue_task: usize,
@@ -85,7 +94,8 @@ struct Callback {
 struct State {
     config: Config,
     calls: Calls,
-    frames: VecDeque<Frame>,
+    frames: VecDeque<Option<Frame>>,
+    captures: Vec<CaptureAttempt>,
     current_frame: Option<Frame>,
     callback: Option<Callback>,
     dock_json: CString,
@@ -111,6 +121,7 @@ impl Default for State {
             },
             calls: Calls::default(),
             frames: VecDeque::new(),
+            captures: Vec::new(),
             current_frame: None,
             callback: None,
             dock_json: CString::new("[]").unwrap(),
@@ -160,6 +171,18 @@ impl TestObs {
     }
 
     pub fn render(&self, frame: Frame) {
+        self.render_attempt(Some(frame));
+    }
+
+    pub fn render_missing(&self) {
+        self.render_attempt(None);
+    }
+
+    pub fn captures(&self) -> Vec<CaptureAttempt> {
+        STATE.lock().unwrap().captures.clone()
+    }
+
+    fn render_attempt(&self, frame: Option<Frame>) {
         let callback = {
             let mut state = STATE.lock().unwrap();
             state.frames.push_back(frame);
@@ -410,13 +433,21 @@ pub unsafe extern "C" fn ge_capture_get_frame(
     let frame = {
         let mut state = STATE.lock().unwrap();
         state.calls.capture_get_frame += 1;
-        state.frames.pop_front()
+        state.frames.pop_front().flatten()
     };
     // SAFETY: the runtime supplies a valid region for the duration of this call, or null.
     let region = unsafe { region.as_ref() };
-    let Some(frame) = frame else { return ptr::null_mut() };
-    match capture_frame(&frame, max_height, region) {
-        Ok(frame) => malloc_frame(&frame, out_width, out_height),
+    let captured = frame.as_ref().map(|frame| capture_frame(frame, max_height, region)).transpose();
+    STATE.lock().unwrap().captures.push(CaptureAttempt {
+        source_size: frame.as_ref().map(|frame| (frame.width, frame.height)),
+        max_height,
+        crop: region.map(|r| [r.crop_x, r.crop_y, r.crop_w, r.crop_h]),
+        requested_size: region.map(|r| (r.out_width, r.out_height)),
+        output_size: captured.as_ref().ok().and_then(|frame| frame.as_ref().map(|f| (f.width, f.height))),
+    });
+    match captured {
+        Ok(Some(frame)) => malloc_frame(&frame, out_width, out_height),
+        Ok(None) => ptr::null_mut(),
         Err(error) => {
             tracing::error!(%error, "test capture failed");
             ptr::null_mut()
