@@ -162,7 +162,7 @@ jobs:
       - name: Run real OBS tests
         timeout-minutes: 15
         run: |
-          xvfb-run -a -s '-screen 0 1920x1080x24' dbus-run-session -- \
+          bash .github/scripts/run-obs-headless.sh obs2/build/real-obs-desktop/suite.log \
             node --experimental-strip-types frame_tests/obs/run.ts --software-renderer --repeat 3
 
       - name: Build real OBS upgrade fixtures
@@ -174,7 +174,7 @@ jobs:
         run: |
           builds=(obs2/build/obs-upgrade-builds-*)
           test "${#builds[@]}" -eq 1
-          xvfb-run -a -s '-screen 0 1920x1080x24' dbus-run-session -- \
+          bash .github/scripts/run-obs-headless.sh obs2/build/real-obs-desktop/upgrade.log \
             node --experimental-strip-types frame_tests/obs/upgrade.ts "${builds[0]}" --software-renderer
 
       - name: Upload real OBS test results

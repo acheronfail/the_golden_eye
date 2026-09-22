@@ -185,6 +185,8 @@ Install `xvfb`, `xauth`, Mesa, D-Bus, Flatpak, FFmpeg, and the usual project dep
 must allow Flatpak's user namespaces and sandbox setup. Provision the OBS Flatpak and matching SDK
 before the test job. CI creates a private, user-owned `XDG_RUNTIME_DIR` and starts Xvfb before
 D-Bus so activated services inherit the display.
+Desktop-service stderr appears in a collapsed Actions group and a retained log; test stderr
+remains visible alongside scenario results, and the wrapper preserves the test exit status.
 
 CI uploads reports, logs, event traces, captured frames, clips, isolated configuration, and the
 upgrade build manifest even on failure, with seven-day retention. It excludes disposable plugin
