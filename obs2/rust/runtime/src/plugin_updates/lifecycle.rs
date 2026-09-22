@@ -13,6 +13,7 @@ use crate::run_monitoring::{RecordingStateStore, RunMonitor};
 use crate::settings::SettingsStore;
 
 const AUTO_APPLY_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+const AUTO_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
 pub(crate) struct PluginUpdates {
     settings: Arc<SettingsStore>,
@@ -70,7 +71,7 @@ impl PluginUpdates {
         Ok(())
     }
 
-    pub async fn check_for_updates_on_startup(self: Arc<Self>) {
+    pub async fn check_for_updates_periodically(self: Arc<Self>) {
         // Dev builds restart the server on every hot reload, which would re-hit GitHub's
         // API each time (`last_update_check_time` only advances on success), so a
         // rate-limited dev session would keep retrying. No reason to check locally anyway.
@@ -78,27 +79,27 @@ impl PluginUpdates {
             tracing::debug!("skipping plugin update check in a dev build");
             return;
         }
-        if crate::plugin_updates::installation::has_staged_update() {
-            tracing::debug!("skipping plugin update check while an update is staged");
-            return;
-        }
-
-        let settings = self.settings.get();
-        if !is_check_due(settings.update_check_interval, settings.last_update_check_time, now_unix_seconds()) {
-            tracing::debug!("plugin update check not due");
-            return;
-        }
-
-        if let Err(err) = self.check_for_updates_now().await {
-            tracing::warn!("plugin update check failed: {err:#}");
-        }
+        run_update_checks(|| self.clone().check_for_updates(true)).await;
     }
 
-    /// Checks for an update now, bypassing the configured interval and dev skip. Shared by
-    /// the startup check and the manual "check now" endpoint. Records the check time, pushes
-    /// the retained app snapshot, and (if opted in) stages in the background. `Ok(None)` if up to date.
+    /// Checks immediately, bypassing the automatic interval and dev skip.
     pub async fn check_for_updates_now(self: Arc<Self>) -> anyhow::Result<Option<PluginUpdate>> {
+        self.check_for_updates(false).await
+    }
+
+    async fn check_for_updates(self: Arc<Self>, automatic: bool) -> anyhow::Result<Option<PluginUpdate>> {
         let _check_guard = self.check_lock.lock().await;
+        if automatic {
+            if has_staged_update() {
+                tracing::debug!("skipping plugin update check while an update is staged");
+                return Ok(None);
+            }
+            let settings = self.settings.get();
+            if !is_check_due(settings.update_check_interval, settings.last_update_check_time, now_unix_seconds()) {
+                tracing::debug!("plugin update check not due");
+                return Ok(None);
+            }
+        }
         let current = self.status();
         if matches!(current.phase, UpdatePhase::Downloading | UpdatePhase::Staged | UpdatePhase::Applying) {
             return Ok(current.available);
@@ -288,3 +289,19 @@ impl PluginUpdates {
 pub(super) fn activity_is_safe_to_apply(monitor_active: bool, recording_active: bool) -> bool {
     cfg!(feature = "dev") || (!monitor_active && !recording_active)
 }
+
+async fn run_update_checks<F>(mut check: impl FnMut() -> F)
+where
+    F: std::future::Future<Output = anyhow::Result<Option<PluginUpdate>>>,
+{
+    loop {
+        if let Err(err) = check().await {
+            tracing::warn!("plugin update check failed: {err:#}");
+        }
+        tokio::time::sleep(AUTO_UPDATE_CHECK_INTERVAL).await;
+    }
+}
+
+#[cfg(test)]
+#[path = "lifecycle_test.rs"]
+mod tests;

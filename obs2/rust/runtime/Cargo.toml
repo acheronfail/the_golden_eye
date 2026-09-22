@@ -69,4 +69,5 @@ http-body-util = "0.1.3"
 # Core's image-based tests use OpenCV directly; production gets it through ge_cv.
 opencv = { version = "0.98.2", features = ["clang-runtime"] }
 rusqlite = { version = "0.32.1", features = ["bundled"] }
+tokio = { version = "1.52.3", features = ["test-util"] }
 tokio-tungstenite = "0.29.0"

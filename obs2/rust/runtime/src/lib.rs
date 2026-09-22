@@ -256,7 +256,7 @@ pub extern "C" fn ge_runtime_start() -> bool {
         }
     });
     runtime.spawn(app::watch_settings_file(state.clone()));
-    runtime.spawn(state.updates.clone().check_for_updates_on_startup());
+    runtime.spawn(state.updates.clone().check_for_updates_periodically());
     runtime.spawn(state.updates.clone().auto_apply_when_safe());
 
     tracing::info!("server started");
