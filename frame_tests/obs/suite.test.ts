@@ -200,3 +200,15 @@ test("a failed readiness check closes the session before the next scenario", asy
     await fs.rm(artifacts, { recursive: true, force: true });
   }
 });
+
+test("cleanup rejects an OBS exit between the last assertion and shutdown", async () => {
+  for (const [exitCode, signalCode] of [
+    [0, null],
+    [1, null],
+    [null, "SIGSEGV"],
+  ] as const) {
+    const harness = new ObsHarness("/unused", "/unused", false);
+    Object.assign(harness, { child: { exitCode, signalCode } });
+    await assert.rejects(harness.close(), /OBS exited before cleanup/);
+  }
+});

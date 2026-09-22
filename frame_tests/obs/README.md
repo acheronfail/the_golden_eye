@@ -1,7 +1,9 @@
 # Real OBS integration tests
 
-Run `just test-obs` on Linux with an X11 display. On a Wayland desktop, XWayland must supply `DISPLAY`.
-The command builds the release plugin, stages its data, and starts the installed OBS Flatpak.
+Run `just test-obs` on macOS in a logged-in graphical session or on Linux with an X11 display.
+On a Wayland desktop, XWayland must supply `DISPLAY`.
+The command builds the release plugin and starts `/Applications/OBS.app` on macOS or the installed
+OBS Flatpak on Linux.
 It does not install the plugin into your OBS configuration.
 
 ```sh
@@ -10,9 +12,11 @@ just test-obs --repeat 5
 just test-obs --software-renderer
 ```
 
-Prerequisites: the normal project build dependencies, the OBS Flatpak and its SDK, Node 22.18 or
-newer, FFmpeg (`ffprobe`), and a working X11/OpenGL display. The software option selects Mesa's
-software renderer inside Flatpak. It still needs a display.
+Prerequisites: the normal project build dependencies, Node 22.18 or newer, and FFmpeg (`ffprobe`).
+macOS needs OBS installed at `/Applications/OBS.app` and a graphical login; this harness has been
+verified with OBS 32.2.2 on Apple Silicon. Linux needs the OBS Flatpak and its SDK plus a working
+X11/OpenGL display. The software option is Linux-only and selects Mesa's software renderer inside
+Flatpak. It still needs a display.
 
 After a successful build, repeat only the tests with:
 
@@ -43,7 +47,12 @@ cache, temporary files, replay files, and saved clips. Flatpak replaces XDG path
 so the launcher sets them inside the sandbox before executing OBS. The runner checks the plugin's
 settings path, the empty source list, and the replay output directory before sending test commands.
 Before reuse, the runner checks that monitoring and the replay buffer stopped and that no sources remain.
-Desktop and microphone capture are not configured, and the test denies the PulseAudio socket.
+Desktop and microphone capture are not configured. Linux denies the PulseAudio socket.
+On macOS, the child process gets a separate `HOME` and `CFFIXED_USER_HOME`: the plugin uses the
+former and OBS's Foundation paths use the latter. Settings live under that home's
+`Library/Application Support`. The test profile skips OBS's optional first-run permissions dialog;
+no screen, camera, microphone, or input-monitoring permissions are required or granted.
+The launcher clears `GE_CORE_LIB` so a development override cannot replace the built core.
 
 The operating system selects a separate plugin port for each session. Commands use sequence IDs
 and atomic file replacement. Media sources decode their first frame and then pause before monitoring starts. Playback
@@ -55,8 +64,9 @@ monitor stops. Playback must end before the duplicate-run check. The suite fails
 OBS exits, event-stream disconnection, timeouts, or forced shutdown.
 
 Ctrl+C requests cleanup. A failed graceful shutdown uses the exact Flatpak instance ID for forced
-cleanup. Other OBS instances are not targeted. Normal shutdown uses OBS's Linux SIGINT handler
-from inside the test process, avoiding signals to Flatpak's proxy processes.
+cleanup. Other OBS instances are not targeted. Normal shutdown uses OBS's SIGINT handler from inside the test process on both platforms,
+avoiding signals to Flatpak's proxy processes. Forced cleanup on macOS targets only the detached
+test process group. Forced shutdown still fails the scenario.
 
 ## Failure reporting and continuation
 
@@ -87,7 +97,7 @@ Durations include session startup or shutdown only when that case requires them.
 - `commands.jsonl`: source-control requests and responses.
 - `ge-frames-*`: actual capture frames from the production diagnostic capture path.
 - `probe-*.json`, `clips/`, and `replays/`: output-file checks and media.
-- `config/`: the isolated OBS and plugin configuration.
+- `config/` (Linux) or `home/Library/Application Support/` (macOS): isolated OBS and plugin configuration.
 
 These directories are ignored by Git. `just clean` removes them with other build outputs.
 The suite is separate from `just test` because it requires an OBS installation and a display.

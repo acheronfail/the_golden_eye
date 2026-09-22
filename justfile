@@ -157,6 +157,11 @@ test-obs *args: test-obs-harness make-release-flatpak
     just _flatpak-build stage-obs-run-data
     node --experimental-strip-types frame_tests/obs/run.ts {{ args }}
 
+# runs the production plugin inside an isolated, real OBS instance on macOS
+[macos]
+test-obs *args: test-obs-harness make-release
+    node --experimental-strip-types frame_tests/obs/run.ts {{ args }}
+
 # checks failure reporting and suite control without launching OBS
 test-obs-harness:
     node --experimental-strip-types --test frame_tests/obs/suite.test.ts

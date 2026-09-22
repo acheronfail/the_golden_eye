@@ -293,16 +293,36 @@ export class ObsHarness {
   }
 
   async launch() {
-    assert.equal(process.platform, "linux", "This harness requires Linux and Flatpak OBS");
-    assert(process.env.DISPLAY, "DISPLAY is required. Use an X11 desktop or xvfb-run.");
-    execFileSync("flatpak", ["info", "com.obsproject.Studio"], { stdio: "ignore", timeout: 10000 });
+    assert(["linux", "darwin"].includes(process.platform), "Requires Linux or macOS");
+    if (process.platform === "linux") {
+      assert(process.env.DISPLAY, "DISPLAY is required. Use an X11 desktop or xvfb-run.");
+      execFileSync("flatpak", ["info", "com.obsproject.Studio"], {
+        stdio: "ignore",
+        timeout: 10000,
+      });
+    } else {
+      assert(!this.software, "--software-renderer is only supported on Linux");
+      await fs.access("/Applications/OBS.app/Contents/MacOS/OBS");
+    }
     execFileSync("ffprobe", ["-version"], { stdio: "ignore", timeout: 10000 });
-    for (const file of [
-      "the_golden_eye/bin/64bit/the_golden_eye.so",
-      "the_golden_eye/bin/64bit/libgolden_core.so",
-      "obs-run-data/the_golden_eye/cv_templates/en-colon.png",
-    ]) {
-      await fs.access(path.join(this.root, "obs2/build-flatpak", file));
+    for (const file of process.platform === "darwin"
+      ? [
+          "the_golden_eye.plugin/Contents/MacOS/the_golden_eye",
+          "the_golden_eye.plugin/Contents/MacOS/libgolden_core.dylib",
+          "the_golden_eye.plugin/Contents/Resources/cv_templates/en-colon.png",
+        ]
+      : [
+          "the_golden_eye/bin/64bit/the_golden_eye.so",
+          "the_golden_eye/bin/64bit/libgolden_core.so",
+          "obs-run-data/the_golden_eye/cv_templates/en-colon.png",
+        ]) {
+      await fs.access(
+        path.join(
+          this.root,
+          process.platform === "darwin" ? "obs2/build" : "obs2/build-flatpak",
+          file,
+        ),
+      );
     }
     // Let the OS select a port. The settings-path assertion rejects another server if a bind race occurs.
     const reservation = createServer();
@@ -316,43 +336,76 @@ export class ObsHarness {
     await this.configure();
     this.eventLog = await fs.open(path.join(this.artifacts, "events.jsonl"), "w");
     const log = await fs.open(path.join(this.artifacts, "obs.log"), "w");
-    const config = path.join(this.artifacts, "config");
-    this.child = spawn(
-      "flatpak",
-      [
-        "run",
-        "--instance-id-fd=3",
-        "--device=dri",
-        `--filesystem=${this.root}`,
-        "--socket=x11",
-        "--nosocket=wayland",
-        "--nosocket=pulseaudio",
-        `--env=TMPDIR=${this.artifacts}`,
-        `--env=GE_OBS_TEST_DIR=${this.artifacts}`,
-        `--env=GE_SERVER_PORT=${port}`,
-        "--env=GE_DISABLE_BROWSER_DOCK=1",
-        "--env=GE_UPDATE_CHECK_URL=http://127.0.0.1:1",
-        `--env=OBS_PLUGINS_PATH=${this.root}/obs2/build-flatpak/%module%/bin/64bit`,
-        `--env=OBS_PLUGINS_DATA_PATH=${this.root}/obs2/build-flatpak/obs-run-data`,
-        "--env=LD_LIBRARY_PATH=/app/lib",
-        "--env=QT_QPA_PLATFORM=xcb",
-        ...(this.software ? ["--env=LIBGL_ALWAYS_SOFTWARE=1"] : []),
-        "--command=env",
-        "com.obsproject.Studio",
-        `XDG_CONFIG_HOME=${config}`,
-        `XDG_CACHE_HOME=${this.artifacts}/cache`,
-        "/app/bin/obs",
-        "--collection",
-        "Tests",
-        "--profile",
-        "Tests",
-        "--scene",
-        "Fixture Scene",
-        "--multi",
-        "--disable-missing-files-check",
-      ],
-      { stdio: ["ignore", log.fd, log.fd, "pipe"], detached: true },
-    );
+    const config = this.configDirectory;
+    this.child =
+      process.platform === "darwin"
+        ? spawn(
+            "/Applications/OBS.app/Contents/MacOS/OBS",
+            [
+              "--collection",
+              "Tests",
+              "--profile",
+              "Tests",
+              "--scene",
+              "Fixture Scene",
+              "--multi",
+              "--disable-missing-files-check",
+            ],
+            {
+              env: {
+                ...process.env,
+                // Rust reads HOME; OBS uses Foundation's independently cached home directory.
+                HOME: path.join(this.artifacts, "home"),
+                CFFIXED_USER_HOME: path.join(this.artifacts, "home"),
+                TMPDIR: this.artifacts,
+                GE_OBS_TEST_DIR: this.artifacts,
+                GE_SERVER_PORT: String(port),
+                GE_CORE_LIB: undefined,
+                GE_DISABLE_BROWSER_DOCK: "1",
+                GE_UPDATE_CHECK_URL: "http://127.0.0.1:1",
+                OBS_PLUGINS_PATH: path.join(this.root, "obs2/build"),
+                OBS_PLUGINS_DATA_PATH: path.join(this.root, "obs2/build"),
+              },
+              stdio: ["ignore", log.fd, log.fd],
+              detached: true,
+            },
+          )
+        : spawn(
+            "flatpak",
+            [
+              "run",
+              "--instance-id-fd=3",
+              "--device=dri",
+              `--filesystem=${this.root}`,
+              "--socket=x11",
+              "--nosocket=wayland",
+              "--nosocket=pulseaudio",
+              `--env=TMPDIR=${this.artifacts}`,
+              `--env=GE_OBS_TEST_DIR=${this.artifacts}`,
+              `--env=GE_SERVER_PORT=${port}`,
+              "--env=GE_DISABLE_BROWSER_DOCK=1",
+              "--env=GE_UPDATE_CHECK_URL=http://127.0.0.1:1",
+              `--env=OBS_PLUGINS_PATH=${this.root}/obs2/build-flatpak/%module%/bin/64bit`,
+              `--env=OBS_PLUGINS_DATA_PATH=${this.root}/obs2/build-flatpak/obs-run-data`,
+              "--env=LD_LIBRARY_PATH=/app/lib",
+              "--env=QT_QPA_PLATFORM=xcb",
+              ...(this.software ? ["--env=LIBGL_ALWAYS_SOFTWARE=1"] : []),
+              "--command=env",
+              "com.obsproject.Studio",
+              `XDG_CONFIG_HOME=${config}`,
+              `XDG_CACHE_HOME=${this.artifacts}/cache`,
+              "/app/bin/obs",
+              "--collection",
+              "Tests",
+              "--profile",
+              "Tests",
+              "--scene",
+              "Fixture Scene",
+              "--multi",
+              "--disable-missing-files-check",
+            ],
+            { stdio: ["ignore", log.fd, log.fd, "pipe"], detached: true },
+          );
     this.child.stdio[3]?.on("data", (data: Buffer) => {
       this.instanceId += data.toString();
     });
@@ -402,7 +455,7 @@ export class ObsHarness {
     await this.waitFor("initial snapshot", () => this.snapshot);
     assert.equal(
       this.snapshot.settingsStatus.configPath,
-      path.join(config, "the-golden-eye/settings.json"),
+      path.join(config, this.settingsDirectory, "settings.json"),
     );
     assert.equal(this.snapshot.settingsStatus.fileError, null);
     assert.deepEqual(this.snapshot.sources, [], "OBS must load only the empty test collection");
@@ -421,22 +474,34 @@ export class ObsHarness {
     }
   }
 
+  private get configDirectory() {
+    return path.join(
+      this.artifacts,
+      process.platform === "darwin" ? "home/Library/Application Support" : "config",
+    );
+  }
+
+  private get settingsDirectory() {
+    return process.platform === "darwin" ? "The Golden Eye" : "the-golden-eye";
+  }
+
   private async configure() {
+    const config = path.relative(this.artifacts, this.configDirectory);
     await this.write(
-      "config/obs-studio/global.ini",
-      "[General]\nFirstRun=true\nLastVersion=537001986\nEnableAutoUpdates=false\n",
+      `${config}/obs-studio/global.ini`,
+      "[General]\nFirstRun=true\nLastVersion=537001986\nEnableAutoUpdates=false\nMacOSPermissionsDialogLastShown=1\n",
     );
     await this.write(
-      "config/obs-studio/user.ini",
+      `${config}/obs-studio/user.ini`,
       "[General]\nFirstRun=true\nConfirmOnExit=false\nPre19Defaults=false\nPre21Defaults=false\nPre23Defaults=false\n[Basic]\nProfile=Tests\nProfileDir=Tests\nSceneCollection=Tests\nSceneCollectionFile=Tests\nConfigOnNewProfile=false\n[BasicWindow]\nShowWhatsNew=false\n",
     );
     await this.write(
-      "config/obs-studio/basic/profiles/Tests/basic.ini",
+      `${config}/obs-studio/basic/profiles/Tests/basic.ini`,
       `[General]\nName=Tests\n[Video]\nBaseCX=1440\nBaseCY=1080\nOutputCX=640\nOutputCY=480\nFPSType=0\nFPSCommon=30\n[Output]\nMode=Simple\n[SimpleOutput]\nRecRB=true\nRecRBTime=20\nRecRBSize=100\nRecEncoder=x264\nRecQuality=Small\nRecFormat2=mkv\nFilePath=${this.artifacts}/replays\n[Audio]\nSampleRate=48000\nChannelSetup=Stereo\n`,
     );
     await fs.mkdir(path.join(this.artifacts, "replays"));
     await this.write(
-      "config/obs-studio/basic/scenes/Tests.json",
+      `${config}/obs-studio/basic/scenes/Tests.json`,
       JSON.stringify({
         name: "Tests",
         current_scene: "Fixture Scene",
@@ -451,7 +516,7 @@ export class ObsHarness {
       }),
     );
     await this.write(
-      "config/the-golden-eye/settings.json",
+      `${config}/${this.settingsDirectory}/settings.json`,
       JSON.stringify({
         welcomeModalShown: true,
         discordNotificationsEnabled: false,
@@ -468,6 +533,11 @@ export class ObsHarness {
   async close() {
     this.closing = true;
     let shutdownError: unknown;
+    if (this.child && (this.child.exitCode !== null || this.child.signalCode !== null)) {
+      shutdownError = new Error(
+        `OBS exited before cleanup: ${this.child.exitCode ?? this.child.signalCode}`,
+      );
+    }
     if (this.child?.pid && this.child.exitCode === null && this.child.signalCode === null) {
       try {
         this.failure = undefined;
