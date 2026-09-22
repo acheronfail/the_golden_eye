@@ -151,6 +151,16 @@ test-integration *args:
     cd "{{ justfile_directory() }}/obs2/rust"
     cargo test --package ge_runtime --release --features test-hooks --tests -- --ignored --test-threads=1 {{ args }}
 
+# runs the production plugin inside an isolated, real OBS instance on Linux
+[linux]
+test-obs *args: test-obs-harness make-release-flatpak
+    just _flatpak-build stage-obs-run-data
+    node --experimental-strip-types frame_tests/obs/run.ts {{ args }}
+
+# checks failure reporting and suite control without launching OBS
+test-obs-harness:
+    node --experimental-strip-types --test frame_tests/obs/suite.test.ts
+
 # runs browser unit/component tests
 test-browser *args:
     cd obs2/browser && npm run test:unit -- --run {{ args }}
