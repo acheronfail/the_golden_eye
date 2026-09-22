@@ -45,7 +45,6 @@ them; component-private behavior stays with its component.
 Pure game rules, CV matching, clip metadata, media processing, catalog storage, and settings models
 remain in their existing Rust crates. Catalog SQL and retention transactions stay with `ge_catalog`.
 `lib.rs` owns the runtime and native entry points; `obs` owns OBS adapters. The C core and resident
-loader retain their existing loading and reload responsibilities. Firmware and frame regression
-tools remain independent projects.
+loader retain their existing loading and reload responsibilities. The frame regression harness remains a separate tool.
 
 See [the ownership review](OWNERSHIP_REVIEW.md) for costs, validation, and behavior changes.

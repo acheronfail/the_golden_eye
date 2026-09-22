@@ -18,6 +18,8 @@ release_tag_regex='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A
     printf '%s-dev+%s' "$base_version" "$sha"
   fi
 `
+rust_toolchain := `sed -n 's/^channel = "\(.*\)"/\1/p' obs2/rust/rust-toolchain.toml`
+export RUSTUP_TOOLCHAIN := rust_toolchain
 plugin_version := env_var_or_default("GE_PLUGIN_VERSION", git_plugin_version)
 updater_version := env_var_or_default("GE_UPDATER_VERSION", `tr -d '[:space:]' < obs2/updater-version.txt`)
 export DYLD_FALLBACK_LIBRARY_PATH := "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib:/Library/Developer/CommandLineTools/usr/lib"
@@ -47,7 +49,16 @@ configure build_type browser_dev *cmake_args:
     fi
     mkdir -p "${build_dir}"
     cd "${build_dir}"
-    cmake "${source_dir}" \
+    toolchain_args=()
+    if [ "{{ os() }}" = windows ]; then
+      vcpkg_root="${VCPKG_ROOT:-${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}}"
+      if command -v cygpath >/dev/null 2>&1; then
+        vcpkg_root="$(cygpath -m "$vcpkg_root")"
+      fi
+      export VCPKGRS_TRIPLET="${VCPKGRS_TRIPLET:-x64-windows-static-md}"
+      toolchain_args=(-DCMAKE_TOOLCHAIN_FILE="$vcpkg_root/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET="$VCPKGRS_TRIPLET")
+    fi
+    cmake "${source_dir}" "${toolchain_args[@]}" \
       -DCMAKE_BUILD_TYPE="{{ build_type }}" \
       -DBROWSER_DEV="{{ browser_dev }}" \
       -DGE_RUST_PACKAGE_PROFILE=OFF \
@@ -62,47 +73,13 @@ configure-debug:
 configure-dev:
     just configure Debug ON
 
-# release builds
-[unix]
+# configure a release build
 configure-release:
     just configure Release OFF
 
-# release builds (needs vcpkg's toolchain file so CMake's find_path picks up
-# simde/opencv4/ffmpeg from the vcpkg-installed triplet -- see
-# windows-vcpkg-deps below)
-[windows]
-configure-release:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    vcpkg_root="${VCPKG_ROOT:-${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}}"
-    if command -v cygpath >/dev/null 2>&1; then
-      vcpkg_root="$(cygpath -m "${vcpkg_root}")"
-    fi
-    export VCPKGRS_TRIPLET="${VCPKGRS_TRIPLET:-x64-windows-static-md}"
-    just configure Release OFF \
-      -DCMAKE_TOOLCHAIN_FILE="${vcpkg_root}/scripts/buildsystems/vcpkg.cmake" \
-      -DVCPKG_TARGET_TRIPLET="${VCPKGRS_TRIPLET}"
-
-# configure cmake for packaging (longer compile times due to LTO/strip/etc)
-[unix]
+# configure a package build with the slower Rust dist profile
 configure-package:
     just configure Release OFF -DGE_RUST_PACKAGE_PROFILE=ON
-
-# configure cmake for packaging (needs vcpkg's toolchain file -- see
-# configure-release above)
-[windows]
-configure-package:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    vcpkg_root="${VCPKG_ROOT:-${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}}"
-    if command -v cygpath >/dev/null 2>&1; then
-      vcpkg_root="$(cygpath -m "${vcpkg_root}")"
-    fi
-    export VCPKGRS_TRIPLET="${VCPKGRS_TRIPLET:-x64-windows-static-md}"
-    just configure Release OFF \
-      -DGE_RUST_PACKAGE_PROFILE=ON \
-      -DCMAKE_TOOLCHAIN_FILE="${vcpkg_root}/scripts/buildsystems/vcpkg.cmake" \
-      -DVCPKG_TARGET_TRIPLET="${VCPKGRS_TRIPLET}"
 
 # generate IDE settings files
 ide-settings: configure-release
@@ -115,7 +92,8 @@ ide-settings: configure-release
 dev:
     python3 obs2/scripts/dev.py
 
-story:
+# preview components without OBS
+storybook:
     cd obs2/browser && npm run storybook
 
 # builds a fake "newer" release package and serves it locally, so `just obs`
@@ -175,11 +153,11 @@ test-integration *args:
 
 # runs browser unit/component tests
 test-browser *args:
-    cd obs2/browser && npm run test:unit -- --run --project server --project client {{ args }}
+    cd obs2/browser && npm run test:unit -- --run {{ args }}
 
 # runs Storybook component tests in Chromium
 test-storybook *args:
-    cd obs2/browser && npm run test:unit -- --run --project storybook {{ args }}
+    cd obs2/browser && npm run test:storybook -- --run {{ args }}
 
 # runs the loader's dlopen/reload/rollback fixture tests (no OBS/Rust toolchain needed)
 test-loader:
@@ -201,7 +179,7 @@ test-cv *filter: make-release
 bench-cv *filter: make-release
     cd frame_tests && npm run bench -- {{ filter }}
 
-# runs opencv frame tests
+# run all test suites
 test:
     just test-browser
     just test-storybook
@@ -210,14 +188,24 @@ test:
     just test-rust
     just test-cv
 
-# formats the project and runs clippy
+# format source files without building or checking them
 fmt:
-    just generate-contracts
-    just clippy
     cd obs2/browser && npm run format:repo
+    cd obs2/rust && cargo +nightly fmt --all
+    find obs2/loader obs2/loader/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_runtime.h -print0 | xargs -0 clang-format -style=file -i
+
+# check formatting without changing files
+fmt-check:
+    cd obs2/browser && npm run format:repo:check
+    cd obs2/rust && cargo +nightly fmt --all -- --check
+    find obs2/loader obs2/loader/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_runtime.h -print0 | xargs -0 clang-format -style=file --dry-run --Werror
+
+# regenerate contracts, then check formatting, Rust, and browser types
+check:
+    just generate-contracts
+    just fmt-check
+    just clippy
     cd obs2/browser && npm run check
-    cd obs2/rust && rustup run nightly cargo fmt --all --
-    find obs2 obs2/loader obs2/loader/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_runtime.h -print0 | xargs -0 clang-format -style=file -i
 
 # regenerates browser settings and API types from the Rust contracts
 generate-contracts:
@@ -271,8 +259,20 @@ preview-release sha="HEAD":
       --jq .body
 
 # build the plugin in debug mode
+[macos]
 make: configure-debug
     cmake --build obs2/build
+
+# build the plugin in debug mode with the OBS Flatpak SDK
+[linux]
+make: configure-debug
+    cmake --build obs2/build --target rust_build
+    just _flatpak-build all OFF Debug OFF
+
+# build the plugin in debug mode
+[windows]
+make: configure-debug
+    cmake --build obs2/build --config Debug
 
 # build the plugin in release mode
 [macos]
@@ -525,30 +525,51 @@ windows-vcpkg-deps:
     [ -x "${vcpkg}.exe" ] && vcpkg="${vcpkg}.exe"
     "${vcpkg}" install --triplet x64-windows-static-md --clean-after-build opencv4 ffmpeg simde
 
-# setup the repository for local development
+# install the pinned Rust toolchain, Clippy, and the Rust formatter
+setup-toolchains:
+    rustup toolchain install {{ rust_toolchain }} --profile minimal --component clippy --no-update --no-self-update
+    rustup toolchain install nightly --profile minimal --component rustfmt --no-update --no-self-update
+
+# install Chromium; Debian/Ubuntu also install its system libraries
+setup-browser:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd obs2/browser
+    if command -v apt-get >/dev/null 2>&1; then
+      npx playwright install --with-deps chromium
+    else
+      npx playwright install chromium
+    fi
+    node scripts/check-test-browser.mjs
+
+# install project dependencies after the documented system prerequisites
 [windows]
-setup: obs-headers windows-vcpkg-deps
-    cd obs2/browser && npm install
-    cd frame_tests && npm install
+setup: setup-toolchains obs-headers windows-vcpkg-deps
+    cd obs2/browser && npm ci
+    cd frame_tests && npm ci
+    just setup-browser
+    just ide-settings
 
-# setup the repository for local development
+# install project dependencies after the documented system prerequisites
 [unix]
-setup: obs-headers opencv-static ffmpeg-static ide-settings
-    cd obs2/browser && npm install
-    cd frame_tests && npm install
+setup: setup-toolchains obs-headers opencv-static ffmpeg-static
+    cd obs2/browser && npm ci
+    cd frame_tests && npm ci
+    just setup-browser
+    just ide-settings
 
-# clean build files and outputs
+# remove build and test outputs; keep installed dependencies
 clean:
-    rm -rf "node_modules"
-    rm -rf "obs2/browser/node_modules"
-    rm -rf "frame_tests/node_modules"
-    rm -rf "obs2/ge_runtime.h"
-    rm -rf "obs2/build"
-    cd "obs2/rust" && cargo clean
-    @echo "Keeping vendored packages, use 'just clean_all' to remove those as well"
+    rm -rf obs2/build obs2/build-flatpak obs2/loader/tests/build
+    rm -rf obs2/browser/build obs2/browser/.svelte-kit obs2/browser/storybook-static
+    rm -rf obs2/browser/playwright-report obs2/browser/test-results
+    rm -f obs2/core/ge_runtime.h frame_tests/test_results.json frame_tests/bench_results.json
+    cd obs2/rust && cargo clean
 
-# clean build files and outputs, as well as vendorered builds
-clean_all: clean
-    rm -rf "obs2/vendor/obs"
-    rm -rf "obs2/vendor/opencv-static"
-    rm -rf "obs2/vendor/ffmpeg-static"
+# also remove the project's npm dependencies
+clean-deps: clean
+    rm -rf obs2/browser/node_modules frame_tests/node_modules
+
+# also remove vendored OBS headers and static native dependencies
+clean-all: clean-deps
+    rm -rf obs2/vendor/obs obs2/vendor/opencv-static obs2/vendor/ffmpeg-static

@@ -10,9 +10,6 @@ obs2/build-flatpak/
 obs2/loader/tests/build/
 obs2/vendor/
 obs2/rust/target/
-esp32-input-monitor/.pio/
-models/
-llama/
 AGENTS.md
 README.md
 obs2/browser/src/lib/generated/settings.ts

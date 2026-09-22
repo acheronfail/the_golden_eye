@@ -1,53 +1,26 @@
-# sv
+# Browser dock
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+This SvelteKit application is the plugin's OBS browser dock. CMake builds it as one HTML bundle,
+which Rust embeds. The project uses the static adapter.
 
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
-
-```sh
-# create a new project
-npx sv create my-app
-```
-
-To recreate this project with the same configuration:
+Follow [the contribution guide](../../CONTRIBUTING.md) for setup, builds, checks, and tests.
+Run these commands from the repository root:
 
 ```sh
-# recreate this project
-npx sv@0.15.3 create --template minimal --types ts --add prettier vitest="usages:unit" tailwindcss="plugins:typography,forms" sveltekit-adapter="adapter:node" --install npm frontend
+just dev          # OBS backend plus Vite with hot reload
+just storybook    # isolated component previews without OBS
+just test-browser
+just test-storybook
 ```
 
-## Developing
+Within this directory, `npm run test:unit` runs the Node/jsdom suites in watch mode.
+`npm run test:storybook` runs the Chromium stories in watch mode. Add `-- --run` for a single run.
+`npm test` runs both suites once. Storybook tests check Chromium before starting Vitest.
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+`npm run check` checks Svelte and TypeScript. `npm run format` formats this directory;
+`npm run format:repo` formats the repository's supported text files.
 
-```sh
-npm run dev
+Use the root build commands for production bundles. They supply `BROWSER_BUNDLE` and regenerate
+settings and API contracts before the browser build. If a Playwright update needs a new browser, run `just setup-browser`.
 
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
-
-## Component catalogue
-
-Run the local Storybook catalogue to preview application components and their states without an OBS backend:
-
-```sh
-npm run storybook
-```
-
-Build the static catalogue with `npm run build-storybook`. Storybook rendering checks are included in `npm test`; inspect known
-accessibility findings from each story's Accessibility panel.
+See [the frontend ownership map](src/lib/README.md) for components, state, and stories.

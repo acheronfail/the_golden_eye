@@ -91,20 +91,12 @@ jobs:
           sudo flatpak install -y flathub com.obsproject.Studio
           sudo flatpak install -y flathub "$(flatpak info --show-sdk com.obsproject.Studio)"
 
-      - name: Set up Rust
-        run: |
-          rustup toolchain install 1.96.0 --profile minimal --component clippy
-          rustup toolchain install nightly --profile minimal --component rustfmt
-
       - name: Set up repository
         run: just setup
 
-      - name: Install Storybook test browser
-        run: cd obs2/browser && npx playwright install --with-deps chromium
-
-      - name: Check formatting
+      - name: Check source and generated contracts
         run: |
-          just fmt
+          just check
           git diff --exit-code
 
       - name: Build Release
@@ -208,9 +200,6 @@ jobs:
           brew untap --force aws/tap || true
           brew install cmake just nasm simde
 
-      - name: Set up Rust
-        run: rustup toolchain install 1.96.0 --profile minimal
-
       - name: Set up repository
         run: just setup
 
@@ -301,13 +290,6 @@ jobs:
             obs2/rust/target/**/release/incremental
           key: Windows-${{ runner.arch }}-cargo-build-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}
 
-      - name: Set up Rust
-        shell: pwsh
-        run: |
-          rustup set profile minimal
-          rustup toolchain install 1.96.0 --profile minimal --no-self-update
-          rustup default 1.96.0
-
       - name: Install system dependencies
         shell: pwsh
         run: |
@@ -353,13 +335,6 @@ jobs:
             .vcpkg-bincache
           key: ${{ steps.restore-vcpkg.outputs.cache-primary-key }}
 
-      - name: Set up repository
-        shell: bash
-        run: |
-          just obs-headers
-          cd obs2/browser && npm install
-          cd ../../test && npm install
-
       # Runs vcvarsall once and persists the resulting environment (INCLUDE,
       # LIB, LIBPATH, PATH, etc.) via $GITHUB_ENV for every later step in this
       # job -- `set`'s own "NAME=value" per-line output format happens to be
@@ -398,6 +373,10 @@ jobs:
           )
           echo BINDGEN_EXTRA_CLANG_ARGS=!CLANGARGS!>> "%GITHUB_ENV%"
           endlocal
+
+      - name: Set up repository
+        shell: bash
+        run: just setup
 
       - name: Run loader reload tests
         shell: bash
