@@ -78,15 +78,20 @@ jobs:
             build-essential \
             clang-format \
             cmake \
+            dbus-x11 \
+            ffmpeg \
             flatpak \
             just \
             libdbus-1-dev \
             libobs-dev \
+            libgl1-mesa-dri \
             libssl-dev \
             libwayland-dev \
             nasm \
             pkg-config \
-            wget
+            wget \
+            xauth \
+            xvfb
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y flathub com.obsproject.Studio
           sudo flatpak install -y flathub "$(flatpak info --show-sdk com.obsproject.Studio)"
@@ -144,6 +149,29 @@ jobs:
 
       - name: Run Integration tests
         run: just test-integration
+
+      - name: Run real OBS tests
+        timeout-minutes: 15
+        run: |
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24' \
+            just test-obs --software-renderer --repeat 3
+
+      - name: Run real OBS upgrade tests
+        timeout-minutes: 30
+        run: |
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24' \
+            just test-obs-upgrade --software-renderer
+
+      - name: Upload real OBS test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: real-obs-test-results-linux-${{ runner.arch }}
+          path: |
+            obs2/build/real-obs-*/
+            obs2/build/obs-upgrade-*/
+          if-no-files-found: ignore
+          retention-days: 7
 
   macos:
     name: macOS ${{ matrix.arch }}
