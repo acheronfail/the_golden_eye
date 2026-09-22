@@ -101,6 +101,7 @@ struct State {
     dock_json: CString,
     live_dock_json: CString,
     replay_serial: usize,
+    deferred_replay_saves: Option<Vec<PathBuf>>,
 }
 
 impl Default for State {
@@ -127,6 +128,7 @@ impl Default for State {
             dock_json: CString::new("[]").unwrap(),
             live_dock_json: CString::new("[]").unwrap(),
             replay_serial: 0,
+            deferred_replay_saves: None,
         }
     }
 }
@@ -159,6 +161,21 @@ impl TestObs {
 
     pub fn set_replay_save_delay(&self, delay: Duration) {
         STATE.lock().unwrap().config.replay_save_delay = delay;
+    }
+
+    pub fn defer_replay_saves(&self) {
+        STATE.lock().unwrap().deferred_replay_saves = Some(Vec::new());
+    }
+
+    pub fn deferred_replay_save_count(&self) -> usize {
+        STATE.lock().unwrap().deferred_replay_saves.as_ref().map_or(0, Vec::len)
+    }
+
+    pub fn finish_deferred_replay_saves(&self) {
+        let paths = STATE.lock().unwrap().deferred_replay_saves.take().unwrap();
+        for path in paths {
+            fire_replay_saved(&path);
+        }
     }
 
     /// Simulate the user saving the replay buffer themselves (OBS hotkey/button):
@@ -305,6 +322,10 @@ pub extern "C" fn obs_frontend_replay_buffer_save() {
         state.config.replay_save_delay
     };
     let path = write_replay_file("obs-replay");
+    if let Some(pending) = &mut STATE.lock().unwrap().deferred_replay_saves {
+        pending.push(path);
+        return;
+    }
     if delay.is_zero() {
         fire_replay_saved(&path);
     } else {
