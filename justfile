@@ -49,16 +49,16 @@ configure build_type browser_dev *cmake_args:
     fi
     mkdir -p "${build_dir}"
     cd "${build_dir}"
-    toolchain_args=()
+    configure_args=("${source_dir}")
     if [ "{{ os() }}" = windows ]; then
       vcpkg_root="${VCPKG_ROOT:-${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}}"
       if command -v cygpath >/dev/null 2>&1; then
         vcpkg_root="$(cygpath -m "$vcpkg_root")"
       fi
       export VCPKGRS_TRIPLET="${VCPKGRS_TRIPLET:-x64-windows-static-md}"
-      toolchain_args=(-DCMAKE_TOOLCHAIN_FILE="$vcpkg_root/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET="$VCPKGRS_TRIPLET")
+      configure_args+=(-DCMAKE_TOOLCHAIN_FILE="$vcpkg_root/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET="$VCPKGRS_TRIPLET")
     fi
-    cmake "${source_dir}" "${toolchain_args[@]}" \
+    cmake "${configure_args[@]}" \
       -DCMAKE_BUILD_TYPE="{{ build_type }}" \
       -DBROWSER_DEV="{{ browser_dev }}" \
       -DGE_RUST_PACKAGE_PROFILE=OFF \
