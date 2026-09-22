@@ -1,5 +1,7 @@
 # Frame regression tests
 
+For tests through real OBS rendering, capture, and replay saves, see [the OBS test guide](obs/README.md).
+
 This harness runs the Rust `test_match` CLI against PNG fixtures. It derives expected results from
 filenames and writes `test_results.json`. The Rust tests also use fixtures under `clips/` and
 `screenshots-*`.

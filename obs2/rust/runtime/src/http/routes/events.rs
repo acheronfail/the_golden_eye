@@ -33,7 +33,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // an applied update. The grace period prevents stale notices in later tabs.
     if state.reloaded_at.is_some_and(|when| when.elapsed() < UPDATE_APPLIED_NOTICE_WINDOW) {
         let settings = state.settings.get();
-        let release_url = if settings.last_known_update_version.as_deref() == Some(crate::PLUGIN_VERSION) {
+        let release_url = if settings
+            .last_known_update_version
+            .as_deref()
+            .map(|version| version.strip_prefix('v').unwrap_or(version))
+            == Some(crate::PLUGIN_VERSION)
+        {
             settings.last_known_update_release_url.clone()
         } else {
             None

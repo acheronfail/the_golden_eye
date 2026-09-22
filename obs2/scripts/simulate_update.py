@@ -117,17 +117,6 @@ def make_handler(
     checksums_text: bytes,
 ) -> type[http.server.BaseHTTPRequestHandler]:
     zip_bytes = zip_path.read_bytes()
-    base_url = f"http://127.0.0.1:{SERVER_PORT}"
-    latest_json = json.dumps(
-        {
-            "tag_name": f"v{version}",
-            "html_url": RELEASE_URL,
-            "assets": [
-                {"name": zip_path.name, "browser_download_url": f"{base_url}/{zip_path.name}"},
-                {"name": "checksums.txt", "browser_download_url": f"{base_url}/checksums.txt"},
-            ],
-        }
-    ).encode()
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def _respond(self, body: bytes, content_type: str) -> None:
@@ -138,6 +127,18 @@ def make_handler(
             self.wfile.write(body)
 
         def do_GET(self) -> None:  # noqa: N802 (BaseHTTPRequestHandler's own naming)
+            base_url = f"http://127.0.0.1:{self.server.server_port}"
+            latest_json = json.dumps(
+                {
+                    "tag_name": f"v{version}",
+                    "html_url": RELEASE_URL,
+                    "assets": [
+                        {"name": zip_path.name, "browser_download_url": f"{base_url}/{zip_path.name}"},
+                        {"name": "checksums.txt", "browser_download_url": f"{base_url}/checksums.txt"},
+                    ],
+                }
+            ).encode()
+
             if self.path == "/latest":
                 self._respond(latest_json, "application/json")
             elif self.path == f"/{zip_path.name}":

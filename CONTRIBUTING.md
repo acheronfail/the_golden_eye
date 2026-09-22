@@ -77,11 +77,16 @@ CI runs `just check` and checks that generated files match the committed version
 | `just test-loader`      | Native load, reload, and rollback fixtures   |
 | `just test-rust`        | Rust unit tests across the plugin crates     |
 | `just test-integration` | Runtime workflows against a fake OBS host    |
+| `just test-obs`         | Production plugin in real OBS on macOS/Linux |
 | `just test-cv`          | Release build and captured-frame regressions |
 
 The browser and Rust commands accept extra test arguments. The frame harness accepts a filename
 regex, for example `just test-cv flicker`. See [frame_tests/README.md](frame_tests/README.md) for
 fixtures.
+
+`just test-obs` needs `/Applications/OBS.app` and a graphical login on macOS, or the OBS Flatpak and
+an X11 display on Linux. See [the real OBS test guide](frame_tests/obs/README.md) for repeated runs,
+failure artifacts, and CI options.
 
 ## Clean generated files
 
