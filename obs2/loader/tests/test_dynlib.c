@@ -10,12 +10,45 @@
 
 static int g_failures = 0;
 
+#ifdef _WIN32
+static DWORD WINAPI release_file_lock(void *lock) {
+  Sleep(100);
+  CloseHandle((HANDLE)lock);
+  return 0;
+}
+
+static void test_transient_file_lock(const char *fixture) {
+  HANDLE lock = CreateFileA(fixture, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+  CHECK(lock != INVALID_HANDLE_VALUE, "fixture should be exclusively locked");
+  if (lock == INVALID_HANDLE_VALUE) {
+    return;
+  }
+  HANDLE thread = CreateThread(NULL, 0, release_file_lock, lock, 0, NULL);
+  CHECK(thread != NULL, "lock release thread should start");
+  if (!thread) {
+    CloseHandle(lock);
+    return;
+  }
+  ge_dynlib_handle dl = ge_dynlib_open(fixture);
+  CHECK(dl != NULL, "loading should recover after a transient file lock: %s", ge_dynlib_error());
+  if (dl) {
+    ge_dynlib_close(dl);
+  }
+  WaitForSingleObject(thread, INFINITE);
+  CloseHandle(thread);
+}
+#endif
+
 int main(int argc, char **argv) {
   if (argc != 2) {
     fprintf(stderr, "usage: %s <fixture_v1>\n", argv[0]);
     return 2;
   }
   const char *fixture_v1 = argv[1];
+
+#ifdef _WIN32
+  test_transient_file_lock(fixture_v1);
+#endif
 
   // ge_module_path resolves the shared object containing the calling
   // address -- for this statically-linked test binary, that's the test

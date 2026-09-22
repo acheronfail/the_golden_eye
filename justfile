@@ -43,7 +43,7 @@ configure build_type browser_dev *cmake_args:
       source_dir="$(cygpath -m "${source_dir}")"
     fi
     cache="${build_dir}/CMakeCache.txt"
-    if [ -f "${cache}" ] && ! grep -qxF "CMAKE_HOME_DIRECTORY:INTERNAL=${source_dir}" "${cache}"; then
+    if [ -f "${cache}" ] && ! grep -qxF "CMAKE_HOME_DIRECTORY:INTERNAL=${source_dir}" <(tr -d '\r' < "${cache}"); then
       echo "Removing stale CMake build directory ${build_dir}"
       rm -rf "${build_dir}"
     fi

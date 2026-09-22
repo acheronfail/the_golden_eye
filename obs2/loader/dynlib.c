@@ -33,8 +33,18 @@ ge_dynlib_handle ge_dynlib_open(const char *path) {
   DWORD previous_mode;
   const DWORD quiet_mode = SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX;
   BOOL restore_mode = SetThreadErrorMode(quiet_mode, &previous_mode);
-  HMODULE module = LoadLibraryA(path);
-  DWORD load_error = GetLastError();
+  HMODULE module = NULL;
+  DWORD load_error = ERROR_SUCCESS;
+  DWORD delay_ms = 50;
+  for (int attempt = 0; attempt < 6; attempt++) {
+    module = LoadLibraryA(path);
+    load_error = GetLastError();
+    if (module || (load_error != ERROR_SHARING_VIOLATION && load_error != ERROR_ACCESS_DENIED) || attempt == 5) {
+      break;
+    }
+    Sleep(delay_ms);
+    delay_ms *= 2;
+  }
   if (restore_mode) {
     SetThreadErrorMode(previous_mode, NULL);
   }
