@@ -14,6 +14,6 @@ show_desktop_log() {
 }
 trap show_desktop_log EXIT
 
-# Keep service stderr in its own log while test stderr stays visible in Actions.
+# Keep both service streams in the log; preserve the test streams on separate fds.
 xvfb-run -a -s '-screen 0 1920x1080x24' dbus-run-session -- \
-  bash -c 'exec "$@" 2>&3' bash "$@" 3>&2 2>"$desktop_log"
+  bash -c 'exec "$@" >&8 2>&9' bash "$@" 8>&1 9>&2 >"$desktop_log" 2>&1
