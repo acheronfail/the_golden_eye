@@ -26,8 +26,8 @@ SemVer. A package can update automatically only when its updater number exactly 
 core. A mismatch is never downloaded; the UI asks for a manual installation instead.
 
 Increment `obs2/updater-version.txt` only when the existing installation cannot safely apply the new
-release, such as when changing the resident loader or the ABI below. The loader is absent from automatic
-update payloads because OBS has already loaded it.
+release, such as when changing the resident loader or the ABI below. The loader is absent from
+automatic update payloads because OBS has already loaded it.
 
 ## Update sequence
 
@@ -43,8 +43,8 @@ update payloads because OBS has already loaded it.
 
 3. Rust stages the core under its installed filename and the data as `module-data/**` beside it.
 4. When monitoring and recording work are idle, Rust wakes the loader reload worker.
-5. The loader prechecks the staged core, unloads the old core, and loads the new core through a fresh
-   temporary copy to avoid platform loader caching.
+5. The loader prechecks the staged core, unloads the old core, and loads the new core through a
+   fresh temporary copy to avoid platform loader caching.
 6. The new Rust core provisionally swaps OBS's complete module data directory, retaining a backup.
 7. The loader replaces the canonical core, calls `ge_core_commit_update()`, and removes staging.
 

@@ -2,8 +2,8 @@
 
 ## Project overview
 
-- `obs2/loader/` is the OBS-loaded loader that finds and loads the bundled core library, also performs
-  auto-update.
+- `obs2/loader/` is the OBS-loaded loader that finds and loads the bundled core library, also
+  performs auto-update.
 - `obs2/core/` connects OBS (frontend events, source frames, and replay-buffer callbacks) to Rust.
 - `obs2/rust/` the main plugin - recording, frame matching, the webserver, etc.
 - `obs2/browser/` is the SvelteKit browser dock UI embedded into the plugin build.
@@ -78,8 +78,8 @@ To read them:
 
 Verbosity is controlled by the `RUST_LOG` environment variable (a
 [`tracing` filter](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html);
-the crate name is `ge_runtime`). Release builds default to `info`, so `debug`-level lines are hidden.
-To show them, launch OBS with `RUST_LOG` set:
+the crate name is `ge_runtime`). Release builds default to `info`, so `debug`-level lines are
+hidden. To show them, launch OBS with `RUST_LOG` set:
 
 ```shell
 RUST_LOG=ge_runtime=debug just obs
