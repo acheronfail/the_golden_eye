@@ -84,28 +84,60 @@ pub fn is_check_due(interval: UpdateCheckInterval, last_check_time: Option<u64>,
 pub(super) async fn fetch_latest_update(
     current_version: &str,
 ) -> anyhow::Result<Option<(PluginUpdate, Vec<GithubAsset>)>> {
-    let client = reqwest::Client::builder().timeout(UPDATE_CHECK_TIMEOUT).build()?;
     let env_config = crate::config::UpdateEnvConfig::from_env();
     env_config.log();
-    let releases_api_url = env_config.releases_api_url();
-    let response = client
-        .get(&releases_api_url)
-        .header(reqwest::header::USER_AGENT, "the-golden-eye-obs-plugin")
-        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-        .send()
+    let releases = tokio::time::timeout(Duration::from_secs(60), fetch_releases(&env_config.releases_api_url()))
         .await
-        .context("requesting latest GitHub release")?;
+        .context("release history request timed out")??;
+    select_update_from_releases(current_version, releases, env_config.include_prereleases())
+}
 
-    if response.status() == StatusCode::NOT_FOUND {
-        anyhow::bail!("latest GitHub release not found at {releases_api_url}");
+async fn fetch_releases(url: &str) -> anyhow::Result<Vec<GithubRelease>> {
+    let client = reqwest::Client::builder().timeout(UPDATE_CHECK_TIMEOUT).build()?;
+    let origin = reqwest::Url::parse(url)?;
+    let mut next = Some(origin.clone());
+    let mut visited = std::collections::HashSet::new();
+    let mut releases = Vec::new();
+    while let Some(url) = next {
+        anyhow::ensure!(url.origin() == origin.origin(), "release pagination changed origin");
+        anyhow::ensure!(visited.insert(url.clone()), "release pagination repeated a page");
+        let response = client
+            .get(url)
+            .header(reqwest::header::USER_AGENT, "the-golden-eye-obs-plugin")
+            .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+            .send()
+            .await
+            .context("requesting GitHub releases")?;
+        if response.status() == StatusCode::NOT_FOUND {
+            anyhow::bail!("release history not found");
+        }
+        let response = response.error_for_status().context("GitHub release API returned an error")?;
+        next = next_release_page(response.headers())?;
+        releases.extend(releases_from_response(response.json().await.context("parsing GitHub release response")?)?);
     }
+    Ok(releases)
+}
 
-    let response = response.error_for_status().context("GitHub release API returned an error")?;
-    let include_prereleases = env_config.include_prereleases();
-    let body = response.json().await.context("parsing GitHub release response")?;
-    let releases = releases_from_response(body)?;
-
-    select_update_from_releases(current_version, releases, include_prereleases)
+fn next_release_page(headers: &reqwest::header::HeaderMap) -> anyhow::Result<Option<reqwest::Url>> {
+    for link in headers.get_all(reqwest::header::LINK) {
+        for part in link.to_str()?.split(',') {
+            let mut fields = part.trim().split(';');
+            let target = fields.next().unwrap_or_default().trim();
+            if fields.any(|field| {
+                field
+                    .trim()
+                    .strip_prefix("rel=")
+                    .is_some_and(|rel| rel.trim_matches('"').split_whitespace().any(|value| value == "next"))
+            }) {
+                let target = target
+                    .strip_prefix('<')
+                    .and_then(|value| value.strip_suffix('>'))
+                    .context("invalid release pagination link")?;
+                return Ok(Some(reqwest::Url::parse(target)?));
+            }
+        }
+    }
+    Ok(None)
 }
 
 fn releases_from_response(value: Value) -> anyhow::Result<Vec<GithubRelease>> {
@@ -123,28 +155,35 @@ fn select_update_from_releases(
 ) -> anyhow::Result<Option<(PluginUpdate, Vec<GithubAsset>)>> {
     let current =
         parse_version(current_version).with_context(|| format!("parsing current version {current_version}"))?;
-    let mut best: Option<(Version, GithubRelease)> = None;
-
+    let installed_updater_version = installed_updater_version()?;
+    let mut compatible: Option<(Version, GithubRelease, u32)> = None;
+    let mut incompatible: Option<(Version, GithubRelease, u32)> = None;
     for release in releases {
         if release.draft || (!include_prereleases && release.prerelease) {
             continue;
         }
-
-        let latest = parse_version(&release.tag_name)
-            .with_context(|| format!("parsing latest release tag {}", release.tag_name))?;
-        if latest <= current || best.as_ref().is_some_and(|(best_version, _)| latest <= *best_version) {
+        let Ok(version) = parse_version(&release.tag_name) else { continue };
+        if version <= current {
             continue;
         }
-
-        best = Some((latest, release));
+        let updater = match updater_version_from_assets(
+            &version,
+            &release.assets,
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+        ) {
+            Ok(updater) => updater,
+            Err(error) => {
+                tracing::warn!(tag = %release.tag_name, %error, "skipping release without a valid platform package");
+                continue;
+            }
+        };
+        let best = if updater == installed_updater_version { &mut compatible } else { &mut incompatible };
+        if best.as_ref().is_none_or(|(previous, _, _)| version > *previous) {
+            *best = Some((version, release, updater));
+        }
     }
-
-    let Some((latest, release)) = best else {
-        return Ok(None);
-    };
-    let updater_version =
-        updater_version_from_assets(&latest, &release.assets, std::env::consts::OS, std::env::consts::ARCH)?;
-    let installed_updater_version = installed_updater_version()?;
+    let Some((_, release, updater_version)) = compatible.or(incompatible) else { return Ok(None) };
     let update = PluginUpdate {
         current_version: current_version.to_owned(),
         latest_version: release.tag_name,

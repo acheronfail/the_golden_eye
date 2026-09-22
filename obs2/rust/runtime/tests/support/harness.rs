@@ -103,12 +103,13 @@ impl Harness {
             sources: vec![(SOURCE_NAME.into(), "test_input".into())],
         });
 
-        // Normally set by core.c's ge_core_load; the harness calls Rust directly.
+        // Normally set by core.c's ge_core_load_v2; the harness calls Rust directly.
         let core_path_c = std::ffi::CString::new(core_path.to_string_lossy().into_owned()).unwrap();
         let staged_dir = temp.join(".ge_update_staged");
         let staged_dir_c = std::ffi::CString::new(staged_dir.to_string_lossy().into_owned()).unwrap();
         unsafe { ge_runtime::ge_runtime_set_update_paths(core_path_c.as_ptr(), staged_dir_c.as_ptr()) };
 
+        ge_runtime::ge_runtime_set_load_context(false, false);
         assert!(ge_runtime::ge_runtime_start(), "server failed to start");
         let client = reqwest::Client::new();
         wait_for_server(&client).await;

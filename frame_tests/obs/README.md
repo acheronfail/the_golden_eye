@@ -66,11 +66,13 @@ The command builds the same current source as `998.0.0` and `998.0.1` through `j
 Both builds use the normal release profile and the browser-to-Rust-to-C build chain.
 The runner saves each package before the next build starts. It never installs either package into your personal OBS configuration.
 
-The test starts OBS with A and requires A's reported version. It saves a run, enables automatic updates, and serves B through the local release server.
+The test starts OBS with A and requires A's reported version. It saves a run, enables automatic updates, and serves B on the second page of the local release history.
+The first page advertises a newer release with an incompatible updater number. The plugin must select B.
 After reload, it requires B's version notice, release link, and installed core checksum. The resident loader must stay unchanged.
 Settings and existing runs must survive, and a new replay save must succeed.
 The test then closes OBS and restarts it with the same installation and configuration.
-It requires B's checksum and browser build ID, an up-to-date response, the saved settings and runs, and working frame detection.
+It requires B's checksum and browser build ID, a manual-install offer for the incompatible release, the saved settings and runs, and working frame detection.
+The incompatible package must never be downloaded.
 
 Builds and their checksums, source fingerprint, and timings remain under `obs2/build/obs-upgrade-builds-*`.
 A source change during the two builds fails preparation. Test logs and reports remain under `obs2/build/real-obs-upgrade-*`.
@@ -85,17 +87,17 @@ Rebuild after compiler or dependency changes. `--build-only` prepares a pair wit
 Normal build caches reuse unchanged dependencies. This dedicated suite remains separate from `just test` and `just test-obs`.
 No CI workflow runs it yet. The version transition covers current code with two versions, not compatibility with older implementations or schemas.
 
-### Known rollback regression
+### Rollback recovery
 
-Run `just test-obs --rollback-regression` to include the failing rollback case. It is excluded from the default suite until the production fix lands.
-This test packages the existing loader failure fixture, which passes symbol checks but rejects core startup.
-The loader restores the original core, and matching works, but replay status remains stale after monitoring stops.
-The restored runtime waits for OBS's startup event, which already occurred. The case times out and exits nonzero.
-The runner still closes OBS and continues the remaining cases in a fresh session.
+The default suite includes rollback recovery. A fixture passes the loader's symbol checks but rejects core startup.
+The test requires the original core and templates, preserved settings and runs, and a fresh source snapshot.
+It then matches a frame, saves a replay, and stops monitoring and the replay buffer.
+No successful-update notice may appear during recovery. The next case applies a valid update in the same OBS session.
 
-A separate production change must restore frontend readiness without sending a false update notice.
-The fixture fails before Rust starts, so this case does not exercise rollback after a provisional data replacement.
-The capture and same-build update cases passed on macOS. The new A-to-B suite still needs validation there.
+The fixture fails before Rust starts. Smaller loader and runtime tests cover replacement failure, provisional startup, and commit-gated notices.
+The u2 loader contract fixes this regression and requires a full manual installation for existing u1 users.
+See [the migration guide](../../docs/dev/auto-update.md) for details.
+The recovery cases have been verified on macOS 15.6 (Apple Silicon) with OBS 32.2.2.
 
 ## Isolation and timing
 

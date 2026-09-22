@@ -9,23 +9,8 @@ use crate::support::harness::{API, Harness, SOURCE_NAME, event_ws_url, next_app_
 
 const RELEASE_URL: &str = "https://github.com/acheronfail/the_golden_eye/releases/tag/v999.0.0";
 
-/// Exercises the same signal a real reload sends: `ge_core_load` calls
-/// `ge_runtime_set_was_reloaded(true)` before `ge_runtime_start()` when the load
-/// followed a successful update apply (see `obs2/core/core.c`). The harness
-/// bypasses the C loader entirely (it calls `ge_runtime_start()` directly), so
-/// this simulates the same sequence by hand: stop, mark the next start as a
-/// reload, start again -- then confirms a freshly connecting client gets the
-/// one-off `updateApplied` notice.
-///
-/// `lastKnownUpdateVersion`/`lastKnownUpdateReleaseUrl` are backend-owned
-/// (like `lastUpdateCheckTime`), so `PUT /api/v1/settings` can never set them
-/// -- and a real update check (see `update_checking.rs`/`update_apply.rs`)
-/// can only ever persist a version strictly newer than this test binary's own
-/// `GE_PLUGIN_VERSION`, so it could never record a "last known update" equal
-/// to the version this same process reports once "reloaded". Writing the
-/// settings file directly while the server is stopped simulates the real
-/// post-reload world instead: the freshly (re)loaded binary's own version
-/// equals the update that was staged for it.
+/// A provisional update must not announce success until the loader commits it.
+/// The settings use a release tag, as the real release server does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
 async fn reload_sends_update_applied_notice_to_new_connections() {
@@ -52,7 +37,7 @@ async fn reload_sends_update_applied_notice_to_new_connections() {
     )
     .unwrap();
 
-    ge_runtime::ge_runtime_set_was_reloaded(true);
+    ge_runtime::ge_runtime_set_load_context(true, true);
     assert!(ge_runtime::ge_runtime_start(), "server failed to restart");
     ge_runtime::ge_sources_changed();
 
@@ -61,7 +46,19 @@ async fn reload_sends_update_applied_notice_to_new_connections() {
     assert_eq!(snapshot["state"]["sources"], json!([{"name":SOURCE_NAME,"id":"test_input"}]));
     assert!(harness.obs.calls().source_names > 0, "reload should refresh sources without waiting for FINISHED_LOADING");
 
-    let value = wait_for_update_applied_event().await;
+    assert_no_update_notice(&mut ws).await;
+    let status: Value =
+        harness.client.get(format!("{API}/api/v1/updates/status")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(status["phase"], "applying");
+    ge_runtime::ge_runtime_commit_update();
+    let status: Value =
+        harness.client.get(format!("{API}/api/v1/updates/status")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(status["phase"], "idle");
+    let live = wait_for_update_applied_event(&mut ws).await;
+    assert_eq!(live["version"], env!("GE_PLUGIN_VERSION"));
+    assert_no_update_notice(&mut ws).await;
+    let (mut late_ws, _) = connect_async(event_ws_url()).await.unwrap();
+    let value = wait_for_update_applied_event(&mut late_ws).await;
     assert_eq!(value["version"], env!("GE_PLUGIN_VERSION"));
     assert_eq!(value["releaseUrl"], RELEASE_URL);
 
@@ -87,8 +84,9 @@ async fn cold_start_does_not_send_update_applied_notice() {
     drop(harness);
 }
 
-async fn wait_for_update_applied_event() -> Value {
-    let (mut ws, _) = connect_async(event_ws_url()).await.unwrap();
+async fn wait_for_update_applied_event(
+    ws: &mut tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+) -> Value {
     let deadline = Instant::now() + Duration::from_secs(5);
 
     loop {
@@ -117,4 +115,30 @@ async fn wait_for_update_applied_event() -> Value {
             panic!("timed out waiting for updateApplied event");
         }
     }
+}
+
+async fn assert_no_update_notice(
+    ws: &mut tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+) {
+    let deadline = Instant::now() + Duration::from_millis(300);
+    while Instant::now() < deadline {
+        if let Ok(Some(Ok(Message::Text(text)))) = tokio::time::timeout(Duration::from_millis(50), ws.next()).await {
+            let value: Value = serde_json::from_str(&text).unwrap();
+            assert_ne!(value["type"], "updateApplied");
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with just test-integration"]
+async fn rollback_is_ready_without_an_update_notice() {
+    let harness = Harness::start(Duration::ZERO).await;
+    std::thread::spawn(|| ge_runtime::ge_runtime_stop()).join().unwrap();
+    ge_runtime::ge_runtime_set_load_context(true, false);
+    assert!(ge_runtime::ge_runtime_start());
+    ge_runtime::ge_sources_changed();
+    let mut ws = harness.connect_event_stream().await;
+    let snapshot = next_app_snapshot(&mut ws, "rollback source snapshot").await;
+    assert_eq!(snapshot["state"]["sources"], json!([{"name": SOURCE_NAME, "id": "test_input"}]));
+    assert_no_update_notice(&mut ws).await;
 }

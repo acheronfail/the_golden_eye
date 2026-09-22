@@ -13,16 +13,22 @@
 // still inside the core, so it must ONLY wake the worker -- never dlopen/recurse.
 typedef void (*ge_request_reload_fn)(void);
 
+typedef enum {
+  GE_CORE_COLD_START = 0,
+  GE_CORE_APPLY_UPDATE = 1,
+  GE_CORE_ROLLBACK = 2,
+} ge_core_load_reason;
+
 // Opaque handle to an open core library: its dynlib handle, the temp-copy
 // path it was actually dlopen'd from (removed on close), and its resolved
 // entry points.
 typedef struct ge_core_handle ge_core_handle;
 
-// Opens `load_path` via a fresh temp copy and calls ge_core_load() with the
-// durable core and staging paths. is_reload=true only for a reload's new core.
+// Opens `load_path` via a fresh temp copy and calls ge_core_load_v2() with the
+// durable core and staging paths. The reason separates updates from rollback.
 bool ge_core_open(const char *load_path, const char *canonical_path, const char *staged_dir, void *module_arg,
-                  bool is_reload, ge_request_reload_fn request_reload, ge_core_handle **out_handle, char *err,
-                  size_t err_size);
+                  ge_core_load_reason reason, ge_request_reload_fn request_reload, ge_core_handle **out_handle,
+                  char *err, size_t err_size);
 
 // Calls the handle's ge_core_post_load(). No-op if NULL. Named distinctly from
 // the core's own ge_core_post_load() (dlsym'd), since core.c includes this header.

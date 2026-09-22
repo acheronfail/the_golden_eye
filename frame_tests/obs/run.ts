@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { updateScenarios, rollbackScenario } from "./updates.ts";
+import { updateScenarios } from "./updates.ts";
 import { playRun } from "./media.ts";
 import { ObsHarness } from "./harness.ts";
 import { runSuite, type Scenario } from "./suite.ts";
@@ -11,11 +11,9 @@ const root = await fs.realpath(path.resolve(path.dirname(fileURLToPath(import.me
 const args = process.argv.slice(2);
 let repeats = 1;
 let software = false;
-let rollbackRegression = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--repeat") repeats = Number(args[++i]);
   else if (args[i] === "--software-renderer") software = true;
-  else if (args[i] === "--rollback-regression") rollbackRegression = true;
   else throw new Error(`Unknown argument: ${args[i]}`);
 }
 assert(Number.isInteger(repeats) && repeats > 0 && repeats <= 100, "--repeat must be 1–100");
@@ -65,9 +63,7 @@ scenarios.push(
     await h.removeSource("Japanese");
   }),
 );
-scenarios.push(
-  ...updateScenarios.filter((scenario) => rollbackRegression || scenario !== rollbackScenario),
-);
+scenarios.push(...updateScenarios);
 for (const scenario of [
   {
     name: "Completed",

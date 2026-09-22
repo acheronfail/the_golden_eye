@@ -47,8 +47,8 @@ static bool stage_core(const char *fixture, const char *staged_dir, char *out, s
 }
 
 int main(int argc, char **argv) {
-  if (argc != 4) {
-    fprintf(stderr, "usage: %s <fixture_v1> <fixture_v2> <fixture_bad>\n", argv[0]);
+  if (argc != 5) {
+    fprintf(stderr, "usage: %s <fixture_v1> <fixture_v2> <fixture_bad> <fixture_legacy>\n", argv[0]);
     return 2;
   }
   const char *fixture_v1 = argv[1];
@@ -61,6 +61,10 @@ int main(int argc, char **argv) {
   char log_path[PATH_MAX];
   test_join(log_path, sizeof(log_path), work_dir, "fixture.log");
   test_set_env("GE_FIXTURE_LOG", log_path);
+
+  char reason_path[PATH_MAX];
+  test_join(reason_path, sizeof(reason_path), work_dir, "reason.txt");
+  test_set_env("GE_FIXTURE_REASON_OUT", reason_path);
 
   char core_dir[PATH_MAX];
   CHECK(test_make_dirs(work_dir, "unrelated install/core location with spaces", core_dir, sizeof(core_dir)),
@@ -75,8 +79,13 @@ int main(int argc, char **argv) {
 
   ge_core_handle *handle = NULL;
   char err[256];
-  CHECK(ge_core_open(canonical, canonical, staged_dir, NULL, false, dummy_request_reload, &handle, err, sizeof(err)),
+  CHECK(ge_core_open(canonical, canonical, staged_dir, NULL, GE_CORE_COLD_START, dummy_request_reload, &handle, err,
+                     sizeof(err)),
         "initial open failed: %s", err);
+
+  char *reason = test_read_file(reason_path);
+  CHECK(reason && strcmp(reason, "0") == 0, "cold start reason expected");
+  free(reason);
 
   CHECK(!ge_core_staged_present(canonical, staged_dir), "an empty staged dir should report nothing present");
   bool ok = ge_core_reload(&handle, canonical, staged_dir, NULL, dummy_request_reload, err, sizeof(err));
@@ -101,6 +110,7 @@ int main(int argc, char **argv) {
   test_join(staged_out, sizeof(staged_out), work_dir, "staged_out.txt");
   test_set_env("GE_FIXTURE_CANONICAL_OUT", canonical_out);
   test_set_env("GE_FIXTURE_STAGED_OUT", staged_out);
+  test_set_env("GE_FIXTURE_STAGED_CHECK", staged_dir);
 
   remove(log_path);
   ok = ge_core_reload(&handle, canonical, staged_dir, NULL, dummy_request_reload, err, sizeof(err));
@@ -128,13 +138,17 @@ int main(int argc, char **argv) {
   handle = NULL;
   CHECK(test_copy_file(fixture_v1, canonical), "failed to reset canonical core");
   CHECK(make_staging_dir(core_dir, staged_dir, sizeof(staged_dir)), "failed to recreate staging directory");
-  CHECK(ge_core_open(canonical, canonical, staged_dir, NULL, false, dummy_request_reload, &handle, err, sizeof(err)),
+  CHECK(ge_core_open(canonical, canonical, staged_dir, NULL, GE_CORE_COLD_START, dummy_request_reload, &handle, err,
+                     sizeof(err)),
         "re-open before rollback scenario failed: %s", err);
   CHECK(stage_core(fixture_bad, staged_dir, staged_lib, sizeof(staged_lib)), "failed to stage failing fixture");
 
   remove(log_path);
-  ok = ge_core_reload(&handle, canonical, staged_dir, NULL, dummy_request_reload, err, sizeof(err));
+  char rollback_err[64];
+  ok = ge_core_reload(&handle, canonical, staged_dir, NULL, dummy_request_reload, rollback_err, sizeof(rollback_err));
   CHECK(!ok, "reload to fixture_bad should report failure");
+  CHECK(strstr(rollback_err, "rolled back to the running version") != NULL,
+        "rollback outcome must survive truncated path details: %s", rollback_err);
   CHECK(handle != NULL, "failed reload should roll back to a running core");
   CHECK(test_files_equal(canonical, fixture_v1), "failed reload must not replace the canonical core");
   CHECK(!ge_platform_dir_exists(staged_dir), "failed reload should discard its staged update");
@@ -143,13 +157,18 @@ int main(int argc, char **argv) {
         log ? log : "(missing)");
   free(log);
 
+  reason = test_read_file(reason_path);
+  CHECK(reason && strcmp(reason, "2") == 0, "rollback reason expected");
+  free(reason);
+
   // A canonical replacement failure happens after the new core starts. Closing
   // it must roll back provisional data before the old core is reopened.
   ge_core_close(handle);
   handle = NULL;
   CHECK(make_staging_dir(core_dir, staged_dir, sizeof(staged_dir)), "failed to recreate commit-failure staging");
   CHECK(stage_core(fixture_v2, staged_dir, staged_lib, sizeof(staged_lib)), "failed to stage commit-failure fixture");
-  CHECK(ge_core_open(canonical, canonical, staged_dir, NULL, false, dummy_request_reload, &handle, err, sizeof(err)),
+  CHECK(ge_core_open(canonical, canonical, staged_dir, NULL, GE_CORE_COLD_START, dummy_request_reload, &handle, err,
+                     sizeof(err)),
         "re-open before commit-failure scenario failed: %s", err);
 
   remove(log_path);
@@ -168,7 +187,8 @@ int main(int argc, char **argv) {
   handle = NULL;
   CHECK(make_staging_dir(core_dir, staged_dir, sizeof(staged_dir)), "failed to recreate worker staging directory");
   CHECK(stage_core(fixture_v2, staged_dir, staged_lib, sizeof(staged_lib)), "failed to stage worker fixture");
-  CHECK(ge_core_open(canonical, canonical, staged_dir, NULL, false, dummy_request_reload, &handle, err, sizeof(err)),
+  CHECK(ge_core_open(canonical, canonical, staged_dir, NULL, GE_CORE_COLD_START, dummy_request_reload, &handle, err,
+                     sizeof(err)),
         "re-open before worker scenario failed: %s", err);
 
   g_worker_handle = &handle;
@@ -188,6 +208,15 @@ int main(int argc, char **argv) {
         log ? log : "(missing)");
   free(log);
 
+  reason = test_read_file(reason_path);
+  CHECK(reason && strcmp(reason, "1") == 0, "update reason expected");
+  free(reason);
+  CHECK(make_staging_dir(core_dir, staged_dir, sizeof(staged_dir)), "legacy staging directory");
+  CHECK(stage_core(argv[4], staged_dir, staged_lib, sizeof(staged_lib)), "stage legacy entry point");
+  CHECK(!ge_core_reload(&handle, canonical, staged_dir, NULL, dummy_request_reload, err, sizeof(err)),
+        "legacy core must fail precheck");
+  CHECK(handle != NULL, "legacy rejection must preserve the live core");
+  CHECK(strstr(err, "entry points missing") != NULL, "legacy rejection must explain the ABI mismatch");
   ge_core_close(handle);
   if (g_failures == 0) {
     printf("all loader reload tests passed\n");

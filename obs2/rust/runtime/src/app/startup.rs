@@ -13,7 +13,8 @@ pub(crate) fn build_state(
     settings: Arc<SettingsStore>,
     run_catalog: Arc<RunCatalog>,
     catalog_needs_seed: bool,
-    was_reloaded: bool,
+    frontend_ready: bool,
+    applying_update: bool,
 ) -> AppState {
     let snapshot = SharedStateStore::new(AppSnapshot {
         monitor: MonitorSnapshot {
@@ -31,13 +32,13 @@ pub(crate) fn build_state(
         settings_status: settings.status_without_runtime_defaults(),
         // During a reload the loader removes the consumed staged directory only
         // after this new core starts, so it must not be advertised as pending.
-        update: initial_update_status(was_reloaded, plugin_updates::installation::has_staged_update()),
+        update: initial_update_status(applying_update, plugin_updates::installation::has_staged_update()),
     });
     // One-off monitor events (recording saved, ...). Capacity bounds how far a
     // slow client can lag before it drops events; the worker ignores send errors,
     // so a full/empty channel never blocks frame processing.
     let (event_tx, _) = tokio::sync::broadcast::channel(64);
-    let (frontend_ready_tx, _) = tokio::sync::watch::channel(was_reloaded);
+    let (frontend_ready_tx, _) = tokio::sync::watch::channel(frontend_ready);
     let recording_state = RecordingStateStore::new(snapshot.clone());
     let replay_saves = run_monitoring::publication::ReplaySaveStateStore::new(snapshot.clone());
     let monitor = Arc::new(run_monitoring::RunMonitor::new(
@@ -73,12 +74,14 @@ pub(crate) fn build_state(
             event_tx.clone(),
         )),
         settings,
-        reloaded_at: was_reloaded.then(std::time::Instant::now),
+        update_committed_at: std::sync::Mutex::new(None),
     })
 }
 
-fn initial_update_status(was_reloaded: bool, staged_update_present: bool) -> plugin_updates::UpdateStatus {
-    if !was_reloaded && staged_update_present {
+fn initial_update_status(applying_update: bool, staged_update_present: bool) -> plugin_updates::UpdateStatus {
+    if applying_update {
+        plugin_updates::UpdateStatus { phase: plugin_updates::UpdatePhase::Applying, available: None }
+    } else if staged_update_present {
         plugin_updates::UpdateStatus { phase: plugin_updates::UpdatePhase::Staged, available: None }
     } else {
         plugin_updates::UpdateStatus::default()
@@ -90,7 +93,7 @@ mod tests {
     #[test]
     fn reload_does_not_advertise_the_consumed_staged_update() {
         let status = super::initial_update_status(true, true);
-        assert_eq!(status.phase, crate::plugin_updates::UpdatePhase::Idle);
+        assert_eq!(status.phase, crate::plugin_updates::UpdatePhase::Applying);
         assert!(status.available.is_none());
     }
 

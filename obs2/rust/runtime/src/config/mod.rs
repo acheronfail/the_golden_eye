@@ -81,9 +81,9 @@ pub(crate) use logging::logging_filter;
 pub(crate) use monitor::{MonitorTimingMode, default_monitor_slow_ms};
 pub(crate) use paths::{current_dir, default_settings_path, home_dir, temp_dir};
 pub(crate) use server::{loopback_http_url, server_port};
-pub(crate) use updates::UpdateEnvConfig;
 #[cfg(test)]
-pub(crate) use updates::{LATEST_RELEASE_API_URL, RELEASES_API_URL};
+pub(crate) use updates::RELEASES_API_URL;
+pub(crate) use updates::UpdateEnvConfig;
 #[cfg(feature = "test-hooks")]
 pub(crate) use youtube::test_hooks;
 pub(crate) use youtube::{YoutubeEndpoints, client_secret, youtube_enabled};

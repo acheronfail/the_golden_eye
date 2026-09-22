@@ -134,20 +134,23 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
   }
 }
 
-// Stashed by ge_core_load so ge_core_trigger_reload can wake the loader's
+// Stashed by ge_core_load_v2 so ge_core_trigger_reload can wake the loader's
 // reload worker thread later, once Rust has a verified update staged. NULL
-// until ge_core_load runs.
+// until ge_core_load_v2 runs.
 static ge_request_reload_fn g_request_reload = NULL;
 
 // Called by the loader after dlopen. Returns false on failure (incl. HTTP port
 // bind) so the loader can log and roll back. The paths are resolved by the loader;
-// `is_reload` flags a post-update load.
-GE_EXPORT bool ge_core_load(obs_module_t *module, const char *canonical_path, const char *staged_dir, bool is_reload,
-                            ge_request_reload_fn request_reload) {
+// The reason separates cold startup, applying an update, and rollback.
+GE_EXPORT bool ge_core_load_v2(obs_module_t *module, const char *canonical_path, const char *staged_dir,
+                               ge_core_load_reason reason, ge_request_reload_fn request_reload) {
   ge_obs_set_module(module);
   g_request_reload = request_reload;
   ge_runtime_set_update_paths(canonical_path, staged_dir);
-  ge_runtime_set_was_reloaded(is_reload);
+  if (reason != GE_CORE_COLD_START && reason != GE_CORE_APPLY_UPDATE && reason != GE_CORE_ROLLBACK) {
+    return false;
+  }
+  ge_runtime_set_load_context(reason != GE_CORE_COLD_START, reason == GE_CORE_APPLY_UPDATE);
   if (!ge_runtime_start()) {
     return false;
   }
@@ -158,7 +161,7 @@ GE_EXPORT bool ge_core_load(obs_module_t *module, const char *canonical_path, co
 }
 
 // Called by the loader from OBS's post-load hook. Keep this separate from
-// ge_core_load so OBS's user config is queried at the same lifecycle point as
+// ge_core_load_v2 so OBS's user config is queried at the same lifecycle point as
 // the frontend normally expects.
 GE_EXPORT void ge_core_post_load(void) {
   ge_sources_changed();
