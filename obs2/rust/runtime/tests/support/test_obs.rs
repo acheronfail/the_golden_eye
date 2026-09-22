@@ -5,6 +5,10 @@ use std::ptr;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
+use ge_runtime::GeCaptureRegion;
+
+use super::capture::capture_frame;
+
 type FrameCallback = unsafe extern "C" fn(*mut c_void, u32, u32);
 type ObsTask = unsafe extern "C" fn(*mut c_void);
 
@@ -397,8 +401,8 @@ pub extern "C" fn ge_capture_create(_double_buffered: bool) -> *mut c_void {
 pub unsafe extern "C" fn ge_capture_get_frame(
     _ctx: *mut c_void,
     _source: *const c_char,
-    _max_height: u32,
-    _region: *const c_void,
+    max_height: u32,
+    region: *const GeCaptureRegion,
     out_width: *mut u32,
     out_height: *mut u32,
     _timings: *mut c_void,
@@ -408,7 +412,16 @@ pub unsafe extern "C" fn ge_capture_get_frame(
         state.calls.capture_get_frame += 1;
         state.frames.pop_front()
     };
-    frame.as_ref().map_or(ptr::null_mut(), |frame| malloc_frame(frame, out_width, out_height))
+    // SAFETY: the runtime supplies a valid region for the duration of this call, or null.
+    let region = unsafe { region.as_ref() };
+    let Some(frame) = frame else { return ptr::null_mut() };
+    match capture_frame(&frame, max_height, region) {
+        Ok(frame) => malloc_frame(&frame, out_width, out_height),
+        Err(error) => {
+            tracing::error!(%error, "test capture failed");
+            ptr::null_mut()
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
