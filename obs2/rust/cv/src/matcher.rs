@@ -425,8 +425,15 @@ impl CvMatcher {
     // the match and its scale; result coordinates are relative to `rect`.
     fn read_mission(&self, gray: &Mat, rect: Rect, scales: &[f64]) -> Result<(FoundMission, f64)> {
         let region = gray.roi(rect)?;
-        let mut found =
-            FoundMission { mission: -1, score: GLYPH_THRESHOLD, colon_cx: -1, colon_cy: -1, colon: None, digit: None };
+        let mut found = FoundMission {
+            mission: -1,
+            score: GLYPH_THRESHOLD,
+            fixed_slot: false,
+            colon_cx: -1,
+            colon_cy: -1,
+            colon: None,
+            digit: None,
+        };
         let mut scale_used = scales.first().copied().unwrap_or(1.0);
         // Sweep scales sequentially to preserve the early-exit: a native-res
         // mission read is expensive, so the implied scale (tried first) must
@@ -441,6 +448,11 @@ impl CvMatcher {
                 f.colon_cx,
                 f.colon_cy
             );
+            // Fixed-slot confidence uses a different metric from free template matches.
+            // Once accepted, preserve its digit and row anchor across scales.
+            if f.fixed_slot {
+                return Ok((f, scale));
+            }
             if f.score >= found.score {
                 found = f;
                 scale_used = scale;

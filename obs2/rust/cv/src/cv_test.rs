@@ -293,6 +293,36 @@ fn match_level_from_encoded_image_decodes_and_matches() {
     assert_eq!(m.times.map(|t| t.best_time), Some(Some(28)));
 }
 
+#[test]
+fn mission_anchor_survives_capture_downscaling_and_cache_reuse() {
+    let cases = [
+        ("en", "screenshots-emu/en - start - 01 - Secret Agent.png", Screen::Start, 1, 1),
+        ("en", "screenshots-emu/en - failed - 03 - Secret Agent.png", Screen::Failed, 1, 3),
+        ("jp", "screenshots-av2hdmi_16x9/jp - stats - 10 - Secret Agent - 0347_1106_1212.png", Screen::Stats, 6, 1),
+    ];
+    for (lang, fixture, screen, mission, part) in cases {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests").join(fixture);
+        let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
+        let mut source = Mat::default();
+        imgproc::cvt_color_def(&bgr, &mut source, imgproc::COLOR_BGR2BGRA).unwrap();
+        for height in [source.rows(), WORK_HEIGHT] {
+            let width = (source.cols() as f64 * height as f64 / source.rows() as f64).round() as i32;
+            let mut frame = Mat::default();
+            imgproc::resize(&source, &mut frame, core::Size::new(width, height), 0.0, 0.0, imgproc::INTER_AREA)
+                .unwrap();
+            let matcher = CvMatcher::new(lang, TEMPLATES_DIR).unwrap();
+            for iteration in 0..3 {
+                let result = matcher.match_level_from_bgra_frame(&frame).unwrap();
+                assert_eq!(
+                    (result.screen, result.mission, result.part, result.difficulty),
+                    (screen, mission, part, 1),
+                    "{fixture}, height={height}, iteration={iteration}"
+                );
+            }
+        }
+    }
+}
+
 fn level_match(screen: Screen, mission: i32, part: i32, difficulty: i32, raw_times: Vec<i32>) -> LevelMatch {
     LevelMatch {
         screen,

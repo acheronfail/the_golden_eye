@@ -233,6 +233,8 @@ fn run() -> Result<i32> {
         }
     }
 
+    // Match the first OBS capture: resize BGRA before any detector sees it.
+    let bgra = obs_capture_emulated_frame(&bgra, None)?;
     let matcher = CvMatcher::new(lang, templates_dir)?.with_diagnostics(diagnostics);
     let result = matcher.match_level_from_bgra_frame(&bgra)?;
     let active_picture = matcher.active_picture_region(bgra.cols() as u32, bgra.rows() as u32);
@@ -244,6 +246,7 @@ fn run() -> Result<i32> {
         json!({
             "opencv": core::get_version_string()?,
             "image": source_image,
+            "capture_image": { "width": bgra.cols(), "height": bgra.rows() },
             "lang": lang,
             "templates_dir": templates_dir,
             "screen": result.screen.as_str(),
