@@ -66,11 +66,13 @@ The command builds the same current source as `998.0.0` and `998.0.1` through `j
 Both builds use the normal release profile and the browser-to-Rust-to-C build chain.
 The runner saves each package before the next build starts. It never installs either package into your personal OBS configuration.
 
-The test starts OBS with A and requires A's reported version. It saves a run, enables automatic updates, and serves B through the local release server.
+The test starts OBS with A and requires A's reported version. It saves a run, enables automatic updates, and serves B on the second page of the local release history.
+The first page advertises a newer release with an incompatible updater number. The plugin must select B.
 After reload, it requires B's version notice, release link, and installed core checksum. The resident loader must stay unchanged.
 Settings and existing runs must survive, and a new replay save must succeed.
 The test then closes OBS and restarts it with the same installation and configuration.
-It requires B's checksum and browser build ID, an up-to-date response, the saved settings and runs, and working frame detection.
+It requires B's checksum and browser build ID, a manual-install offer for the incompatible release, the saved settings and runs, and working frame detection.
+The incompatible package must never be downloaded.
 
 Builds and their checksums, source fingerprint, and timings remain under `obs2/build/obs-upgrade-builds-*`.
 A source change during the two builds fails preparation. Test logs and reports remain under `obs2/build/real-obs-upgrade-*`.

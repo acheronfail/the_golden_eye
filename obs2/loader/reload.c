@@ -267,9 +267,9 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
                    open_err, sizeof(open_err))) {
     char sync_err[256] = {0};
     if (replace_core(staged_lib, canonical_path, sync_err, sizeof(sync_err))) {
-      fresh->commit_update();
       *handle = fresh;
       ge_platform_remove_dir_recursive(staged_dir);
+      fresh->commit_update();
       return true;
     }
 

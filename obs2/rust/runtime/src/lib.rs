@@ -276,6 +276,7 @@ pub extern "C" fn ge_runtime_commit_update() {
         if let Some(state) = state {
             let mut committed = state.update_committed_at.lock().unwrap_or_else(|p| p.into_inner());
             if committed.is_none() {
+                state.updates.finish_apply();
                 *committed = Some(std::time::Instant::now());
                 let _ = state.event_tx.send(state.update_applied_event());
             }

@@ -115,14 +115,18 @@ def make_handler(
     version: str,
     zip_path: Path,
     checksums_text: bytes,
+    *,
+    newer_updater_version: int | None = None,
 ) -> type[http.server.BaseHTTPRequestHandler]:
     zip_bytes = zip_path.read_bytes()
 
     class Handler(http.server.BaseHTTPRequestHandler):
-        def _respond(self, body: bytes, content_type: str) -> None:
+        def _respond(self, body: bytes, content_type: str, link: str | None = None) -> None:
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            if link:
+                self.send_header("Link", link)
             self.end_headers()
             self.wfile.write(body)
 
@@ -139,8 +143,25 @@ def make_handler(
                 }
             ).encode()
 
+            release = json.loads(latest_json)
+            newer = None
+            if newer_updater_version is not None:
+                newer_version = f"{int(version.split('.')[0]) + 1}.0.0"
+                newer = {
+                    "tag_name": f"v{newer_version}",
+                    "html_url": f"https://github.com/acheronfail/the_golden_eye/releases/tag/v{newer_version}",
+                    "assets": [{
+                        "name": f"the_golden_eye-u{newer_updater_version}-v{newer_version}-{package_platform()}-{package_arch()}.zip",
+                        "browser_download_url": f"{base_url}/incompatible.zip",
+                    }],
+                }
             if self.path == "/latest":
-                self._respond(latest_json, "application/json")
+                self._respond(json.dumps(newer or release).encode(), "application/json")
+            elif self.path == "/releases":
+                link = f'<{base_url}/releases?page=2>; rel="next"' if newer else None
+                self._respond(json.dumps([newer or release]).encode(), "application/json", link)
+            elif self.path == "/releases?page=2":
+                self._respond(json.dumps([release]).encode(), "application/json")
             elif self.path == f"/{zip_path.name}":
                 self._respond(zip_bytes, "application/zip")
             elif self.path == "/checksums.txt":

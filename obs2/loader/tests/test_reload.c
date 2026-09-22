@@ -110,6 +110,7 @@ int main(int argc, char **argv) {
   test_join(staged_out, sizeof(staged_out), work_dir, "staged_out.txt");
   test_set_env("GE_FIXTURE_CANONICAL_OUT", canonical_out);
   test_set_env("GE_FIXTURE_STAGED_OUT", staged_out);
+  test_set_env("GE_FIXTURE_STAGED_CHECK", staged_dir);
 
   remove(log_path);
   ok = ge_core_reload(&handle, canonical, staged_dir, NULL, dummy_request_reload, err, sizeof(err));

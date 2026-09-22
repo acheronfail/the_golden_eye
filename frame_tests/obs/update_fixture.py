@@ -29,7 +29,10 @@ def main():
         if not args.version:
             parser.error("--package requires --version")
         checksum = f"{simulator.sha256_of(args.package)}  {args.package.name}\n".encode()
-        packages = {"valid": simulator.make_handler(args.version, args.package, checksum)}
+        packages = {"valid": simulator.make_handler(
+            args.version, args.package, checksum,
+            newer_updater_version=simulator.checked_in_updater_version() + 1,
+        )}
     else:
         mac = sys.platform == "darwin"
         core = "Contents/MacOS/libgolden_core.dylib" if mac else "bin/64bit/libgolden_core.so"
@@ -65,7 +68,7 @@ def main():
     with Server(("127.0.0.1", 0), packages["valid"]) as server:
         ready = directory / "ready.json"
         temporary = ready.with_suffix(".tmp")
-        temporary.write_text(json.dumps({"url": f"http://127.0.0.1:{server.server_port}/latest"}))
+        temporary.write_text(json.dumps({"url": f"http://127.0.0.1:{server.server_port}/releases"}))
         temporary.replace(ready)
         server.serve_forever()
 

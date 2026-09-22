@@ -17,6 +17,7 @@ const software = process.argv.includes("--software-renderer");
 const manifest = JSON.parse(await fs.readFile(path.join(builds, "builds.json"), "utf8"));
 assert.equal(manifest.builds.length, 2);
 const [a, b] = manifest.builds;
+const newerVersion = `v${Number(b.version.split(".")[0]) + 1}.0.0`;
 const pluginName = process.platform === "darwin" ? "the_golden_eye.plugin" : "the_golden_eye";
 const coreRelative =
   process.platform === "darwin"
@@ -120,7 +121,9 @@ const report = await runSuite({
         );
         assert.deepEqual(await h.api("/api/v1/runs"), runsBefore);
         assert.equal(h.snapshot.settingsStatus.settings.preRunPaddingSecs, 2);
-        assert.equal((await h.api("/api/v1/updates/check", {})).update, null);
+        const newer = (await h.api("/api/v1/updates/check", {})).update;
+        assert.equal(newer.latestVersion, newerVersion);
+        assert.equal(newer.requiresManualInstall, true);
         await playRun(h, "After upgrade", "kia.mp4", 14, "kia");
         const runsAfter = await h.api("/api/v1/runs");
         const buildIdB = h.events
@@ -131,10 +134,19 @@ const report = await runSuite({
         h = session.h!;
         assert.equal(await hash(h.corePath), hashB, "B remains installed after OBS restarts");
         assert.equal(h.events.find((event) => event.type === "version")!.buildId, buildIdB);
-        assert.equal(
-          (await h.api("/api/v1/updates/check", {})).update,
-          null,
-          "Restarted core is up to date with B",
+        const afterRestart = (await h.api("/api/v1/updates/check", {})).update;
+        assert.equal(afterRestart.currentVersion, b.version);
+        assert.equal(afterRestart.latestVersion, newerVersion);
+        assert.equal(afterRestart.requiresManualInstall, true);
+        await h.api("/api/v1/updates/download", {}, "POST", 409);
+        const releaseLog = await fs.readFile(path.join(h.artifacts, "release-server.log"), "utf8");
+        assert(
+          releaseLog.includes("GET /releases?page=2"),
+          "Compatible release came from page two",
+        );
+        assert(
+          !releaseLog.includes("GET /incompatible.zip"),
+          "Incompatible package was never downloaded",
         );
         assert.deepEqual(await h.api("/api/v1/runs"), runsAfter);
         assert.equal(h.snapshot.settingsStatus.settings.preRunPaddingSecs, 2);

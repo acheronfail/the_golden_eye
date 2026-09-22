@@ -29,6 +29,23 @@ Increment `obs2/updater-version.txt` only when the existing installation cannot 
 release, such as when changing the resident loader or the ABI below. The loader is absent from
 automatic update payloads because OBS has already loaded it.
 
+## Compatible release selection
+
+Update checks read paginated release history and prefer the highest newer version with a matching
+updater number, platform, and architecture. Stable checks exclude drafts and prereleases. Releases
+without a valid package for the current platform are skipped.
+
+For example, a `u2-0.20.0` installation selects `u2-0.21.0` even when `u3-0.22.0` exists. After it
+reaches `u2-0.21.0`, the next check offers manual installation of `u3-0.22.0`. Automatic and
+explicit downloads use the same selection rule. Neither path installs an incompatible package or
+downgrades the plugin.
+
+A failed page request fails the whole check instead of selecting from incomplete history. Page
+requests have a ten-second timeout, and the complete check has a sixty-second timeout.
+
+This selection logic ships with `u2`. Existing `u1` clients retain their original behavior. A
+preparation release must reach those clients before an incompatible release becomes latest.
+
 ## Update sequence
 
 1. Rust selects the package matching the release, platform, architecture, and updater number, then
@@ -106,8 +123,9 @@ Their behavioral contract is:
     being replaced and must never load, unload, or call back into that core.
 - `ge_core_post_load` performs work that must wait for OBS's post-load lifecycle hook.
 - `ge_core_commit_update` commits the pending module-data transaction only after the loader has
-  replaced the canonical core. Only this commit enables the update notice, for existing and new
-  event clients.
+  replaced the canonical core and removed the consumed staging directory. Until commit, the runtime
+  remains in the applying phase and cannot request another reload. Commit clears that phase and
+  enables the update notice for existing and new event clients.
 - `ge_core_unload` synchronously stops callbacks, Rust tasks, threads, and HTTP before returning.
 
 Every `u2` core must preserve these symbols, signatures, and semantics. A breaking change requires a

@@ -50,7 +50,14 @@ impl PluginUpdates {
         self.snapshot.update(|snapshot| snapshot.update = status);
     }
 
+    pub(crate) fn finish_apply(&self) {
+        self.publish(UpdateStatus::default());
+    }
+
     pub(crate) fn apply_now(&self) -> Result<(), ApplyError> {
+        if self.status().phase == UpdatePhase::Applying {
+            return Err(ApplyError::ActivityInProgress);
+        }
         if !has_staged_update() {
             return Err(ApplyError::NothingStaged);
         }
@@ -238,7 +245,11 @@ impl PluginUpdates {
     /// Applies a staged update immediately when the frontend is ready and runtime
     /// activity is safe. Returns whether a reload was requested.
     pub fn trigger_apply_if_safe(&self) -> bool {
-        if !*self.frontend_ready_tx.borrow() || !has_staged_update() || !self.is_safe_to_apply() {
+        if self.status().phase == UpdatePhase::Applying
+            || !*self.frontend_ready_tx.borrow()
+            || !has_staged_update()
+            || !self.is_safe_to_apply()
+        {
             return false;
         }
         let status = self.status();

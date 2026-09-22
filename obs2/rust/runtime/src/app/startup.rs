@@ -78,8 +78,10 @@ pub(crate) fn build_state(
     })
 }
 
-fn initial_update_status(was_reloaded: bool, staged_update_present: bool) -> plugin_updates::UpdateStatus {
-    if !was_reloaded && staged_update_present {
+fn initial_update_status(applying_update: bool, staged_update_present: bool) -> plugin_updates::UpdateStatus {
+    if applying_update {
+        plugin_updates::UpdateStatus { phase: plugin_updates::UpdatePhase::Applying, available: None }
+    } else if staged_update_present {
         plugin_updates::UpdateStatus { phase: plugin_updates::UpdatePhase::Staged, available: None }
     } else {
         plugin_updates::UpdateStatus::default()
@@ -91,7 +93,7 @@ mod tests {
     #[test]
     fn reload_does_not_advertise_the_consumed_staged_update() {
         let status = super::initial_update_status(true, true);
-        assert_eq!(status.phase, crate::plugin_updates::UpdatePhase::Idle);
+        assert_eq!(status.phase, crate::plugin_updates::UpdatePhase::Applying);
         assert!(status.available.is_none());
     }
 

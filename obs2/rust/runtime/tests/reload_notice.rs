@@ -47,7 +47,13 @@ async fn reload_sends_update_applied_notice_to_new_connections() {
     assert!(harness.obs.calls().source_names > 0, "reload should refresh sources without waiting for FINISHED_LOADING");
 
     assert_no_update_notice(&mut ws).await;
+    let status: Value =
+        harness.client.get(format!("{API}/api/v1/updates/status")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(status["phase"], "applying");
     ge_runtime::ge_runtime_commit_update();
+    let status: Value =
+        harness.client.get(format!("{API}/api/v1/updates/status")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(status["phase"], "idle");
     let live = wait_for_update_applied_event(&mut ws).await;
     assert_eq!(live["version"], env!("GE_PLUGIN_VERSION"));
     assert_no_update_notice(&mut ws).await;

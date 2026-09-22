@@ -3,11 +3,9 @@ use super::EnvVar;
 static GE_UPDATE_CHECK_URL: EnvVar = EnvVar::new("GE_UPDATE_CHECK_URL");
 static GE_UPDATE_INCLUDE_PRERELEASES: EnvVar = EnvVar::new("GE_UPDATE_INCLUDE_PRERELEASES");
 
-/// Default GitHub endpoint used for stable plugin update checks.
-pub(crate) const LATEST_RELEASE_API_URL: &str =
-    "https://api.github.com/repos/acheronfail/the_golden_eye/releases/latest";
-/// GitHub endpoint used when update checks are configured to include pre-releases.
-pub(crate) const RELEASES_API_URL: &str = "https://api.github.com/repos/acheronfail/the_golden_eye/releases";
+/// GitHub release history used for compatible update selection.
+pub(crate) const RELEASES_API_URL: &str =
+    "https://api.github.com/repos/acheronfail/the_golden_eye/releases?per_page=100";
 
 /// Controls update-check endpoint overrides and whether pre-releases are considered.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,7 +38,7 @@ impl UpdateEnvConfig {
         if let Some(url) = &self.check_url_override {
             return url.clone();
         }
-        if self.include_prereleases() { RELEASES_API_URL.to_owned() } else { LATEST_RELEASE_API_URL.to_owned() }
+        RELEASES_API_URL.to_owned()
     }
 
     /// Logs active update environment overrides so support logs show non-default update behavior.

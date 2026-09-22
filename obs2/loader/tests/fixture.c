@@ -6,6 +6,7 @@
 #include "fixture_common.h"
 
 #include <stdbool.h>
+#include <sys/stat.h>
 
 #ifdef _WIN32
 #define GE_EXPORT __declspec(dllexport)
@@ -41,6 +42,13 @@ GE_EXPORT bool ge_core_load_v2(void *module_arg, const char *canonical_path, con
 
 GE_EXPORT void ge_core_post_load(void) { ge_fixture_log("post_load"); }
 
-GE_EXPORT void ge_core_commit_update(void) { ge_fixture_log("commit"); }
+GE_EXPORT void ge_core_commit_update(void) {
+  const char *staged_dir = getenv("GE_FIXTURE_STAGED_CHECK");
+  struct stat info;
+  if (staged_dir && stat(staged_dir, &info) == 0) {
+    ge_fixture_log("commit_before_cleanup");
+  }
+  ge_fixture_log("commit");
+}
 
 GE_EXPORT void ge_core_unload(void) { ge_fixture_log("unload"); }
