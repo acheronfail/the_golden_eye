@@ -162,7 +162,7 @@ fn resolve_saved_replay_recovers_a_single_new_file_when_obs_omits_the_path() {
 #[test]
 fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
     let dir = TestDir::new("catalog-failure-save");
-    let catalog = Arc::new(crate::db::run_catalog::RunCatalog::open(dir.join("runs.sqlite")).unwrap());
+    let catalog = Arc::new(ge_catalog::run_catalog::RunCatalog::open(dir.join("runs.sqlite")).unwrap());
     let replay = sample_clip();
     let old = catalog
         .create_finalized_run(

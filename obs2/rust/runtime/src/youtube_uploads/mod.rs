@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
+use ge_catalog::run_catalog::RunCatalog;
 pub use ge_catalog::{UploadHistoryEntry, YoutubeAssociationSource, YoutubeMetadata};
 use ge_clip::ClipMetadata;
 pub(crate) use oauth::{CallbackError, ConnectError, DisconnectError, OAUTH_CALLBACK_PATH};
@@ -17,7 +18,6 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tokio::sync::Semaphore;
 
-use crate::db::run_catalog::RunCatalog;
 use crate::settings::{AppSettings, SettingsStore};
 use crate::template_tokens::RunTemplateTokens;
 

@@ -4,13 +4,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
+use ge_cv::{LevelMatch, Screen};
+use ge_game::Times;
+
 use super::clip_output::sanitize_path_component;
 use super::clip_saving::SaveAndTrimJob;
 use super::run_detection::RunUpdate;
 use super::{RecordingOptions, RecordingSessionContext, RunRecorder};
 use crate::app::{AppEvent, AppSnapshot, SharedStateStore};
-use crate::cv::{LevelMatch, Screen};
-use crate::ge::Times;
 use crate::run_monitoring::RecordingStateStore;
 use crate::run_monitoring::publication::{MonitorSnapshot, RecordingSavePending, ReplaySaveStateStore};
 use crate::template_tokens::format_iso_local;
@@ -50,11 +51,11 @@ impl Drop for TestDir {
     }
 }
 
-pub(crate) fn test_run_catalog(label: &str) -> Arc<crate::db::run_catalog::RunCatalog> {
+pub(crate) fn test_run_catalog(label: &str) -> Arc<ge_catalog::run_catalog::RunCatalog> {
     let dir = TestDir::new(label);
     let path = dir.path.join("runs.sqlite");
     std::mem::forget(dir);
-    Arc::new(crate::db::run_catalog::RunCatalog::open(path).expect("open run catalog"))
+    Arc::new(ge_catalog::run_catalog::RunCatalog::open(path).expect("open run catalog"))
 }
 
 pub(super) fn write_file(path: &Path) {

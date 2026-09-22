@@ -4,6 +4,8 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::time::{Instant, SystemTime};
 
+use ge_catalog::run_catalog::RunCatalog;
+use ge_cv::LevelMatch;
 use serde::Deserialize;
 use tokio::sync::broadcast;
 
@@ -21,8 +23,6 @@ use super::{
     RecordingStatus,
 };
 use crate::app::AppEvent;
-use crate::cv::LevelMatch;
-use crate::db::run_catalog::RunCatalog;
 use crate::run_monitoring::publication::ReplaySaveStateStore;
 
 /// Recording behaviour loaded when a monitor session starts. The saveable-clip

@@ -1,8 +1,7 @@
 //! Estimated in-game time driven by screen, fade, and watch observations.
 
+use ge_cv::{LevelMatch, WatchTransition};
 use serde::Serialize;
-
-use crate::cv::{LevelMatch, WatchTransition};
 
 const END_FADE_CONFIRMATION_MS: u64 = 250;
 
@@ -54,7 +53,7 @@ impl InGameTimer {
         &self.snapshot
     }
 
-    fn reconcile_screen(&mut self, screen: crate::cv::Screen, now_ms: u64) {
+    fn reconcile_screen(&mut self, screen: ge_cv::Screen, now_ms: u64) {
         match screen {
             screen if screen.is_level_launch() => {
                 self.snapshot.level_started_at_unix_ms = None;
@@ -69,7 +68,7 @@ impl InGameTimer {
                 self.black_frame_active = false;
                 self.end_fade_started_at_ms = None;
             }
-            crate::cv::Screen::Unknown => {}
+            ge_cv::Screen::Unknown => {}
             _ => {
                 self.stop_level(now_ms);
             }
@@ -80,8 +79,8 @@ impl InGameTimer {
         self.reconcile_screen(level_match.screen, now_ms);
         if level_match.screen.is_level_launch() {
             self.snapshot.intro_swirl_delay_ms =
-                crate::ge::Level::from_mission_and_part(level_match.mission, level_match.part)
-                    .map(crate::ge::intro::swirl_delay_ms);
+                ge_game::Level::from_mission_and_part(level_match.mission, level_match.part)
+                    .map(ge_game::intro::swirl_delay_ms);
         }
     }
 
@@ -143,7 +142,7 @@ impl InGameTimer {
                 (LevelTimerPhase::AwaitingGameplayAfterSkip, false) => {
                     self.start_level_with_elapsed(
                         now_ms,
-                        crate::ge::intro::SKIPPED_SWIRL_INITIAL_ELAPSED_MS,
+                        ge_game::intro::SKIPPED_SWIRL_INITIAL_ELAPSED_MS,
                         LevelTimerStartReason::Fade,
                     );
                 }

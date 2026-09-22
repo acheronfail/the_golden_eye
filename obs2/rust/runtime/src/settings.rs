@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::Context;
-use ge_settings::{AppSettings as ContractSettings, MAX_RECENT_RUN_LIMIT};
+use ge_settings::MAX_RECENT_RUN_LIMIT;
 #[cfg(test)]
 use ge_settings::{
     DEFAULT_CLIP_FILENAME_TEMPLATE,
@@ -30,10 +30,10 @@ pub const DEFAULT_RUN_OUTPUT_DIR_NAME: &str = "GoldenEye";
 /// OBS-dependent projections out of the lightweight contract crate.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(transparent)]
-pub struct AppSettings(ContractSettings);
+pub struct AppSettings(ge_settings::AppSettings);
 
 impl std::ops::Deref for AppSettings {
-    type Target = ContractSettings;
+    type Target = ge_settings::AppSettings;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -48,7 +48,7 @@ impl std::ops::DerefMut for AppSettings {
 
 impl AppSettings {
     pub fn from_json_value(value: Value) -> anyhow::Result<Self> {
-        Ok(Self(ContractSettings::from_json_value(value)?))
+        Ok(Self(ge_settings::AppSettings::from_json_value(value)?))
     }
 
     pub fn recording_options(&self) -> RecordingOptions {

@@ -6,12 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use anyhow::Context;
-use ge_clip::{ClipMetadata, RomVersion, RunStatus};
-use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
-
-use crate::app::{AppEvent, SharedStateStore};
-use crate::db::run_catalog::{
+use ge_catalog::run_catalog::{
     IndexedRunClip,
     RunCatalog,
     RunCatalogRoot,
@@ -21,7 +16,12 @@ use crate::db::run_catalog::{
     RunRetentionState,
     RunSort,
 };
-use crate::db::runs;
+use ge_catalog::runs;
+use ge_clip::{ClipMetadata, RomVersion, RunStatus};
+use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
+
+use crate::app::{AppEvent, SharedStateStore};
 use crate::settings::AppSettings;
 
 pub(crate) struct RunLibrary {
@@ -73,8 +73,8 @@ impl RunLibrary {
             cursor,
             limit: params.limit.unwrap_or(50),
             search: params.search,
-            level_number: params.level.as_deref().and_then(crate::ge::level_info_by_name).map(|level| level.number),
-            difficulty_number: params.difficulty.as_deref().and_then(crate::ge::difficulty_number),
+            level_number: params.level.as_deref().and_then(ge_game::level_info_by_name).map(|level| level.number),
+            difficulty_number: params.difficulty.as_deref().and_then(ge_game::difficulty_number),
             status: params.status,
             language: params.language,
             min_time_seconds: params.min_time_seconds,
@@ -485,13 +485,13 @@ fn normalize_status(value: &str) -> std::result::Result<RunStatus, RunPathError>
 }
 
 fn normalize_difficulty(value: &str) -> std::result::Result<&'static str, RunPathError> {
-    crate::ge::difficulty_number(value)
-        .and_then(crate::ge::difficulty_name)
+    ge_game::difficulty_number(value)
+        .and_then(ge_game::difficulty_name)
         .ok_or(RunPathError::BadRequest("difficulty must be agent, secret agent, 00 agent, or 007"))
 }
 
-fn normalize_level(value: &str) -> std::result::Result<crate::ge::LevelInfo, RunPathError> {
-    crate::ge::level_info_by_name(value)
+fn normalize_level(value: &str) -> std::result::Result<ge_game::LevelInfo, RunPathError> {
+    ge_game::level_info_by_name(value)
         .ok_or(RunPathError::BadRequest("level must be one of the supported GoldenEye levels"))
 }
 
@@ -522,8 +522,8 @@ fn normalize_time(value: &str) -> std::result::Result<Option<(i32, String)>, Run
 }
 
 fn create_manual_run(catalog: &RunCatalog, req: ManualRunRequest) -> std::result::Result<RunClip, RunPathError> {
-    let level = crate::ge::level_info_by_name(&req.level).ok_or(RunPathError::BadRequest("select a valid level"))?;
-    if crate::ge::difficulty_number(&req.difficulty).is_none() {
+    let level = ge_game::level_info_by_name(&req.level).ok_or(RunPathError::BadRequest("select a valid level"))?;
+    if ge_game::difficulty_number(&req.difficulty).is_none() {
         return Err(RunPathError::BadRequest("select a valid difficulty"));
     }
     let game_language = if let Some(rom_version) = req.rom_version {
@@ -572,9 +572,9 @@ fn import_elite_runs(
     let mut response = EliteImportResponse { imported: 0, already_imported: 0, videos: 0 };
     for elite in elite_runs {
         let level =
-            crate::ge::level_info_by_name(&elite.level).context("The Elite returned an unknown GoldenEye level")?;
+            ge_game::level_info_by_name(&elite.level).context("The Elite returned an unknown GoldenEye level")?;
         anyhow::ensure!(
-            crate::ge::difficulty_number(&elite.difficulty).is_some(),
+            ge_game::difficulty_number(&elite.difficulty).is_some(),
             "The Elite returned an unsupported difficulty"
         );
         let completed = chrono::DateTime::parse_from_rfc3339(&elite.timestamp)?;

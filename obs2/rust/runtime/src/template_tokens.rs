@@ -1,10 +1,8 @@
 use std::time::SystemTime;
 
 use ge_clip::ClipMetadata;
-
-use crate::cv::LevelMatch;
-use crate::ge;
-use crate::ge::Level;
+use ge_cv::LevelMatch;
+use ge_game::Level;
 
 #[cfg(test)]
 pub const SUPPORTED_TOKENS: &[&str] = &[
@@ -55,8 +53,9 @@ impl RunTemplateTokens {
             .map(|m| if m.mission >= 0 { format!("{:02}", m.mission) } else { "??".to_owned() })
             .unwrap_or_default();
         let part = stats.map(|m| if m.part >= 0 { m.part.to_string() } else { "?".to_owned() }).unwrap_or_default();
-        let difficulty = stats.and_then(|m| ge::difficulty_name(m.difficulty)).map(str::to_owned).unwrap_or_default();
-        let level_info = stats.and_then(|m| ge::level_info(m.mission, m.part));
+        let difficulty =
+            stats.and_then(|m| ge_game::difficulty_name(m.difficulty)).map(str::to_owned).unwrap_or_default();
+        let level_info = stats.and_then(|m| ge_game::level_info(m.mission, m.part));
         let level = level_info.map(|info| info.name.to_owned()).unwrap_or_else(|| "unknown".to_owned());
         let level_number = level_info.map(|info| info.number.to_string()).unwrap_or_default();
         let time = stats.and_then(|m| m.times.map(|times| format_time(times.time))).unwrap_or_default();

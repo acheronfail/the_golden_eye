@@ -5,10 +5,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use ge_clip::RunStatus;
+use ge_cv::{LevelMatch, Screen};
 
 use super::RecordingStatus;
-use crate::cv::{LevelMatch, Screen};
-use crate::ge;
 
 /// Pure run-detection state. It translates matched screens into domain
 /// transitions; [`super::RunRecorder`] applies OBS, catalog, and UI side effects.
@@ -151,8 +150,8 @@ struct RunIdentity {
 
 impl RunIdentity {
     fn from_match(m: &LevelMatch) -> Option<Self> {
-        ge::level_info(m.mission, m.part)?;
-        ge::difficulty_name(m.difficulty)?;
+        ge_game::level_info(m.mission, m.part)?;
+        ge_game::difficulty_name(m.difficulty)?;
         Some(Self { mission: m.mission, part: m.part, difficulty: m.difficulty })
     }
 
@@ -161,15 +160,15 @@ impl RunIdentity {
         m.part = self.part;
         m.difficulty = self.difficulty;
         if !m.raw_times.is_empty() {
-            m.times = ge::Times::classify(self.mission, self.part, self.difficulty, &m.raw_times);
+            m.times = ge_game::Times::classify(self.mission, self.part, self.difficulty, &m.raw_times);
         }
     }
 
     fn immediately_precedes(self, next: Self) -> bool {
-        let Some(current) = ge::level_info(self.mission, self.part) else {
+        let Some(current) = ge_game::level_info(self.mission, self.part) else {
             return false;
         };
-        let Some(next) = ge::level_info(next.mission, next.part) else {
+        let Some(next) = ge_game::level_info(next.mission, next.part) else {
             return false;
         };
         current.number.checked_add(1) == Some(next.number)
@@ -277,7 +276,7 @@ fn record_stats_vote(pending: &mut PendingSave, m: &LevelMatch) -> bool {
     // Identity and diagnostics stay anchored to the run's canonical match; only
     // the independently voted time fields are refined by later stats frames.
     if let Some(stats) = pending.stats.as_mut() {
-        stats.times = pending.time_vote.winner.map(|time| crate::ge::Times {
+        stats.times = pending.time_vote.winner.map(|time| ge_game::Times {
             time,
             target_time: pending.target_vote.winner,
             best_time: pending.best_vote.winner,

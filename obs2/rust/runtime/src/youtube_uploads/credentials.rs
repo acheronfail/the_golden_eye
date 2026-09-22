@@ -279,11 +279,11 @@ impl YoutubeCredentialStore for FallbackYoutubeCredentialStore {
 
 pub(super) fn youtube_credential_store(settings_path: &Path) -> Arc<dyn YoutubeCredentialStore> {
     #[cfg(feature = "test-hooks")]
-    if let Some(path) = config::token_file_override() {
+    if let Some(path) = config::test_hooks::token_file() {
         return Arc::new(FileYoutubeCredentialStore { path });
     }
     #[cfg(feature = "test-hooks")]
-    let primary: Arc<dyn YoutubeCredentialStore> = if config::force_keyring_failure() {
+    let primary: Arc<dyn YoutubeCredentialStore> = if config::test_hooks::force_keyring_failure() {
         Arc::new(FailingYoutubeCredentialStore)
     } else {
         Arc::new(KeyringYoutubeCredentialStore::default())

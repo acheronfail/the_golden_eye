@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::SystemTime;
 
+use ge_catalog::run_catalog::RunCatalog;
+use ge_cv::CaptureRegion;
 use tokio::sync::broadcast;
 
 use super::matcher::MonitorMatcher;
@@ -22,8 +24,6 @@ use super::{
 };
 use crate::app::{AppEvent, SharedStateStore};
 use crate::config::MonitorTimingMode;
-use crate::cv::CaptureRegion;
-use crate::db::run_catalog::RunCatalog;
 use crate::obs::frame_capture::{FRAME_BUFFER_CAPACITY, FrameMailbox, ObsSource, ProducerCtx};
 use crate::run_monitoring::publication::ReplaySaveStateStore;
 use crate::settings::SettingsStore;

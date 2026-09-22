@@ -1,9 +1,8 @@
 //! One-shot frame inspection, independent of the live monitor's matcher and state.
 use std::ffi::CString;
 
+use ge_cv::{LevelMatch, PhaseTimer};
 use serde::Serialize;
-
-use crate::cv::{LevelMatch, PhaseTimer};
 
 #[derive(Debug)]
 pub(crate) enum MatchError {
@@ -33,11 +32,11 @@ pub(crate) fn match_image(lang: &str, annotations: bool, body: &[u8]) -> Result<
     if body.is_empty() {
         return Err(MatchError::EmptyImage);
     }
-    let Some(template_dir) = crate::cv::template_dir() else {
+    let Some(template_dir) = ge_cv::template_dir() else {
         tracing::error!("CV template directory is not set");
         return Err(MatchError::MissingTemplates);
     };
-    let matcher = crate::cv::CvMatcher::new(lang, &template_dir)
+    let matcher = ge_cv::CvMatcher::new(lang, &template_dir)
         .map_err(|err| {
             tracing::error!("failed to init matcher: {err}");
             MatchError::MatcherUnavailable
@@ -57,11 +56,11 @@ pub(crate) fn match_source(source: String, lang: &str, annotations: bool) -> Res
     let source_name = CString::new(source).map_err(|_| MatchError::InvalidSource)?;
 
     let mut timer = PhaseTimer::new();
-    let Some(template_dir) = crate::cv::template_dir() else {
+    let Some(template_dir) = ge_cv::template_dir() else {
         tracing::error!("CV template directory is not set");
         return Err(MatchError::MissingTemplates);
     };
-    let matcher = crate::cv::CvMatcher::new(lang, &template_dir).map_err(|err| {
+    let matcher = ge_cv::CvMatcher::new(lang, &template_dir).map_err(|err| {
         tracing::error!("failed to init matcher: {err}");
         MatchError::MatcherUnavailable
     })?;

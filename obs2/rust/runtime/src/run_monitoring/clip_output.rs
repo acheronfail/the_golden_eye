@@ -3,10 +3,9 @@ use std::time::SystemTime;
 
 use anyhow::Context;
 use ge_clip::{ClipMetadata, RunStatus};
+use ge_cv::LevelMatch;
 
 use super::DEFAULT_CLIP_FILENAME_TEMPLATE;
-use crate::cv::LevelMatch;
-use crate::ge;
 use crate::template_tokens::{RunTemplateTokens, format_iso_utc, format_time};
 
 #[derive(Debug, Clone)]
@@ -22,7 +21,7 @@ pub(super) fn clip_metadata(
     source_name: &str,
     game_language: &str,
 ) -> ClipMetadata {
-    let level_info = stats.and_then(|m| ge::level_info(m.mission, m.part));
+    let level_info = stats.and_then(|m| ge_game::level_info(m.mission, m.part));
     let time_seconds = stats.and_then(|m| m.times.map(|times| times.time.max(0)));
 
     ClipMetadata {
@@ -32,7 +31,7 @@ pub(super) fn clip_metadata(
         time_seconds,
         level: level_info.map(|info| info.name.to_owned()).unwrap_or_else(|| "unknown".to_owned()),
         level_number: level_info.map(|info| info.number),
-        difficulty: stats.and_then(|m| ge::difficulty_name(m.difficulty)).map(str::to_owned),
+        difficulty: stats.and_then(|m| ge_game::difficulty_name(m.difficulty)).map(str::to_owned),
         status,
         was_personal_best: false,
         game_language: game_language.to_owned(),

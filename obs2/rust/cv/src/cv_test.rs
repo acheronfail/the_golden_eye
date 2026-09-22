@@ -293,7 +293,7 @@ fn level_match(screen: Screen, mission: i32, part: i32, difficulty: i32, raw_tim
         part,
         difficulty,
         detected_lang: None,
-        times: ge::Times::classify(mission, part, difficulty, &raw_times),
+        times: ge_game::Times::classify(mission, part, difficulty, &raw_times),
         raw_times,
         match_regions: Vec::new(),
         annotation_sets: Vec::new(),
@@ -313,7 +313,7 @@ fn overlay_screens_with_complete_markers_remain_trusted() {
     ];
 
     for (screen, raw_times) in cases {
-        let mut result = level_match(screen, 1, 1, ge::Difficulty::Agent.number(), raw_times);
+        let mut result = level_match(screen, 1, 1, ge_game::Difficulty::Agent.number(), raw_times);
 
         reject_untrusted_screen(&mut result);
 
@@ -324,7 +324,8 @@ fn overlay_screens_with_complete_markers_remain_trusted() {
 #[test]
 fn overlay_screens_are_rejected_when_any_required_marker_is_missing() {
     let screens = [Screen::Start, Screen::Stats, Screen::Complete, Screen::Failed, Screen::Abort, Screen::Kia];
-    let marker_cases = [(-1, 1, ge::Difficulty::Agent.number()), (1, -1, ge::Difficulty::Agent.number()), (1, 1, -1)];
+    let marker_cases =
+        [(-1, 1, ge_game::Difficulty::Agent.number()), (1, -1, ge_game::Difficulty::Agent.number()), (1, 1, -1)];
 
     for screen in screens {
         for (mission, part, difficulty) in marker_cases {
@@ -342,7 +343,7 @@ fn overlay_screens_are_rejected_when_any_required_marker_is_missing() {
 
 #[test]
 fn stats_screen_is_rejected_without_a_readable_run_time() {
-    let mut result = level_match(Screen::Stats, 1, 1, ge::Difficulty::Agent.number(), Vec::new());
+    let mut result = level_match(Screen::Stats, 1, 1, ge_game::Difficulty::Agent.number(), Vec::new());
 
     reject_untrusted_screen(&mut result);
 
@@ -351,7 +352,7 @@ fn stats_screen_is_rejected_without_a_readable_run_time() {
 
 #[test]
 fn stats_screen_is_rejected_when_the_start_tab_is_visible() {
-    let mut result = level_match(Screen::Stats, 1, 1, ge::Difficulty::Agent.number(), vec![62]);
+    let mut result = level_match(Screen::Stats, 1, 1, ge_game::Difficulty::Agent.number(), vec![62]);
     result.detected_lang = Some("jp".to_owned());
 
     reject_untrusted_screen(&mut result);

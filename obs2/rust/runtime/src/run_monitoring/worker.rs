@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
+use ge_cv::{WatchDetector, detect_black_frame, detect_watch};
 use tokio::sync::broadcast;
 
 use super::matcher::{MonitorMatcher, switch_detected_language};
@@ -12,7 +13,6 @@ use super::throughput::ThroughputMeter;
 use super::timing::MonitorTiming;
 use crate::app::AppEvent;
 use crate::config::MonitorTimingMode;
-use crate::cv::{WatchDetector, detect_black_frame, detect_watch};
 use crate::obs::frame_capture::{Captured, ObsSource};
 
 pub(super) struct FrameWorker {

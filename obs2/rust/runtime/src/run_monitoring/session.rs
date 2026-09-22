@@ -3,12 +3,13 @@
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use ge_cv::{BlackFrameSignal, LevelMatch, WatchTransition};
+
 use super::RunRecorder;
 use super::clocks::MonitorClocks;
 use super::matcher::{DisplayTimeSmoother, log_level_match};
 use super::publication::MonitorPublisher;
 use crate::app::SharedStateStore;
-use crate::cv::{BlackFrameSignal, LevelMatch, WatchTransition};
 
 pub(super) struct RunSession {
     recording: Option<RunRecorder>,

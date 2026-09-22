@@ -1,6 +1,6 @@
 //! Owns the retained recording phase, expiry policy, and stale-completion checks.
 
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -58,7 +58,7 @@ pub(crate) enum RecordingStateEvent {
 #[derive(Clone)]
 pub struct RecordingStateStore {
     snapshot: SharedStateStore,
-    state: Arc<StdMutex<RecordingStateInner>>,
+    state: Arc<Mutex<RecordingStateInner>>,
 }
 
 struct RecordingStateInner {
@@ -73,7 +73,7 @@ impl RecordingStateStore {
     pub fn new(snapshot: SharedStateStore) -> Self {
         RecordingStateStore {
             snapshot,
-            state: Arc::new(StdMutex::new(RecordingStateInner { status: None, generation: 0 })),
+            state: Arc::new(Mutex::new(RecordingStateInner { status: None, generation: 0 })),
         }
     }
 

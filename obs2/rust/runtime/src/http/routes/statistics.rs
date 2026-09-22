@@ -3,16 +3,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use serde::Deserialize;
-
-use crate::app::AppState;
-use crate::db::statistics::{
+use ge_catalog::statistics::{
     Bucket,
     MonitoringSessionDetail,
     MonitoringSessionSummary,
     StatisticsData,
     StatisticsQuery,
 };
+use serde::Deserialize;
+
+use crate::app::AppState;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

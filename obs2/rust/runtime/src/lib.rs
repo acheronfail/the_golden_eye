@@ -21,11 +21,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub use ge_catalog as db;
 #[cfg(feature = "test-hooks")]
 use ge_clip::ClipMetadata;
-pub use ge_cv as cv;
-pub use ge_game as ge;
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
@@ -60,11 +57,11 @@ fn configure_cv_template_dir() {
     };
 
     tracing::debug!(template_dir = %template_dir.display(), "resolved bundled CV templates directory");
-    cv::set_template_dir(template_dir.to_string_lossy().into_owned());
+    ge_cv::set_template_dir(template_dir.to_string_lossy().into_owned());
 }
 
 fn configure_cv_runtime() {
-    cv::configure(cv::RuntimeConfig {
+    ge_cv::configure(ge_cv::RuntimeConfig {
         debug: config::cv_debug_enabled(),
         timing: config::cv_timing_enabled(),
         threads_overridden: config::cv_threads_overridden(),
@@ -202,8 +199,8 @@ pub extern "C" fn ge_runtime_start() -> bool {
     configure_cv_template_dir();
 
     let settings = Arc::new(SettingsStore::load_default());
-    let catalog_was_missing = !crate::db::run_catalog::RunCatalog::exists_for_settings(settings.path());
-    let run_catalog = match crate::db::run_catalog::RunCatalog::open_for_settings(settings.path()) {
+    let catalog_was_missing = !ge_catalog::run_catalog::RunCatalog::exists_for_settings(settings.path());
+    let run_catalog = match ge_catalog::run_catalog::RunCatalog::open_for_settings(settings.path()) {
         Ok(catalog) => Arc::new(catalog),
         Err(error) => {
             tracing::error!("failed to open run catalog: {error:#}");

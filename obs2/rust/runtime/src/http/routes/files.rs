@@ -7,13 +7,13 @@ use serde::Deserialize;
 use super::runs::run_error_response;
 use crate::app::AppState;
 use crate::desktop::files::{RevealMode, reveal_in_file_browser};
-use crate::run_library as runs;
+use crate::run_library;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "target")]
 pub enum FileRevealRequest {
     Run { path: String },
-    RunFolder { kind: runs::RunDirectoryKind },
+    RunFolder { kind: run_library::RunDirectoryKind },
     SettingsConfig,
 }
 
@@ -25,13 +25,13 @@ pub async fn handle_reveal(
     let (path, mode) = match req {
         FileRevealRequest::Run { path } => {
             let settings = state.settings.get_effective();
-            let path = runs::authorize_tagged_run_path(&settings, &path).map_err(run_error_response)?;
+            let path = run_library::authorize_tagged_run_path(&settings, &path).map_err(run_error_response)?;
             (path, RevealMode::Select)
         }
         FileRevealRequest::RunFolder { kind } => {
             let settings = state.settings.get_effective();
-            let path = runs::configured_run_directory_for_kind(&settings, kind).map_err(run_error_response)?;
-            runs::ensure_configured_run_directory(&path).map_err(|err| {
+            let path = run_library::configured_run_directory_for_kind(&settings, kind).map_err(run_error_response)?;
+            run_library::ensure_configured_run_directory(&path).map_err(|err| {
                 tracing::error!("failed to prepare run folder before reveal: {err:#}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "run folder reveal failed").into_response()
             })?;

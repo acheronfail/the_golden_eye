@@ -1,11 +1,11 @@
 //! Monitor display models and publication; timer and recording rules live with their owners.
 use std::time::Duration;
 
+use ge_cv::{BlackFrameSignal, LevelMatch};
 use serde::Serialize;
 
 pub use super::in_game_timer::{LevelTimerPhase, LevelTimerStartReason};
 use crate::app::SharedStateStore;
-use crate::cv::{BlackFrameSignal, LevelMatch};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]

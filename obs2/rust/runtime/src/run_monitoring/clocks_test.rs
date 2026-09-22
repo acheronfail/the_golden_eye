@@ -1,7 +1,7 @@
 use super::*;
 use crate::run_monitoring::in_game_timer::LevelTimerPhase;
 
-fn level_match(screen: crate::cv::Screen, mission: i32, part: i32) -> LevelMatch {
+fn level_match(screen: ge_cv::Screen, mission: i32, part: i32) -> LevelMatch {
     LevelMatch {
         screen,
         mission,
@@ -19,12 +19,12 @@ fn level_match(screen: crate::cv::Screen, mission: i32, part: i32) -> LevelMatch
 #[test]
 fn black_frame_diagnostics_update_immediately_for_edges_and_periodically_for_evidence() {
     let mut clocks = MonitorClocks::default();
-    let mut signal = crate::cv::BlackFrameSignal {
+    let mut signal = ge_cv::BlackFrameSignal {
         detected: false,
         mean_luma: 80,
         dark_pixel_percent: 4,
         sample_count: 576,
-        sample_region: crate::cv::ActivePictureRegion::full(854, 480),
+        sample_region: ge_cv::ActivePictureRegion::full(854, 480),
     };
 
     assert!(clocks.reconcile_black_frame(signal, 1_000));
@@ -33,7 +33,7 @@ fn black_frame_diagnostics_update_immediately_for_edges_and_periodically_for_evi
     assert!(clocks.reconcile_black_frame(signal, 1_250));
     assert_eq!(clocks.snapshot().fade_detection, Some(signal));
 
-    signal.sample_region = crate::cv::ActivePictureRegion { x: 107, y: 0, width: 640, height: 480 };
+    signal.sample_region = ge_cv::ActivePictureRegion { x: 107, y: 0, width: 640, height: 480 };
     assert!(clocks.reconcile_black_frame(signal, 1_300));
     assert_eq!(clocks.snapshot().fade_detection, Some(signal));
 }
@@ -42,13 +42,13 @@ fn black_frame_diagnostics_update_immediately_for_edges_and_periodically_for_evi
 fn wall_clock_snapshot_projects_timer_and_resets_with_session() {
     let mut clocks = MonitorClocks::default();
     clocks.start_session(1_000);
-    clocks.reconcile_match(&level_match(crate::cv::Screen::Start, 1, 2), 1_100);
+    clocks.reconcile_match(&level_match(ge_cv::Screen::Start, 1, 2), 1_100);
     let mut signal = BlackFrameSignal {
         detected: true,
         mean_luma: 0,
         dark_pixel_percent: 100,
         sample_count: 576,
-        sample_region: crate::cv::ActivePictureRegion::full(640, 480),
+        sample_region: ge_cv::ActivePictureRegion::full(640, 480),
     };
     for (time, black) in [(1_200, true), (1_300, false), (2_000, true), (2_100, false), (5_300, false)] {
         signal.detected = black;

@@ -240,7 +240,7 @@ async fn open_consent_page(_auth_url: &str) -> Result<(), ConnectError> {
 
 fn new_oauth_state() -> String {
     #[cfg(feature = "test-hooks")]
-    if let Some(state) = crate::config::test_oauth_state() {
+    if let Some(state) = crate::config::test_hooks::oauth_state() {
         return state;
     }
     let mut hasher = Sha256::new();

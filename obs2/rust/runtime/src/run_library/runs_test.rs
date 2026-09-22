@@ -35,8 +35,8 @@ impl Drop for TestDir {
     }
 }
 
-fn test_catalog(dir: &TestDir) -> crate::db::run_catalog::RunCatalog {
-    crate::db::run_catalog::RunCatalog::open(dir.join("runs.sqlite")).expect("open run catalog")
+fn test_catalog(dir: &TestDir) -> ge_catalog::run_catalog::RunCatalog {
+    ge_catalog::run_catalog::RunCatalog::open(dir.join("runs.sqlite")).expect("open run catalog")
 }
 
 fn sample_clip() -> PathBuf {
@@ -241,7 +241,7 @@ fn video_files_in_directory_searches_recursively() {
     fs::write(&nested_clip, b"nested").unwrap();
     fs::write(&ignored, b"ignored").unwrap();
 
-    let files = crate::db::runs::video_files_in_directory_recursive(&dir.path).unwrap();
+    let files = ge_catalog::runs::video_files_in_directory_recursive(&dir.path).unwrap();
 
     let mut expected = vec![root_clip, nested_clip];
     expected.sort();

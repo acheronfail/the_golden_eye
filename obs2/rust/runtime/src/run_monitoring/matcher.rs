@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::cv::{ActivePictureRegion, CaptureRegion, CvMatcher, LevelMatch, Screen};
-use crate::ge;
+use ge_cv::{ActivePictureRegion, CaptureRegion, CvMatcher, LevelMatch, Screen};
 
 /// Frames voted over to steady the stats times shown live. The per-frame matcher
 /// can misread a look-alike digit on a single noisy capture frame; ~7 frames at
@@ -12,7 +11,7 @@ const MONITOR_TIME_SMOOTHING_WINDOW: usize = 7;
 /// Reset on level/screen changes so a fast transition's first reading appears immediately.
 pub(super) struct DisplayTimeSmoother {
     key: Option<(Screen, i32, i32, i32)>,
-    window: VecDeque<ge::Times>,
+    window: VecDeque<ge_game::Times>,
 }
 
 impl DisplayTimeSmoother {
@@ -21,7 +20,7 @@ impl DisplayTimeSmoother {
     }
 
     /// Feeds one frame's reading in and returns the smoothed times to display.
-    pub(super) fn smooth(&mut self, m: &LevelMatch) -> Option<ge::Times> {
+    pub(super) fn smooth(&mut self, m: &LevelMatch) -> Option<ge_game::Times> {
         let key = Some((m.screen, m.mission, m.part, m.difficulty));
         if key != self.key {
             self.key = key;
@@ -35,7 +34,7 @@ impl DisplayTimeSmoother {
             self.window.pop_front();
         }
         self.window.push_back(times);
-        Some(ge::Times {
+        Some(ge_game::Times {
             time: self.majority(|t| t.time)?,
             target_time: self.majority(|t| t.target_time)?,
             best_time: self.majority(|t| t.best_time)?,
@@ -43,7 +42,7 @@ impl DisplayTimeSmoother {
     }
 
     /// Most-common value of `field` across the window, ties to the newest frame.
-    fn majority<T: PartialEq + Copy>(&self, field: impl Fn(&ge::Times) -> T) -> Option<T> {
+    fn majority<T: PartialEq + Copy>(&self, field: impl Fn(&ge_game::Times) -> T) -> Option<T> {
         let mut best: Option<(T, usize)> = None;
         for cand in self.window.iter().rev() {
             let v = field(cand);
@@ -82,8 +81,7 @@ impl MonitorMatcher {
     /// Builds a session with the given language, using the bundled CV templates
     /// directory resolved at plugin startup.
     pub fn from_env(lang: &str) -> anyhow::Result<Self> {
-        let template_dir =
-            crate::cv::template_dir().ok_or_else(|| anyhow::anyhow!("CV template directory is not set"))?;
+        let template_dir = ge_cv::template_dir().ok_or_else(|| anyhow::anyhow!("CV template directory is not set"))?;
         Self::new(lang, &template_dir)
     }
 
@@ -114,7 +112,7 @@ impl MonitorMatcher {
     /// Matches one BGRA frame. The matcher's scale cache makes the first overlay
     /// frame at a given resolution costlier (it searches for the scale) and every
     /// later frame at that resolution cheap (it reuses the learned scale).
-    pub fn match_frame(&self, bytes: &[u8], width: u32, height: u32) -> crate::cv::Result<LevelMatch> {
+    pub fn match_frame(&self, bytes: &[u8], width: u32, height: u32) -> ge_cv::Result<LevelMatch> {
         self.matcher.match_level_from_bgra_bytes(bytes, width, height)
     }
 
@@ -124,7 +122,7 @@ impl MonitorMatcher {
     pub fn run<S, F>(&self, source: &mut S, mut on_result: F)
     where
         S: FrameSource,
-        F: FnMut(crate::cv::Result<LevelMatch>),
+        F: FnMut(ge_cv::Result<LevelMatch>),
     {
         while let Some(result) = source.capture(|bytes, w, h| self.match_frame(bytes, w, h)) {
             // Once the matcher has calibrated this source's aspect, hand the

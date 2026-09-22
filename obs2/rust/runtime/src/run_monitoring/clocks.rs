@@ -1,6 +1,7 @@
 //! Session time and fade diagnostics alongside the independently owned in-game timer.
 
-use crate::cv::{BlackFrameSignal, LevelMatch, WatchTransition};
+use ge_cv::{BlackFrameSignal, LevelMatch, WatchTransition};
+
 use crate::run_monitoring::in_game_timer::InGameTimer;
 use crate::run_monitoring::publication::MonitorWallClockState;
 

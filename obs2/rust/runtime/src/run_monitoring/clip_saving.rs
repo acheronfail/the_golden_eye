@@ -7,7 +7,9 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant, SystemTime};
 
+use ge_catalog::run_catalog::{RunCatalog, RunCatalogSave};
 use ge_clip::{ClipMetadata, RunStatus};
+use ge_cv::LevelMatch;
 use tokio::sync::broadcast;
 
 use super::clip_output::{
@@ -24,9 +26,6 @@ use super::replay_buffer::{REPLAY_BUFFER, ReplaySaveWait};
 use super::run_detection::{PendingSave, RunDetectionPolicy};
 use super::{MAX_RECENT_RUN_LIMIT, RecordingSessionContext};
 use crate::app::AppEvent;
-use crate::cv::LevelMatch;
-use crate::db::run_catalog::{RunCatalog, RunCatalogSave};
-use crate::ge;
 #[cfg(not(test))]
 use crate::obs::replay_buffer_output_directory;
 use crate::run_monitoring::RecordingStateStore;
@@ -53,7 +52,7 @@ fn recording_save_pending_event(
     status: RunStatus,
     stats: Option<&LevelMatch>,
 ) -> RecordingSavePending {
-    let level_info = stats.and_then(|m| ge::level_info(m.mission, m.part));
+    let level_info = stats.and_then(|m| ge_game::level_info(m.mission, m.part));
     let times = stats.and_then(|m| m.times);
 
     RecordingSavePending {
@@ -64,7 +63,7 @@ fn recording_save_pending_event(
         status: status.as_str().to_owned(),
         level: level_info.map(|info| info.name.to_owned()).unwrap_or_else(|| "unknown".to_owned()),
         level_number: level_info.map(|info| info.number),
-        difficulty: stats.and_then(|m| ge::difficulty_name(m.difficulty)).map(str::to_owned),
+        difficulty: stats.and_then(|m| ge_game::difficulty_name(m.difficulty)).map(str::to_owned),
         time_secs: times.map(|t| t.time),
         target_time_secs: times.and_then(|t| t.target_time),
         best_time_secs: times.and_then(|t| t.best_time),

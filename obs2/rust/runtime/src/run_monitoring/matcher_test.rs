@@ -1,8 +1,8 @@
+use ge_game::Times;
 use opencv::prelude::*;
 use opencv::{imgcodecs, imgproc};
 
 use super::*;
-use crate::ge::Times;
 
 // Builds the classified stats-screen times for a test expectation.
 const fn times(time: i32, target_time: Option<i32>, best_time: Option<i32>) -> Option<Times> {
@@ -218,7 +218,7 @@ fn start_screen_language_mismatch_is_detected_and_rejected() {
         let (bytes, w, h) = load_bgra(file);
         let m = session.match_frame(&bytes, w, h).expect("match");
         assert_eq!(m.detected_lang.as_deref(), Some(detected), "{file} detected language");
-        assert_eq!(m.screen, crate::cv::Screen::Unknown, "{file} screen");
+        assert_eq!(m.screen, ge_cv::Screen::Unknown, "{file} screen");
         assert_eq!(m.raw_times, Vec::<i32>::new(), "{file} raw times");
         assert_eq!(m.times, None, "{file} times");
     }
@@ -232,7 +232,7 @@ fn detected_language_switches_active_monitor_language() {
     let (start_b, start_w, start_h) = load_bgra("screenshots-emu/jp - start - 01 - Agent.png");
     let mismatch = session.match_frame(&start_b, start_w, start_h).expect("mismatch match");
     assert_eq!(mismatch.detected_lang.as_deref(), Some("jp"));
-    assert_eq!(mismatch.screen, crate::cv::Screen::Unknown);
+    assert_eq!(mismatch.screen, ge_cv::Screen::Unknown);
 
     let switched = switch_detected_language(&mismatch, &mut session, &mut active_lang, |lang| {
         MonitorMatcher::new(lang, TEMPLATES_DIR)
@@ -243,7 +243,7 @@ fn detected_language_switches_active_monitor_language() {
 
     let (stats_b, stats_w, stats_h) = load_bgra("screenshots-emu/jp - stats - 01 - Agent - 0137_0137.png");
     let stats = session.match_frame(&stats_b, stats_w, stats_h).expect("jp stats after switch");
-    assert_eq!(stats.screen, crate::cv::Screen::Stats);
+    assert_eq!(stats.screen, ge_cv::Screen::Stats);
     assert_eq!(stats.mission, 1);
     assert_eq!(stats.part, 1);
     assert_eq!(stats.difficulty, 0);

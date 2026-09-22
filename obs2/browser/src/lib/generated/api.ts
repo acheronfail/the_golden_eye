@@ -47,7 +47,7 @@ export type LevelMatch = { screen: Screen, mission: number, part: number, diffic
  */
 detected_lang?: "en" | "jp",
 /**
- * The stats-screen times split into run / target / best (see [`ge::Times`]).
+ * The stats-screen times split into run / target / best (see [`ge_game::Times`]).
  * `None` on any screen that carries no timed rows (start, report, gameplay).
  */
 times: Times | null,

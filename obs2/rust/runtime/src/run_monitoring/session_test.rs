@@ -2,7 +2,7 @@ use super::*;
 use crate::run_monitoring::in_game_timer::LevelTimerPhase;
 use crate::run_monitoring::publication::MonitorWallClockState;
 
-fn level_match(screen: crate::cv::Screen, mission: i32, part: i32) -> LevelMatch {
+fn level_match(screen: ge_cv::Screen, mission: i32, part: i32) -> LevelMatch {
     LevelMatch {
         screen,
         mission,
@@ -61,7 +61,7 @@ fn black(detected: bool) -> BlackFrameSignal {
         mean_luma: 0,
         dark_pixel_percent: 100,
         sample_count: 576,
-        sample_region: crate::cv::ActivePictureRegion::full(640, 480),
+        sample_region: ge_cv::ActivePictureRegion::full(640, 480),
     }
 }
 
@@ -71,10 +71,10 @@ fn session_publishes_recording_and_timer_from_the_same_match() {
     let mut session = run_session(snapshot.clone());
     session.start("N64 Capture".to_owned(), "en".to_owned());
     let now = Instant::now();
-    session.process_match(now, level_match(crate::cv::Screen::Start, 1, 2));
+    session.process_match(now, level_match(ge_cv::Screen::Start, 1, 2));
     let matched = snapshot.current();
     assert_eq!(matched.recording_state, Some(crate::run_monitoring::RecordingStatus::Started));
-    assert_eq!(matched.level_match.unwrap().screen, crate::cv::Screen::Start);
+    assert_eq!(matched.level_match.unwrap().screen, ge_cv::Screen::Start);
     assert_eq!(matched.monitor.wall_clocks.level_timer_phase, LevelTimerPhase::AwaitingInitialBlack);
     for (at, detected) in [(1_200, true), (1_300, false), (2_000, true), (2_100, false), (5_300, false)] {
         session.observe_black_frame(black(detected), at);
@@ -94,7 +94,7 @@ fn session_publishes_recording_and_timer_from_the_same_match() {
     assert!(stopped.recording_state.is_none());
     session.observe_black_frame(black(true), u64::MAX);
     session.observe_watch(WatchTransition::Paused, u64::MAX);
-    session.process_match(now, level_match(crate::cv::Screen::Start, 1, 2));
+    session.process_match(now, level_match(ge_cv::Screen::Start, 1, 2));
     drop(session);
     assert_eq!(snapshot.current(), stopped);
 }
@@ -104,7 +104,7 @@ fn observations_before_start_do_not_publish_or_prime_a_run() {
     let snapshot = snapshot_store();
     let initial = snapshot.current();
     let mut session = run_session(snapshot.clone());
-    session.process_match(Instant::now(), level_match(crate::cv::Screen::Start, 1, 2));
+    session.process_match(Instant::now(), level_match(ge_cv::Screen::Start, 1, 2));
     session.observe_black_frame(black(true), 100);
     session.observe_watch(WatchTransition::Paused, 200);
     assert_eq!(snapshot.current(), initial);
@@ -131,10 +131,10 @@ fn recording_votes_on_raw_frames_independently_of_the_smoothed_display() {
     let mut session = run_session(snapshot.clone());
     session.start("N64 Capture".to_owned(), "en".to_owned());
     let now = Instant::now();
-    session.process_match(now, level_match(crate::cv::Screen::Start, 1, 2));
+    session.process_match(now, level_match(ge_cv::Screen::Start, 1, 2));
     for time in std::iter::repeat_n(61, 10).chain(std::iter::repeat_n(60, 7)) {
-        let mut matched = level_match(crate::cv::Screen::Stats, 1, 2);
-        matched.times = Some(crate::ge::Times { time, target_time: None, best_time: None });
+        let mut matched = level_match(ge_cv::Screen::Stats, 1, 2);
+        matched.times = Some(ge_game::Times { time, target_time: None, best_time: None });
         session.process_match(now, matched);
     }
     assert_eq!(snapshot.current().level_match.unwrap().times.unwrap().time, 60);

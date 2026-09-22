@@ -2,7 +2,7 @@ use std::ffi::CString;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
-use crate::cv::CaptureRegion;
+use ge_cv::CaptureRegion;
 
 /// A captured BGRA frame and its dimensions, owning its pixel buffer. Frames
 /// from OBS wrap the C-`malloc`'d buffer the capture bridge returns; test frames
@@ -184,7 +184,7 @@ impl crate::obs::RenderCallback for ProducerCtx {
         let region = {
             let guard = self.region.lock().unwrap_or_else(|p| p.into_inner());
             guard.map(|r| {
-                let out_height = crate::cv::WORK_HEIGHT as u32;
+                let out_height = ge_cv::WORK_HEIGHT as u32;
                 let out_width = ((out_height as f32 * r.out_aspect).round() as u32).max(1);
                 crate::obs::GeCaptureRegion {
                     crop_x: r.crop_x,
@@ -196,7 +196,7 @@ impl crate::obs::RenderCallback for ProducerCtx {
                 }
             })
         };
-        let max_height = if region.is_some() { 0 } else { crate::cv::WORK_HEIGHT as u32 };
+        let max_height = if region.is_some() { 0 } else { ge_cv::WORK_HEIGHT as u32 };
         let mut capture_timings = self.timing_enabled.then(crate::obs::GeCaptureTimings::default);
         let capture_started = self.timing_enabled.then(Instant::now);
         let Some(frame) = self.ctx.capture(&self.name, max_height, region.as_ref(), capture_timings.as_mut()) else {

@@ -264,7 +264,7 @@ fn publishing_a_match_does_not_infer_timer_transitions() {
         ..MonitorWallClockState::default()
     };
     let level_match = LevelMatch {
-        screen: crate::cv::Screen::Start,
+        screen: ge_cv::Screen::Start,
         mission: 1,
         part: 2,
         difficulty: 0,

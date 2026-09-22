@@ -1,8 +1,9 @@
 //! Constructs feature owners and connects their shared dependencies once per core load.
 use std::sync::Arc;
 
+use ge_catalog::run_catalog::RunCatalog;
+
 use super::{AppSnapshot, AppState, AppStateInner, SharedStateStore};
-use crate::db::run_catalog::RunCatalog;
 use crate::run_monitoring::RecordingStateStore;
 use crate::run_monitoring::publication::MonitorSnapshot;
 use crate::settings::SettingsStore;

@@ -4,7 +4,6 @@
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
-use ge_game as ge;
 use opencv::core::{self, Mat, Rect, Size, ToInputArray};
 use opencv::prelude::*;
 use opencv::{imgcodecs, imgproc};
@@ -534,9 +533,9 @@ pub struct LevelMatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"en\" | \"jp\"")]
     pub detected_lang: Option<String>,
-    /// The stats-screen times split into run / target / best (see [`ge::Times`]).
+    /// The stats-screen times split into run / target / best (see [`ge_game::Times`]).
     /// `None` on any screen that carries no timed rows (start, report, gameplay).
-    pub times: Option<ge::Times>,
+    pub times: Option<ge_game::Times>,
     /// Raw times read off the overlay top-to-bottom, before classification (the
     /// source `times` derives from). Empty on untimed screens. Kept for the test
     /// harness; production code uses the classified `times` instead.
@@ -2508,7 +2507,7 @@ impl CvMatcher {
             })
             .collect();
         let times: Vec<i32> = found_times.into_iter().map(|t| t.seconds).collect();
-        result.times = ge::Times::classify(result.mission, result.part, result.difficulty, &times);
+        result.times = ge_game::Times::classify(result.mission, result.part, result.difficulty, &times);
         result.raw_times = times;
         timer.lap("time assembly");
 
