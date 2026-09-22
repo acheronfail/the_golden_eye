@@ -55,6 +55,7 @@ pub(super) fn format_seconds(seconds: i32) -> String {
 pub(super) struct FoundMission {
     pub(super) mission: i32,
     pub(super) score: f64,
+    pub(super) fixed_slot: bool,
     // Centre of the anchoring "Mission N:" colon, in region coordinates. The
     // vertical centre pins the difficulty (up) and part (down) rows; both let a
     // later frame re-search the mission in a tight box instead of the header.
@@ -167,7 +168,15 @@ pub(super) fn find_mission_from_colons(
 ) -> Result<FoundMission> {
     let colon_tmpl = &glyphs.colon;
     let digit_tmpls = &glyphs.digits;
-    let none = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1, colon: None, digit: None };
+    let none = FoundMission {
+        mission: -1,
+        score: -1.0,
+        fixed_slot: false,
+        colon_cx: -1,
+        colon_cy: -1,
+        colon: None,
+        digit: None,
+    };
     if colon_tmpl.empty() || digit_tmpls.len() < 10 {
         return Ok(none);
     }
@@ -248,6 +257,7 @@ pub(super) fn find_mission_from_colons(
             return Ok(FoundMission {
                 mission,
                 score: confidence,
+                fixed_slot: true,
                 colon_cx: colon.x + colon_w / 2,
                 colon_cy: colon.y + colon_h / 2,
                 colon: Some(MatchRect { x: colon.x, y: colon.y, w: colon.w, h: colon.h, score: colon.score }),
@@ -296,6 +306,7 @@ pub(super) fn find_mission_from_colons(
                 best = Some(FoundMission {
                     mission: v as i32,
                     score: d.score,
+                    fixed_slot: false,
                     colon_cx: colon.x + colon_w / 2,
                     colon_cy: colon_center_y.round() as i32,
                     colon: Some(MatchRect { x: colon.x, y: colon.y, w: colon.w, h: colon.h, score: colon.score }),
@@ -314,7 +325,15 @@ pub(super) fn find_mission_from_colons(
         par_map(work.len(), search_digit)
     };
 
-    let mut best = FoundMission { mission: -1, score: -1.0, colon_cx: -1, colon_cy: -1, colon: None, digit: None };
+    let mut best = FoundMission {
+        mission: -1,
+        score: -1.0,
+        fixed_slot: false,
+        colon_cx: -1,
+        colon_cy: -1,
+        colon: None,
+        digit: None,
+    };
     for p in partials {
         if let Some(cand) = p?
             && cand.score >= best.score

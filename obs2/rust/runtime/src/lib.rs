@@ -23,6 +23,8 @@ use std::time::Duration;
 
 #[cfg(feature = "test-hooks")]
 use ge_clip::ClipMetadata;
+#[cfg(feature = "test-hooks")]
+pub use obs::GeCaptureRegion;
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 

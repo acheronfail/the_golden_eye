@@ -1,5 +1,6 @@
 mod support;
 
+mod capture_sequences;
 mod completed_clip;
 mod failed_clip;
 mod frame_dump;

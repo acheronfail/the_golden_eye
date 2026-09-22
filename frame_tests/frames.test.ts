@@ -144,6 +144,16 @@ async function evaluateScreenshotTest(
   const result = JSON.parse(stdout);
   const checks: Record<string, CheckResult | undefined> = {};
 
+  const captureHeight = Math.min(result.image.height, 480);
+  const captureWidth = Math.max(
+    1,
+    Math.round((result.image.width * captureHeight) / result.image.height),
+  );
+  checks.captureSize = check(
+    result.capture_image,
+    { width: captureWidth, height: captureHeight },
+    result.capture_image?.width === captureWidth && result.capture_image?.height === captureHeight,
+  );
   checks.lang = check(result.lang, screenshot.lang, result.lang === screenshot.lang);
   checks.screen =
     screenshot.screen === "detail"
