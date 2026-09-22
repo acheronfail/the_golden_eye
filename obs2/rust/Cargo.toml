@@ -1,6 +1,6 @@
 [workspace]
-members = ["catalog", "clip", "core", "cv", "game", "media", "settings"]
-default-members = ["core"]
+members = ["catalog", "clip", "cv", "game", "media", "runtime", "settings"]
+default-members = ["runtime"]
 resolver = "3"
 
 [workspace.dependencies]

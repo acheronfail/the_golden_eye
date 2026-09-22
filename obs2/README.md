@@ -25,7 +25,7 @@ just dev
 
 # Understanding the plugin
 
-Start with the [Rust ownership map](rust/core/src/README.md) to find feature workflows and adapters.
-The [run-monitoring map](rust/core/src/run_monitoring/README.md) points to the run state machine,
+Start with the [Rust ownership map](rust/runtime/src/README.md) to find feature workflows and adapters.
+The [run-monitoring map](rust/runtime/src/run_monitoring/README.md) points to the run state machine,
 in-game timer, and session lifecycle. The [frontend map](browser/src/lib/README.md) describes UI
 ownership.

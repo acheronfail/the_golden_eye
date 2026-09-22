@@ -149,9 +149,9 @@ test-rust *args:
       --package ge_game \
       --package ge_cv \
       --package ge_media \
-      --package ge_rust \
+      --package ge_runtime \
       --release \
-      --features ge_rust/test-hooks \
+      --features ge_runtime/test-hooks \
       {{ args }}
 
 # runs the backend against the controllable Rust OBS host (no OBS process)
@@ -171,7 +171,7 @@ test-integration *args:
       export CARGO_TARGET_DIR="{{ justfile_directory() }}/obs2/rust/target/integration"
     fi
     cd "{{ justfile_directory() }}/obs2/rust"
-    cargo test --package ge_rust --release --features test-hooks --tests -- --ignored --test-threads=1 {{ args }}
+    cargo test --package ge_runtime --release --features test-hooks --tests -- --ignored --test-threads=1 {{ args }}
 
 # runs browser unit/component tests
 test-browser *args:
@@ -181,12 +181,12 @@ test-browser *args:
 test-storybook *args:
     cd obs2/browser && npm run test:unit -- --run --project storybook {{ args }}
 
-# runs the shim's dlopen/reload/rollback fixture tests (no OBS/Rust toolchain needed)
-test-shim:
+# runs the loader's dlopen/reload/rollback fixture tests (no OBS/Rust toolchain needed)
+test-loader:
     #!/usr/bin/env bash
     set -euo pipefail
-    build_dir="{{ justfile_directory() }}/obs2/shim/tests/build"
-    cmake -S "{{ justfile_directory() }}/obs2/shim/tests" -B "$build_dir" -DCMAKE_BUILD_TYPE=Debug
+    build_dir="{{ justfile_directory() }}/obs2/loader/tests/build"
+    cmake -S "{{ justfile_directory() }}/obs2/loader/tests" -B "$build_dir" -DCMAKE_BUILD_TYPE=Debug
     # --config/-C are ignored by single-config generators (Unix Makefiles) and
     # required by multi-config ones (Visual Studio on Windows), so pass both
     # unconditionally rather than branching on platform.
@@ -206,7 +206,7 @@ test:
     just test-browser
     just test-storybook
     just test-integration
-    just test-shim
+    just test-loader
     just test-rust
     just test-cv
 
@@ -217,7 +217,7 @@ fmt:
     cd obs2/browser && npm run format:repo
     cd obs2/browser && npm run check
     cd obs2/rust && rustup run nightly cargo fmt --all --
-    find obs2 obs2/shim obs2/shim/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_rust.h -print0 | xargs -0 clang-format -style=file -i
+    find obs2 obs2/loader obs2/loader/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_runtime.h -print0 | xargs -0 clang-format -style=file -i
 
 # regenerates browser settings and API types from the Rust contracts
 generate-contracts:
@@ -234,7 +234,7 @@ clippy:
     source "$build_dir/rust-cargo-env.sh"
 
     cd "{{ justfile_directory() }}/obs2/rust"
-    cargo clippy --package ge_rust -- -D warnings
+    cargo clippy --package ge_runtime -- -D warnings
     cargo clippy --package ge_cv --all-targets -- -D warnings
     cargo clippy --package ge_catalog --all-targets -- -D warnings
     cargo clippy --package ge_clip --all-targets -- -D warnings
@@ -542,7 +542,7 @@ clean:
     rm -rf "node_modules"
     rm -rf "obs2/browser/node_modules"
     rm -rf "test/node_modules"
-    rm -rf "obs2/ge_rust.h"
+    rm -rf "obs2/ge_runtime.h"
     rm -rf "obs2/build"
     cd "obs2/rust" && cargo clean
     @echo "Keeping vendored packages, use 'just clean_all' to remove those as well"

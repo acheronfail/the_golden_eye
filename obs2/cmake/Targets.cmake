@@ -1,4 +1,4 @@
-# The two build artifacts: the heavy "core" library and the thin shim OBS loads.
+# The two build artifacts: the heavy "core" library and the thin loader OBS loads.
 # Must be included last — depends on OBSLibs (OBS_*), OpenCVStatic (GE_OPENCV_LINK),
 # RustLib (rust_libs), and Frontend (BROWSER_DEV).
 
@@ -6,12 +6,12 @@
 # Core library
 #
 # All of the heavy logic — the Rust staticlib, OpenCV, and the OBS bridge —
-# lives in a separate shared library. The thin shim (below) is what OBS loads
+# lives in a separate shared library. The thin loader (below) is what OBS loads
 # as a plugin; it `dlopen`s this core library at runtime. Keeping them apart
-# lets the shim unload + reload this library when it's rebuilt (dev hot reload)
+# lets the loader unload + reload this library when it's rebuilt (dev hot reload)
 # and surface link errors as a catchable dlopen failure.
 #
-# The core library name (used by the shim to find it).
+# The core library name (used by the loader to find it).
 set(CORE_NAME golden_core)
 
 # Runtime bundle layout:
@@ -73,7 +73,7 @@ if(NOT GE_OBS_NATIVE_DEPS_FOUND)
   add_dependencies(${CORE_NAME} require_obs_libraries)
 endif()
 
-# Emit the core library into the same runtime directory the shim will resolve
+# Emit the core library into the same runtime directory the loader will resolve
 # from when OBS loads it.
 set_target_properties(${CORE_NAME} PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${GE_PLUGIN_RUNTIME_DIR}"
@@ -92,11 +92,11 @@ target_link_libraries(${CORE_NAME} PRIVATE
     ${OBS_LIBRARIES}
     ${OBS_FRONTEND_LIBRARIES}
     rust_libs
-    # Pulls in the OpenCV static archives the C++ shim in libge_rust.a references
+    # Pulls in the OpenCV static archives the C++ shim in libge_runtime.a references
     # (cv::Mat, cv::imgproc, ...). Listed after rust_libs so the archives that
     # define these symbols come after the archive that uses them on the link line.
     ${GE_OPENCV_LINK}
-    # Likewise, the FFmpeg static archives that ge_rust.a references via the
+    # Likewise, the FFmpeg static archives that ge_runtime.a references via the
     # ffmpeg-next crate (libav*, libsw*). Also listed after rust_libs.
     ${GE_FFMPEG_LINK}
 )
@@ -158,12 +158,12 @@ else()
 endif()
 
 #
-# Thin shim — the actual OBS plugin.
+# Thin loader — the actual OBS plugin.
 #
 # A plugin bundle on macOS, and a regular shared library on other platforms.
 # It only dlopen's the core library, so it links nothing heavy: just libobs
 # (for the OBS module macros + blog), the dl loader, and pthreads (the reload
-# worker thread in shim/reload.c).
+# worker thread in loader/reload.c).
 #
 
 if(APPLE)
@@ -173,16 +173,16 @@ else()
 endif()
 
 target_sources(${PLUGIN_NAME} PRIVATE
-    shim/dynlib.c
-    shim/reload.c
-    shim/version.c
-    shim/plugin.c
+    loader/dynlib.c
+    loader/reload.c
+    loader/version.c
+    loader/plugin.c
 )
 
 if(WIN32)
-    target_sources(${PLUGIN_NAME} PRIVATE shim/reload_win32.c)
+    target_sources(${PLUGIN_NAME} PRIVATE loader/reload_win32.c)
 else()
-    target_sources(${PLUGIN_NAME} PRIVATE shim/reload_unix.c)
+    target_sources(${PLUGIN_NAME} PRIVATE loader/reload_unix.c)
 endif()
 
 if(NOT GE_OBS_NATIVE_DEPS_FOUND)
@@ -209,16 +209,16 @@ if(APPLE AND GE_OBS_DYNAMIC_LOOKUP)
   target_link_options(${PLUGIN_NAME} PRIVATE "LINKER:-undefined,dynamic_lookup")
 endif()
 
-# Bake in only relative bundle names. The shim resolves them from the loaded
+# Bake in only relative bundle names. The loader resolves them from the loaded
 # plugin path at runtime, so the built plugin can be copied out of this repo.
 #
-# GE_SHIM_VERSION stamps the version this shim binary was built with (see
-# shim/version.c). The shim is never replaced by the auto-update flow -- only
-# the core library is -- so this is how a stale shim can be told apart from
+# GE_LOADER_VERSION stamps the version this loader binary was built with (see
+# loader/version.c). The loader is never replaced by the auto-update flow -- only
+# the core library is -- so this is how a stale loader can be told apart from
 # the running core's own (possibly newer) version after an update.
 target_compile_definitions(${PLUGIN_NAME} PRIVATE
     GE_CORE_LIB_NAME="$<TARGET_FILE_NAME:${CORE_NAME}>"
-    GE_SHIM_VERSION="${GE_PLUGIN_VERSION}"
+    GE_LOADER_VERSION="${GE_PLUGIN_VERSION}"
 )
 
 # Build the core library and bundled templates whenever the plugin is built.
@@ -230,7 +230,7 @@ if(APPLE)
   set_target_properties(${PLUGIN_NAME} PROPERTIES
         BUNDLE TRUE
         BUNDLE_EXTENSION "plugin"
-        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/templates/Info.plist.in"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/build_templates/Info.plist.in"
         PREFIX ""
     )
 elseif(UNIX)

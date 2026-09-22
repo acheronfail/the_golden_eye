@@ -1,10 +1,10 @@
 // The "core" plugin: all the heavy logic (Rust staticlib, OpenCV, HTTP server,
-// OBS bridge). Not loaded by OBS directly -- the shim (`shim/plugin.c`) dlopens
-// it and can swap it for a downloaded version at runtime (see `shim/reload.c`).
+// OBS bridge). Not loaded by OBS directly -- the loader (`loader/plugin.c`) dlopens
+// it and can swap it for a downloaded version at runtime (see `loader/reload.c`).
 
-#include "ge_rust.h"
+#include "ge_runtime.h"
 
-#include "../shim/reload.h"
+#include "../loader/reload.h"
 
 #include <ctype.h>
 #include <obs/frontend/obs-frontend-api.h>
@@ -134,21 +134,21 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
   }
 }
 
-// Stashed by ge_core_load so ge_core_trigger_reload can wake the shim's
+// Stashed by ge_core_load so ge_core_trigger_reload can wake the loader's
 // reload worker thread later, once Rust has a verified update staged. NULL
 // until ge_core_load runs.
 static ge_request_reload_fn g_request_reload = NULL;
 
-// Called by the shim after dlopen. Returns false on failure (incl. HTTP port
-// bind) so the shim can log and roll back. The paths are resolved by the shim;
+// Called by the loader after dlopen. Returns false on failure (incl. HTTP port
+// bind) so the loader can log and roll back. The paths are resolved by the loader;
 // `is_reload` flags a post-update load.
 GE_EXPORT bool ge_core_load(obs_module_t *module, const char *canonical_path, const char *staged_dir, bool is_reload,
                             ge_request_reload_fn request_reload) {
   ge_obs_set_module(module);
   g_request_reload = request_reload;
-  ge_rust_set_update_paths(canonical_path, staged_dir);
-  ge_rust_set_was_reloaded(is_reload);
-  if (!ge_rust_start()) {
+  ge_runtime_set_update_paths(canonical_path, staged_dir);
+  ge_runtime_set_was_reloaded(is_reload);
+  if (!ge_runtime_start()) {
     return false;
   }
   ge_connect_source_signals();
@@ -157,7 +157,7 @@ GE_EXPORT bool ge_core_load(obs_module_t *module, const char *canonical_path, co
   return true;
 }
 
-// Called by the shim from OBS's post-load hook. Keep this separate from
+// Called by the loader from OBS's post-load hook. Keep this separate from
 // ge_core_load so OBS's user config is queried at the same lifecycle point as
 // the frontend normally expects.
 GE_EXPORT void ge_core_post_load(void) {
@@ -165,22 +165,22 @@ GE_EXPORT void ge_core_post_load(void) {
   ge_browser_dock_post_load();
 }
 
-// Called by the shim only after the staged core has replaced the canonical
+// Called by the loader only after the staged core has replaced the canonical
 // file. Rust can now discard its runtime-data rollback copies.
-GE_EXPORT void ge_core_commit_update(void) { ge_rust_commit_update(); }
+GE_EXPORT void ge_core_commit_update(void) { ge_runtime_commit_update(); }
 
-// Called by the shim before it dlcloses this library (on OBS shutdown, or
-// before a reload). `ge_rust_stop` blocks until the tokio runtime is fully
+// Called by the loader before it dlcloses this library (on OBS shutdown, or
+// before a reload). `ge_runtime_stop` blocks until the tokio runtime is fully
 // torn down, so no Rust threads survive the dlclose that follows.
 GE_EXPORT void ge_core_unload(void) {
   ge_disconnect_source_signals();
   obs_frontend_remove_event_callback(ge_on_frontend_event, NULL);
-  ge_rust_stop();
+  ge_runtime_stop();
   g_request_reload = NULL;
 }
 
 // Called by Rust (update_apply.rs) once it has downloaded, verified, and
-// staged a newer core. Must only ever wake the shim's reload worker thread --
+// staged a newer core. Must only ever wake the loader's reload worker thread --
 // see reload.h's ge_request_reload_fn contract for why.
 GE_EXPORT void ge_core_trigger_reload(void) {
   if (g_request_reload) {

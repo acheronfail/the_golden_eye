@@ -855,7 +855,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ge_rust"
+name = "ge_runtime"
 version = "0.1.0"
 dependencies = [
  "anyhow",

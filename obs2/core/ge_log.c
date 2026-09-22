@@ -1,6 +1,6 @@
 // Bridges the Rust core's tracing output into OBS's log.
 
-#include "ge_rust.h"
+#include "ge_runtime.h"
 
 #include <obs/libobs/util/base.h>
 

@@ -2,7 +2,7 @@
 
 set(CONTRACTS_WORKSPACE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
 set(CONTRACTS_SETTINGS_DIR "${CONTRACTS_WORKSPACE_DIR}/settings")
-set(CONTRACTS_CORE_DIR "${CONTRACTS_WORKSPACE_DIR}/core")
+set(CONTRACTS_RUNTIME_DIR "${CONTRACTS_WORKSPACE_DIR}/runtime")
 set(SETTINGS_BINDINGS "${CMAKE_CURRENT_SOURCE_DIR}/browser/src/lib/generated/settings.ts")
 set(API_BINDINGS "${CMAKE_CURRENT_SOURCE_DIR}/browser/src/lib/generated/api.ts")
 
@@ -12,7 +12,7 @@ file(GLOB_RECURSE SETTINGS_CONTRACT_SOURCES CONFIGURE_DEPENDS
 file(GLOB_RECURSE API_CONTRACT_SOURCES CONFIGURE_DEPENDS
     "${CONTRACTS_WORKSPACE_DIR}/catalog/src/*"
     "${CONTRACTS_WORKSPACE_DIR}/clip/src/*"
-    "${CONTRACTS_CORE_DIR}/src/*"
+    "${CONTRACTS_RUNTIME_DIR}/src/*"
     "${CONTRACTS_WORKSPACE_DIR}/cv/src/*"
     "${CONTRACTS_WORKSPACE_DIR}/game/src/*"
   )
@@ -55,7 +55,7 @@ else()
   add_custom_command(
       OUTPUT "${API_BINDINGS}"
       COMMAND ${CMAKE_COMMAND} -E env
-              "BROWSER_BUNDLE=${CMAKE_CURRENT_SOURCE_DIR}/templates/browser-dev.html.in"
+              "BROWSER_BUNDLE=${CMAKE_CURRENT_SOURCE_DIR}/build_templates/browser-dev.html.in"
               "GE_PLUGIN_VERSION=${GE_PLUGIN_VERSION}"
               "GE_UPDATER_VERSION=${GE_UPDATER_VERSION}"
               ${RUST_BUILD_ENV}
@@ -63,7 +63,7 @@ else()
               --quiet
               --locked
               --manifest-path "${CONTRACTS_WORKSPACE_DIR}/Cargo.toml"
-              --package ge_rust
+              --package ge_runtime
               --bin export-api
               -- "${API_BINDINGS}"
       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -71,7 +71,7 @@ else()
               ${API_CONTRACT_SOURCES}
               "${CONTRACTS_WORKSPACE_DIR}/Cargo.toml"
               "${CONTRACTS_WORKSPACE_DIR}/Cargo.lock"
-              "${CONTRACTS_CORE_DIR}/Cargo.toml"
+              "${CONTRACTS_RUNTIME_DIR}/Cargo.toml"
       COMMENT "Generating API contract"
       VERBATIM
     )

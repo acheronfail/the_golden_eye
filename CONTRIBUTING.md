@@ -2,7 +2,7 @@
 
 ## Project overview
 
-- `obs2/shim/` is the OBS-loaded shim that finds and loads the bundled core library, also performs
+- `obs2/loader/` is the OBS-loaded loader that finds and loads the bundled core library, also performs
   auto-update.
 - `obs2/core/` connects OBS (frontend events, source frames, and replay-buffer callbacks) to Rust.
 - `obs2/rust/` the main plugin - recording, frame matching, the webserver, etc.
@@ -62,7 +62,7 @@ just fmt
 
 ## Logging
 
-The Rust core logs through OBS's own logging facility, so its lines land in the OBS log alongside
+The Rust runtime logs through OBS's own logging facility, so its lines land in the OBS log alongside
 OBS's own output, each prefixed with `[the_golden_eye]`.
 
 To read them:
@@ -78,11 +78,11 @@ To read them:
 
 Verbosity is controlled by the `RUST_LOG` environment variable (a
 [`tracing` filter](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html);
-the crate name is `ge_rust`). Release builds default to `info`, so `debug`-level lines are hidden.
+the crate name is `ge_runtime`). Release builds default to `info`, so `debug`-level lines are hidden.
 To show them, launch OBS with `RUST_LOG` set:
 
 ```shell
-RUST_LOG=ge_rust=debug just obs
+RUST_LOG=ge_runtime=debug just obs
 ```
 
 To enable debug logging on an _installed_ build (launched normally, not through `just`), see

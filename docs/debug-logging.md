@@ -24,7 +24,7 @@ If you'd rather open the file yourself, the current session's log is the newest 
 ## Turning on debug logs
 
 Debug logging is controlled by an environment variable named `RUST_LOG`. OBS has to be started with
-that variable set to `ge_rust=debug`, so the steps below start OBS from a terminal instead of the
+that variable set to `ge_runtime=debug`, so the steps below start OBS from a terminal instead of the
 usual way. Quit OBS first if it's already running.
 
 The extra detail lasts only for that session — start OBS normally again and it goes back to the
@@ -35,7 +35,7 @@ default level.
 Open **Terminal** and run:
 
 ```sh
-RUST_LOG=ge_rust=debug "/Applications/OBS.app/Contents/MacOS/OBS"
+RUST_LOG=ge_runtime=debug "/Applications/OBS.app/Contents/MacOS/OBS"
 ```
 
 OBS stays attached to the Terminal window; closing the window (or pressing `Ctrl+C`) quits OBS.
@@ -45,7 +45,7 @@ OBS stays attached to the Terminal window; closing the window (or pressing `Ctrl
 Open **PowerShell** and run:
 
 ```powershell
-$env:RUST_LOG = "ge_rust=debug"
+$env:RUST_LOG = "ge_runtime=debug"
 & "C:\Program Files\obs-studio\bin\64bit\obs64.exe"
 ```
 
@@ -56,7 +56,7 @@ $env:RUST_LOG = "ge_rust=debug"
 For the Flatpak install, run:
 
 ```sh
-flatpak run --env=RUST_LOG=ge_rust=debug com.obsproject.Studio
+flatpak run --env=RUST_LOG=ge_runtime=debug com.obsproject.Studio
 ```
 
 We don't currently support non-flatpak installations of OBS, so you're on your own here if you are
@@ -64,8 +64,8 @@ running a different installation.
 
 ## Want even more detail?
 
-`ge_rust=debug` covers almost everything. For the most verbose output, swap `debug` for `trace`:
+`ge_runtime=debug` covers almost everything. For the most verbose output, swap `debug` for `trace`:
 
 ```
-RUST_LOG=ge_rust=trace
+RUST_LOG=ge_runtime=trace
 ```

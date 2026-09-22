@@ -110,8 +110,8 @@ jobs:
       - name: Build Release
         run: just make-release
 
-      - name: Run shim reload tests
-        run: just test-shim
+      - name: Run loader reload tests
+        run: just test-loader
 
       - name: Run frame regression tests
         run: just test-cv
@@ -214,8 +214,8 @@ jobs:
       - name: Set up repository
         run: just setup
 
-      - name: Run shim reload tests
-        run: just test-shim
+      - name: Run loader reload tests
+        run: just test-loader
 
       - name: Run frame regression tests
         run: just test-cv
@@ -399,9 +399,9 @@ jobs:
           echo BINDGEN_EXTRA_CLANG_ARGS=!CLANGARGS!>> "%GITHUB_ENV%"
           endlocal
 
-      - name: Run shim reload tests
+      - name: Run loader reload tests
         shell: bash
-        run: just test-shim
+        run: just test-loader
 
       - name: Run frame regression tests
         shell: bash

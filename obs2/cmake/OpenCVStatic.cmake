@@ -1,7 +1,7 @@
 # Static OpenCV wiring.
 #
 # OpenCV is referenced by the Rust staticlib (the `opencv-rust` crate compiles
-# a C++ shim into libge_rust.a). When cargo builds the test_match binary it
+# a C++ shim into libge_runtime.a). When cargo builds the test_match binary it
 # follows the crate's cargo:rustc-link-lib directives, but those don't carry
 # over when CMake links the static archive into the plugin — we have to add
 # OpenCV (and the C++ stdlib) to the plugin's link line ourselves.
