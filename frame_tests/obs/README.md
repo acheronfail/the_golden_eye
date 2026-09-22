@@ -62,7 +62,7 @@ It also checks the `updateApplied` notification. Use the dedicated upgrade suite
 ### Version A to B
 
 Run `just test-obs-upgrade` for a real version transition. On Linux, add `--software-renderer` to use Mesa software rendering.
-The command builds the same current source as `998.0.0` and `998.0.1` through `just make-package`.
+The command builds the same current source as `998.0.0` and `998.0.1` through `just make-package-dist`, using the release distribution profile and export restrictions.
 Both builds use the normal release profile and the browser-to-Rust-to-C build chain.
 The runner saves each package before the next build starts. It never installs either package into your personal OBS configuration.
 
