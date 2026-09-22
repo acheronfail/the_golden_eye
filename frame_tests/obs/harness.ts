@@ -5,6 +5,13 @@ import path from "node:path";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 
+export interface HarnessOptions {
+  pluginSource?: string;
+  releasePackage?: string;
+  releaseVersion?: string;
+  resume?: boolean;
+}
+
 export class ObsHarness {
   snapshot: any;
   events: any[] = [];
@@ -44,12 +51,16 @@ export class ObsHarness {
   private instanceId = "";
   private exit?: Promise<void>;
   private lastObservation: unknown = null;
+  private logStart = 0;
 
   readonly root: string;
   readonly artifacts: string;
   readonly software: boolean;
 
-  constructor(root: string, artifacts: string, software: boolean) {
+  readonly options: HarnessOptions;
+
+  constructor(root: string, artifacts: string, software: boolean, options: HarnessOptions = {}) {
+    this.options = options;
     this.root = root;
     this.artifacts = artifacts;
     this.software = software;
@@ -367,19 +378,26 @@ export class ObsHarness {
     const name = mac ? "the_golden_eye.plugin" : "the_golden_eye";
     const build = path.join(this.root, mac ? "obs2/build" : "obs2/build-flatpak");
     this.pluginDirectory = path.join(this.artifacts, "plugins", name);
-    await fs.cp(path.join(build, name), this.pluginDirectory, {
-      recursive: true,
-      dereference: true,
-    });
-    await fs.rm(this.stagedDirectory, { recursive: true, force: true });
-    if (!mac) {
-      await fs.rm(this.dataDirectory, { recursive: true, force: true });
-      await fs.cp(path.join(build, "obs-run-data/the_golden_eye"), this.dataDirectory, {
-        recursive: true,
-        dereference: true,
-      });
+    if (!this.options.resume) {
+      const source = this.options.pluginSource ?? path.join(build, name);
+      await fs.cp(source, this.pluginDirectory, { recursive: true, dereference: true });
+      await fs.rm(this.stagedDirectory, { recursive: true, force: true });
+      if (!mac) {
+        await fs.rm(this.dataDirectory, { recursive: true, force: true });
+        await fs.cp(
+          this.options.pluginSource
+            ? path.join(source, "data")
+            : path.join(build, "obs-run-data/the_golden_eye"),
+          this.dataDirectory,
+          { recursive: true, dereference: true },
+        );
+      }
     }
-    const log = await fs.open(path.join(this.artifacts, "release-server.log"), "w");
+    await fs.rm(path.join(this.artifacts, "release/ready.json"), { force: true });
+    const log = await fs.open(
+      path.join(this.artifacts, "release-server.log"),
+      this.options.resume ? "a" : "w",
+    );
     try {
       this.releaseServer = spawn(
         "python3",
@@ -389,6 +407,9 @@ export class ObsHarness {
           path.join(this.artifacts, "release"),
           this.pluginDirectory,
           this.dataDirectory,
+          ...(this.options.releasePackage
+            ? ["--package", this.options.releasePackage, "--version", this.options.releaseVersion!]
+            : []),
         ],
         { stdio: ["ignore", log.fd, log.fd], detached: true },
       );
@@ -433,25 +454,26 @@ export class ObsHarness {
       await fs.access("/Applications/OBS.app/Contents/MacOS/OBS");
     }
     execFileSync("ffprobe", ["-version"], { stdio: "ignore", timeout: 10000 });
-    for (const file of process.platform === "darwin"
-      ? [
-          "the_golden_eye.plugin/Contents/MacOS/the_golden_eye",
-          "the_golden_eye.plugin/Contents/MacOS/libgolden_core.dylib",
-          "the_golden_eye.plugin/Contents/Resources/cv_templates/en-colon.png",
-        ]
-      : [
-          "the_golden_eye/bin/64bit/the_golden_eye.so",
-          "the_golden_eye/bin/64bit/libgolden_core.so",
-          "obs-run-data/the_golden_eye/cv_templates/en-colon.png",
-        ]) {
-      await fs.access(
-        path.join(
-          this.root,
-          process.platform === "darwin" ? "obs2/build" : "obs2/build-flatpak",
-          file,
-        ),
-      );
-    }
+    if (!this.options.pluginSource && !this.options.resume)
+      for (const file of process.platform === "darwin"
+        ? [
+            "the_golden_eye.plugin/Contents/MacOS/the_golden_eye",
+            "the_golden_eye.plugin/Contents/MacOS/libgolden_core.dylib",
+            "the_golden_eye.plugin/Contents/Resources/cv_templates/en-colon.png",
+          ]
+        : [
+            "the_golden_eye/bin/64bit/the_golden_eye.so",
+            "the_golden_eye/bin/64bit/libgolden_core.so",
+            "obs-run-data/the_golden_eye/cv_templates/en-colon.png",
+          ]) {
+        await fs.access(
+          path.join(
+            this.root,
+            process.platform === "darwin" ? "obs2/build" : "obs2/build-flatpak",
+            file,
+          ),
+        );
+      }
     // Let the OS select a port. The settings-path assertion rejects another server if a bind race occurs.
     const reservation = createServer();
     await new Promise<void>((resolve, reject) => {
@@ -461,10 +483,19 @@ export class ObsHarness {
     const port = (reservation.address() as { port: number }).port;
     await new Promise<void>((resolve) => reservation.close(() => resolve()));
     this.base = `http://127.0.0.1:${port}`;
-    await this.configure();
+    if (!this.options.resume) await this.configure();
+    await fs.rm(path.join(this.artifacts, "command.json"), { force: true });
+    await fs.rm(path.join(this.artifacts, "response.json"), { force: true });
     await this.preparePlugin();
-    this.eventLog = await fs.open(path.join(this.artifacts, "events.jsonl"), "w");
-    const log = await fs.open(path.join(this.artifacts, "obs.log"), "w");
+    this.eventLog = await fs.open(
+      path.join(this.artifacts, "events.jsonl"),
+      this.options.resume ? "a" : "w",
+    );
+    const log = await fs.open(
+      path.join(this.artifacts, "obs.log"),
+      this.options.resume ? "a" : "w",
+    );
+    this.logStart = this.options.resume ? (await log.stat()).size : 0;
     const config = this.configDirectory;
     this.child =
       process.platform === "darwin"
@@ -513,6 +544,7 @@ export class ObsHarness {
               `--env=GE_OBS_TEST_DIR=${this.artifacts}`,
               `--env=GE_SERVER_PORT=${port}`,
               "--env=GE_DISABLE_BROWSER_DOCK=1",
+              "--unset-env=GE_CORE_LIB",
               `--env=GE_UPDATE_CHECK_URL=${this.updateUrl}`,
               `--env=OBS_PLUGINS_PATH=${path.dirname(this.pluginDirectory)}/%module%/bin/64bit`,
               `--env=OBS_PLUGINS_DATA_PATH=${path.dirname(this.dataDirectory)}`,
@@ -680,7 +712,10 @@ export class ObsHarness {
         await Promise.race([this.exit, delay(15000, undefined, { ref: false })]);
         assert.equal(this.child.exitCode, 0, "OBS must exit cleanly");
         const log = await fs.readFile(path.join(this.artifacts, "obs.log"), "utf8");
-        assert(log.includes("Freeing OBS context data"), "OBS completed native shutdown");
+        assert(
+          log.slice(this.logStart).includes("Freeing OBS context data"),
+          "OBS completed native shutdown",
+        );
       } catch (error) {
         shutdownError = error;
         if (this.instanceId.trim()) {

@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { updateScenarios, rollbackScenario } from "./updates.ts";
+import { playRun } from "./media.ts";
 import { ObsHarness } from "./harness.ts";
 import { runSuite, type Scenario } from "./suite.ts";
 
@@ -79,26 +80,7 @@ for (const scenario of [
 ]) {
   scenarios.push(
     defineScenario(`${scenario.name} media playback and real replay save`, async (h) => {
-      await h.fixture(scenario.name, `clips/${scenario.file}`, "ffmpeg_source");
-      const eventStart = h.events.length;
-      await h.startMonitor(scenario.name);
-      await h.command({ action: "restart", name: scenario.name });
-      await h.expectSavedRun(
-        scenario.name,
-        { level: scenario.level, timeSeconds: scenario.time, status: scenario.status },
-        eventStart,
-      );
-      await h.waitFor(
-        "media playback ended",
-        async () => (await h.command({ action: "status", name: scenario.name })).ended,
-      );
-      await h.stopMonitor();
-      await h.removeSource(scenario.name);
-      const runs = await h.api("/api/v1/runs");
-      assert.equal(
-        runs.clips.filter((clip: any) => clip.metadata.sourceName === scenario.name).length,
-        1,
-      );
+      await playRun(h, scenario.name, scenario.file, scenario.time, scenario.status);
     }),
   );
 }

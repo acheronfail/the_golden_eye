@@ -45,7 +45,7 @@ async fn reload_sends_update_applied_notice_to_new_connections() {
     std::fs::write(
         &config_path,
         serde_json::to_vec(&json!({
-            "lastKnownUpdateVersion": env!("GE_PLUGIN_VERSION"),
+            "lastKnownUpdateVersion": format!("v{}", env!("GE_PLUGIN_VERSION")),
             "lastKnownUpdateReleaseUrl": RELEASE_URL
         }))
         .unwrap(),

@@ -162,6 +162,10 @@ test-obs *args: test-obs-harness make-release-flatpak
 test-obs *args: test-obs-harness make-release
     node --experimental-strip-types frame_tests/obs/run.ts {{ args }}
 
+# builds two versions of the same source and tests a persistent OBS upgrade
+test-obs-upgrade *args: test-obs-harness
+    python3 -B frame_tests/obs/upgrade_build.py {{ args }}
+
 # checks failure reporting and suite control without launching OBS
 test-obs-harness:
     node --experimental-strip-types --test frame_tests/obs/suite.test.ts

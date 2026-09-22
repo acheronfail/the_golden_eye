@@ -57,7 +57,34 @@ The release server closes with the OBS session, including after failures or inte
 
 The successful package contains the current production core, advertised as version `999.0.0`, plus a module-data marker.
 This tests download, verification, staging, native reload, data replacement, and continued operation.
-It also checks the `updateApplied` notification. It does not test a compiled version change, which needs two builds with different versions.
+It also checks the `updateApplied` notification. Use the dedicated upgrade suite below to test a compiled version change.
+
+### Version A to B
+
+Run `just test-obs-upgrade` for a real version transition. On Linux, add `--software-renderer` to use Mesa software rendering.
+The command builds the same current source as `998.0.0` and `998.0.1` through `just make-package`.
+Both builds use the normal release profile and the browser-to-Rust-to-C build chain.
+The runner saves each package before the next build starts. It never installs either package into your personal OBS configuration.
+
+The test starts OBS with A and requires A's reported version. It saves a run, enables automatic updates, and serves B through the local release server.
+After reload, it requires B's version notice, release link, and installed core checksum. The resident loader must stay unchanged.
+Settings and existing runs must survive, and a new replay save must succeed.
+The test then closes OBS and restarts it with the same installation and configuration.
+It requires B's checksum and browser build ID, an up-to-date response, the saved settings and runs, and working frame detection.
+
+Builds and their checksums, source fingerprint, and timings remain under `obs2/build/obs-upgrade-builds-*`.
+A source change during the two builds fails preparation. Test logs and reports remain under `obs2/build/real-obs-upgrade-*`.
+Reuse a saved pair without recompilation:
+
+```sh
+just test-obs-upgrade --reuse-build obs2/build/obs-upgrade-builds-EXAMPLE
+```
+
+Reuse requires matching source files, platform, architecture, and package checksums. It extracts fresh test inputs from the saved packages.
+Rebuild after compiler or dependency changes. `--build-only` prepares a pair without launching OBS.
+Normal build caches reuse unchanged dependencies. This dedicated suite remains separate from `just test` and `just test-obs`.
+No CI workflow runs it yet. The version transition covers current code with two versions, not compatibility with older implementations or schemas.
+
 ### Known rollback regression
 
 Run `just test-obs --rollback-regression` to include the failing rollback case. It is excluded from the default suite until the production fix lands.
@@ -68,7 +95,7 @@ The runner still closes OBS and continues the remaining cases in a fresh session
 
 A separate production change must restore frontend readiness without sending a false update notice.
 The fixture fails before Rust starts, so this case does not exercise rollback after a provisional data replacement.
-The updated cases require separate validation on macOS. The existing capture cases previously passed there.
+The capture and same-build update cases passed on macOS. The new A-to-B suite still needs validation there.
 
 ## Isolation and timing
 
