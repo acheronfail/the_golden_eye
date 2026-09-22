@@ -168,17 +168,31 @@ The suite is separate from `just test` because it requires an OBS installation a
 A Linux runner with a display and compatible graphics stack can run the same command. A dedicated
 runner with the OBS Flatpak and SDK preinstalled is the closest match to the local setup.
 
-For a hosted Linux runner, the proposed setup is Xvfb, Mesa software rendering, and a D-Bus session:
+The Linux GitHub Actions job uses Xvfb, Mesa software rendering, and a D-Bus session:
 
 ```sh
-dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24' \
+xvfb-run -a -s '-screen 0 1920x1080x24' dbus-run-session -- \
   just test-obs --software-renderer --repeat 3
 ```
 
-Install `xvfb`, Mesa, D-Bus, Flatpak, FFmpeg, and the usual project dependencies first. The runner
-must allow Flatpak's user namespaces and sandbox setup. Provision the OBS Flatpak and matching SDK
-before the test job. Pin their versions and update them deliberately. Preserve `obs2/build/real-obs-*` as CI artifacts even on failure.
+CI separates harness checks and build preparation from execution so test steps show scenario
+results without compiler output. It builds upgrade fixtures with `just test-obs-upgrade --build-only`
+and runs `upgrade.ts` under the same display wrapper after uploading the normal plugin package,
+so synthetic upgrade versions cannot replace that artifact.
+The real OBS suites run only in the Linux job; macOS and Windows keep their existing test suites.
 
-The hosted-runner command is a proposal until verified on that runner. Software OpenGL covers
+Install `xvfb`, `xauth`, Mesa, D-Bus, Flatpak, FFmpeg, and the usual project dependencies first. The runner
+must allow Flatpak's user namespaces and sandbox setup. Provision the OBS Flatpak and matching SDK
+before the test job. CI creates a private, user-owned `XDG_RUNTIME_DIR` and starts Xvfb before
+D-Bus so activated services inherit the display.
+Desktop-service stderr appears in a collapsed Actions group and a retained log; test stderr
+remains visible alongside scenario results, and the wrapper preserves the test exit status.
+
+CI uploads reports, logs, event traces, captured frames, clips, isolated configuration, and the
+upgrade build manifest even on failure, with seven-day retention. It excludes disposable plugin
+copies, template copies, caches, and update archives. Build preparation has a 30-minute limit;
+the repeated suite and upgrade execution have 15-minute and 5-minute limits respectively.
+
+Software OpenGL covers
 OBS's real rendering and capture code but cannot replace testing on physical GPU drivers. Tests
 assert detection results and dimensions rather than exact pixel equality across drivers.

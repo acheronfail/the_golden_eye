@@ -181,8 +181,8 @@ async fn concurrent_user_save_during_a_plugin_save_is_not_deleted() {
     let completed = harness.temp.join("completed");
     harness.start_monitor().await.error_for_status().unwrap();
 
-    // Make the plugin save slow enough to still be in flight when the user saves.
-    harness.obs.set_replay_save_delay(Duration::from_millis(750));
+    // Hold the plugin's saved event until the user save has been handled.
+    harness.obs.defer_replay_saves();
 
     run_to_stats(
         &harness,
@@ -192,14 +192,12 @@ async fn concurrent_user_save_during_a_plugin_save_is_not_deleted() {
     )
     .await;
 
-    // Wait until the plugin has issued its (slow) save, then interleave a user
-    // save while it is still waiting for OBS's event.
+    // Wait for the plugin's file to exist with its saved event still pending.
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while harness.obs.calls().replay_save == 0 {
+    while harness.obs.deferred_replay_save_count() == 0 {
         assert!(std::time::Instant::now() < deadline, "plugin never issued its save");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    tokio::time::sleep(Duration::from_millis(200)).await;
     let user_file = harness.obs.user_replay_save();
 
     wait_for_clip(&completed).await;
@@ -208,6 +206,8 @@ async fn concurrent_user_save_during_a_plugin_save_is_not_deleted() {
     assert_eq!(clip_count(&completed), 1, "the run should still produce a clip");
     // Ambiguous window: both replay files (the plugin's and the user's) are kept.
     assert_eq!(clip_count(&harness.replay_dir), 2, "neither replay source should be deleted when ambiguous");
+
+    harness.obs.finish_deferred_replay_saves();
 
     harness.stop_monitor().await.error_for_status().unwrap();
 }

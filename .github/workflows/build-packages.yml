@@ -78,15 +78,20 @@ jobs:
             build-essential \
             clang-format \
             cmake \
+            dbus-x11 \
+            ffmpeg \
             flatpak \
             just \
             libdbus-1-dev \
             libobs-dev \
+            libgl1-mesa-dri \
             libssl-dev \
             libwayland-dev \
             nasm \
             pkg-config \
-            wget
+            wget \
+            xauth \
+            xvfb
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y flathub com.obsproject.Studio
           sudo flatpak install -y flathub "$(flatpak info --show-sdk com.obsproject.Studio)"
@@ -144,6 +149,49 @@ jobs:
 
       - name: Run Integration tests
         run: just test-integration
+
+      - name: Prepare real OBS tests
+        timeout-minutes: 5
+        run: |
+          obs_runtime_dir="$(mktemp -d "${RUNNER_TEMP}/obs-runtime.XXXXXX")"
+          echo "XDG_RUNTIME_DIR=${obs_runtime_dir}" >> "$GITHUB_ENV"
+          export XDG_RUNTIME_DIR="$obs_runtime_dir"
+          just test-obs-harness
+          just _flatpak-build stage-obs-run-data
+
+      - name: Run real OBS tests
+        timeout-minutes: 15
+        run: |
+          bash .github/scripts/run-obs-headless.sh obs2/build/real-obs-desktop/suite.log \
+            node --experimental-strip-types frame_tests/obs/run.ts --software-renderer --repeat 3
+
+      - name: Build real OBS upgrade fixtures
+        timeout-minutes: 30
+        run: just test-obs-upgrade --build-only
+
+      - name: Run real OBS upgrade tests
+        timeout-minutes: 5
+        run: |
+          builds=(obs2/build/obs-upgrade-builds-*)
+          test "${#builds[@]}" -eq 1
+          bash .github/scripts/run-obs-headless.sh obs2/build/real-obs-desktop/upgrade.log \
+            node --experimental-strip-types frame_tests/obs/upgrade.ts "${builds[0]}" --software-renderer
+
+      - name: Upload real OBS test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: real-obs-test-results-linux-${{ runner.arch }}
+          path: |
+            obs2/build/real-obs-*/
+            obs2/build/obs-upgrade-*/builds.json
+            !obs2/build/real-obs-*/**/plugins/**
+            !obs2/build/real-obs-*/**/plugins-data/**
+            !obs2/build/real-obs-*/**/cache/**
+            !obs2/build/real-obs-*/**/*.zip
+            !obs2/build/real-obs-*/**/*.so
+          if-no-files-found: ignore
+          retention-days: 7
 
   macos:
     name: macOS ${{ matrix.arch }}
