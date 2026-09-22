@@ -144,8 +144,11 @@ int main(int argc, char **argv) {
   CHECK(stage_core(fixture_bad, staged_dir, staged_lib, sizeof(staged_lib)), "failed to stage failing fixture");
 
   remove(log_path);
-  ok = ge_core_reload(&handle, canonical, staged_dir, NULL, dummy_request_reload, err, sizeof(err));
+  char rollback_err[64];
+  ok = ge_core_reload(&handle, canonical, staged_dir, NULL, dummy_request_reload, rollback_err, sizeof(rollback_err));
   CHECK(!ok, "reload to fixture_bad should report failure");
+  CHECK(strstr(rollback_err, "rolled back to the running version") != NULL,
+        "rollback outcome must survive truncated path details: %s", rollback_err);
   CHECK(handle != NULL, "failed reload should roll back to a running core");
   CHECK(test_files_equal(canonical, fixture_v1), "failed reload must not replace the canonical core");
   CHECK(!ge_platform_dir_exists(staged_dir), "failed reload should discard its staged update");

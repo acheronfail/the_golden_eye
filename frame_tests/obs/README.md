@@ -97,7 +97,7 @@ No successful-update notice may appear during recovery. The next case applies a 
 The fixture fails before Rust starts. Smaller loader and runtime tests cover replacement failure, provisional startup, and commit-gated notices.
 The u2 loader contract fixes this regression and requires a full manual installation for existing u1 users.
 See [the migration guide](../../docs/dev/auto-update.md) for details.
-The updated recovery cases still need validation on macOS.
+The recovery cases have been verified on macOS 15.6 (Apple Silicon) with OBS 32.2.2.
 
 ## Isolation and timing
 

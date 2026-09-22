@@ -288,7 +288,7 @@ bool ge_core_reload(ge_core_handle **handle, const char *canonical_path, const c
     set_err(err, err_size, "staged core failed to load (%s); rollback also failed (%s)", open_err, rollback_err);
     return false;
   }
-  set_err(err, err_size, "staged core failed to load (%s); rolled back to the running version", open_err);
+  set_err(err, err_size, "rolled back to the running version; staged core failed to load (%s)", open_err);
   return false;
 }
 
