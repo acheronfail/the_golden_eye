@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-output="$root/test/clips/replay-buffer-60s.mp4"
+output="$root/frame_tests/clips/replay-buffer-60s.mp4"
 
 # The large seven-segment decimal counter is for humans. The six boxes along the bottom are
 # a machine-readable little-endian binary counter (white = 1, black = 0).  It

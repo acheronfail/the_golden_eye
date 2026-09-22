@@ -26,7 +26,7 @@ async fn monitor_snapshot_tracks_start_match_and_stop() {
     assert!(started["state"]["monitor"]["wallClocks"]["sessionStartedAtUnixMs"].is_number());
     assert!(started["state"]["match"].is_null());
 
-    let frame = harness.frame("test/screenshots-av2hdmi/en - start - 03 - Agent.png");
+    let frame = harness.frame("frame_tests/screenshots-av2hdmi/en - start - 03 - Agent.png");
     let matched = render_until_snapshot(&harness, &mut ws, &frame, "start-screen match", |snapshot| {
         snapshot["state"]["match"]["screen"] == "Start"
     })
@@ -40,35 +40,38 @@ async fn monitor_snapshot_tracks_start_match_and_stop() {
     assert_eq!(matched["state"]["monitor"]["wallClocks"]["levelTimerPhase"], "awaitingInitialBlack");
     assert_eq!(matched["state"]["monitor"]["wallClocks"]["introSwirlDelayMs"], 4_383);
 
-    let initial_black = harness.frame("test/screenshots-rt4kce/jp - unknown - fade-1-load-first-cutscene - black.png");
+    let initial_black =
+        harness.frame("frame_tests/screenshots-rt4kce/jp - unknown - fade-1-load-first-cutscene - black.png");
     render_until_snapshot(&harness, &mut ws, &initial_black, "initial loading black", |snapshot| {
         snapshot["state"]["monitor"]["wallClocks"]["levelTimerPhase"] == "awaitingFirstCutscene"
     })
     .await;
     let first_cutscene =
-        harness.frame("test/screenshots-rt4kce/jp - unknown - fade-2-first-to-second - before-black.png");
+        harness.frame("frame_tests/screenshots-rt4kce/jp - unknown - fade-2-first-to-second - before-black.png");
     render_until_snapshot(&harness, &mut ws, &first_cutscene, "first cutscene visible", |snapshot| {
         snapshot["state"]["monitor"]["wallClocks"]["levelTimerPhase"] == "awaitingFirstCutsceneFade"
     })
     .await;
-    let first_fade = harness.frame("test/screenshots-rt4kce/jp - unknown - fade-2-first-to-second - black.png");
+    let first_fade = harness.frame("frame_tests/screenshots-rt4kce/jp - unknown - fade-2-first-to-second - black.png");
     render_until_snapshot(&harness, &mut ws, &first_fade, "first cutscene fade", |snapshot| {
         snapshot["state"]["monitor"]["wallClocks"]["levelTimerPhase"] == "awaitingSecondFadeOrSwirl"
     })
     .await;
     let second_cutscene =
-        harness.frame("test/screenshots-rt4kce/jp - unknown - fade-3-second-to-gameplay - before-black.png");
+        harness.frame("frame_tests/screenshots-rt4kce/jp - unknown - fade-3-second-to-gameplay - before-black.png");
     render_until_snapshot(&harness, &mut ws, &second_cutscene, "second cutscene visible", |snapshot| {
         snapshot["state"]["monitor"]["wallClocks"]["levelTimerPhase"] == "awaitingSecondFadeOrSwirl"
             && snapshot["state"]["monitor"]["wallClocks"]["fadeDetection"]["detected"] == false
     })
     .await;
-    let second_fade = harness.frame("test/screenshots-rt4kce/jp - unknown - fade-3-second-to-gameplay - black.png");
+    let second_fade =
+        harness.frame("frame_tests/screenshots-rt4kce/jp - unknown - fade-3-second-to-gameplay - black.png");
     render_until_snapshot(&harness, &mut ws, &second_fade, "skipped swirl fade", |snapshot| {
         snapshot["state"]["monitor"]["wallClocks"]["levelTimerPhase"] == "awaitingGameplayAfterSkip"
     })
     .await;
-    let gameplay = harness.frame("test/screenshots-rt4kce/jp - unknown - fade-3-second-to-gameplay - after-black.png");
+    let gameplay =
+        harness.frame("frame_tests/screenshots-rt4kce/jp - unknown - fade-3-second-to-gameplay - after-black.png");
     let running = render_until_snapshot(&harness, &mut ws, &gameplay, "level timer running", |snapshot| {
         snapshot["state"]["monitor"]["wallClocks"]["levelRunning"] == true
     })

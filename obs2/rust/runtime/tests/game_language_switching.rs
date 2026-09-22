@@ -18,11 +18,11 @@ async fn monitor_detects_game_language_and_switches_matchers_back_and_forth() {
     harness.start_monitor().await.error_for_status().unwrap();
     let (mut ws, _) = connect_async(event_ws_url()).await.unwrap();
 
-    let en_start = harness.frame("test/screenshots-emu/en - start - 01 - Agent.png");
+    let en_start = harness.frame("frame_tests/screenshots-emu/en - start - 01 - Agent.png");
     render_until_match(&harness, &mut ws, &en_start, "initial en start", |m| is_match(m, "Start", 1, 1, 0, Some("en")))
         .await;
 
-    let jp_start = harness.frame("test/screenshots-emu/jp - start - 01 - Agent.png");
+    let jp_start = harness.frame("frame_tests/screenshots-emu/jp - start - 01 - Agent.png");
     let jp_switch = render_until_match(&harness, &mut ws, &jp_start, "jp language switch", |m| {
         is_match(m, "Unknown", -1, -1, -1, Some("jp"))
     })
@@ -35,7 +35,7 @@ async fn monitor_detects_game_language_and_switches_matchers_back_and_forth() {
     .await;
     assert_eq!(jp_match["screen"], "Start");
 
-    let en_switch_start = harness.frame("test/screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png");
+    let en_switch_start = harness.frame("frame_tests/screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png");
     let en_switch = render_until_match(&harness, &mut ws, &en_switch_start, "en language switch", |m| {
         is_match(m, "Unknown", -1, -1, -1, Some("en"))
     })

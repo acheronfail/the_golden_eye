@@ -195,11 +195,11 @@ test-loader:
 
 # runs opencv frame tests
 test-cv *filter: make-release
-    cd test && npm run test -- {{ filter }}
+    cd frame_tests && npm run test -- {{ filter }}
 
 # runs one benchmark per unique cv frame scenario
 bench-cv *filter: make-release
-    cd test && npm run bench -- {{ filter }}
+    cd frame_tests && npm run bench -- {{ filter }}
 
 # runs opencv frame tests
 test:
@@ -529,19 +529,19 @@ windows-vcpkg-deps:
 [windows]
 setup: obs-headers windows-vcpkg-deps
     cd obs2/browser && npm install
-    cd test && npm install
+    cd frame_tests && npm install
 
 # setup the repository for local development
 [unix]
 setup: obs-headers opencv-static ffmpeg-static ide-settings
     cd obs2/browser && npm install
-    cd test && npm install
+    cd frame_tests && npm install
 
 # clean build files and outputs
 clean:
     rm -rf "node_modules"
     rm -rf "obs2/browser/node_modules"
-    rm -rf "test/node_modules"
+    rm -rf "frame_tests/node_modules"
     rm -rf "obs2/ge_runtime.h"
     rm -rf "obs2/build"
     cd "obs2/rust" && cargo clean

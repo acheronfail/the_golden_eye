@@ -11,7 +11,7 @@ set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
 #
 # Explicit library and matcher targets, deliberately NOT `--all-targets`: a
 # normal build (`just obs`, `just make`, `just dev`) only needs the staticlib plus
-# the `test_match`/`annotate_match` bins (the `test/` frame-regression and
+# the `test_match`/`annotate_match` bins (the `frame_tests/` frame-regression and
 # benchmark harness shell out to `target/<profile>/test_match`). It must NOT
 # also compile the integration-test crates and bench harnesses -- those are
 # heavy (each links the whole binary) and are compiled on demand by

@@ -84,9 +84,9 @@ async fn user_save_does_not_disrupt_a_following_run() {
 
     run_to_stats(
         &harness,
-        "test/screenshots-av2hdmi/en - start - 03 - Agent.png",
-        "test/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
-        "test/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png",
+        "frame_tests/screenshots-av2hdmi/en - start - 03 - Agent.png",
+        "frame_tests/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
+        "frame_tests/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png",
     )
     .await;
 
@@ -118,16 +118,16 @@ async fn overlapping_plugin_saves_each_get_their_own_clip() {
 
     run_to_stats(
         &harness,
-        "test/screenshots-av2hdmi/en - start - 03 - Agent.png",
-        "test/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
-        "test/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png",
+        "frame_tests/screenshots-av2hdmi/en - start - 03 - Agent.png",
+        "frame_tests/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
+        "frame_tests/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png",
     )
     .await;
     run_to_stats(
         &harness,
-        "test/screenshots-av2hdmi/en - start - 03 - Secret Agent.png",
-        "test/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
-        "test/screenshots-av2hdmi/en - stats - 3 - Secret Agent - 0323_1357.png",
+        "frame_tests/screenshots-av2hdmi/en - start - 03 - Secret Agent.png",
+        "frame_tests/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
+        "frame_tests/screenshots-av2hdmi/en - stats - 3 - Secret Agent - 0323_1357.png",
     )
     .await;
 
@@ -154,9 +154,9 @@ async fn normal_run_deletes_its_own_replay_source() {
 
     run_to_stats(
         &harness,
-        "test/screenshots-av2hdmi/en - start - 03 - Agent.png",
-        "test/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
-        "test/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png",
+        "frame_tests/screenshots-av2hdmi/en - start - 03 - Agent.png",
+        "frame_tests/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
+        "frame_tests/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png",
     )
     .await;
 
@@ -186,9 +186,9 @@ async fn concurrent_user_save_during_a_plugin_save_is_not_deleted() {
 
     run_to_stats(
         &harness,
-        "test/screenshots-av2hdmi/en - start - 03 - Agent.png",
-        "test/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
-        "test/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png",
+        "frame_tests/screenshots-av2hdmi/en - start - 03 - Agent.png",
+        "frame_tests/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
+        "frame_tests/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png",
     )
     .await;
 

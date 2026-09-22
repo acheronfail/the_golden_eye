@@ -9,9 +9,9 @@ const fn times(time: i32, target_time: Option<i32>, best_time: Option<i32>) -> O
     Some(Times { time, target_time, best_time })
 }
 
-// Templates ship alongside obs2/; screenshots live under test/screenshots-*.
+// Templates ship alongside obs2/; screenshots live under frame_tests/screenshots-*.
 const TEMPLATES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../cv_templates");
-const SCREENSHOTS_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../test");
+const SCREENSHOTS_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../frame_tests");
 
 /// Decodes a screenshot into a contiguous BGRA byte buffer plus dimensions,
 /// matching the layout OBS hands the matcher.

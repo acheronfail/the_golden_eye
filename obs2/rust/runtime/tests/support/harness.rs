@@ -75,10 +75,10 @@ impl Harness {
         let root = repo_root();
         let temp = test_dir();
         let replay_dir = temp.join("replays");
-        let fixture = root.join("test/clips/replay-buffer-60s.mp4");
+        let fixture = root.join("frame_tests/clips/replay-buffer-60s.mp4");
         assert!(
             fixture.is_file(),
-            "replay fixture is missing at {}; regenerate it with test/clips/generate_replay_fixture.sh",
+            "replay fixture is missing at {}; regenerate it with frame_tests/clips/generate_replay_fixture.sh",
             fixture.display()
         );
 

@@ -10,7 +10,7 @@ The repo contains:
 
 - `obs2/` - the active native OBS plugin, driven by `just obs` / `just dev`.
 - `esp32-input-monitor/` - independent PlatformIO firmware that sniffs N64 controller DATA lines and exposes state over WebSocket. It has its own `README.md` and `pio` build; it is not wired into the OBS plugin.
-- `test/` - Node-based frame regression harness for the Rust matcher CLI.
+- `frame_tests/` - Node-based frame regression harness for the Rust matcher CLI.
 - root helpers like `viewer.html`, `sample_clip.mov`, `screenshots/`, `TODO.md`, and `BUGS.md` are support/debug artifacts, not a separate application stack.
 
 This repo is v2-only. Do not add a root Node application, OBS WebSocket control path, downloaded model runtime, or helper-script stack unless the user explicitly asks for a separate new implementation.
@@ -38,7 +38,7 @@ The CMake build (`obs2/CMakeLists.txt`) wires these dependencies as a strict cha
 - `obs2/rust/Cargo.toml` defines the `catalog`, `clip`, `runtime`, `cv`, `game`, `media`, and `settings` workspace members with one lockfile and target directory.
 - `browser_contracts` exports the settings and API contracts before the browser build.
 - `browser_build` runs `npm run build` in `obs2/browser/`, producing the HTML bundle at `$BROWSER_BUNDLE` (normally `obs2/browser/build/index.html`). `GE_REUSE_HOST_BUILD_INPUTS=ON` reuses an existing bundle and validates it when `browser_build` runs.
-- `rust_build` depends on `browser_build`. `cargo build --lib --bins` (the staticlib the core links, plus the `test_match`/`annotate_match` bins the `test/` harness needs -- deliberately not `--all-targets`, so a normal build doesn't compile the integration-test/bench crates; `cargo test` builds those on demand in the test recipes) runs with `BROWSER_BUNDLE`, `GE_PLUGIN_VERSION`, and `GE_BROWSER_DEV_URL` set; the Rust crate embeds the bundle via `include_str!`. `build.rs` also runs `cbindgen` and writes `obs2/core/ge_runtime.h` (used by `core.c`). `GE_REUSE_HOST_BUILD_INPUTS=ON` reuses the existing staticlib/header and validates them when `rust_build` runs.
+- `rust_build` depends on `browser_build`. `cargo build --lib --bins` (the staticlib the core links, plus the `test_match`/`annotate_match` bins the `frame_tests/` harness needs -- deliberately not `--all-targets`, so a normal build doesn't compile the integration-test/bench crates; `cargo test` builds those on demand in the test recipes) runs with `BROWSER_BUNDLE`, `GE_PLUGIN_VERSION`, and `GE_BROWSER_DEV_URL` set; the Rust crate embeds the bundle via `include_str!`. `build.rs` also runs `cbindgen` and writes `obs2/core/ge_runtime.h` (used by `core.c`). `GE_REUSE_HOST_BUILD_INPUTS=ON` reuses the existing staticlib/header and validates them when `rust_build` runs.
 - The plugin target depends on `rust_libs` (an `IMPORTED STATIC` library pointing at `target/{debug,release}/libge_runtime.a`).
 
 A failed frontend build stops the chain before cargo runs. Do not bypass this dependency chain.
@@ -54,7 +54,7 @@ A failed frontend build stops the chain before cargo runs. Do not bypass this de
 - `obs2/cv_templates/` - PNG templates for the level matcher. Templates are language-suffixed (`en-`, `jp-`); `test_match` takes the language as a CLI argument. CMake copies these into the built plugin data layout (`Contents/Resources/cv_templates` on macOS, `data/cv_templates` on Linux/Windows).
 - `obs2/vendor/obs/` - vendored OBS headers, populated by `just obs-headers`.
 - `obs2/vendor/opencv-static/` and `obs2/vendor/ffmpeg-static/` - static dependency prefixes built by `just opencv-static` and `just ffmpeg-static`.
-- `obs2/rust/cv/src/bin/test_match.rs` - standalone CLI that runs the matcher on a single PNG and emits JSON. Used by the test harness in `test/`.
+- `obs2/rust/cv/src/bin/test_match.rs` - standalone CLI that runs the matcher on a single PNG and emits JSON. Used by the test harness in `frame_tests/`.
 - `obs2/rust/runtime/src/http/routes/` - Axum route handlers. Keep route-specific behavior here instead of bloating `http/mod.rs`.
 - `obs2/rust/runtime/src/app/` - feature construction, cross-feature settings application, and browser publication. Feature workflows receive explicit dependencies instead of `AppState`; HTTP routes decode requests and map results. See `obs2/rust/runtime/src/README.md` for the ownership map.
 - `obs2/rust/runtime/src/settings.rs` - persisted settings in `settings.json` under the OS app config directory (`~/Library/Application Support/The Golden Eye` on macOS, `$XDG_CONFIG_HOME/the-golden-eye` or `~/.config/the-golden-eye` on Linux).
@@ -65,7 +65,7 @@ A failed frontend build stops the chain before cargo runs. Do not bypass this de
 - `obs2/rust/media/` - FFmpeg-backed clip probing, trimming, remuxing, and tag read/write.
 - `obs2/loader/` - the thin loader's C sources (`plugin.c`, `dynlib.c`, `reload.c`) and its standalone tests (`obs2/loader/tests/`, run via `just test-loader`; no OBS/Rust toolchain needed).
 - `obs2/core/` - the core's C sources (`core.c`, `obs_bridge.c`) and the cbindgen-generated `ge_runtime.h`.
-- `test/` - frame regression harness with its own `package.json`; scripts use Node's `--experimental-strip-types`.
+- `frame_tests/` - frame regression harness with its own `package.json`; scripts use Node's `--experimental-strip-types`.
 
 ## Commands
 
@@ -106,7 +106,7 @@ just test-integration # Rust integration tests against a controllable fake-OBS h
 just test-loader        # loader dlopen/reload/rollback fixture tests; no OBS/Rust toolchain needed
 ```
 
-The test harness (`test/frames.test.ts`) iterates over PNGs in `test/screenshots-*`, shells out to `obs2/rust/target/release/test_match`, and compares against expected values derived from the filename.
+The test harness (`frame_tests/frames.test.ts`) iterates over PNGs in `frame_tests/screenshots-*`, shells out to `obs2/rust/target/release/test_match`, and compares against expected values derived from the filename.
 
 To run the matcher on a single screenshot directly:
 

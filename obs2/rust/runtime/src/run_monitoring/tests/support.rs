@@ -63,7 +63,7 @@ pub(super) fn write_file(path: &Path) {
 }
 
 pub(super) fn sample_clip() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../test/clips/sample_clip.mov")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests/clips/sample_clip.mov")
 }
 
 pub(super) fn test_snapshot_store() -> SharedStateStore {

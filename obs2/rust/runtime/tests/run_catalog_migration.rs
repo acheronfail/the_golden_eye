@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::support::harness::{API, Harness, recording_settings, run_catalog_path};
 
 fn sample_clip(root: &Path) -> PathBuf {
-    root.join("test/clips/sample_clip.mov")
+    root.join("frame_tests/clips/sample_clip.mov")
 }
 
 fn write_tagged_clip(root: &Path, path: &Path, status: &str, timestamp: &str) {

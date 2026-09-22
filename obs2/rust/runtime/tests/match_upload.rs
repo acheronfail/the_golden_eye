@@ -12,7 +12,7 @@ use crate::support::harness::{API, Harness};
 async fn match_upload_reads_a_dropped_frame_with_diagnostics() {
     let harness = Harness::start(Duration::ZERO).await;
     let fixture =
-        harness.root.join("test/screenshots-rt4kce/en - stats - 3 - Agent - 0028_0500_0028 - flicker-004.png");
+        harness.root.join("frame_tests/screenshots-rt4kce/en - stats - 3 - Agent - 0028_0500_0028 - flicker-004.png");
     let bytes = std::fs::read(&fixture).expect("read fixture");
 
     let body: Value = harness

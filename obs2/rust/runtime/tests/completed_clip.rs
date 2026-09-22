@@ -24,7 +24,7 @@ async fn obs_apis_and_completed_run_save_the_correct_replay_window() {
         recording_settings(&temp.join("clips"), &temp.join("failed"))
     })
     .await;
-    let fixture = harness.root.join("test/clips/replay-buffer-60s.mp4");
+    let fixture = harness.root.join("frame_tests/clips/replay-buffer-60s.mp4");
     let clips_dir = harness.temp.join("clips");
 
     assert_eq!(probe_duration(&fixture), 60.0);
@@ -52,7 +52,7 @@ async fn obs_apis_and_completed_run_save_the_correct_replay_window() {
     harness.obs.set_sources(vec![(SOURCE_NAME.into(), "test_input".into())]);
     ge_runtime::ge_sources_changed();
 
-    let start = harness.frame("test/screenshots-av2hdmi/en - start - 03 - Agent.png");
+    let start = harness.frame("frame_tests/screenshots-av2hdmi/en - start - 03 - Agent.png");
     harness.obs.set_frame(start.clone());
     let screenshot =
         harness.client.get(format!("{API}/api/v1/screenshot?source=GoldenEye%20Capture")).send().await.unwrap();
@@ -78,9 +78,9 @@ async fn obs_apis_and_completed_run_save_the_correct_replay_window() {
 
     harness.render_until_state(&start, "started").await;
     tokio::time::sleep(Duration::from_millis(1200)).await;
-    let complete = harness.frame("test/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png");
+    let complete = harness.frame("frame_tests/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png");
     harness.render_until_state(&complete, "complete").await;
-    let stats = harness.frame("test/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png");
+    let stats = harness.frame("frame_tests/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png");
     harness.obs.render(stats);
 
     let saved = wait_for_clip(&clips_dir).await;

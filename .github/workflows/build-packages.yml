@@ -47,7 +47,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             obs2/browser/package-lock.json
-            test/package-lock.json
+            frame_tests/package-lock.json
 
       - name: Cache static dependencies
         uses: actions/cache@v6
@@ -121,7 +121,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: frame-regression-test-results-linux-${{ runner.arch }}
-          path: test/test_results.json
+          path: frame_tests/test_results.json
           if-no-files-found: ignore
 
       - name: Build Linux package
@@ -179,7 +179,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             obs2/browser/package-lock.json
-            test/package-lock.json
+            frame_tests/package-lock.json
 
       - name: Cache static dependencies
         uses: actions/cache@v6
@@ -268,7 +268,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             obs2/browser/package-lock.json
-            test/package-lock.json
+            frame_tests/package-lock.json
 
       - name: Pin vcpkg
         shell: pwsh

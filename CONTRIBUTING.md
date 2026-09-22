@@ -8,7 +8,7 @@
 - `obs2/rust/` the main plugin - recording, frame matching, the webserver, etc.
 - `obs2/browser/` is the SvelteKit browser dock UI embedded into the plugin build.
 - `obs2/cv_templates/` contains the image templates used by the level and time matcher.
-- `test/` contains the Node-based frame regression harness for the matcher CLI.
+- `frame_tests/` contains the Node-based frame regression harness for the matcher CLI.
 
 ## Development
 

@@ -40,7 +40,7 @@ fn test_catalog(dir: &TestDir) -> ge_catalog::run_catalog::RunCatalog {
 }
 
 fn sample_clip() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../test/clips/sample_clip.mov")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests/clips/sample_clip.mov")
 }
 
 fn test_clip_metadata(status: &str, timestamp: &str) -> ClipMetadata {

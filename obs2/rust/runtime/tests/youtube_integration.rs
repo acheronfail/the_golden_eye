@@ -289,7 +289,7 @@ async fn wait_for_youtube_status_changed(
 }
 
 async fn prepare_clip(harness: &Harness) -> String {
-    let source = harness.root.join("test/clips/replay-buffer-60s.mp4");
+    let source = harness.root.join("frame_tests/clips/replay-buffer-60s.mp4");
     let clip = harness.temp.join("clips").join("youtube-test.mov");
     std::fs::create_dir_all(clip.parent().unwrap()).unwrap();
     ge_runtime::ge_test_write_tagged_clip(&source, &clip, RunStatus::Complete.as_str(), "2026-07-18T00:00:00Z");

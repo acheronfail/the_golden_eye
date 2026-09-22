@@ -14,13 +14,13 @@ async fn failed_run_is_saved_to_the_standard_clip_directory() {
     let completed_dir = harness.temp.join("completed");
     harness.start_monitor().await.error_for_status().unwrap();
 
-    let start = harness.frame("test/screenshots-av2hdmi/en - start - 03 - Secret Agent.png");
+    let start = harness.frame("frame_tests/screenshots-av2hdmi/en - start - 03 - Secret Agent.png");
     harness.render_until_state(&start, "started").await;
 
-    let failed = harness.frame("test/screenshots-av2hdmi/en - failed - 3 - Secret Agent.png");
+    let failed = harness.frame("frame_tests/screenshots-av2hdmi/en - failed - 3 - Secret Agent.png");
     harness.render_until_state(&failed, "failed").await;
 
-    let stats = harness.frame("test/screenshots-av2hdmi/en - stats - 3 - Secret Agent - 0323_1357.png");
+    let stats = harness.frame("frame_tests/screenshots-av2hdmi/en - stats - 3 - Secret Agent - 0323_1357.png");
     harness.obs.render(stats);
     let saved = wait_for_clip(&completed_dir).await;
 

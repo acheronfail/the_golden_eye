@@ -78,7 +78,8 @@ fn black_frame_detection_samples_only_the_active_picture() {
 }
 
 fn black_frame_fixture(name: &str) -> BlackFrameSignal {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../test/screenshots-rt4kce").join(name);
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests/screenshots-rt4kce").join(name);
     let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
     let mut bgra = Mat::default();
     imgproc::cvt_color_def(&bgr, &mut bgra, imgproc::COLOR_BGR2BGRA).unwrap();
@@ -118,7 +119,7 @@ fn rt4kce_cutscene_sequence_has_exactly_three_black_frame_edges() {
 }
 
 fn watch_fixture_path(name: &str) -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../test/screenshots-yt-rt4kce").join(name)
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests/screenshots-yt-rt4kce").join(name)
 }
 
 fn watch_fixture(name: &str) -> WatchSignal {
@@ -262,7 +263,7 @@ fn active_picture_detection_finds_bars_on_every_edge() {
 fn pillarboxed_fixture_separates_active_picture_from_matcher_geometry() {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../test/screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png"
+        "/../../../frame_tests/screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png"
     );
     let matcher = CvMatcher::new("en", TEMPLATES_DIR).unwrap();
     let bytes = std::fs::read(path).unwrap();
@@ -282,7 +283,7 @@ fn pillarboxed_fixture_separates_active_picture_from_matcher_geometry() {
 fn match_level_from_encoded_image_decodes_and_matches() {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../test/screenshots-rt4kce/en - stats - 3 - Agent - 0028_0500_0028 - flicker-004.png"
+        "/../../../frame_tests/screenshots-rt4kce/en - stats - 3 - Agent - 0028_0500_0028 - flicker-004.png"
     );
     let bytes = std::fs::read(path).expect("read fixture");
     let matcher = CvMatcher::new("en", TEMPLATES_DIR).expect("matcher");
