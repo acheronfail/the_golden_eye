@@ -1,4 +1,10 @@
+use opencv::core::{self, Mat, Rect};
+use opencv::prelude::*;
+use opencv::{imgcodecs, imgproc};
+
 use super::*;
+use crate::calibration::detect_active_picture;
+use crate::match_result::reject_untrusted_screen;
 
 const TEMPLATES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../cv_templates");
 
