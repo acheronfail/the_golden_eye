@@ -12,7 +12,7 @@ just test-obs --repeat 5
 just test-obs --software-renderer
 ```
 
-Prerequisites: the normal project build dependencies, Node 22.18 or newer, and FFmpeg (`ffprobe`).
+Prerequisites: the normal project build dependencies, Node 22.18 or newer, Python 3, a C compiler (`cc`), and FFmpeg (`ffprobe`).
 macOS needs OBS installed at `/Applications/OBS.app` and a graphical login; this harness has been
 verified with OBS 32.2.2 on Apple Silicon. Linux needs the OBS Flatpak and its SDK plus a working
 X11/OpenGL display. The software option is Linux-only and selects Mesa's software renderer inside
@@ -28,7 +28,7 @@ node --experimental-strip-types frame_tests/obs/run.ts --repeat 5
 
 The tests load the production C loader, core, Rust runtime, matcher, and replay pipeline into OBS.
 A test-only Lua script creates Image and Media Sources through OBS APIs. It does not provide
-capture pixels or replace any plugin functions. The runner uses the plugin's HTTP API and event
+capture pixels. Update tests replace only the isolated core and module data. The runner uses the plugin's HTTP API and event
 stream. It does not use OBS WebSocket control.
 
 - A 1080p image reaches the matcher as 640×480 pixels. Removing and recreating the source at another resolution retains correct detection.
@@ -37,6 +37,38 @@ stream. It does not use OBS WebSocket control.
 - The KIA video saves a 14-second result, despite its initial incorrect time reading.
 - Saved runs require a matching save-completion event, correct catalog metadata, a nonempty clip, and valid video duration from `ffprobe`.
 - Every session stops monitoring and the replay buffer, then exits OBS cleanly.
+
+## Updates inside OBS
+
+The suite reuses the HTTP handler from `just simulate-update` on an automatically assigned loopback port.
+Each session copies the plugin and module data into its artifact directory before OBS starts.
+Updates replace these copies. Build outputs and installed plugins remain unchanged.
+
+The default suite exercises the production updater:
+
+- A wrong checksum rejects the download before staging. The current core stays unchanged and matching still works.
+- With automatic updates enabled, a check downloads and stages the package during monitoring. Explicit application returns HTTP 409 until monitoring stops.
+  The production background task then applies the update without an apply request. The test checks the new module-data marker and retained settings and runs.
+
+After a successful reload, the runner requires a new event connection and fresh snapshot.
+It checks matching again. The completed-run and KIA cases then exercise real replay saves after the update.
+Unexpected disconnects outside the reload window still fail. A reload has a 75-second deadline because the production task polls every 30 seconds.
+The release server closes with the OBS session, including after failures or interruption.
+
+The successful package contains the current production core, advertised as version `999.0.0`, plus a module-data marker.
+This tests download, verification, staging, native reload, data replacement, and continued operation.
+It also checks the `updateApplied` notification. It does not test a compiled version change, which needs two builds with different versions.
+### Known rollback regression
+
+Run `just test-obs --rollback-regression` to include the failing rollback case. It is excluded from the default suite until the production fix lands.
+This test packages the existing loader failure fixture, which passes symbol checks but rejects core startup.
+The loader restores the original core, and matching works, but replay status remains stale after monitoring stops.
+The restored runtime waits for OBS's startup event, which already occurred. The case times out and exits nonzero.
+The runner still closes OBS and continues the remaining cases in a fresh session.
+
+A separate production change must restore frontend readiness without sending a false update notice.
+The fixture fails before Rust starts, so this case does not exercise rollback after a provisional data replacement.
+The updated cases require separate validation on macOS. The existing capture cases previously passed there.
 
 ## Isolation and timing
 
@@ -61,7 +93,7 @@ restarts only after the monitor and replay buffer report readiness.
 The tests wait for observed conditions with deadlines. They do not assume that a fixed startup
 delay is sufficient or automatically retry failed scenarios. Media saves must finish before the
 monitor stops. Playback must end before the duplicate-run check. The suite fails on unexpected
-OBS exits, event-stream disconnection, timeouts, or forced shutdown.
+OBS exits, unexpected event-stream disconnection, timeouts, or forced shutdown.
 
 Ctrl+C requests cleanup. A failed graceful shutdown uses the exact Flatpak instance ID for forced
 cleanup. Other OBS instances are not targeted. Normal shutdown uses OBS's SIGINT handler from inside the test process on both platforms,
@@ -93,6 +125,8 @@ Each result links to its session directory, which can contain logs from several 
 Durations include session startup or shutdown only when that case requires them. Each session directory retains:
 
 - `obs.log`: native OBS and plugin output, including renderer details.
+- `release-server.log`, `release/`: local release requests, packages, and the failed core fixture.
+- `plugins/`, `plugins-data/` (Linux): disposable plugin binaries and module data.
 - `events.jsonl`: plugin snapshots and events.
 - `commands.jsonl`: source-control requests and responses.
 - `ge-frames-*`: actual capture frames from the production diagnostic capture path.

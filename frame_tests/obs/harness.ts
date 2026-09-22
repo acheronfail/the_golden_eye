@@ -10,6 +10,30 @@ export class ObsHarness {
   events: any[] = [];
   private child?: ChildProcess;
   private socket?: WebSocket;
+  private releaseServer?: ChildProcess;
+  private releaseExit?: Promise<void>;
+  private reloading = false;
+  private updateUrl = "";
+  pluginDirectory = "";
+
+  get corePath() {
+    return path.join(
+      this.pluginDirectory,
+      process.platform === "darwin"
+        ? "Contents/MacOS/libgolden_core.dylib"
+        : "bin/64bit/libgolden_core.so",
+    );
+  }
+
+  get dataDirectory() {
+    return process.platform === "darwin"
+      ? path.join(this.pluginDirectory, "Contents/Resources")
+      : path.join(this.artifacts, "plugins-data", "the_golden_eye");
+  }
+
+  get stagedDirectory() {
+    return path.join(path.dirname(this.corePath), ".ge_update_staged");
+  }
   private commandId = 0;
   private failure?: Error;
   private closing = false;
@@ -71,6 +95,7 @@ export class ObsHarness {
             match: this.snapshot?.match ?? null,
             monitor: this.snapshot?.monitor ?? null,
             replayBuffer: this.snapshot?.replayBuffer ?? null,
+            update: this.snapshot?.update ?? null,
           },
     };
     const error = new Error(
@@ -79,14 +104,23 @@ export class ObsHarness {
     throw Object.assign(error, { details });
   }
 
-  async api(route: string, body?: unknown) {
+  async api(
+    route: string,
+    body?: unknown,
+    method = body === undefined ? "GET" : "POST",
+    expectedStatus?: number,
+  ) {
     const response = await fetch(this.base + route, {
-      method: body === undefined ? "GET" : "POST",
+      method,
       headers: { "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(route.includes("updates/download") ? 30000 : 3000),
     });
     const text = await response.text();
+    if (expectedStatus !== undefined) {
+      assert.equal(response.status, expectedStatus, `${route}: ${text}`);
+      return text;
+    }
     assert(response.ok, `${route}: ${response.status} ${text}`);
     const result = text ? JSON.parse(text) : null;
     this.lastObservation = { route, response: result };
@@ -292,6 +326,100 @@ export class ObsHarness {
     return clip;
   }
 
+  async updateMode(mode: "valid" | "checksum" | "rollback") {
+    await this.write("release/mode.tmp", mode);
+    await fs.rename(
+      path.join(this.artifacts, "release/mode.tmp"),
+      path.join(this.artifacts, "release/mode"),
+    );
+  }
+
+  async reload(action: () => Promise<void>, logMessage: string) {
+    const before = (await fs.readFile(path.join(this.artifacts, "obs.log"), "utf8")).length;
+    const oldSocket = this.socket!;
+    const pid = this.child!.pid;
+    this.reloading = true;
+    try {
+      await action();
+      await this.waitFor(
+        "core reload completed",
+        async () => {
+          const log = await fs.readFile(path.join(this.artifacts, "obs.log"), "utf8");
+          return log.slice(before).includes(logMessage);
+        },
+        75000,
+      );
+      await this.waitFor(
+        "old event connection closed",
+        () => oldSocket.readyState === WebSocket.CLOSED,
+      );
+      this.snapshot = undefined;
+      this.connectEvents();
+      await this.waitFor("fresh snapshot after reload", () => this.snapshot);
+      assert.equal(this.child!.pid, pid, "OBS stays in the same process");
+    } finally {
+      this.reloading = false;
+    }
+  }
+
+  private async preparePlugin() {
+    const mac = process.platform === "darwin";
+    const name = mac ? "the_golden_eye.plugin" : "the_golden_eye";
+    const build = path.join(this.root, mac ? "obs2/build" : "obs2/build-flatpak");
+    this.pluginDirectory = path.join(this.artifacts, "plugins", name);
+    await fs.cp(path.join(build, name), this.pluginDirectory, {
+      recursive: true,
+      dereference: true,
+    });
+    await fs.rm(this.stagedDirectory, { recursive: true, force: true });
+    if (!mac) {
+      await fs.rm(this.dataDirectory, { recursive: true, force: true });
+      await fs.cp(path.join(build, "obs-run-data/the_golden_eye"), this.dataDirectory, {
+        recursive: true,
+        dereference: true,
+      });
+    }
+    const log = await fs.open(path.join(this.artifacts, "release-server.log"), "w");
+    try {
+      this.releaseServer = spawn(
+        "python3",
+        [
+          "-B",
+          path.join(this.root, "frame_tests/obs/update_fixture.py"),
+          path.join(this.artifacts, "release"),
+          this.pluginDirectory,
+          this.dataDirectory,
+        ],
+        { stdio: ["ignore", log.fd, log.fd], detached: true },
+      );
+      this.releaseServer.on("error", (error) => {
+        this.failure = error;
+      });
+      this.releaseExit = new Promise((resolve) =>
+        this.releaseServer!.once("exit", () => {
+          if (!this.closing) this.failure = new Error("Release server exited before cleanup");
+          resolve();
+        }),
+      );
+    } finally {
+      await log.close();
+    }
+    this.updateUrl = await this.waitFor(
+      "release server ready",
+      async () => {
+        try {
+          return JSON.parse(
+            await fs.readFile(path.join(this.artifacts, "release/ready.json"), "utf8"),
+          ).url;
+        } catch (error: any) {
+          if (error.code === "ENOENT") return false;
+          throw error;
+        }
+      },
+      60000,
+    );
+  }
+
   async launch() {
     assert(["linux", "darwin"].includes(process.platform), "Requires Linux or macOS");
     if (process.platform === "linux") {
@@ -334,6 +462,7 @@ export class ObsHarness {
     await new Promise<void>((resolve) => reservation.close(() => resolve()));
     this.base = `http://127.0.0.1:${port}`;
     await this.configure();
+    await this.preparePlugin();
     this.eventLog = await fs.open(path.join(this.artifacts, "events.jsonl"), "w");
     const log = await fs.open(path.join(this.artifacts, "obs.log"), "w");
     const config = this.configDirectory;
@@ -362,9 +491,9 @@ export class ObsHarness {
                 GE_SERVER_PORT: String(port),
                 GE_CORE_LIB: undefined,
                 GE_DISABLE_BROWSER_DOCK: "1",
-                GE_UPDATE_CHECK_URL: "http://127.0.0.1:1",
-                OBS_PLUGINS_PATH: path.join(this.root, "obs2/build"),
-                OBS_PLUGINS_DATA_PATH: path.join(this.root, "obs2/build"),
+                GE_UPDATE_CHECK_URL: this.updateUrl,
+                OBS_PLUGINS_PATH: path.dirname(this.pluginDirectory),
+                OBS_PLUGINS_DATA_PATH: path.dirname(this.pluginDirectory),
               },
               stdio: ["ignore", log.fd, log.fd],
               detached: true,
@@ -384,9 +513,9 @@ export class ObsHarness {
               `--env=GE_OBS_TEST_DIR=${this.artifacts}`,
               `--env=GE_SERVER_PORT=${port}`,
               "--env=GE_DISABLE_BROWSER_DOCK=1",
-              "--env=GE_UPDATE_CHECK_URL=http://127.0.0.1:1",
-              `--env=OBS_PLUGINS_PATH=${this.root}/obs2/build-flatpak/%module%/bin/64bit`,
-              `--env=OBS_PLUGINS_DATA_PATH=${this.root}/obs2/build-flatpak/obs-run-data`,
+              `--env=GE_UPDATE_CHECK_URL=${this.updateUrl}`,
+              `--env=OBS_PLUGINS_PATH=${path.dirname(this.pluginDirectory)}/%module%/bin/64bit`,
+              `--env=OBS_PLUGINS_DATA_PATH=${path.dirname(this.dataDirectory)}`,
               "--env=LD_LIBRARY_PATH=/app/lib",
               "--env=QT_QPA_PLATFORM=xcb",
               ...(this.software ? ["--env=LIBGL_ALWAYS_SOFTWARE=1"] : []),
@@ -429,29 +558,7 @@ export class ObsHarness {
         () => false,
       ),
     );
-    this.socket = new WebSocket(this.base.replace("http:", "ws:") + "/api/v1/events/ws");
-    this.socket.addEventListener("error", () => {
-      if (!this.closing) this.failure = new Error("Plugin event connection failed");
-    });
-    this.socket.addEventListener("close", () => {
-      if (!this.closing) this.failure = new Error("Plugin event connection closed");
-    });
-    this.socket.addEventListener("message", (message) => {
-      if (this.closing) return;
-      try {
-        const event = JSON.parse(String(message.data));
-        this.events.push(event);
-        this.eventWrites = this.eventWrites
-          .then(() => this.eventLog!.appendFile(JSON.stringify(event) + "\n"))
-          .catch((error) => {
-            this.eventWriteError = error;
-            this.failure = error;
-          });
-        if (event.type === "snapshot") this.snapshot = event.state;
-      } catch (error) {
-        this.failure = error as Error;
-      }
-    });
+    this.connectEvents();
     await this.waitFor("initial snapshot", () => this.snapshot);
     assert.equal(
       this.snapshot.settingsStatus.configPath,
@@ -472,6 +579,34 @@ export class ObsHarness {
         "Mesa software renderer is active",
       );
     }
+  }
+
+  private connectEvents() {
+    this.socket = new WebSocket(this.base.replace("http:", "ws:") + "/api/v1/events/ws");
+    this.socket.addEventListener("error", () => {
+      if (!this.closing && !this.reloading)
+        this.failure = new Error("Plugin event connection failed");
+    });
+    this.socket.addEventListener("close", () => {
+      if (!this.closing && !this.reloading)
+        this.failure = new Error("Plugin event connection closed");
+    });
+    this.socket.addEventListener("message", (message) => {
+      if (this.closing) return;
+      try {
+        const event = JSON.parse(String(message.data));
+        this.events.push(event);
+        this.eventWrites = this.eventWrites
+          .then(() => this.eventLog!.appendFile(JSON.stringify(event) + "\n"))
+          .catch((error) => {
+            this.eventWriteError = error;
+            this.failure = error;
+          });
+        if (event.type === "snapshot") this.snapshot = event.state;
+      } catch (error) {
+        this.failure = error as Error;
+      }
+    });
   }
 
   private get configDirectory() {
@@ -563,6 +698,26 @@ export class ObsHarness {
       }
     }
     const errors: unknown[] = shutdownError ? [shutdownError] : [];
+    if (
+      this.releaseServer &&
+      this.releaseServer.exitCode === null &&
+      this.releaseServer.signalCode === null
+    ) {
+      const signal = (value: NodeJS.Signals) => {
+        try {
+          if (this.releaseServer?.pid) process.kill(-this.releaseServer.pid, value);
+        } catch (error: any) {
+          if (error.code !== "ESRCH") errors.push(error);
+        }
+      };
+      signal("SIGTERM");
+      await Promise.race([this.releaseExit, delay(5000, undefined, { ref: false })]);
+      if (this.releaseServer.exitCode === null && this.releaseServer.signalCode === null) {
+        signal("SIGKILL");
+        errors.push(new Error("Release server required forced shutdown"));
+        await Promise.race([this.releaseExit, delay(5000, undefined, { ref: false })]);
+      }
+    }
     try {
       this.socket?.close();
     } catch (error) {
