@@ -8,6 +8,53 @@ import { ObsHarness } from "./harness.ts";
 import { copyWindowsObs, readWindowsObsLog } from "./windows.ts";
 
 test(
+  "publishing the next command does not replace a file held open by Lua",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "obs-command-"));
+    let reader: ReturnType<typeof spawn> | undefined;
+    let readerExit: Promise<unknown> | undefined;
+    try {
+      const harness = new ObsHarness(directory, directory, false);
+      for (const id of [1, 2])
+        await fs.writeFile(
+          path.join(directory, `response-${id}.json`),
+          JSON.stringify({ id, error: "" }),
+        );
+      await harness.command({ action: "status" });
+      const first = (await fs.readdir(directory)).find((file) => /^command.*\.json$/.test(file))!;
+      reader = spawn(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-Command",
+          "$ErrorActionPreference = 'Stop'; $f = [IO.File]::Open($env:OBS_COMMAND_FILE, 'Open', 'Read', 'ReadWrite'); try { [Console]::WriteLine('locked'); [Console]::ReadLine() } finally { $f.Dispose() }",
+        ],
+        {
+          env: { ...process.env, OBS_COMMAND_FILE: path.join(directory, first) },
+          windowsHide: true,
+        },
+      );
+      readerExit = new Promise((resolve) => reader!.once("close", resolve));
+      await new Promise<void>((resolve, reject) => {
+        reader!.once("error", reject);
+        reader!.once("exit", () => reject(new Error("Command reader exited before locking")));
+        reader!.stdout!.once("data", (data) => {
+          if (data.toString().includes("locked")) resolve();
+          else reject(new Error(`Unexpected command reader output: ${data}`));
+        });
+      });
+      await harness.command({ action: "pause" });
+      assert.equal(JSON.parse(await fs.readFile(path.join(directory, first), "utf8")).id, 1);
+    } finally {
+      reader?.stdin?.end("\n");
+      await readerExit;
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
   "Windows cleanup terminates its release server without Unix process-group signals",
   { skip: process.platform !== "win32" },
   async () => {

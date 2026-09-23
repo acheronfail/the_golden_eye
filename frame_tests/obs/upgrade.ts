@@ -130,7 +130,8 @@ const report = await runSuite({
         const newer = (await h.api("/api/v1/updates/check", {})).update;
         assert.equal(newer.latestVersion, newerVersion);
         assert.equal(newer.requiresManualInstall, true);
-        await playRun(h, "After upgrade", "kia.mp4", 14, "kia");
+        // The three-second fixture must allow cold language/scale detection on busy CI hosts.
+        await playRun(h, "After upgrade", "kia.mp4", 14, "kia", 25);
         const runsAfter = await h.api("/api/v1/runs");
         const buildIdB = h.events
           .slice(eventStart)

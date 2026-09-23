@@ -77,6 +77,9 @@ The test starts OBS with A and requires A's reported version. It saves a run, en
 The first page advertises a newer release with an incompatible updater number. The plugin must select B.
 After reload, it requires B's version notice, release link, and installed core checksum. The resident loader must stay unchanged.
 Settings and existing runs must survive, and a new replay save must succeed.
+The post-upgrade KIA video plays at 25% speed so its brief start and result screens remain
+visible during cold language/scale detection on busy CI hosts. The test still requires exactly
+one saved 14-second KIA result, its completion event, and a playable clip; deadlines are unchanged.
 The test then closes OBS and restarts it with the same installation and configuration.
 It requires B's checksum and browser build ID, a manual-install offer for the incompatible release, the saved settings and runs, and working frame detection.
 The incompatible package must never be downloaded.

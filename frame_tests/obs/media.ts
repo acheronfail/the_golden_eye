@@ -7,8 +7,9 @@ export async function playRun(
   file: string,
   time: number,
   status: string,
+  speedPercent = 100,
 ) {
-  await h.fixture(name, `clips/${file}`, "ffmpeg_source");
+  await h.fixture(name, `clips/${file}`, "ffmpeg_source", speedPercent);
   const eventStart = h.events.length;
   await h.startMonitor(name);
   await h.command({ action: "restart", name });
