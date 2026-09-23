@@ -1,6 +1,6 @@
 {
   global:
-    ge_core_load;
+    ge_core_load_v2;
     ge_core_post_load;
     ge_core_commit_update;
     ge_core_unload;
