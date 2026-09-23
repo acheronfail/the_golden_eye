@@ -168,7 +168,7 @@ test-obs-upgrade *args: test-obs-harness
 
 # checks failure reporting and suite control without launching OBS
 test-obs-harness:
-    node --experimental-strip-types --test frame_tests/obs/suite.test.ts
+    node --experimental-strip-types --test frame_tests/obs/suite.test.ts frame_tests/obs/windows.test.ts
 
 # runs browser unit/component tests
 test-browser *args:

@@ -25,7 +25,11 @@ def source_digest():
     for name in sorted(set(filter(None, files))):
         file = ROOT / os.fsdecode(name)
         digest.update(name + b"\0")
-        digest.update(file.read_bytes() if file.is_file() else b"missing")
+        contents = file.read_bytes() if file.is_file() else b"missing"
+        # Exporters write LF even when Git checks out these contracts with CRLF.
+        if name in (b"obs2/browser/src/lib/generated/api.ts", b"obs2/browser/src/lib/generated/settings.ts"):
+            contents = contents.replace(b"\r\n", b"\n")
+        digest.update(contents)
     return digest.hexdigest()
 
 
@@ -35,8 +39,10 @@ def main():
     parser.add_argument("--reuse-build", type=Path)
     parser.add_argument("--build-only", action="store_true")
     args = parser.parse_args()
-    if sys.platform not in ("linux", "darwin"):
-        parser.error("requires Linux or macOS")
+    if sys.platform not in ("linux", "darwin", "win32"):
+        parser.error("requires Linux, macOS, or Windows")
+    if args.software_renderer and sys.platform != "linux":
+        parser.error("--software-renderer is only supported on Linux")
     fingerprint = source_digest()
     identity = {"source": fingerprint, "platform": simulator.package_platform(), "arch": simulator.package_arch()}
     if args.reuse_build:

@@ -4,6 +4,7 @@ import * as fs from "node:fs/promises";
 import path from "node:path";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
+import { copyWindowsObs, findWindowsObs, readWindowsObsLog } from "./windows.ts";
 
 export interface HarnessOptions {
   pluginSource?: string;
@@ -28,7 +29,9 @@ export class ObsHarness {
       this.pluginDirectory,
       process.platform === "darwin"
         ? "Contents/MacOS/libgolden_core.dylib"
-        : "bin/64bit/libgolden_core.so",
+        : process.platform === "win32"
+          ? "bin/64bit/golden_core.dll"
+          : "bin/64bit/libgolden_core.so",
     );
   }
 
@@ -151,7 +154,12 @@ export class ObsHarness {
     );
     const response = await this.waitFor(`source command ${id}`, async () => {
       const response = JSON.parse(
-        await fs.readFile(path.join(this.artifacts, "response.json"), "utf8"),
+        await fs
+          .readFile(path.join(this.artifacts, `response-${id}.json`), "utf8")
+          .catch((error) => {
+            if (error.code === "ENOENT") return '{"id":-1}';
+            throw error;
+          }),
       );
       this.lastObservation = { command: payload, expectedId: id, response };
       if (response.id !== id) return false;
@@ -295,7 +303,11 @@ export class ObsHarness {
         return (
           this.events
             .slice(eventStart)
-            .some((event) => event.type === "recordingSaved" && event.path === clip.path) && clip
+            .some(
+              (event) =>
+                event.type === "recordingSaved" &&
+                path.toNamespacedPath(event.path) === path.toNamespacedPath(clip.path),
+            ) && clip
         );
       },
       45000,
@@ -308,7 +320,7 @@ export class ObsHarness {
       },
     );
     assert(
-      clip.path.startsWith(this.artifacts + path.sep),
+      path.toNamespacedPath(clip.path).startsWith(path.toNamespacedPath(this.artifacts) + path.sep),
       "clip is in the isolated test directory",
     );
     assert((await fs.stat(clip.path)).size > 0);
@@ -346,7 +358,7 @@ export class ObsHarness {
   }
 
   async reload(action: () => Promise<void>, logMessage: string) {
-    const before = (await fs.readFile(path.join(this.artifacts, "obs.log"), "utf8")).length;
+    const before = (await this.readLog()).length;
     const oldSocket = this.socket!;
     const pid = this.child!.pid;
     this.reloading = true;
@@ -355,7 +367,7 @@ export class ObsHarness {
       await this.waitFor(
         "core reload completed",
         async () => {
-          const log = await fs.readFile(path.join(this.artifacts, "obs.log"), "utf8");
+          const log = await this.readLog();
           return log.slice(before).includes(logMessage);
         },
         75000,
@@ -411,7 +423,11 @@ export class ObsHarness {
             ? ["--package", this.options.releasePackage, "--version", this.options.releaseVersion!]
             : []),
         ],
-        { stdio: ["ignore", log.fd, log.fd], detached: true },
+        {
+          stdio: ["ignore", log.fd, log.fd],
+          detached: process.platform !== "win32",
+          windowsHide: true,
+        },
       );
       this.releaseServer.on("error", (error) => {
         this.failure = error;
@@ -442,16 +458,29 @@ export class ObsHarness {
   }
 
   async launch() {
-    assert(["linux", "darwin"].includes(process.platform), "Requires Linux or macOS");
+    assert(
+      ["linux", "darwin", "win32"].includes(process.platform),
+      "Requires Linux, macOS, or Windows",
+    );
     if (process.platform === "linux") {
       assert(process.env.DISPLAY, "DISPLAY is required. Use an X11 desktop or xvfb-run.");
       execFileSync("flatpak", ["info", "com.obsproject.Studio"], {
         stdio: "ignore",
         timeout: 10000,
       });
-    } else {
+    } else if (process.platform === "darwin") {
       assert(!this.software, "--software-renderer is only supported on Linux");
       await fs.access("/Applications/OBS.app/Contents/MacOS/OBS");
+    } else {
+      assert(!this.software, "--software-renderer is only supported on Linux");
+      assert(
+        this.options.pluginSource,
+        "Windows requires packaged inputs from just test-obs-upgrade",
+      );
+      if (!this.options.resume) {
+        await copyWindowsObs(await findWindowsObs(), path.join(this.artifacts, "obs"));
+      }
+      await fs.access(path.join(this.artifacts, "obs/bin/64bit/obs64.exe"));
     }
     execFileSync("ffprobe", ["-version"], { stdio: "ignore", timeout: 10000 });
     if (!this.options.pluginSource && !this.options.resume)
@@ -485,23 +514,28 @@ export class ObsHarness {
     this.base = `http://127.0.0.1:${port}`;
     if (!this.options.resume) await this.configure();
     await fs.rm(path.join(this.artifacts, "command.json"), { force: true });
-    await fs.rm(path.join(this.artifacts, "response.json"), { force: true });
+    for (const file of await fs.readdir(this.artifacts)) {
+      if (/^response(?:-\d+)?\.(json|tmp)$/.test(file))
+        await fs.rm(path.join(this.artifacts, file));
+    }
     await this.preparePlugin();
     this.eventLog = await fs.open(
       path.join(this.artifacts, "events.jsonl"),
       this.options.resume ? "a" : "w",
     );
     const log = await fs.open(
-      path.join(this.artifacts, "obs.log"),
+      path.join(this.artifacts, process.platform === "win32" ? "obs-process.log" : "obs.log"),
       this.options.resume ? "a" : "w",
     );
-    this.logStart = this.options.resume ? (await log.stat()).size : 0;
+    this.logStart =
+      this.options.resume && process.platform !== "win32" ? (await log.stat()).size : 0;
     const config = this.configDirectory;
     this.child =
-      process.platform === "darwin"
+      process.platform === "win32"
         ? spawn(
-            "/Applications/OBS.app/Contents/MacOS/OBS",
+            path.join(this.artifacts, "obs/bin/64bit/obs64.exe"),
             [
+              "--portable",
               "--collection",
               "Tests",
               "--profile",
@@ -510,63 +544,96 @@ export class ObsHarness {
               "Fixture Scene",
               "--multi",
               "--disable-missing-files-check",
+              "--disable-updater",
             ],
             {
+              cwd: path.join(this.artifacts, "obs/bin/64bit"),
               env: {
                 ...process.env,
-                // Rust reads HOME; OBS uses Foundation's independently cached home directory.
-                HOME: path.join(this.artifacts, "home"),
-                CFFIXED_USER_HOME: path.join(this.artifacts, "home"),
-                TMPDIR: this.artifacts,
+                APPDATA: config,
+                TEMP: this.artifacts,
+                TMP: this.artifacts,
                 GE_OBS_TEST_DIR: this.artifacts,
                 GE_SERVER_PORT: String(port),
                 GE_CORE_LIB: undefined,
                 GE_DISABLE_BROWSER_DOCK: "1",
                 GE_UPDATE_CHECK_URL: this.updateUrl,
-                OBS_PLUGINS_PATH: path.dirname(this.pluginDirectory),
-                OBS_PLUGINS_DATA_PATH: path.dirname(this.pluginDirectory),
+                OBS_PLUGINS_PATH: path.join(this.pluginDirectory, "bin/64bit"),
+                OBS_PLUGINS_DATA_PATH: path.dirname(this.dataDirectory),
               },
               stdio: ["ignore", log.fd, log.fd],
-              detached: true,
+              windowsHide: true,
             },
           )
-        : spawn(
-            "flatpak",
-            [
-              "run",
-              "--instance-id-fd=3",
-              "--device=dri",
-              `--filesystem=${this.root}`,
-              "--socket=x11",
-              "--nosocket=wayland",
-              "--nosocket=pulseaudio",
-              `--env=TMPDIR=${this.artifacts}`,
-              `--env=GE_OBS_TEST_DIR=${this.artifacts}`,
-              `--env=GE_SERVER_PORT=${port}`,
-              "--env=GE_DISABLE_BROWSER_DOCK=1",
-              "--unset-env=GE_CORE_LIB",
-              `--env=GE_UPDATE_CHECK_URL=${this.updateUrl}`,
-              `--env=OBS_PLUGINS_PATH=${path.dirname(this.pluginDirectory)}/%module%/bin/64bit`,
-              `--env=OBS_PLUGINS_DATA_PATH=${path.dirname(this.dataDirectory)}`,
-              "--env=LD_LIBRARY_PATH=/app/lib",
-              "--env=QT_QPA_PLATFORM=xcb",
-              ...(this.software ? ["--env=LIBGL_ALWAYS_SOFTWARE=1"] : []),
-              "--command=env",
-              "com.obsproject.Studio",
-              `XDG_CONFIG_HOME=${config}`,
-              `XDG_CACHE_HOME=${this.artifacts}/cache`,
-              "/app/bin/obs",
-              "--collection",
-              "Tests",
-              "--profile",
-              "Tests",
-              "--scene",
-              "Fixture Scene",
-              "--multi",
-              "--disable-missing-files-check",
-            ],
-            { stdio: ["ignore", log.fd, log.fd, "pipe"], detached: true },
-          );
+        : process.platform === "darwin"
+          ? spawn(
+              "/Applications/OBS.app/Contents/MacOS/OBS",
+              [
+                "--collection",
+                "Tests",
+                "--profile",
+                "Tests",
+                "--scene",
+                "Fixture Scene",
+                "--multi",
+                "--disable-missing-files-check",
+              ],
+              {
+                env: {
+                  ...process.env,
+                  // Rust reads HOME; OBS uses Foundation's independently cached home directory.
+                  HOME: path.join(this.artifacts, "home"),
+                  CFFIXED_USER_HOME: path.join(this.artifacts, "home"),
+                  TMPDIR: this.artifacts,
+                  GE_OBS_TEST_DIR: this.artifacts,
+                  GE_SERVER_PORT: String(port),
+                  GE_CORE_LIB: undefined,
+                  GE_DISABLE_BROWSER_DOCK: "1",
+                  GE_UPDATE_CHECK_URL: this.updateUrl,
+                  OBS_PLUGINS_PATH: path.dirname(this.pluginDirectory),
+                  OBS_PLUGINS_DATA_PATH: path.dirname(this.pluginDirectory),
+                },
+                stdio: ["ignore", log.fd, log.fd],
+                detached: true,
+              },
+            )
+          : spawn(
+              "flatpak",
+              [
+                "run",
+                "--instance-id-fd=3",
+                "--device=dri",
+                `--filesystem=${this.root}`,
+                "--socket=x11",
+                "--nosocket=wayland",
+                "--nosocket=pulseaudio",
+                `--env=TMPDIR=${this.artifacts}`,
+                `--env=GE_OBS_TEST_DIR=${this.artifacts}`,
+                `--env=GE_SERVER_PORT=${port}`,
+                "--env=GE_DISABLE_BROWSER_DOCK=1",
+                "--unset-env=GE_CORE_LIB",
+                `--env=GE_UPDATE_CHECK_URL=${this.updateUrl}`,
+                `--env=OBS_PLUGINS_PATH=${path.dirname(this.pluginDirectory)}/%module%/bin/64bit`,
+                `--env=OBS_PLUGINS_DATA_PATH=${path.dirname(this.dataDirectory)}`,
+                "--env=LD_LIBRARY_PATH=/app/lib",
+                "--env=QT_QPA_PLATFORM=xcb",
+                ...(this.software ? ["--env=LIBGL_ALWAYS_SOFTWARE=1"] : []),
+                "--command=env",
+                "com.obsproject.Studio",
+                `XDG_CONFIG_HOME=${config}`,
+                `XDG_CACHE_HOME=${this.artifacts}/cache`,
+                "/app/bin/obs",
+                "--collection",
+                "Tests",
+                "--profile",
+                "Tests",
+                "--scene",
+                "Fixture Scene",
+                "--multi",
+                "--disable-missing-files-check",
+              ],
+              { stdio: ["ignore", log.fd, log.fd, "pipe"], detached: true },
+            );
     this.child.stdio[3]?.on("data", (data: Buffer) => {
       this.instanceId += data.toString();
     });
@@ -578,7 +645,7 @@ export class ObsHarness {
     await this.waitFor(
       "Lua control ready",
       () =>
-        fs.access(path.join(this.artifacts, "response.json")).then(
+        fs.access(path.join(this.artifacts, "response-0.json")).then(
           () => true,
           () => false,
         ),
@@ -602,7 +669,7 @@ export class ObsHarness {
       const status = await this.api("/api/v1/replay-buffer/status");
       return status.available && status.outputDirectory && status;
     });
-    assert.equal(replay.outputDirectory, path.join(this.artifacts, "replays"));
+    assert.equal(path.resolve(replay.outputDirectory), path.join(this.artifacts, "replays"));
     if (this.software) {
       const log = await fs.readFile(path.join(this.artifacts, "obs.log"), "utf8");
       assert.match(
@@ -644,12 +711,22 @@ export class ObsHarness {
   private get configDirectory() {
     return path.join(
       this.artifacts,
-      process.platform === "darwin" ? "home/Library/Application Support" : "config",
+      process.platform === "darwin"
+        ? "home/Library/Application Support"
+        : process.platform === "win32"
+          ? "obs/config"
+          : "config",
     );
   }
 
   private get settingsDirectory() {
-    return process.platform === "darwin" ? "The Golden Eye" : "the-golden-eye";
+    return process.platform === "linux" ? "the-golden-eye" : "The Golden Eye";
+  }
+
+  private async readLog() {
+    return process.platform === "win32"
+      ? readWindowsObsLog(this.configDirectory)
+      : fs.readFile(path.join(this.artifacts, "obs.log"), "utf8");
   }
 
   private async configure() {
@@ -664,7 +741,7 @@ export class ObsHarness {
     );
     await this.write(
       `${config}/obs-studio/basic/profiles/Tests/basic.ini`,
-      `[General]\nName=Tests\n[Video]\nBaseCX=1440\nBaseCY=1080\nOutputCX=640\nOutputCY=480\nFPSType=0\nFPSCommon=30\n[Output]\nMode=Simple\n[SimpleOutput]\nRecRB=true\nRecRBTime=20\nRecRBSize=100\nRecEncoder=x264\nRecQuality=Small\nRecFormat2=mkv\nFilePath=${this.artifacts}/replays\n[Audio]\nSampleRate=48000\nChannelSetup=Stereo\n`,
+      `[General]\nName=Tests\n[Video]\nBaseCX=1440\nBaseCY=1080\nOutputCX=640\nOutputCY=480\nFPSType=0\nFPSCommon=30\n[Output]\nMode=Simple\n[SimpleOutput]\nRecRB=true\nRecRBTime=20\nRecRBSize=100\nRecEncoder=x264\nRecQuality=Small\nRecFormat2=mkv\nFilePath=${this.artifacts.replaceAll("\\", "/")}/replays\n[Audio]\nSampleRate=48000\nChannelSetup=Stereo\n`,
     );
     await fs.mkdir(path.join(this.artifacts, "replays"));
     await this.write(
@@ -711,7 +788,7 @@ export class ObsHarness {
         await this.command({ action: "quit" });
         await Promise.race([this.exit, delay(15000, undefined, { ref: false })]);
         assert.equal(this.child.exitCode, 0, "OBS must exit cleanly");
-        const log = await fs.readFile(path.join(this.artifacts, "obs.log"), "utf8");
+        const log = await this.readLog();
         assert(
           log.slice(this.logStart).includes("Freeing OBS context data"),
           "OBS completed native shutdown",
@@ -727,7 +804,15 @@ export class ObsHarness {
           } catch {}
         }
         try {
-          process.kill(-this.child.pid, "SIGKILL");
+          if (process.platform === "win32") {
+            execFileSync("taskkill", ["/PID", String(this.child.pid), "/T", "/F"], {
+              windowsHide: true,
+              timeout: 5000,
+              stdio: "ignore",
+            });
+          } else {
+            process.kill(-this.child.pid, "SIGKILL");
+          }
         } catch {}
         await Promise.race([this.exit, delay(5000, undefined, { ref: false })]);
       }
@@ -740,7 +825,10 @@ export class ObsHarness {
     ) {
       const signal = (value: NodeJS.Signals) => {
         try {
-          if (this.releaseServer?.pid) process.kill(-this.releaseServer.pid, value);
+          if (this.releaseServer?.pid) {
+            if (process.platform === "win32") this.releaseServer.kill(value);
+            else process.kill(-this.releaseServer.pid, value);
+          }
         } catch (error: any) {
           if (error.code !== "ESRCH") errors.push(error);
         }
@@ -768,6 +856,14 @@ export class ObsHarness {
       await this.eventLog?.close();
     } catch (error) {
       errors.push(error);
+    }
+    if (process.platform === "win32") {
+      try {
+        const log = await this.readLog();
+        if (log) await fs.appendFile(path.join(this.artifacts, "obs.log"), log);
+      } catch (error) {
+        errors.push(error);
+      }
     }
     if (errors.length === 1) throw errors[0];
     if (errors.length) throw new AggregateError(errors, "Multiple OBS cleanup failures");
