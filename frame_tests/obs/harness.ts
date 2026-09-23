@@ -147,10 +147,10 @@ export class ObsHarness {
 
   async command(payload: Record<string, unknown>) {
     const id = ++this.commandId;
-    await this.write("command.tmp", JSON.stringify({ id, ...payload }));
+    await this.write(`command-${id}.tmp`, JSON.stringify({ id, ...payload }));
     await fs.rename(
-      path.join(this.artifacts, "command.tmp"),
-      path.join(this.artifacts, "command.json"),
+      path.join(this.artifacts, `command-${id}.tmp`),
+      path.join(this.artifacts, `command-${id}.json`),
     );
     const response = await this.waitFor(`source command ${id}`, async () => {
       const response = JSON.parse(
@@ -173,10 +173,11 @@ export class ObsHarness {
     return response;
   }
 
-  async fixture(name: string, relative: string, kind = "image_source") {
+  async fixture(name: string, relative: string, kind = "image_source", speedPercent = 100) {
+    assert(Number.isInteger(speedPercent) && speedPercent >= 1 && speedPercent <= 200);
     const file = path.join(this.root, "frame_tests", relative);
     await fs.access(file);
-    await this.command({ name, kind, path: file });
+    await this.command({ name, kind, path: file, speedPercent });
     await this.waitFor(`source ${name}`, async () => {
       const sources = await this.api("/api/v1/sources");
       return sources.some((source: any) => source.name === name && source.id === kind);
@@ -513,9 +514,8 @@ export class ObsHarness {
     await new Promise<void>((resolve) => reservation.close(() => resolve()));
     this.base = `http://127.0.0.1:${port}`;
     if (!this.options.resume) await this.configure();
-    await fs.rm(path.join(this.artifacts, "command.json"), { force: true });
     for (const file of await fs.readdir(this.artifacts)) {
-      if (/^response(?:-\d+)?\.(json|tmp)$/.test(file))
+      if (/^(command|response)(?:-\d+)?\.(json|tmp)$/.test(file))
         await fs.rm(path.join(this.artifacts, file));
     }
     await this.preparePlugin();

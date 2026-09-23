@@ -92,6 +92,7 @@ local function execute(command)
         obs.obs_data_set_bool(settings, "restart_on_activate", false)
         obs.obs_data_set_bool(settings, "clear_on_media_end", false)
         obs.obs_data_set_bool(settings, "hw_decode", false)
+        obs.obs_data_set_int(settings, "speed_percent", obs.obs_data_get_int(command, "speedPercent"))
     end
     if source and obs.obs_source_get_id(source) ~= kind then
         obs.obs_source_release(source)
@@ -111,7 +112,7 @@ local function execute(command)
 end
 
 local function poll()
-    local file = io.open(directory .. "/command.json", "r")
+    local file = io.open(directory .. "/command-" .. (last_id + 1) .. ".json", "r")
     if not file then return end
     local command = obs.obs_data_create_from_json(file:read("*a"))
     file:close()
