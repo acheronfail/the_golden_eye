@@ -408,6 +408,12 @@ jobs:
             echo vcruntime.h was not found under "%VC_INCLUDE%".
             exit /b 1
           )
+          set "VC_BIN=%VCTOOLS_DIR%\bin\Hostx64\x64"
+          if not exist "%VC_BIN%\dumpbin.exe" (
+            echo dumpbin.exe was not found under "%VC_BIN%".
+            exit /b 1
+          )
+          echo %VC_BIN%>> "%GITHUB_PATH%"
           set "INCLUDE=%VC_INCLUDE%;%INCLUDE%"
           set > "%GITHUB_ENV%"
           setlocal EnableDelayedExpansion
