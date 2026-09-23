@@ -18,3 +18,5 @@ jobs:
     name: Build
     uses: ./.github/workflows/build-packages.yml
     secrets: inherit
+    with:
+      package-profile: true

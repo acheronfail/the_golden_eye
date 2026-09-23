@@ -341,7 +341,7 @@ jobs:
       - name: Install system dependencies
         shell: pwsh
         run: |
-          choco install just obs-studio -y --no-progress --fail-on-unfound --fail-on-standard-error
+          choco install just obs-studio ffmpeg -y --no-progress --fail-on-unfound --fail-on-standard-error
 
           $libclang = Get-ChildItem `
             -Path "$env:ProgramFiles\LLVM", "${env:ProgramFiles(x86)}\LLVM" `
@@ -408,6 +408,12 @@ jobs:
             echo vcruntime.h was not found under "%VC_INCLUDE%".
             exit /b 1
           )
+          set "VC_BIN=%VCTOOLS_DIR%\bin\Hostx64\x64"
+          if not exist "%VC_BIN%\dumpbin.exe" (
+            echo dumpbin.exe was not found under "%VC_BIN%".
+            exit /b 1
+          )
+          echo %VC_BIN%>> "%GITHUB_PATH%"
           set "INCLUDE=%VC_INCLUDE%;%INCLUDE%"
           set > "%GITHUB_ENV%"
           setlocal EnableDelayedExpansion
@@ -453,6 +459,37 @@ jobs:
           name: ${{ steps.package.outputs.basename }}
           path: obs2/build/dist/*.zip
           if-no-files-found: error
+
+      - name: Build Windows OBS upgrade fixtures
+        shell: bash
+        timeout-minutes: 30
+        run: just test-obs-upgrade --build-only
+
+      - name: Run Windows OBS upgrade tests
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          builds=(obs2/build/obs-upgrade-builds-*)
+          test "${#builds[@]}" -eq 1
+          node --experimental-strip-types frame_tests/obs/upgrade.ts "${builds[0]}"
+
+      - name: Upload Windows OBS upgrade results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: real-obs-upgrade-results-windows-${{ runner.arch }}
+          path: |
+            obs2/build/real-obs-upgrade-*/
+            obs2/build/obs-upgrade-builds-*/builds.json
+            !obs2/build/real-obs-upgrade-*/**/plugins/**
+            !obs2/build/real-obs-upgrade-*/**/plugins-data/**
+            !obs2/build/real-obs-upgrade-*/**/obs/bin/**
+            !obs2/build/real-obs-upgrade-*/**/obs/data/**
+            !obs2/build/real-obs-upgrade-*/**/obs/obs-plugins/**
+            !obs2/build/real-obs-upgrade-*/**/*.zip
+            !obs2/build/real-obs-upgrade-*/**/*.dll
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Run Rust tests
         shell: bash

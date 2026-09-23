@@ -5,12 +5,54 @@ from __future__ import annotations
 import argparse
 import os
 import platform
+import subprocess
 import sys
+import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
 
 PLUGIN_NAME = "the_golden_eye"
+CORE_ENTRY_POINTS = {
+    "ge_core_load_v2",
+    "ge_core_post_load",
+    "ge_core_commit_update",
+    "ge_core_unload",
+}
+
+
+def validate_core_exports(archive: zipfile.ZipFile, package: str) -> None:
+    if package == "macos":
+        core_path = f"{PLUGIN_NAME}.plugin/Contents/MacOS/libgolden_core.dylib"
+        command = ["nm", "-gUj"]
+    elif package == "windows":
+        core_path = f"{PLUGIN_NAME}/bin/64bit/golden_core.dll"
+        command = ["dumpbin", "/nologo", "/exports"]
+    else:
+        core_path = f"{PLUGIN_NAME}/bin/64bit/libgolden_core.so"
+        command = ["nm", "-D", "--defined-only", "--format=posix"]
+
+    with tempfile.TemporaryDirectory(prefix="ge-package-contract-") as temporary:
+        core = Path(temporary) / PurePosixPath(core_path).name
+        core.write_bytes(archive.read(core_path))
+        result = subprocess.run([*command, str(core)], check=True, capture_output=True, text=True)
+
+    exported = set()
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        if package == "windows":
+            if len(fields) < 4 or not fields[0].isdigit():
+                continue
+            symbol = fields[3]
+        else:
+            symbol = fields[0]
+        exported.add(symbol.removeprefix("_") if package == "macos" else symbol)
+
+    missing = sorted(CORE_ENTRY_POINTS - exported)
+    if missing:
+        raise SystemExit(f"packaged core is missing exported loader entry points: {missing!r}")
 
 
 def package_platform() -> str:
@@ -96,7 +138,7 @@ def validate_obs_run_data(build_dir: Path, archive: zipfile.ZipFile, names: set[
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate The Golden Eye package artifact naming/layout.")
+    parser = argparse.ArgumentParser(description="Validate The Golden Eye package naming, layout, and core exports.")
     parser.add_argument("build_dir", help="CMake build directory containing dist/*.zip")
     args = parser.parse_args()
 
@@ -133,6 +175,9 @@ def main() -> int:
     missing = sorted(path for path in expected_paths if path not in names)
     if missing:
         raise SystemExit(f"{expected_zip_name} is missing required package paths: {missing!r}")
+
+    with zipfile.ZipFile(zip_path) as archive:
+        validate_core_exports(archive, package)
 
     print(f"Package contract OK: {expected_zip_name}")
     return 0

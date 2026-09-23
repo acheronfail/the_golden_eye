@@ -62,7 +62,14 @@ It also checks the `updateApplied` notification. Use the dedicated upgrade suite
 ### Version A to B
 
 Run `just test-obs-upgrade` for a real version transition. On Linux, add `--software-renderer` to use Mesa software rendering.
-The command builds the same current source as `998.0.0` and `998.0.1` through `just make-package`.
+Windows is supported in a logged-in desktop session with OBS Studio, `ffprobe`, and the normal
+MSVC project build environment. The harness finds OBS under Program Files or the current user's
+Scoop installation. For another location, set `GE_OBS_TEST_INSTALLATION` to the directory containing
+`bin/64bit/obs64.exe`. A nonstandard build installation also needs CMake's existing
+`GE_WINDOWS_OBS_ROOT` setting (for example, `just configure Release OFF -DGE_WINDOWS_OBS_ROOT=C:/OBS`).
+The general `just test-obs` suite remains Linux/macOS-only.
+
+The command builds the same current source as `998.0.0` and `998.0.1` through `just make-package-dist`, using the release distribution profile and export restrictions.
 Both builds use the normal release profile and the browser-to-Rust-to-C build chain.
 The runner saves each package before the next build starts. It never installs either package into your personal OBS configuration.
 
@@ -85,7 +92,7 @@ just test-obs-upgrade --reuse-build obs2/build/obs-upgrade-builds-EXAMPLE
 Reuse requires matching source files, platform, architecture, and package checksums. It extracts fresh test inputs from the saved packages.
 Rebuild after compiler or dependency changes. `--build-only` prepares a pair without launching OBS.
 Normal build caches reuse unchanged dependencies. This dedicated suite remains separate from `just test` and `just test-obs`.
-No CI workflow runs it yet. The version transition covers current code with two versions, not compatibility with older implementations or schemas.
+Linux and Windows CI run this suite. The version transition covers current code with two versions, not compatibility with older implementations or schemas.
 
 ### Rollback recovery
 
@@ -115,6 +122,13 @@ former and OBS's Foundation paths use the latter. Settings live under that home'
 no screen, camera, microphone, or input-monitoring permissions are required or granted.
 The launcher clears `GE_CORE_LIB` so a development override cannot replace the built core.
 
+On Windows, the upgrade test copies OBS's runtime directories into the session's `obs/` directory
+and launches that copy in portable mode. It does not copy the installed OBS configuration or
+installed Golden Eye binaries. OBS settings live in `obs/config/obs-studio`; the child process's
+`APPDATA` points at `obs/config` so plugin settings live in `obs/config/The Golden Eye`.
+Temporary captures and replays stay in the session directory. Native OBS logs are retained under
+the portable configuration and copied into `obs.log` at shutdown.
+
 The operating system selects a separate plugin port for each session. Commands use sequence IDs
 and atomic file replacement. Media sources decode their first frame and then pause before monitoring starts. Playback
 restarts only after the monitor and replay buffer report readiness.
@@ -127,7 +141,8 @@ OBS exits, unexpected event-stream disconnection, timeouts, or forced shutdown.
 Ctrl+C requests cleanup. A failed graceful shutdown uses the exact Flatpak instance ID for forced
 cleanup. Other OBS instances are not targeted. Normal shutdown uses OBS's SIGINT handler from inside the test process on both platforms,
 avoiding signals to Flatpak's proxy processes. Forced cleanup on macOS targets only the detached
-test process group. Forced shutdown still fails the scenario.
+test process group. Windows posts `WM_CLOSE` to the test OBS main window; forced cleanup targets
+only that child PID and its descendants. Forced shutdown still fails the scenario.
 
 ## Failure reporting and continuation
 
@@ -181,7 +196,9 @@ CI separates harness checks and build preparation from execution so test steps s
 results without compiler output. It builds upgrade fixtures with `just test-obs-upgrade --build-only`
 and runs `upgrade.ts` under the same display wrapper after uploading the normal plugin package,
 so synthetic upgrade versions cannot replace that artifact.
-The real OBS suites run only in the Linux job; macOS and Windows keep their existing test suites.
+The Linux job runs both real OBS suites. The Windows job installs FFmpeg, builds the same pair of
+distribution fixtures after uploading its normal package, and runs the upgrade suite on the runner's
+Windows desktop. macOS keeps its existing CI test suites.
 
 Install `xvfb`, `xauth`, Mesa, D-Bus, Flatpak, FFmpeg, and the usual project dependencies first. The runner
 must allow Flatpak's user namespaces and sandbox setup. Provision the OBS Flatpak and matching SDK
@@ -194,6 +211,8 @@ CI uploads reports, logs, event traces, captured frames, clips, isolated configu
 upgrade build manifest even on failure, with seven-day retention. It excludes disposable plugin
 copies, template copies, caches, and update archives. Build preparation has a 30-minute limit;
 the repeated suite and upgrade execution have 15-minute and 5-minute limits respectively.
+Windows artifacts also exclude the disposable OBS runtime copy while retaining its configuration
+and native logs.
 
 Software OpenGL covers
 OBS's real rendering and capture code but cannot replace testing on physical GPU drivers. Tests

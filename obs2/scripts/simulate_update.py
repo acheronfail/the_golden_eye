@@ -92,7 +92,7 @@ def build_package(version: str, updater_version: int) -> Path:
         "GE_PLUGIN_VERSION": version,
         "GE_UPDATER_VERSION": str(updater_version),
     }
-    subprocess.run(["just", "make-package"], cwd=ROOT, env=env, check=True)
+    subprocess.run(["just", "make-package-dist"], cwd=ROOT, env=env, check=True)
     matches = [directory / expected_name for directory in DIST_DIRS if (directory / expected_name).is_file()]
     if len(matches) != 1:
         print(

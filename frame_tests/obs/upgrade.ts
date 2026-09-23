@@ -22,9 +22,15 @@ const pluginName = process.platform === "darwin" ? "the_golden_eye.plugin" : "th
 const coreRelative =
   process.platform === "darwin"
     ? "Contents/MacOS/libgolden_core.dylib"
-    : "bin/64bit/libgolden_core.so";
+    : process.platform === "win32"
+      ? "bin/64bit/golden_core.dll"
+      : "bin/64bit/libgolden_core.so";
 const loaderRelative =
-  process.platform === "darwin" ? "Contents/MacOS/the_golden_eye" : "bin/64bit/the_golden_eye.so";
+  process.platform === "darwin"
+    ? "Contents/MacOS/the_golden_eye"
+    : process.platform === "win32"
+      ? "bin/64bit/the_golden_eye.dll"
+      : "bin/64bit/the_golden_eye.so";
 const hash = async (file: string) =>
   createHash("sha256")
     .update(await fs.readFile(file))

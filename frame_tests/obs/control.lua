@@ -1,6 +1,28 @@
 obs = obslua
 local directory = os.getenv("GE_OBS_TEST_DIR")
 local last_id = 0
+local ffi = require("ffi")
+local windows = ffi.os == "Windows"
+local kernel32, user32, frontend
+if windows then
+    ffi.cdef([[
+        int MultiByteToWideChar(unsigned int, unsigned long, const char *, int, wchar_t *, int);
+        int MoveFileExW(const wchar_t *, const wchar_t *, unsigned long);
+        int PostMessageW(void *, unsigned int, uintptr_t, intptr_t);
+        void *obs_frontend_get_main_window_handle(void);
+    ]])
+    kernel32 = ffi.load("kernel32")
+    user32 = ffi.load("user32")
+    frontend = ffi.load("obs-frontend-api")
+end
+
+local function wide(value)
+    local size = kernel32.MultiByteToWideChar(65001, 0, value, -1, nil, 0)
+    assert(size > 0, "Cannot convert path to UTF-16")
+    local result = ffi.new("wchar_t[?]", size)
+    assert(kernel32.MultiByteToWideChar(65001, 0, value, -1, result, size) > 0)
+    return result
+end
 
 local function respond(id, error_message, name)
     local data = obs.obs_data_create()
@@ -17,19 +39,27 @@ local function respond(id, error_message, name)
             obs.obs_source_release(source)
         end
     end
-    local file = assert(io.open(directory .. "/response.tmp", "w"))
+    local response_path = directory .. "/response-" .. id
+    local file = assert(io.open(response_path .. ".tmp", "w"))
     file:write(obs.obs_data_get_json(data))
     file:close()
     obs.obs_data_release(data)
-    assert(os.rename(directory .. "/response.tmp", directory .. "/response.json"))
+    if windows then
+        assert(kernel32.MoveFileExW(wide(response_path .. ".tmp"), wide(response_path .. ".json"), 1) ~= 0)
+    else
+        assert(os.rename(response_path .. ".tmp", response_path .. ".json"))
+    end
 end
 
 local function execute(command)
     local action = obs.obs_data_get_string(command, "action")
     if action == "quit" then
-        local ffi = require("ffi")
-        ffi.cdef("int raise(int signal);")
-        ffi.C.raise(2)
+        if windows then
+            assert(user32.PostMessageW(frontend.obs_frontend_get_main_window_handle(), 0x0010, 0, 0) ~= 0)
+        else
+            ffi.cdef("int raise(int signal);")
+            ffi.C.raise(2)
+        end
         return
     end
     local name = obs.obs_data_get_string(command, "name")
