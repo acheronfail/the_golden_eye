@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 	createManualRun: vi.fn(),
 	importTheElite: vi.fn(),
 	goto: vi.fn(),
+	afterNavigate: vi.fn(),
 	runVideoUrl: vi.fn((path: string) => `/api/v1/runs/video?path=${encodeURIComponent(path)}`),
 	pageUrl: new URL('http://localhost/runs')
 }));
@@ -28,7 +29,7 @@ vi.mock('$app/state', () => ({
 	}
 }));
 
-vi.mock('$app/navigation', () => ({ goto: mocks.goto }));
+vi.mock('$app/navigation', () => ({ goto: mocks.goto, afterNavigate: mocks.afterNavigate }));
 
 vi.mock('$lib/api', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/api')>();
@@ -451,6 +452,17 @@ describe('/runs', () => {
 		expect(dialog).toBeInTheDocument();
 		expect(screen.getByRole('heading', { name: 'Archives run history' })).toBeInTheDocument();
 		expect(within(dialog).getByRole('button', { name: 'Close run viewer' }).closest('header')).not.toBeNull();
+	});
+
+	it('loads and opens an upload link when already on Runs and the run is outside the loaded list', async () => {
+		mocks.getRuns.mockResolvedValueOnce({ ...runsResponse, clips: [], total: 0 });
+		render(RunsPage);
+		await waitFor(() => expect(mocks.getRuns).toHaveBeenCalledTimes(1));
+		const from = { url: mocks.pageUrl };
+		mocks.pageUrl = new URL('http://localhost/runs?runId=deleted-run');
+		mocks.afterNavigate.mock.calls.at(-1)![0]({ from, to: { url: mocks.pageUrl } });
+		expect(await screen.findByRole('dialog', { name: 'Run video' })).toBeInTheDocument();
+		expect(screen.getByRole('heading', { name: 'Archives run history' })).toBeInTheDocument();
 	});
 
 	it('keeps the list and modal in sync after renaming by run ID', async () => {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { backend } from '$lib/api';
 	import ActionMenu from '$lib/ui/ActionMenu.svelte';
@@ -27,6 +27,12 @@
 
 	onMount(() => controller.initialize(navigator.platform));
 	onDestroy(() => controller.destroy());
+	afterNavigate(({ from, to }) => {
+		const runId = to?.url.searchParams.get('runId');
+		if (from?.url.pathname === '/runs' && runId && runId !== from.url.searchParams.get('runId')) {
+			void controller.reload();
+		}
+	});
 
 	$effect(() => {
 		const requestedRunId = page.url.searchParams.get('runId');
