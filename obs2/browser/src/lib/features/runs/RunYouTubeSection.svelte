@@ -162,6 +162,21 @@
 							</button>
 						</div>
 					</div>
+					{#if upload?.state === 'uploading' && upload.progressRatio !== null}
+						<div
+							role="progressbar"
+							aria-label="YouTube upload progress"
+							aria-valuemin={0}
+							aria-valuemax={100}
+							aria-valuenow={Math.round(displayProgress.current * 100)}
+							class="h-2 w-full overflow-hidden rounded bg-black/30"
+						>
+							<div
+								class="h-full w-(--upload-progress) bg-(--obs-gold)"
+								style:--upload-progress={`${Math.max(0, Math.min(100, displayProgress.current * 100))}%`}
+							></div>
+						</div>
+					{/if}
 					<dl class="grid gap-2.5 text-xs sm:grid-cols-[5.5rem_minmax(0,1fr)]">
 						<dt class="pt-1 font-mono obs-dim">Title</dt>
 						<dd class="obs-input px-3 py-2 font-mono text-[11px] leading-relaxed wrap-break-word text-(--obs-text)">
@@ -191,14 +206,6 @@
 			{/if}
 			{#if openUrl}
 				<CopyToClipboard url={openUrl} onOpen={openVideo} />
-			{/if}
-			{#if upload?.state === 'uploading' && upload.progressRatio !== null}
-				<div class="h-2 w-full max-w-sm overflow-hidden rounded bg-black/30">
-					<div
-						class="h-full w-(--upload-progress) bg-(--obs-gold)"
-						style:--upload-progress={`${Math.max(0, Math.min(100, displayProgress.current * 100))}%`}
-					></div>
-				</div>
 			{/if}
 			{#if visibleUploadError}
 				<div class="mt-1 w-full rounded obs-alert-error px-3 py-2 text-left">
