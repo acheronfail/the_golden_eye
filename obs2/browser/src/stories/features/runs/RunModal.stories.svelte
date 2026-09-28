@@ -1,8 +1,11 @@
 <script module lang="ts">
+	import { expect, within } from 'storybook/test';
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import RunDetailStory from './RunDetailStory.svelte';
 	import {
 		completedRun,
+		connectedYouTube,
+		uploadForRun,
 		failedRun,
 		manuallyLinkedYouTubeRun,
 		pendingRun,
@@ -30,3 +33,19 @@
 <Story name="Saving metadata" args={{ modalBusy: 'metadata' }} />
 <Story name="Deleting" args={{ modalBusy: 'delete' }} />
 <Story name="Update failed" args={{ modalError: 'The clip was moved or renamed outside the plugin.' }} />
+
+<Story
+	name="Uploading to YouTube"
+	args={{ status: { ...connectedYouTube, uploads: [uploadForRun('uploading')] } }}
+	play={async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const progress = await canvas.findByRole('progressbar', { name: 'YouTube upload progress' });
+		const editTemplates = canvas.getByRole('link', { name: 'Edit templates' });
+		const upload = canvas.getByRole('button', { name: /Uploading/ });
+		const title = canvas.getByText('Title', { selector: 'dt' });
+		await expect(upload).toBeDisabled();
+		await expect(progress.getBoundingClientRect().top).toBeGreaterThan(editTemplates.getBoundingClientRect().bottom);
+		await expect(progress.getBoundingClientRect().top).toBeGreaterThan(upload.getBoundingClientRect().bottom);
+		await expect(progress.getBoundingClientRect().bottom).toBeLessThan(title.getBoundingClientRect().top);
+	}}
+/>

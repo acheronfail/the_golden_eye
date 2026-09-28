@@ -18,6 +18,10 @@
 <Story name="Connected and ready" args={{ status: connectedYouTube }} />
 <Story name="Upload queued" args={{ status: { ...connectedYouTube, uploads: [uploadForRun('queued')] } }} />
 <Story name="Uploading" args={{ status: { ...connectedYouTube, uploads: [uploadForRun('uploading')] } }} />
+<Story
+	name="Uploading without progress"
+	args={{ status: { ...connectedYouTube, uploads: [uploadForRun('uploading', { progressRatio: null })] } }}
+/>
 <Story name="Processing" args={{ status: { ...connectedYouTube, uploads: [uploadForRun('processing')] } }} />
 <Story name="Upload failed" args={{ status: { ...connectedYouTube, uploads: [uploadForRun('failed')] } }} />
 <Story name="Uploaded" args={{ status: { ...connectedYouTube, uploads: [uploadForRun('uploaded')] } }} />
