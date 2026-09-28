@@ -113,7 +113,13 @@ pub async fn handle_forget(
 pub async fn handle_upload(State(state): State<AppState>, Json(req): Json<UploadRequest>) -> Result<impl IntoResponse> {
     let (upload, created) = state
         .youtube
-        .queue_upload(&state.settings, &req.path, req.datetime_local.as_deref(), state.event_tx.clone())
+        .queue_upload(
+            &state.settings,
+            &req.path,
+            req.datetime_local.as_deref(),
+            crate::youtube_uploads::UploadTrigger::Manual,
+            state.event_tx.clone(),
+        )
         .map_err(queue_error_response)?;
     Ok((if created { StatusCode::ACCEPTED } else { StatusCode::OK }, Json(upload)))
 }

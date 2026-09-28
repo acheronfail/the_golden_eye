@@ -122,6 +122,7 @@ async fn cancellation_releases_queued_upload_and_allows_distinct_retry() {
     let (events, mut receiver) = tokio::sync::broadcast::channel(8);
     let request = upload::UploadRequest {
         upload_id: status.id.clone(),
+        run_id: status.run_id.clone(),
         path: "clip.mov".into(),
         title: "Run".into(),
         description: String::new(),
