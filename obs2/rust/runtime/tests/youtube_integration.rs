@@ -18,6 +18,7 @@ use crate::support::harness::{API, Harness, recording_settings};
 struct YoutubeMockState {
     token_calls: Mutex<Vec<Value>>,
     upload_chunks: Mutex<Vec<String>>,
+    upload_metadata: Mutex<Vec<Value>>,
 }
 
 async fn token_endpoint(State(state): State<Arc<YoutubeMockState>>, body: Bytes) -> Json<Value> {
@@ -40,7 +41,12 @@ async fn userinfo_endpoint() -> Json<Value> {
     }))
 }
 
-async fn start_upload(State(state): State<Arc<YoutubeMockState>>, headers: HeaderMap) -> Response {
+async fn start_upload(
+    State(state): State<Arc<YoutubeMockState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    state.upload_metadata.lock().unwrap().push(body);
     state.upload_chunks.lock().unwrap().push("start".to_owned());
     let host = headers.get(axum::http::header::HOST).and_then(|value| value.to_str().ok()).unwrap();
     let mut response = StatusCode::OK.into_response();
@@ -318,5 +324,124 @@ async fn wait_for_uploaded(harness: &Harness) -> Value {
         }
         assert!(Instant::now() < deadline, "timed out waiting for YouTube upload; status: {status}");
         tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn youtube_personal_best_auto_upload_uses_templates_and_ignores_ties() {
+    let (base_url, mock, shutdown, server) = start_youtube_mock().await;
+    let token_file = std::env::temp_dir().join(format!("ge-youtube-auto-pb-{}.json", std::process::id()));
+    let _ = std::fs::remove_file(&token_file);
+    set_youtube_env(&base_url, Some(&token_file));
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        recording_settings(&temp.join("clips"), &temp.join("failed"))
+    })
+    .await;
+    connect_youtube(&harness).await;
+    harness.start_monitor().await.error_for_status().unwrap();
+    let mut events = harness.connect_event_stream().await;
+    let mut settings: Value =
+        harness.client.get(format!("{API}/api/v1/settings/status")).send().await.unwrap().json().await.unwrap();
+    let mut settings = settings["settings"].take();
+    settings["youtubeAutoUploadPersonalBests"] = json!(true);
+    settings["youtubeVisibility"] = json!("private");
+    settings["youtubeTitleTemplate"] = json!("PB: {level} - {difficulty} - {time}");
+    settings["youtubeDescriptionTemplate"] = json!("Recorded {datetime_local} / {level}");
+    harness
+        .client
+        .put(format!("{API}/api/v1/settings"))
+        .json(&settings)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let saved = record_youtube_test_run(&harness).await;
+    let event = wait_for_event_type(&mut events, "youtubePersonalBestUploadStarted").await;
+    let status = wait_for_uploaded(&harness).await;
+    assert_eq!(status["uploads"].as_array().unwrap().len(), 1);
+    assert_eq!(event["upload"]["path"], saved["path"]);
+    assert_eq!(event["upload"]["runId"], status["uploads"][0]["runId"]);
+    {
+        let bodies = mock.upload_metadata.lock().unwrap();
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(bodies[0]["status"]["privacyStatus"], "private");
+        assert!(bodies[0]["snippet"]["title"].as_str().unwrap().starts_with("PB: Runway - Agent - "));
+        let description = bodies[0]["snippet"]["description"].as_str().unwrap();
+        assert!(description.starts_with("Recorded ") && description.ends_with(" / Runway"));
+        assert!(!description.contains('{'), "unrendered description: {description}");
+    }
+
+    record_youtube_test_run(&harness).await;
+    harness.stop_monitor().await.error_for_status().unwrap();
+    assert_eq!(mock.upload_metadata.lock().unwrap().len(), 1, "a tied PB must not start another upload");
+    drop(harness);
+    clear_youtube_env();
+    shutdown.send(()).unwrap();
+    server.await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn youtube_personal_best_auto_upload_requires_opt_in_and_connection() {
+    for (enabled, connected) in [(false, true), (true, false)] {
+        let (base_url, mock, shutdown, server) = start_youtube_mock().await;
+        let token_file = std::env::temp_dir().join(format!("ge-youtube-pb-gate-{enabled}-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&token_file);
+        set_youtube_env(&base_url, Some(&token_file));
+        let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+            let mut settings = recording_settings(&temp.join("clips"), &temp.join("failed"));
+            settings["youtubeAutoUploadPersonalBests"] = json!(enabled);
+            settings
+        })
+        .await;
+        if connected {
+            connect_youtube(&harness).await;
+        }
+        harness.start_monitor().await.error_for_status().unwrap();
+        record_youtube_test_run(&harness).await;
+        harness.stop_monitor().await.error_for_status().unwrap();
+        let status: Value =
+            harness.client.get(format!("{API}/api/v1/youtube/status")).send().await.unwrap().json().await.unwrap();
+        assert_eq!(status["uploads"], json!([]));
+        assert!(mock.upload_metadata.lock().unwrap().is_empty());
+        drop(harness);
+        clear_youtube_env();
+        shutdown.send(()).unwrap();
+        server.await.unwrap();
+    }
+}
+
+async fn record_youtube_test_run(harness: &Harness) -> Value {
+    let mut events = harness.connect_event_stream().await;
+    let start = harness.frame("frame_tests/screenshots-av2hdmi/en - start - 03 - Agent.png");
+    harness.render_until_state(&start, "started").await;
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let complete = harness.frame("frame_tests/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png");
+    harness.render_until_state(&complete, "complete").await;
+    let stats = harness.frame("frame_tests/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png");
+    harness.obs.render(stats);
+    wait_for_event_type(&mut events, "recordingSaved").await
+}
+
+async fn wait_for_event_type(
+    events: &mut tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    event_type: &str,
+) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let message = tokio::time::timeout(deadline.saturating_duration_since(Instant::now()), events.next())
+            .await
+            .expect("timed out waiting for app event")
+            .expect("app event stream closed")
+            .expect("app event stream failed");
+        if let Ok(text) = message.into_text() {
+            let event: Value = serde_json::from_str(&text).unwrap();
+            if event["type"] == event_type {
+                return event;
+            }
+        }
     }
 }

@@ -68,6 +68,9 @@ pub enum AppEvent {
     UpdateStagingFailed { error: String },
     /// A YouTube upload was queued, progressed, completed, or failed.
     YoutubeUploadChanged { upload: crate::youtube_uploads::YoutubeUploadStatus },
+    /// A newly saved personal best was automatically queued for upload.
+    #[cfg_attr(test, allow(dead_code))]
+    YoutubePersonalBestUploadStarted { upload: crate::youtube_uploads::YoutubeUploadStatus },
     /// YouTube connection state changed in another browser client.
     YoutubeStatusChanged { status: crate::youtube_uploads::YoutubeStatus },
 }

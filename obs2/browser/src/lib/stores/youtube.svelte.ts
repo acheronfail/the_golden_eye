@@ -141,6 +141,18 @@ export const youtube = new (class {
 		}
 	}
 
+	handlePersonalBestUploadStarted(upload: YouTubeUploadStatus): void {
+		addNotificationFlag({
+			key: `youtube-pb-${upload.id}`,
+			title: 'Personal best detected — upload started',
+			detail: upload.title || upload.fileName,
+			meta: 'Your run was added to the YouTube upload queue. Click to view it.',
+			tone: 'success',
+			timeoutMs: 8000,
+			href: `/runs?runId=${encodeURIComponent(upload.runId)}`
+		});
+	}
+
 	applyUpload(status: YouTubeUploadStatus): void {
 		const next = this.uploads.filter((upload) => upload.id !== status.id);
 		next.push(status);

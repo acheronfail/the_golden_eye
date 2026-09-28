@@ -36,6 +36,7 @@ use crate::run_monitoring::publication::{
     ReplaySaveStateStore,
     ReplaySaveStatus,
 };
+use crate::youtube_uploads::PersonalBestUploader;
 
 /// A replay save taking this long is unusual, but OBS can still complete it.
 /// Keep ownership of the request so a late identity-less event remains attached
@@ -86,6 +87,7 @@ fn save_pending_event(pending: &PendingSave, policy: RunDetectionPolicy, now: In
 }
 
 pub(super) struct SavePipeline {
+    pub(super) personal_best_uploader: Option<PersonalBestUploader>,
     event_tx: broadcast::Sender<AppEvent>,
     pub(super) recording_state: RecordingStateStore,
     pub(super) replay_saves: ReplaySaveStateStore,
@@ -107,6 +109,7 @@ impl SavePipeline {
         run_catalog: Arc<RunCatalog>,
     ) -> Self {
         Self {
+            personal_best_uploader: None,
             event_tx,
             recording_state,
             replay_saves,
@@ -172,6 +175,7 @@ impl SavePipeline {
         let finish_before_save_secs = now.saturating_duration_since(pending.finish_at).as_secs_f64();
         let trim_tail_secs = (finish_before_save_secs - policy.post_run_padding_secs).max(0.0);
         SaveAndTrimJob {
+            personal_best_uploader: self.personal_best_uploader.clone(),
             tracking_id: pending.tracking_id,
             save_id: pending.save_id,
             start_before_save_secs,
@@ -220,6 +224,8 @@ impl SavePipeline {
 /// Inputs for saving the replay buffer and trimming it to the run window on a
 /// dedicated thread.
 pub(super) struct SaveAndTrimJob {
+    #[cfg_attr(test, allow(dead_code))]
+    personal_best_uploader: Option<PersonalBestUploader>,
     pub(super) tracking_id: u64,
     pub(super) save_id: u64,
     pub(super) start_before_save_secs: f64,
@@ -308,6 +314,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
 
     let ResolvedReplay { path, safe_to_delete } = resolved;
     job.replay_saves.transition(job.tracking_id, ReplaySaveStage::Trimming);
+    let metadata = job.metadata.clone();
     let run_id = job.metadata.run_id.clone();
     match trim_clip(TrimClipRequest {
         save_id: job.save_id,
@@ -323,6 +330,9 @@ fn save_and_trim(job: SaveAndTrimJob) {
         run_catalog: &job.run_catalog,
     }) {
         Ok(saved) => {
+            if let Some(uploader) = job.personal_best_uploader {
+                uploader.clip_saved(&saved.path, &metadata);
+            }
             if safe_to_delete {
                 remove_replay_file_after_trim(&path, &saved.path);
             } else {

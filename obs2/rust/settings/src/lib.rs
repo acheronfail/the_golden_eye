@@ -100,6 +100,7 @@ pub struct AppSettings {
     #[ts(skip)]
     pub last_known_update_release_url: Option<String>,
     pub auto_update_enabled: bool,
+    pub youtube_auto_upload_personal_bests: bool,
     pub youtube_visibility: YoutubeVisibility,
     pub youtube_title_template: String,
     pub youtube_description_template: String,
@@ -131,6 +132,7 @@ impl Default for AppSettings {
             last_known_update_version: None,
             last_known_update_release_url: None,
             auto_update_enabled: false,
+            youtube_auto_upload_personal_bests: false,
             youtube_visibility: DEFAULT_YOUTUBE_VISIBILITY,
             youtube_title_template: DEFAULT_YOUTUBE_TITLE_TEMPLATE.to_owned(),
             youtube_description_template: DEFAULT_YOUTUBE_DESCRIPTION_TEMPLATE.to_owned(),

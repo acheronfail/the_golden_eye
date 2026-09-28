@@ -1,16 +1,19 @@
 <script lang="ts">
 	import type { YouTubeStatus } from '$lib/api';
 	import SettingsYouTube from '$lib/features/settings/SettingsYouTube.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
 	import { youtube } from '$lib/stores/youtube.svelte';
 
 	let {
 		status,
+		autoUploadPersonalBests = false,
 		connecting = false,
 		cancelling = false,
 		disconnecting = false,
 		error = null
 	}: {
 		status: YouTubeStatus;
+		autoUploadPersonalBests?: boolean;
 		connecting?: boolean;
 		cancelling?: boolean;
 		disconnecting?: boolean;
@@ -19,6 +22,7 @@
 
 	$effect(() => {
 		youtube.applyStatus(status);
+		settings.values.youtubeAutoUploadPersonalBests = autoUploadPersonalBests;
 		youtube.connecting = connecting;
 		youtube.cancelling = cancelling;
 		youtube.disconnecting = disconnecting;

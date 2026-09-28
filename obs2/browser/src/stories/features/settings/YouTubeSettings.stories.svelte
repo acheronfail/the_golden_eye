@@ -17,3 +17,5 @@
 <Story name="Connection failed" args={{ error: 'The OAuth callback timed out. Cancel and try connecting again.' }} />
 <Story name="Connected" args={{ status: connectedYouTube }} />
 <Story name="Disconnecting" args={{ status: connectedYouTube, disconnecting: true }} />
+
+<Story name="Automatic PB uploads enabled" args={{ status: connectedYouTube, autoUploadPersonalBests: true }} />

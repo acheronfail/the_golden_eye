@@ -39,6 +39,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	stopAppSocket();
+	vi.useRealTimers();
 	receiveEvent = undefined;
 });
 
@@ -77,6 +78,25 @@ describe('app event socket', () => {
 				timeoutMs: 8000
 			})
 		]);
+	});
+
+	it('shows a timed PB upload notification linking to the run without overwriting live progress', () => {
+		vi.useFakeTimers();
+		startAppSocket();
+		const upload = uploadForRun('queued', { id: 'pb-notification', runId: 'run/with spaces' });
+		receiveEvent?.({ type: 'youtubeUploadChanged', upload: { ...upload, state: 'uploading', progressRatio: 0.5 } });
+		receiveEvent?.({ type: 'youtubePersonalBestUploadStarted', upload });
+		expect(notifications.flags).toEqual([
+			expect.objectContaining({
+				title: 'Personal best detected — upload started',
+				detail: upload.title,
+				href: '/runs?runId=run%2Fwith%20spaces',
+				timeoutMs: 8000
+			})
+		]);
+		expect(youtube.uploads[0].progressRatio).toBe(0.5);
+		vi.advanceTimersByTime(8000);
+		expect(notifications.flags).toEqual([]);
 	});
 
 	it('does not notify when a YouTube upload starts or completes', () => {
