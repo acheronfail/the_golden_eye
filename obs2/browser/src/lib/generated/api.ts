@@ -250,6 +250,6 @@ export type YouTubeStatus = { enabled: boolean, oauthConfigured: boolean, connec
 
 export type YouTubeUploadHistoryEntry = { path: string, videoId: string, videoUrl: string, uploadedAt?: string, title: string, source: YouTubeAssociationSource, };
 
-export type YouTubeUploadState = "queued" | "uploading" | "processing" | "uploaded" | "failed";
+export type YouTubeUploadState = "queued" | "uploading" | "processing" | "cancelling" | "cancelled" | "uploaded" | "failed";
 
 export type YouTubeUploadStatus = { id: string, runId: string, path: string, fileName: string, state: YouTubeUploadState, progressBytes: number, totalBytes: number | null, progressRatio: number | null, videoId: string | null, videoUrl: string | null, error: string | null, title: string, startedAt: string, finishedAt: string | null, };

@@ -4,6 +4,7 @@
 	import { linear } from 'svelte/easing';
 	import { Tween } from 'svelte/motion';
 	import { backend, type RunClip } from '$lib/api';
+	import YouTubeUploadCancel from '$lib/features/youtube/YouTubeUploadCancel.svelte';
 	import YouTubeConnectButton from '$lib/features/youtube/YouTubeConnectButton.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { youtube } from '$lib/stores/youtube.svelte';
@@ -43,6 +44,7 @@
 		if (!upload) return 'Upload';
 		if (upload.state === 'queued') return 'Queued...';
 		if (upload.state === 'uploading') return progressLabel ? `Uploading ${progressLabel}...` : 'Uploading...';
+		if (upload.state === 'cancelling') return 'Cancelling…';
 		if (upload.state === 'processing') return 'Processing...';
 		if (upload.state === 'uploaded') return 'Uploaded';
 		return 'Upload';
@@ -53,6 +55,7 @@
 			upload?.state === 'queued' ||
 			upload?.state === 'uploading' ||
 			upload?.state === 'processing' ||
+			upload?.state === 'cancelling' ||
 			upload?.state === 'uploaded' ||
 			(!upload && history !== null)
 	);
@@ -160,9 +163,13 @@
 							>
 								{buttonLabel}
 							</button>
+							{#if upload}<YouTubeUploadCancel {upload} />{/if}
 						</div>
 					</div>
-					{#if upload?.state === 'uploading' && upload.progressRatio !== null}
+					{#if upload?.state === 'cancelled'}
+						<p role="status" class="text-xs obs-dim">Upload cancelled. You can upload this clip again.</p>
+					{/if}
+					{#if (upload?.state === 'uploading' || upload?.state === 'cancelling') && upload.progressRatio !== null}
 						<div
 							role="progressbar"
 							aria-label="YouTube upload progress"

@@ -8,6 +8,7 @@ pub(crate) use upload::QueueError;
 mod oauth;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -19,6 +20,7 @@ pub(crate) use oauth::{CallbackError, ConnectError, DisconnectError, OAUTH_CALLB
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
 
 use crate::settings::{AppSettings, SettingsStore};
 use crate::template_tokens::RunTemplateTokens;
@@ -39,6 +41,7 @@ pub struct YoutubeUploadStore {
 struct YoutubeUploadInner {
     uploads: HashMap<String, YoutubeUploadStatus>,
     path_to_active_id: HashMap<String, String>,
+    cancellations: HashMap<String, CancellationToken>,
 }
 
 impl YoutubeUploadStore {
@@ -55,6 +58,7 @@ impl YoutubeUploadStore {
             inner: Arc::new(Mutex::new(YoutubeUploadInner {
                 uploads: HashMap::new(),
                 path_to_active_id: HashMap::new(),
+                cancellations: HashMap::new(),
             })),
             pending_oauth: Arc::new(tokio::sync::Mutex::new(None)),
             semaphore: Arc::new(Semaphore::new(UPLOAD_CONCURRENCY)),
@@ -134,6 +138,7 @@ impl YoutubeUploadStore {
         };
         let mut inner = self.inner.lock().unwrap();
         inner.path_to_active_id.insert(path_string, id.clone());
+        inner.cancellations.insert(id.clone(), CancellationToken::new());
         inner.uploads.insert(id, status.clone());
         status
     }
@@ -145,16 +150,47 @@ impl YoutubeUploadStore {
     ) -> Option<YoutubeUploadStatus> {
         let mut inner = self.inner.lock().unwrap();
         let status = inner.uploads.get_mut(id)?;
-        update(status);
-        let finished = matches!(status.state, YoutubeUploadState::Uploaded | YoutubeUploadState::Failed);
+        if status.state.is_terminal() {
+            return None;
+        }
+        let mut next = status.clone();
+        update(&mut next);
+        if status.state == YoutubeUploadState::Cancelling && !next.state.is_terminal() {
+            return None;
+        }
+        *status = next;
+        let finished = status.state.is_terminal();
         if finished {
             status.finished_at.get_or_insert_with(now_iso);
         }
         let cloned = status.clone();
         if finished {
+            inner.cancellations.remove(id);
             inner.path_to_active_id.retain(|_, active_id| active_id != id);
         }
         Some(cloned)
+    }
+
+    pub(crate) fn cancel_upload(
+        &self,
+        id: &str,
+        events: &tokio::sync::broadcast::Sender<crate::app::AppEvent>,
+    ) -> Option<YoutubeUploadStatus> {
+        let mut inner = self.inner.lock().unwrap();
+        let status = inner.uploads.get_mut(id)?;
+        if !status.state.is_terminal() {
+            status.state = YoutubeUploadState::Cancelling;
+        }
+        let status = status.clone();
+        if let Some(token) = inner.cancellations.get(id) {
+            token.cancel();
+        }
+        let _ = events.send(crate::app::AppEvent::YoutubeUploadChanged { upload: status.clone() });
+        Some(status)
+    }
+
+    fn cancellation(&self, id: &str) -> CancellationToken {
+        self.inner.lock().unwrap().cancellations.get(id).expect("queued upload has cancellation token").clone()
     }
 
     pub fn read_history(&self) -> Vec<UploadHistoryEntry> {
@@ -190,15 +226,14 @@ impl YoutubeUploadStore {
             .uploads
             .iter()
             .filter_map(|(id, upload)| {
-                paths_match_for_current_platform(&upload.path, display_path).then_some(id.clone())
+                (upload.state.is_terminal() && paths_match_for_current_platform(&upload.path, display_path))
+                    .then_some(id.clone())
             })
             .collect::<Vec<_>>();
         for id in &ids {
             inner.uploads.remove(id);
         }
-        inner
-            .path_to_active_id
-            .retain(|path, id| !paths_match_for_current_platform(path, display_path) && !ids.contains(id));
+        inner.path_to_active_id.retain(|_, id| !ids.contains(id));
         ids.len()
     }
 
@@ -255,8 +290,16 @@ pub enum YoutubeUploadState {
     Queued,
     Uploading,
     Processing,
+    Cancelling,
+    Cancelled,
     Uploaded,
     Failed,
+}
+
+impl YoutubeUploadState {
+    fn is_terminal(self) -> bool {
+        matches!(self, Self::Uploaded | Self::Failed | Self::Cancelled)
+    }
 }
 
 pub fn render_youtube_metadata(
@@ -276,9 +319,11 @@ pub fn render_youtube_metadata(
 }
 
 fn upload_id(path: &Path, now: SystemTime) -> String {
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
     let mut hasher = Sha256::new();
     hasher.update(path.to_string_lossy().as_bytes());
-    hasher.update(unix_secs(now).to_le_bytes());
+    hasher.update(now.duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_nanos().to_le_bytes());
+    hasher.update(NEXT_ID.fetch_add(1, Ordering::Relaxed).to_le_bytes());
     hasher.update(std::process::id().to_le_bytes());
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize())
 }

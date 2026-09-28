@@ -8,7 +8,7 @@ import {
 } from '$lib/api';
 
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-const terminalUploadStates = new Set(['uploaded', 'failed']);
+const terminalUploadStates = new Set(['uploaded', 'failed', 'cancelled']);
 
 const currentPlatform = (): string => (typeof navigator === 'undefined' ? '' : navigator.platform.toLowerCase());
 
@@ -38,6 +38,8 @@ export const youtube = new (class {
 	account = $state<YouTubeAccount | null>(null);
 	uploads = $state<YouTubeUploadStatus[]>([]);
 	history = $state<YouTubeUploadHistoryEntry[]>([]);
+	cancellingUploadIds = $state<string[]>([]);
+	uploadCancelErrors = $state<Record<string, string>>({});
 	private notifiedFailedIds = new Set<string>();
 
 	async load(): Promise<void> {
@@ -105,6 +107,19 @@ export const youtube = new (class {
 		}
 	}
 
+	async cancelUpload(id: string): Promise<void> {
+		if (this.cancellingUploadIds.includes(id)) return;
+		this.cancellingUploadIds = [...this.cancellingUploadIds, id];
+		delete this.uploadCancelErrors[id];
+		try {
+			this.handleUploadChanged(await backend.cancelYouTubeUpload(id));
+		} catch (err) {
+			this.uploadCancelErrors[id] = errorMessage(err);
+		} finally {
+			this.cancellingUploadIds = this.cancellingUploadIds.filter((pending) => pending !== id);
+		}
+	}
+
 	async forget(path: string): Promise<void> {
 		this.error = null;
 		try {
@@ -126,6 +141,21 @@ export const youtube = new (class {
 	}
 
 	handleUploadChanged(upload: YouTubeUploadStatus): void {
+		const previous = this.uploads.find((item) => item.id === upload.id);
+		if (
+			upload.state === 'uploaded' &&
+			previous?.state !== 'uploaded' &&
+			(previous?.state === 'cancelling' || this.cancellingUploadIds.includes(upload.id))
+		) {
+			addNotificationFlag({
+				key: `youtube-completed-${upload.id}`,
+				title: 'Upload completed before cancellation',
+				detail: upload.title || upload.fileName,
+				tone: 'info',
+				timeoutMs: 8000,
+				href: `/runs?runId=${encodeURIComponent(upload.runId)}`
+			});
+		}
 		this.applyUpload(upload);
 		if (upload.state === 'failed' && !this.notifiedFailedIds.has(upload.id)) {
 			this.notifiedFailedIds.add(upload.id);
@@ -154,6 +184,13 @@ export const youtube = new (class {
 	}
 
 	applyUpload(status: YouTubeUploadStatus): void {
+		const previous = this.uploads.find((upload) => upload.id === status.id);
+		if (
+			previous &&
+			(terminalUploadStates.has(previous.state) ||
+				(previous.state === 'cancelling' && !terminalUploadStates.has(status.state)))
+		)
+			return;
 		const next = this.uploads.filter((upload) => upload.id !== status.id);
 		next.push(status);
 		next.sort((a, b) => a.startedAt.localeCompare(b.startedAt));

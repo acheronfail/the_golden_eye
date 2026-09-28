@@ -194,6 +194,10 @@ export class Backend {
 		return this.postJson('/api/v1/youtube/upload', { path, ...options });
 	}
 
+	public cancelYouTubeUpload(id: string): Promise<YouTubeUploadStatus> {
+		return this.post(`/api/v1/youtube/uploads/${encodeURIComponent(id)}/cancel`);
+	}
+
 	public openYouTubeUrl(url: string): Promise<void> {
 		return this.postJsonVoid('/api/v1/youtube/open', { url });
 	}
