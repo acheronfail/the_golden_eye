@@ -1,7 +1,9 @@
 mod credentials;
 pub use credentials::YoutubeAccount;
 use credentials::{YoutubeConfig, YoutubeCredentialStore, youtube_credential_store};
+mod personal_bests;
 mod upload;
+pub(crate) use personal_bests::PersonalBestUploader;
 pub(crate) use upload::QueueError;
 mod oauth;
 use std::collections::HashMap;

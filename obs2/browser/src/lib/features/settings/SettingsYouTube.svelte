@@ -54,6 +54,26 @@
 				</button>
 			</div>
 
+			<div class="grid gap-1">
+				<label class="flex items-center gap-3">
+					<input
+						type="checkbox"
+						class="obs-checkbox rounded"
+						checked={settings.values.youtubeAutoUploadPersonalBests}
+						onchange={(event) => {
+							settings.values.youtubeAutoUploadPersonalBests = event.currentTarget.checked;
+							settings.saveImmediately();
+						}}
+						aria-describedby="youtube-auto-upload-hint"
+					/>
+					<span class={styles.label}>Automatically upload personal bests (PBs)</span>
+				</label>
+				<p id="youtube-auto-upload-hint" class={styles.hint}>
+					Upload newly recorded runs detected as personal bests after their clips are saved, using the visibility,
+					title, and description below.
+				</p>
+			</div>
+
 			<label class="grid gap-1">
 				<span class={styles.label}>Visibility</span>
 				<Select

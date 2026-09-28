@@ -6,7 +6,7 @@ export type UpdateCheckInterval = "monthly" | "weekly" | "daily" | "never";
 
 export type YoutubeVisibility = "public" | "unlisted" | "private";
 
-export type AppSettings = { stopReplayBufferWhenMonitorStopped: boolean, stopReplayBufferPromptShown: boolean, monitorDesign: MonitorDesign, showMonitorFps: boolean, showInGameTimer: boolean, showDeveloperSettings: boolean, showSourcePreviews: boolean, lastUsedSourceName: string | null, welcomeModalShown: boolean, completedOutputPath: string, recentRunLimit: number, clipFilenameTemplate: string, preRunPaddingSecs: number, postRunPaddingSecs: number, discordNotificationsEnabled: boolean, discordWebhookUrl: string, streamingStartedMessageTemplate: string, streamingStoppedMessageTemplate: string, updateCheckInterval: UpdateCheckInterval, lastUpdateCheckTime: number | null, autoUpdateEnabled: boolean, youtubeVisibility: YoutubeVisibility, youtubeTitleTemplate: string, youtubeDescriptionTemplate: string, };
+export type AppSettings = { stopReplayBufferWhenMonitorStopped: boolean, stopReplayBufferPromptShown: boolean, monitorDesign: MonitorDesign, showMonitorFps: boolean, showInGameTimer: boolean, showDeveloperSettings: boolean, showSourcePreviews: boolean, lastUsedSourceName: string | null, welcomeModalShown: boolean, completedOutputPath: string, recentRunLimit: number, clipFilenameTemplate: string, preRunPaddingSecs: number, postRunPaddingSecs: number, discordNotificationsEnabled: boolean, discordWebhookUrl: string, streamingStartedMessageTemplate: string, streamingStoppedMessageTemplate: string, updateCheckInterval: UpdateCheckInterval, lastUpdateCheckTime: number | null, autoUpdateEnabled: boolean, youtubeAutoUploadPersonalBests: boolean, youtubeVisibility: YoutubeVisibility, youtubeTitleTemplate: string, youtubeDescriptionTemplate: string, };
 
 export const MAX_RECENT_RUN_LIMIT = 20;
 
@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   "streamingStoppedMessageTemplate": "🔴 Bond stopped streaming at <t:{unix_seconds}:F>: {broadcast_url}",
   "updateCheckInterval": "weekly",
   "welcomeModalShown": false,
+  "youtubeAutoUploadPersonalBests": false,
   "youtubeDescriptionTemplate": "Achieved at {datetime_local}\n\nRecorded with The Golden Eye {plugin_version}.",
   "youtubeTitleTemplate": "{level} - {difficulty} - {time}",
   "youtubeVisibility": "unlisted"

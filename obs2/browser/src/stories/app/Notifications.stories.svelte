@@ -31,3 +31,20 @@
 <Story name="Update download failed" args={{ flags: notificationScenarios.updateDownloadFailed }} />
 <Story name="Update apply failed" args={{ flags: notificationScenarios.updateApplyFailed }} />
 <Story name="Update check result" args={{ flags: notificationScenarios.updateCheckResult }} />
+
+<Story
+	name="Personal best upload started"
+	args={{
+		flags: [
+			{
+				id: 200,
+				title: 'Personal best detected — upload started',
+				detail: 'Facility - 00 Agent - 00:58',
+				meta: 'Your run was added to the YouTube upload queue. Click to view it.',
+				tone: 'success',
+				timeoutMs: 8000,
+				href: '/runs?runId=personal-best-run'
+			}
+		]
+	}}
+/>

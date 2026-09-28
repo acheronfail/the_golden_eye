@@ -18,7 +18,7 @@ export type AppEvent = { "type": "version", buildId: string, } | { "type": "snap
  * `last_known_update_version` matches the running version (i.e. this is
  * the update just applied). `None` otherwise, to avoid a wrong link.
  */
-releaseUrl?: string, } | { "type": "updateStagingFailed", error: string, } | { "type": "youtubeUploadChanged", upload: YouTubeUploadStatus, } | { "type": "youtubeStatusChanged", status: YouTubeStatus, };
+releaseUrl?: string, } | { "type": "updateStagingFailed", error: string, } | { "type": "youtubeUploadChanged", upload: YouTubeUploadStatus, } | { "type": "youtubePersonalBestUploadStarted", upload: YouTubeUploadStatus, } | { "type": "youtubeStatusChanged", status: YouTubeStatus, };
 
 export type AppSnapshot = { monitor: MonitorSnapshot, match: LevelMatch | null, runCatalogSync: RunCatalogSync | null, recordingState: RecordingStatus | null, replaySaves: Array<ReplaySaveStatus>, sources: Array<ObsSource>, replayBuffer: ReplayBufferStatus, settingsStatus: SettingsStatus, update: UpdateStatus, };
 

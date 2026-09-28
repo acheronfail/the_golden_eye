@@ -78,6 +78,9 @@ const handleAppEvent = (event: AppEvent): void => {
 		case 'youtubeUploadChanged':
 			youtube.handleUploadChanged(event.upload);
 			break;
+		case 'youtubePersonalBestUploadStarted':
+			youtube.handlePersonalBestUploadStarted(event.upload);
+			break;
 		case 'youtubeStatusChanged':
 			youtube.applyStatus(event.status);
 			break;

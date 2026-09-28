@@ -49,6 +49,7 @@ fn missing_fields_use_the_complete_contract_default() {
     assert_eq!(defaults.pre_run_padding_secs, DEFAULT_PRE_RUN_PADDING_SECS);
     assert_eq!(defaults.recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
     assert!(defaults.show_source_previews);
+    assert!(!defaults.youtube_auto_upload_personal_bests);
     assert_eq!(settings_from_json(json!({ "monitorDesign": "debug" })).monitor_design, MonitorDesign::Debug);
 }
 
@@ -74,6 +75,7 @@ fn json_value_is_normalized_field_by_field() {
         "streamingStoppedMessageTemplate": "Stopped {broadcast_url}",
         "updateCheckInterval": "daily",
         "lastUpdateCheckTime": 1234,
+        "youtubeAutoUploadPersonalBests": true,
         "youtubeVisibility": "private",
         "youtubeTitleTemplate": "{level} PB",
         "youtubeDescriptionTemplate": "{time}"
@@ -98,6 +100,7 @@ fn json_value_is_normalized_field_by_field() {
     assert_eq!(settings.streaming_stopped_message_template, "Stopped {broadcast_url}");
     assert_eq!(settings.update_check_interval, UpdateCheckInterval::Daily);
     assert_eq!(settings.last_update_check_time, Some(1234));
+    assert!(settings.youtube_auto_upload_personal_bests);
 
     let notification_options = settings.notification_options();
     assert!(!notification_options.enabled);

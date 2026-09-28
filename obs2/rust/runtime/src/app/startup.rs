@@ -41,6 +41,7 @@ pub(crate) fn build_state(
     let (frontend_ready_tx, _) = tokio::sync::watch::channel(frontend_ready);
     let recording_state = RecordingStateStore::new(snapshot.clone());
     let replay_saves = run_monitoring::publication::ReplaySaveStateStore::new(snapshot.clone());
+    let youtube = youtube_uploads::YoutubeUploadStore::new(settings.path(), run_catalog.clone());
     let monitor = Arc::new(run_monitoring::RunMonitor::new(
         settings.clone(),
         run_catalog.clone(),
@@ -48,6 +49,7 @@ pub(crate) fn build_state(
         event_tx.clone(),
         recording_state.clone(),
         replay_saves,
+        youtube.clone(),
     ));
     let updates = Arc::new(plugin_updates::PluginUpdates::new(
         settings.clone(),
@@ -58,7 +60,7 @@ pub(crate) fn build_state(
         frontend_ready_tx.clone(),
     ));
     Arc::new(AppStateInner {
-        youtube: youtube_uploads::YoutubeUploadStore::new(settings.path(), run_catalog.clone()),
+        youtube,
         notifications: streaming_notifications::StreamNotifier::new(settings.clone()),
         monitor: monitor.clone(),
         updates,

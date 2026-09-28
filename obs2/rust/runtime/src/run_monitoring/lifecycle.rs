@@ -27,6 +27,7 @@ use crate::config::MonitorTimingMode;
 use crate::obs::frame_capture::{FRAME_BUFFER_CAPACITY, FrameMailbox, ObsSource, ProducerCtx};
 use crate::run_monitoring::publication::ReplaySaveStateStore;
 use crate::settings::SettingsStore;
+use crate::youtube_uploads::{PersonalBestUploader, YoutubeUploadStore};
 
 /// Owns monitor resources and lifecycle operations. The worker owns per-frame state.
 pub(crate) struct RunMonitor {
@@ -39,6 +40,7 @@ pub(crate) struct RunMonitor {
     event_tx: broadcast::Sender<AppEvent>,
     recording_state: RecordingStateStore,
     replay_saves: ReplaySaveStateStore,
+    youtube: YoutubeUploadStore,
 }
 
 #[derive(Debug)]
@@ -78,6 +80,7 @@ impl RunMonitor {
         event_tx: broadcast::Sender<AppEvent>,
         recording_state: RecordingStateStore,
         replay_saves: ReplaySaveStateStore,
+        youtube: YoutubeUploadStore,
     ) -> Self {
         Self {
             active: Mutex::new(None),
@@ -89,6 +92,7 @@ impl RunMonitor {
             event_tx,
             recording_state,
             replay_saves,
+            youtube,
         }
     }
 
@@ -174,6 +178,8 @@ impl RunMonitor {
             DEFAULT_MONITOR_LANGUAGE.to_owned(),
             monitor_session_id.clone(),
         );
+        let personal_best_uploader =
+            PersonalBestUploader::new(self.settings.clone(), self.youtube.clone(), self.event_tx.clone());
         let thread = std::thread::Builder::new().name("ge-monitor".to_owned()).spawn(move || {
             let mut recording = RunRecorder::new(
                 event_tx.clone(),
@@ -184,6 +190,7 @@ impl RunMonitor {
                 run_catalog,
             );
             recording.set_recent_run_limit_source(worker_recent_run_limit);
+            recording.save_pipeline.personal_best_uploader = Some(personal_best_uploader);
             let mut run_session = RunSession::new(snapshot, recording);
             let worker =
                 FrameWorker::new(session, event_tx.clone(), annotations_enabled, source_fps, monitor_timing_mode);
