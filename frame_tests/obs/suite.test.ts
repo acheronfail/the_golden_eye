@@ -3,8 +3,146 @@ import * as fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { createServer, type RequestListener } from "node:http";
+import type { AddressInfo } from "node:net";
 import { runSuite } from "./suite.ts";
 import { ObsHarness } from "./harness.ts";
+
+async function withApi(handler: RequestListener, run: (h: ObsHarness) => Promise<void>) {
+  const server = createServer(handler);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const h = new ObsHarness("/tmp", "/tmp/obs-diagnostics", false);
+  Object.assign(h, { base: `http://127.0.0.1:${(server.address() as AddressInfo).port}` });
+  try {
+    await run(h);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+}
+
+for (const partialBody of [false, true]) {
+  test(`polling recovers after an OBS read timeout (${partialBody ? "body" : "headers"})`, async () => {
+    let requests = 0;
+    await withApi(
+      (_request, response) => {
+        if (++requests === 1) {
+          if (partialBody) response.write('{"ready":');
+          return;
+        }
+        response.end('{"ready":true}');
+      },
+      async (h) => {
+        let polls = 0;
+        const result = await h.waitFor(
+          "OBS responsive",
+          (remainingMs) =>
+            h.api(
+              "/api/v1/runs",
+              undefined,
+              "GET",
+              undefined,
+              Math.min(++polls === 1 ? 100 : 3000, remainingMs),
+            ),
+          10000,
+        );
+        assert.deepEqual(result, { ready: true });
+        assert(requests >= 2, "the unanswered read must be retried");
+      },
+    );
+  });
+}
+
+test(
+  "persistent read stalls exhaust the condition deadline and retain request diagnostics",
+  { timeout: 10000 },
+  async () => {
+    await withApi(
+      () => {},
+      async (h) => {
+        await assert.rejects(
+          h.waitFor(
+            "saved clip",
+            (remainingMs) =>
+              h.api("/api/v1/runs", undefined, "GET", undefined, Math.min(100, remainingMs)),
+            300,
+          ),
+          (error: any) => {
+            assert.match(error.message, /Timed out after 300 ms: saved clip/);
+            assert(error.details.requestTimeouts >= 1);
+            assert.equal(error.details.lastRequestTimeout.route, "/api/v1/runs");
+            assert.equal(error.details.lastRequestTimeout.method, "GET");
+            assert(error.details.lastRequestTimeout.timeoutMs <= 100);
+            return true;
+          },
+        );
+      },
+    );
+  },
+);
+
+test("polling never retries timed-out mutations", async () => {
+  let attempts = 0;
+  await withApi(
+    () => {},
+    async (h) => {
+      await assert.rejects(
+        h.waitFor("start monitor", () => {
+          attempts++;
+          return h.api("/api/v1/monitor/start", {}, "POST", undefined, 100);
+        }),
+        /POST .*monitor\/start timed out/,
+      );
+      assert.equal(attempts, 1);
+    },
+  );
+});
+
+test("OBS failure during a timed-out read prevents another polling attempt", async () => {
+  await withApi(
+    () => {},
+    async (h) => {
+      let attempts = 0;
+      await assert.rejects(
+        h.waitFor("saved clip", async () => {
+          attempts++;
+          try {
+            return await h.api("/api/v1/runs", undefined, "GET", undefined, 100);
+          } finally {
+            Object.assign(h, { failure: new Error("Plugin event connection closed") });
+          }
+        }),
+        /Plugin event connection closed/,
+      );
+      assert.equal(attempts, 1);
+    },
+  );
+});
+
+test("HTTP failures and transport disconnects still fail polling immediately", async () => {
+  for (const disconnect of [false, true]) {
+    let requests = 0;
+    await withApi(
+      (request, response) => {
+        requests++;
+        if (disconnect) request.socket.destroy();
+        else {
+          response.statusCode = 500;
+          response.end("broken");
+        }
+      },
+      async (h) => {
+        await assert.rejects(
+          h.waitFor("saved clip", () => h.api("/api/v1/runs")),
+          disconnect ? /fetch failed/ : /500 broken/,
+        );
+        assert.equal(requests, 1);
+      },
+    );
+  }
+});
 
 test("suite continues after launch, test, and cleanup failures and preserves every error", async () => {
   const artifacts = await fs.mkdtemp(path.join(os.tmpdir(), "obs-suite-"));

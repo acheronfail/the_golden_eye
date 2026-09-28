@@ -468,6 +468,8 @@ jobs:
       - name: Run Windows OBS upgrade tests
         shell: bash
         timeout-minutes: 5
+        env:
+          RUST_LOG: info,ge_runtime::http=debug
         run: |
           builds=(obs2/build/obs-upgrade-builds-*)
           test "${#builds[@]}" -eq 1
