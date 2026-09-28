@@ -6,6 +6,20 @@ import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { copyWindowsObs, findWindowsObs, readWindowsObsLog } from "./windows.ts";
 
+class ApiTimeout extends Error {
+  readonly method: string;
+  readonly details: { method: string; route: string; timeoutMs: number; elapsedMs: number };
+
+  constructor(method: string, route: string, timeoutMs: number, elapsedMs: number, cause: unknown) {
+    super(
+      `${method} ${route} timed out after ${Math.round(elapsedMs)} ms (budget ${timeoutMs} ms)`,
+      { cause },
+    );
+    this.method = method;
+    this.details = { method, route, timeoutMs, elapsedMs: Math.round(elapsedMs) };
+  }
+}
+
 export interface HarnessOptions {
   pluginSource?: string;
   releasePackage?: string;
@@ -77,12 +91,14 @@ export class ObsHarness {
 
   async waitFor<T>(
     label: string,
-    predicate: () => T | Promise<T>,
+    predicate: (remainingMs: number) => T | Promise<T>,
     timeout = 20000,
     diagnostics?: { expected: unknown; observed: () => unknown },
   ): Promise<NonNullable<T>> {
     const deadline = performance.now() + timeout;
     let lastValue: unknown = "not sampled";
+    let requestTimeouts = 0;
+    let lastRequestTimeout: ApiTimeout["details"] | undefined;
     while (performance.now() < deadline) {
       if (this.failure) throw this.failure;
       if (
@@ -92,14 +108,24 @@ export class ObsHarness {
       ) {
         throw new Error(`OBS exited: ${this.child.exitCode ?? this.child.signalCode}`);
       }
-      const value = await predicate();
-      lastValue = value;
-      if (value) return value as NonNullable<T>;
-      await delay(50);
+      try {
+        const value = await predicate(Math.max(1, Math.ceil(deadline - performance.now())));
+        lastValue = value;
+        if (value) return value as NonNullable<T>;
+      } catch (error) {
+        // A stalled OBS can outlast one read request without exhausting the condition's deadline.
+        if (!(error instanceof ApiTimeout) || error.method !== "GET") throw error;
+        requestTimeouts++;
+        lastRequestTimeout = error.details;
+        console.warn(`${label}: ${error.message}; waiting within the ${timeout} ms deadline`);
+      }
+      await delay(Math.max(0, Math.min(50, deadline - performance.now())));
     }
     const details = {
       condition: label,
       timeoutMs: timeout,
+      requestTimeouts,
+      lastRequestTimeout,
       expected: diagnostics?.expected ?? label,
       observed: diagnostics
         ? diagnostics.observed()
@@ -123,14 +149,26 @@ export class ObsHarness {
     body?: unknown,
     method = body === undefined ? "GET" : "POST",
     expectedStatus?: number,
+    timeoutMs = route.includes("updates/download") ? 30000 : 3000,
   ) {
-    const response = await fetch(this.base + route, {
-      method,
-      headers: { "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(route.includes("updates/download") ? 30000 : 3000),
-    });
-    const text = await response.text();
+    const signal = AbortSignal.timeout(timeoutMs);
+    const start = performance.now();
+    let response: Response;
+    let text: string;
+    try {
+      response = await fetch(this.base + route, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
+      });
+      text = await response.text();
+    } catch (error) {
+      if (!signal.aborted) throw error;
+      const failure = new ApiTimeout(method, route, timeoutMs, performance.now() - start, error);
+      this.lastObservation = failure.details;
+      throw failure;
+    }
     if (expectedStatus !== undefined) {
       assert.equal(response.status, expectedStatus, `${route}: ${text}`);
       return text;
@@ -293,8 +331,14 @@ export class ObsHarness {
   async expectSavedRun(source: string, expected: Record<string, unknown>, eventStart: number) {
     const clip = await this.waitFor(
       `saved clip from ${source}`,
-      async () => {
-        const runs = await this.api("/api/v1/runs");
+      async (remainingMs) => {
+        const runs = await this.api(
+          "/api/v1/runs",
+          undefined,
+          "GET",
+          undefined,
+          Math.min(3000, remainingMs),
+        );
         const clips = runs.clips.filter((clip: any) => clip.metadata.sourceName === source);
         assert(clips.length <= 1, `Duplicate runs for ${source}`);
         const clip = clips[0];

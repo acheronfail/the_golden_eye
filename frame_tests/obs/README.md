@@ -136,6 +136,12 @@ The operating system selects a separate plugin port for each session. Commands u
 and atomic file replacement. Media sources decode their first frame and then pause before monitoring starts. Playback
 restarts only after the monitor and replay buffer report readiness.
 
+Read-only HTTP timeouts during condition polling are retried within the condition's deadline;
+the saved-run poll caps each request at the remaining budget. Each timeout prints its method,
+route, and elapsed time, and failed waits retain the timeout count and last request in their report.
+HTTP errors, disconnected transports, and timed-out mutations still fail immediately.
+Windows upgrade CI also records server-side request timings in the retained OBS log.
+
 The tests wait for observed conditions with deadlines. They do not assume that a fixed startup
 delay is sufficient or automatically retry failed scenarios. Media saves must finish before the
 monitor stops. Playback must end before the duplicate-run check. The suite fails on unexpected
