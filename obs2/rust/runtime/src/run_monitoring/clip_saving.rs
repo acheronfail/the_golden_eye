@@ -2,9 +2,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
-#[cfg(not(test))]
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use ge_catalog::run_catalog::{RunCatalog, RunCatalogSave};
@@ -21,12 +19,10 @@ use super::clip_output::{
     output_dir,
     unique_output_path,
 };
-#[cfg(not(test))]
 use super::replay_buffer::{REPLAY_BUFFER, ReplaySaveWait};
 use super::run_detection::{PendingSave, RunDetectionPolicy};
 use super::{MAX_RECENT_RUN_LIMIT, RecordingSessionContext};
 use crate::app::AppEvent;
-#[cfg(not(test))]
 use crate::obs::replay_buffer_output_directory;
 use crate::run_monitoring::RecordingStateStore;
 use crate::run_monitoring::publication::{
@@ -41,10 +37,8 @@ use crate::youtube_uploads::PersonalBestUploader;
 /// A replay save taking this long is unusual, but OBS can still complete it.
 /// Keep ownership of the request so a late identity-less event remains attached
 /// to the correct run.
-#[cfg(not(test))]
 const REPLAY_SAVE_SLOW_WARNING: Duration = Duration::from_secs(20);
 /// Avoid blocking all later saves forever if OBS never sends a completion event.
-#[cfg(not(test))]
 const REPLAY_SAVE_TIMEOUT: Duration = Duration::from_secs(120);
 fn recording_save_pending_event(
     save_id: u64,
@@ -224,7 +218,6 @@ impl SavePipeline {
 /// Inputs for saving the replay buffer and trimming it to the run window on a
 /// dedicated thread.
 pub(super) struct SaveAndTrimJob {
-    #[cfg_attr(test, allow(dead_code))]
     personal_best_uploader: Option<PersonalBestUploader>,
     pub(super) tracking_id: u64,
     pub(super) save_id: u64,
@@ -235,18 +228,15 @@ pub(super) struct SaveAndTrimJob {
     pub(super) stats: Option<LevelMatch>,
     pub(super) metadata: ClipMetadata,
     pub(super) output_policy: ClipOutputPolicy,
-    #[cfg_attr(test, allow(dead_code))]
     pub(super) recent_run_limit: Arc<AtomicUsize>,
     pub(super) event_tx: broadcast::Sender<AppEvent>,
     pub(super) recording_state: RecordingStateStore,
     pub(super) replay_saves: ReplaySaveStateStore,
-    #[cfg_attr(test, allow(dead_code))]
     pub(super) run_catalog: Arc<RunCatalog>,
     /// See [`PendingSave::phase_generation`].
     pub(super) phase_generation: Option<u64>,
 }
 
-#[cfg_attr(test, allow(dead_code))]
 struct TrimClipRequest<'a> {
     save_id: u64,
     replay_path: &'a str,
@@ -261,57 +251,73 @@ struct TrimClipRequest<'a> {
     run_catalog: &'a RunCatalog,
 }
 
-#[cfg(not(test))]
-fn save_and_trim(job: SaveAndTrimJob) {
+fn save_replay(job: &SaveAndTrimJob) -> Result<ResolvedReplay, &'static str> {
     let output_directory = replay_buffer_output_directory();
     // Hold the serialize lock across the request+wait so no second plugin save
     // races this one for OBS's identity-less saved event; released before the
     // trim, which is slow and safe to run concurrently on its own file.
-    let resolved = {
-        let mut save = REPLAY_BUFFER.acquire_save();
-        // Snapshot the replay dir before saving so we can tell which file our save
-        // wrote by what newly appears -- otherwise a user manual-save in this same
-        // window could have us trim (and delete) their file instead of ours.
-        let before = output_directory.as_deref().map(snapshot_replay_files);
-        // Registration precedes the OBS call, including when it completes synchronously.
-        let event_path = match save.save_and_wait(
-            || {
-                job.replay_saves.transition(job.tracking_id, ReplaySaveStage::SavingReplay);
-                tracing::info!("saving replay buffer");
-                crate::obs::save_replay_buffer();
-            },
-            REPLAY_SAVE_SLOW_WARNING,
-            REPLAY_SAVE_TIMEOUT,
-        ) {
-            ReplaySaveWait::Saved(path) => path,
-            ReplaySaveWait::TimedOut => {
-                tracing::error!(?REPLAY_SAVE_TIMEOUT, "replay buffer save did not complete in time");
-                job.replay_saves.fail(job.tracking_id, "OBS replay buffer save timed out".to_owned());
-                return;
-            }
-        };
-
-        let resolved = match (output_directory.as_deref(), before) {
-            (Some(dir), Some(before)) => {
-                let new_files = new_replay_files(dir, &before, event_path.as_deref());
-                resolve_saved_replay(event_path, new_files)
-            }
-            // No known output directory to diff against: trust OBS's reported path.
-            _ => event_path.map(|path| ResolvedReplay { path, safe_to_delete: true }),
-        };
-        match resolved {
-            Some(resolved) => resolved,
-            None => {
-                tracing::error!(
-                    "replay buffer saved, but OBS did not report its path and the file could not be identified"
-                );
-                job.replay_saves
-                    .fail(job.tracking_id, "OBS saved the replay but its file could not be found".to_owned());
-                return;
-            }
+    let mut save = REPLAY_BUFFER.acquire_save();
+    // Snapshot the replay dir before saving so we can tell which file our save
+    // wrote by what newly appears -- otherwise a user manual-save in this same
+    // window could have us trim (and delete) their file instead of ours.
+    let before = output_directory.as_deref().map(snapshot_replay_files);
+    // Registration precedes the OBS call, including when it completes synchronously.
+    let event_path = match save.save_and_wait(
+        || {
+            job.replay_saves.transition(job.tracking_id, ReplaySaveStage::SavingReplay);
+            tracing::info!("saving replay buffer");
+            crate::obs::save_replay_buffer();
+        },
+        REPLAY_SAVE_SLOW_WARNING,
+        REPLAY_SAVE_TIMEOUT,
+    ) {
+        ReplaySaveWait::Saved(path) => path,
+        ReplaySaveWait::TimedOut => {
+            tracing::error!(?REPLAY_SAVE_TIMEOUT, "replay buffer save did not complete in time");
+            return Err("OBS replay buffer save timed out");
         }
     };
 
+    let resolved = match (output_directory.as_deref(), before) {
+        (Some(dir), Some(before)) => {
+            let new_files = new_replay_files(dir, &before, event_path.as_deref());
+            resolve_saved_replay(event_path, new_files)
+        }
+        // No known output directory to diff against: trust OBS's reported path.
+        _ => event_path.map(|path| ResolvedReplay { path, safe_to_delete: true }),
+    };
+    match resolved {
+        Some(resolved) => Ok(resolved),
+        None => {
+            tracing::error!(
+                "replay buffer saved, but OBS did not report its path and the file could not be identified"
+            );
+            Err("OBS saved the replay but its file could not be found")
+        }
+    }
+}
+
+fn save_and_trim(job: SaveAndTrimJob) {
+    let uploader = job.personal_best_uploader.clone();
+    save_and_trim_with(job, save_replay, |path, metadata| {
+        if let Some(uploader) = uploader {
+            uploader.clip_saved(path, metadata);
+        }
+    });
+}
+
+fn save_and_trim_with(
+    job: SaveAndTrimJob,
+    save_replay: impl FnOnce(&SaveAndTrimJob) -> Result<ResolvedReplay, &'static str>,
+    clip_saved: impl FnOnce(&str, &ClipMetadata),
+) {
+    let resolved = match save_replay(&job) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            job.replay_saves.fail(job.tracking_id, error.to_owned());
+            return;
+        }
+    };
     let ResolvedReplay { path, safe_to_delete } = resolved;
     job.replay_saves.transition(job.tracking_id, ReplaySaveStage::Trimming);
     let metadata = job.metadata.clone();
@@ -330,9 +336,7 @@ fn save_and_trim(job: SaveAndTrimJob) {
         run_catalog: &job.run_catalog,
     }) {
         Ok(saved) => {
-            if let Some(uploader) = job.personal_best_uploader {
-                uploader.clip_saved(&saved.path, &metadata);
-            }
+            clip_saved(&saved.path, &metadata);
             if safe_to_delete {
                 remove_replay_file_after_trim(&path, &saved.path);
             } else {
@@ -401,11 +405,6 @@ fn resolve_saved_replay(event_path: Option<String>, new_files: Vec<PathBuf>) -> 
     event_path.map(|path| ResolvedReplay { path, safe_to_delete: false })
 }
 
-#[cfg(test)]
-fn save_and_trim(_job: SaveAndTrimJob) {
-    panic!("tests must inject save handling instead of calling OBS");
-}
-
 fn spawn_save_and_trim(job: SaveAndTrimJob) {
     let tracking_id = job.tracking_id;
     let replay_saves = job.replay_saves.clone();
@@ -419,7 +418,6 @@ fn spawn_save_and_trim(job: SaveAndTrimJob) {
 /// Trim the saved replay file down to the requested run window and write it
 /// alongside the replay file with a descriptive name, returning the details of
 /// the written clip.
-#[cfg_attr(test, allow(dead_code))]
 fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
     let input = Path::new(req.replay_path);
     let duration = ge_media::duration_secs(input)?;

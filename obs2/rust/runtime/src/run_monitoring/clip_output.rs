@@ -139,7 +139,6 @@ fn render_clip_template(
     RunTemplateTokens::from_match(stem, status.as_str(), completed_at, stats).render(template)
 }
 
-#[cfg_attr(test, allow(dead_code))]
 pub(super) fn append_extension(mut path: PathBuf, ext: &str) -> PathBuf {
     if ext.is_empty() {
         return path;

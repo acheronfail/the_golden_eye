@@ -12,8 +12,6 @@ mod task;
 
 pub use capture::{CaptureContext, OwnedBgraFrame, RegisteredRenderCallback, RenderCallback, capture_source_frame};
 pub use config::{frontend_config_string, set_frontend_config_string};
-#[cfg(not(test))]
-pub use frontend::save_replay_buffer;
 pub use frontend::{
     module_data_path,
     replay_buffer_active,
@@ -21,6 +19,7 @@ pub use frontend::{
     replay_buffer_enabled,
     replay_buffer_max_seconds,
     replay_buffer_output_directory,
+    save_replay_buffer,
     source_names,
     start_recording,
     start_replay_buffer,

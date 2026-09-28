@@ -24,6 +24,11 @@ pub fn save_replay_buffer() {
     unsafe { raw::obs_frontend_replay_buffer_save() };
 }
 
+#[cfg(test)]
+pub fn save_replay_buffer() {
+    panic!("tests must inject replay saving instead of calling OBS");
+}
+
 pub fn replay_buffer_active() -> bool {
     unsafe { raw::obs_frontend_replay_buffer_active() }
 }

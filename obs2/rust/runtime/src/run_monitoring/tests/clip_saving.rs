@@ -233,3 +233,78 @@ fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
     let recovered = catalog.get_run(&job.metadata.run_id).unwrap().expect("saved clip should recreate catalog row");
     assert!(recovered.clip.is_some());
 }
+
+fn pending_job(dir: &TestDir) -> (SaveAndTrimJob, broadcast::Receiver<AppEvent>) {
+    let options = RecordingOptions {
+        completed_output_path: dir.join("clips").to_string_lossy().into_owned(),
+        ..RecordingOptions::default()
+    };
+    let (mut recording, mut events) = test_recording(options);
+    let now = Instant::now();
+    assert!(recording.schedule_save(now, now - Duration::from_secs(10), Some(match_with_time())));
+    let job = recording.take_pending_job(now + Duration::from_secs(5)).unwrap();
+    while events.try_recv().is_ok() {}
+    (job, events)
+}
+
+#[test]
+fn successful_save_notifies_uploader_after_catalog_attachment() {
+    let dir = TestDir::new("save-success");
+    let replay = dir.join("replay.mov");
+    fs::copy(sample_clip(), &replay).unwrap();
+    let (job, mut events) = pending_job(&dir);
+    let saves = job.replay_saves.clone();
+    let catalog = job.run_catalog.clone();
+    let run_id = job.metadata.run_id.clone();
+    let notified = RefCell::new(None);
+
+    save_and_trim_with(
+        job,
+        |_| Ok(ResolvedReplay { path: replay.to_string_lossy().into_owned(), safe_to_delete: true }),
+        |path, metadata| {
+            assert!(Path::new(path).is_file());
+            assert_eq!(metadata.run_id, run_id);
+            assert!(metadata.was_personal_best);
+            assert!(catalog.get_run(&run_id).unwrap().unwrap().clip.is_some());
+            *notified.borrow_mut() = Some(path.to_owned());
+        },
+    );
+
+    let AppEvent::RecordingSaved(saved) = events.try_recv().unwrap() else {
+        panic!("expected saved event");
+    };
+    assert_eq!(notified.into_inner(), Some(saved.path));
+    assert!(!replay.exists());
+    assert!(matches!(events.try_recv().unwrap(), AppEvent::RunCatalogChanged { .. }));
+    assert_eq!(saves.current()[0].stage, ReplaySaveStage::Completed);
+}
+
+#[test]
+fn replay_save_failure_does_not_trim_or_notify_uploader() {
+    let dir = TestDir::new("save-failure");
+    let (job, mut events) = pending_job(&dir);
+    let saves = job.replay_saves.clone();
+    save_and_trim_with(job, |_| Err("OBS replay buffer save timed out"), |_, _| panic!("unexpected upload"));
+    assert!(!dir.join("clips").exists());
+    assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Closed)));
+    assert_eq!(saves.current()[0].stage, ReplaySaveStage::Failed);
+    assert_eq!(saves.current()[0].error.as_deref(), Some("OBS replay buffer save timed out"));
+}
+
+#[test]
+fn trim_failure_preserves_replay_and_does_not_notify_uploader() {
+    let dir = TestDir::new("trim-failure");
+    let replay = dir.join("invalid.mov");
+    write_file(&replay);
+    let (job, mut events) = pending_job(&dir);
+    let saves = job.replay_saves.clone();
+    save_and_trim_with(
+        job,
+        |_| Ok(ResolvedReplay { path: replay.to_string_lossy().into_owned(), safe_to_delete: true }),
+        |_, _| panic!("unexpected upload"),
+    );
+    assert!(replay.exists());
+    assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Closed)));
+    assert_eq!(saves.current()[0].stage, ReplaySaveStage::Failed);
+    assert!(saves.current()[0].error.is_some());
+}
