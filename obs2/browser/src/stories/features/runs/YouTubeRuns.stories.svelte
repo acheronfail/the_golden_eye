@@ -26,3 +26,28 @@
 <Story name="Upload failed" args={{ status: { ...connectedYouTube, uploads: [uploadForRun('failed')] } }} />
 <Story name="Uploaded" args={{ status: { ...connectedYouTube, uploads: [uploadForRun('uploaded')] } }} />
 <Story name="Remembered upload" args={{ status: { ...connectedYouTube, history: [uploadedHistory] } }} />
+
+<Story name="Cancelling upload" args={{ status: { ...connectedYouTube, uploads: [uploadForRun('cancelling')] } }} />
+<Story name="Cancelled upload" args={{ status: { ...connectedYouTube, uploads: [uploadForRun('cancelled')] } }} />
+
+<Story
+	name="Cancel request failed"
+	args={{
+		status: { ...connectedYouTube, uploads: [uploadForRun('uploading')] },
+		cancelError: 'Connection lost. Try cancelling again.'
+	}}
+/>
+<Story
+	name="Cancellation outcome unknown"
+	args={{
+		status: {
+			...connectedYouTube,
+			uploads: [
+				uploadForRun('failed', {
+					error:
+						'Transfer stopped, but YouTube completion could not be verified. Check YouTube Studio before uploading again.'
+				})
+			]
+		}
+	}}
+/>

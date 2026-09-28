@@ -142,3 +142,12 @@
 		]
 	}}
 />
+
+<Story
+	name="Cancelling upload"
+	args={{ youtubeConnected: true, uploadsOpen: true, uploads: [{ ...uploads[0], state: 'cancelling' }] }}
+/>
+<Story
+	name="Cancelled upload"
+	args={{ youtubeConnected: true, uploadsOpen: true, uploads: [{ ...uploads[0], state: 'cancelled' }] }}
+/>

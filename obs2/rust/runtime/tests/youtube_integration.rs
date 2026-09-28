@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -19,6 +20,13 @@ struct YoutubeMockState {
     token_calls: Mutex<Vec<Value>>,
     upload_chunks: Mutex<Vec<String>>,
     upload_metadata: Mutex<Vec<Value>>,
+    hold_chunk: AtomicBool,
+    hold_final: AtomicBool,
+    paused: AtomicBool,
+    release_chunk: tokio::sync::Notify,
+    final_failure: AtomicBool,
+    final_incomplete: AtomicBool,
+    status_video: AtomicBool,
 }
 
 async fn token_endpoint(State(state): State<Arc<YoutubeMockState>>, body: Bytes) -> Json<Value> {
@@ -56,14 +64,42 @@ async fn start_upload(
     response
 }
 
-async fn upload_chunk(State(state): State<Arc<YoutubeMockState>>, headers: HeaderMap) -> impl IntoResponse {
-    let range = headers
-        .get(axum::http::header::CONTENT_RANGE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default()
-        .to_owned();
-    state.upload_chunks.lock().unwrap().push(range);
-    Json(json!({ "id": "video-123" }))
+async fn upload_chunk(State(state): State<Arc<YoutubeMockState>>, headers: HeaderMap, _body: Bytes) -> Response {
+    let range = headers.get(axum::http::header::CONTENT_RANGE).unwrap().to_str().unwrap().to_owned();
+    state.upload_chunks.lock().unwrap().push(range.clone());
+    if range.starts_with("bytes */") {
+        return if state.status_video.load(Ordering::SeqCst) {
+            Json(json!({ "id": "video-123" })).into_response()
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        };
+    }
+    let (bounds, total) = range.strip_prefix("bytes ").unwrap().split_once('/').unwrap();
+    let (_, end) = bounds.split_once('-').unwrap();
+    let final_chunk = end.parse::<u64>().unwrap() + 1 == total.parse::<u64>().unwrap();
+    if state.hold_chunk.load(Ordering::SeqCst) || (final_chunk && state.hold_final.load(Ordering::SeqCst)) {
+        state.paused.store(true, Ordering::SeqCst);
+        state.release_chunk.notified().await;
+    }
+    if final_chunk {
+        if state.final_incomplete.swap(false, Ordering::SeqCst) {
+            let (start, _) = bounds.split_once('-').unwrap();
+            let start = start.parse::<u64>().unwrap();
+            let mut response = StatusCode::PERMANENT_REDIRECT.into_response();
+            if start > 0 {
+                response.headers_mut().insert("Range", format!("bytes=0-{}", start - 1).parse().unwrap());
+            }
+            return response;
+        }
+        if state.final_failure.load(Ordering::SeqCst) {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        state.status_video.store(true, Ordering::SeqCst);
+        return Json(json!({ "id": "video-123" })).into_response();
+    }
+    let mut response = StatusCode::PERMANENT_REDIRECT.into_response();
+    response.headers_mut().insert("Range", format!("bytes=0-{end}").parse().unwrap());
+    response
 }
 
 async fn start_youtube_mock() -> (String, Arc<YoutubeMockState>, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
@@ -207,6 +243,7 @@ async fn youtube_oauth_falls_back_to_file_store_when_keyring_fails() {
 #[ignore = "run explicitly with `just test-integration`"]
 async fn youtube_upload_posts_video_and_persists_history() {
     let (base_url, mock, shutdown, server) = start_youtube_mock().await;
+    mock.final_incomplete.store(true, Ordering::SeqCst);
     let token_file = std::env::temp_dir().join(format!("ge-youtube-upload-{}.json", std::process::id()));
     let _ = std::fs::remove_file(&token_file);
     set_youtube_env(&base_url, Some(&token_file));
@@ -443,5 +480,126 @@ async fn wait_for_event_type(
                 return event;
             }
         }
+    }
+}
+
+async fn queue_test_upload(harness: &Harness, path: &str) -> Value {
+    harness
+        .client
+        .post(format!("{API}/api/v1/youtube/upload"))
+        .json(&json!({ "path": path }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
+}
+
+async fn cancel_test_upload(harness: &Harness, id: &str) -> Value {
+    harness
+        .client
+        .post(format!("{API}/api/v1/youtube/uploads/{id}/cancel"))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
+}
+
+async fn wait_for_upload_state(harness: &Harness, id: &str, expected: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(25);
+    loop {
+        let status: Value =
+            harness.client.get(format!("{API}/api/v1/youtube/status")).send().await.unwrap().json().await.unwrap();
+        if status["uploads"].as_array().unwrap().iter().any(|upload| upload["id"] == id && upload["state"] == expected)
+        {
+            return status;
+        }
+        assert!(Instant::now() < deadline, "expected {expected}: {status}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn youtube_upload_cancellation_and_completion_races() {
+    for scenario in
+        ["mid-transfer", "final-completes", "final-recovered", "final-unknown", "final-incomplete", "final-timeout"]
+    {
+        let (base_url, mock, shutdown, server) = start_youtube_mock().await;
+        let token_file = std::env::temp_dir().join(format!("ge-youtube-cancel-{scenario}-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&token_file);
+        set_youtube_env(&base_url, Some(&token_file));
+        let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+            recording_settings(&temp.join("clips"), &temp.join("failed"))
+        })
+        .await;
+        connect_youtube(&harness).await;
+        let clip = prepare_clip(&harness).await;
+        // Pad the small tagged fixture to exercise multiple chunks without another captured video.
+        std::fs::OpenOptions::new().write(true).open(&clip).unwrap().set_len(3 * 1024 * 1024).unwrap();
+        let original_size = std::fs::metadata(&clip).unwrap().len();
+        assert!(original_size > 1024 * 1024, "fixture must span multiple chunks");
+        mock.hold_chunk.store(scenario == "mid-transfer", Ordering::SeqCst);
+        mock.hold_final.store(scenario != "mid-transfer", Ordering::SeqCst);
+        mock.final_failure.store(scenario.starts_with("final-r") || scenario == "final-unknown", Ordering::SeqCst);
+        mock.status_video.store(scenario == "final-recovered", Ordering::SeqCst);
+        mock.final_incomplete.store(scenario == "final-incomplete", Ordering::SeqCst);
+        let upload = queue_test_upload(&harness, &clip).await;
+        let id = upload["id"].as_str().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !mock.paused.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "upload never reached held chunk: {scenario}");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(cancel_test_upload(&harness, id).await["state"], "cancelling");
+        if scenario == "mid-transfer" {
+            let status = wait_for_upload_state(&harness, id, "cancelled").await;
+            assert!(status["history"].as_array().unwrap().is_empty());
+            assert_eq!(cancel_test_upload(&harness, id).await["state"], "cancelled");
+            assert_eq!(mock.upload_chunks.lock().unwrap().len(), 2, "only session start and first chunk sent");
+            mock.hold_chunk.store(false, Ordering::SeqCst);
+            mock.release_chunk.notify_one();
+            let retry = queue_test_upload(&harness, &clip).await;
+            assert_ne!(retry["id"], upload["id"]);
+            wait_for_upload_state(&harness, retry["id"].as_str().unwrap(), "uploaded").await;
+        } else {
+            if scenario != "final-timeout" {
+                mock.release_chunk.notify_one();
+            }
+            let expected = match scenario {
+                "final-unknown" | "final-timeout" => "failed",
+                "final-incomplete" => "cancelled",
+                _ => "uploaded",
+            };
+            let status = wait_for_upload_state(&harness, id, expected).await;
+            if expected == "uploaded" {
+                assert_eq!(status["history"][0]["videoId"], "video-123");
+                assert_eq!(cancel_test_upload(&harness, id).await["state"], "uploaded");
+            } else {
+                if expected == "failed" {
+                    assert!(status["uploads"][0]["error"].as_str().unwrap().contains("Check YouTube Studio"));
+                }
+                assert!(status["history"].as_array().unwrap().is_empty());
+            }
+            if scenario == "final-timeout" {
+                mock.release_chunk.notify_one();
+            }
+        }
+        assert_eq!(std::fs::metadata(&clip).unwrap().len(), original_size);
+        assert_eq!(
+            harness.client.post(format!("{API}/api/v1/youtube/uploads/missing/cancel")).send().await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
+        drop(harness);
+        clear_youtube_env();
+        shutdown.send(()).unwrap();
+        server.await.unwrap();
     }
 }

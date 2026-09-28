@@ -1,4 +1,5 @@
 <script lang="ts">
+	import YouTubeUploadCancel from '$lib/features/youtube/YouTubeUploadCancel.svelte';
 	import type { RecordingStatus, YouTubeUploadStatus } from '$lib/api';
 	import { monitorPhaseStyle, monitorPhaseStyleForPhase, type MonitorPhase } from '$lib/stores/monitor.svelte';
 
@@ -32,7 +33,9 @@
 	} = $props();
 
 	const currentUploads = $derived(
-		uploads.filter((upload) => upload.state === 'queued' || upload.state === 'uploading')
+		uploads.filter(
+			(upload) => upload.state === 'queued' || upload.state === 'uploading' || upload.state === 'cancelling'
+		)
 	);
 	let uploadsButton = $state<HTMLButtonElement>();
 	let uploadsPanel = $state<HTMLElement>();
@@ -199,11 +202,13 @@
 										onclick={() => (uploadsOpen = false)}>{title}</a
 									>
 									<div class="mt-1 mb-2 px-1 text-xs text-(--obs-text-muted)">
-										{upload.state === 'queued'
-											? 'Queued'
-											: progress === undefined
-												? 'Uploading…'
-												: `Uploading ${progress}%`}
+										{upload.state === 'cancelling'
+											? 'Cancelling…'
+											: upload.state === 'queued'
+												? 'Queued'
+												: progress === undefined
+													? 'Uploading…'
+													: `Uploading ${progress}%`}
 									</div>
 									<div
 										role="progressbar"
@@ -220,6 +225,7 @@
 											style:--upload-progress={`${progress ?? 100}%`}
 										></div>
 									</div>
+									<div class="mt-2"><YouTubeUploadCancel {upload} /></div>
 								</li>
 							{/each}
 						</ul>

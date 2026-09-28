@@ -7,11 +7,13 @@
 		clip,
 		status,
 		connecting = false,
+		cancelError = null,
 		error = null
 	}: {
 		clip: RunClip;
 		status: YouTubeStatus;
 		connecting?: boolean;
+		cancelError?: string | null;
 		error?: string | null;
 	} = $props();
 
@@ -21,6 +23,8 @@
 		youtube.cancelling = false;
 		youtube.disconnecting = false;
 		youtube.error = error;
+		youtube.cancellingUploadIds = [];
+		youtube.uploadCancelErrors = cancelError && status.uploads[0] ? { [status.uploads[0].id]: cancelError } : {};
 	});
 </script>
 

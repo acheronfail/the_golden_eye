@@ -93,3 +93,79 @@ fn renderer_falls_back_to_timestamp_local_for_blank_datetime_local() {
 
     assert_eq!(description, format!("Achieved at {expected_local}"));
 }
+
+fn upload_store() -> YoutubeUploadStore {
+    YoutubeUploadStore::with_parts(
+        Arc::new(RunCatalog::open(":memory:".into()).unwrap()),
+        Arc::new(credentials::MemoryYoutubeCredentialStore::default()),
+        YoutubeConfig::from_env(),
+    )
+}
+
+fn queued_upload(store: &YoutubeUploadStore) -> YoutubeUploadStatus {
+    store.insert_queued_upload(
+        Path::new("clip.mov"),
+        "run-1".into(),
+        "clip.mov".into(),
+        "Run".into(),
+        String::new(),
+        100,
+    )
+}
+
+#[tokio::test]
+async fn cancellation_releases_queued_upload_and_allows_distinct_retry() {
+    let store = upload_store();
+    let occupied = store.semaphore().acquire_many_owned(UPLOAD_CONCURRENCY as u32).await.unwrap();
+    let status = queued_upload(&store);
+    let cancellation = store.cancellation(&status.id);
+    let (events, mut receiver) = tokio::sync::broadcast::channel(8);
+    let request = upload::UploadRequest {
+        upload_id: status.id.clone(),
+        path: "clip.mov".into(),
+        title: "Run".into(),
+        description: String::new(),
+        visibility: crate::settings::YoutubeVisibility::Private,
+    };
+    let task = tokio::spawn(upload::upload_video(store.clone(), request, events.clone(), cancellation));
+    assert_eq!(store.cancel_upload(&status.id, &events).unwrap().state, YoutubeUploadState::Cancelling);
+    tokio::time::timeout(Duration::from_secs(1), task).await.unwrap().unwrap();
+    assert_eq!(store.uploads()[0].state, YoutubeUploadState::Cancelled);
+    assert!(store.uploads()[0].finished_at.is_some());
+    assert!(store.active_upload_for_display_path("clip.mov").is_none());
+    assert!(store.inner.lock().unwrap().cancellations.is_empty());
+    assert!(store.read_history().is_empty());
+    assert!(
+        matches!(receiver.recv().await.unwrap(), crate::app::AppEvent::YoutubeUploadChanged { upload } if upload.state == YoutubeUploadState::Cancelling)
+    );
+    assert!(
+        matches!(receiver.recv().await.unwrap(), crate::app::AppEvent::YoutubeUploadChanged { upload } if upload.state == YoutubeUploadState::Cancelled)
+    );
+    let retry = queued_upload(&store);
+    assert_ne!(status.id, retry.id);
+    assert!(store.update_upload(&status.id, |upload| upload.state = YoutubeUploadState::Uploading).is_none());
+    assert_eq!(store.active_upload_for_display_path("clip.mov").unwrap().id, retry.id);
+    drop(occupied);
+    assert_eq!(store.semaphore().available_permits(), UPLOAD_CONCURRENCY);
+}
+
+#[test]
+fn cancellation_is_idempotent_and_does_not_overwrite_completion() {
+    let store = upload_store();
+    let status = queued_upload(&store);
+    let (events, _) = tokio::sync::broadcast::channel(8);
+    assert!(store.cancel_upload("missing", &events).is_none());
+    for _ in 0..2 {
+        assert_eq!(store.cancel_upload(&status.id, &events).unwrap().state, YoutubeUploadState::Cancelling);
+    }
+    assert!(store.update_upload(&status.id, |upload| upload.state = YoutubeUploadState::Uploading).is_none());
+    store.update_upload(&status.id, |upload| upload.state = YoutubeUploadState::Uploaded).unwrap();
+    assert_eq!(store.cancel_upload(&status.id, &events).unwrap().state, YoutubeUploadState::Uploaded);
+    assert!(store.update_upload(&status.id, |upload| upload.state = YoutubeUploadState::Cancelled).is_none());
+}
+
+#[test]
+fn rapid_retries_have_unique_ids_even_at_the_same_timestamp() {
+    let now = SystemTime::now();
+    assert_ne!(upload_id(Path::new("clip.mov"), now), upload_id(Path::new("clip.mov"), now));
+}

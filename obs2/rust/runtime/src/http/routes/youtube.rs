@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
 use serde::Deserialize;
@@ -139,4 +139,11 @@ fn is_allowed_youtube_url(url: &str) -> bool {
         return false;
     }
     matches!(url.host_str(), Some("youtu.be") | Some("www.youtube.com") | Some("youtube.com"))
+}
+
+#[axum::debug_handler]
+pub async fn handle_cancel_upload(State(state): State<AppState>, Path(id): Path<String>) -> Result<impl IntoResponse> {
+    let upload =
+        state.youtube.cancel_upload(&id, &state.event_tx).ok_or((StatusCode::NOT_FOUND, "YouTube upload not found"))?;
+    Ok(Json(upload))
 }
