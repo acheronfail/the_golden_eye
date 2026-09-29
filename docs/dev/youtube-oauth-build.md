@@ -1,15 +1,10 @@
 # YouTube OAuth build configuration
 
-The YouTube upload feature ships in every build but stays hidden until enabled at runtime.
-
-## Runtime
-
-- `GE_YOUTUBE_ENABLED`: reveals the `/runs` modal section and `/options` YouTube tab.
+The YouTube upload feature is available when both the client ID and client secret are present at
+build time. This reveals the `/runs` modal section and `/options` YouTube tab. If either credential
+is missing, the YouTube UI/API stays disabled.
 
 ## Build
-
-- `GE_YOUTUBE_ENABLED` (build time): set in the environment at CMake configure/build time to bake
-  the feature on without the runtime flag
 
 Both are read via `option_env!` and injected by CI from matching Actions secrets (`secrets: inherit`
 forwards them from `ci.yml`/`release.yml`). Empty in local builds unless exported.
@@ -23,7 +18,6 @@ Google/YouTube endpoints are constants in `obs2/rust/runtime/src/config/youtube.
 Local dev:
 
 ```sh
-export GE_YOUTUBE_ENABLED=1
 export GE_YOUTUBE_CLIENT_ID='...'
 export GE_YOUTUBE_CLIENT_SECRET='...'
 

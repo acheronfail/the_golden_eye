@@ -1,13 +1,3 @@
-use super::EnvVar;
-
-static GE_YOUTUBE_ENABLED: EnvVar = EnvVar::new("GE_YOUTUBE_ENABLED");
-
-/// Compile-time value of GE_YOUTUBE_ENABLED
-const BUILD_TIME_ENABLED: &str = match option_env!("GE_YOUTUBE_ENABLED") {
-    Some(value) => value,
-    None => "",
-};
-
 /// Compile-time YouTube OAuth client ID, injected in CI. Empty in local builds.
 pub(crate) const CLIENT_ID: &str = match option_env!("GE_YOUTUBE_CLIENT_ID") {
     Some(value) => value,
@@ -35,25 +25,9 @@ pub(crate) const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 pub(crate) const UPLOAD_URL: &str = "https://www.googleapis.com/upload/youtube/v3/videos";
 /// Google OpenID Connect userinfo endpoint.
 pub(crate) const USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v3/userinfo";
-/// Whether the YouTube UI/API is enabled: requires the runtime flag plus a
-/// resolved client ID and secret. Warns when the flag is set but credentials are
-/// missing, to explain why the feature stays hidden. Takes the already-resolved
-/// endpoints and secret so the caller reads them only once.
+/// Enables the YouTube UI/API when both resolved OAuth credentials are present.
 pub(crate) fn youtube_enabled(endpoints: &YoutubeEndpoints, client_secret: &str) -> bool {
-    if !EnvVar::truthy_value(BUILD_TIME_ENABLED) && !GE_YOUTUBE_ENABLED.truthy() {
-        return false;
-    }
-    let client_id_present = !endpoints.client_id.is_empty();
-    let client_secret_present = !client_secret.is_empty();
-    if !client_id_present || !client_secret_present {
-        tracing::warn!(
-            client_id_present,
-            client_secret_present,
-            "YouTube is enabled but the client ID and/or secret are missing; leaving disabled"
-        );
-        return false;
-    }
-    true
+    !endpoints.client_id.is_empty() && !client_secret.is_empty()
 }
 
 /// Resolved endpoint/client values. Always the compile-time constants in shipping
@@ -83,7 +57,7 @@ impl YoutubeEndpoints {
     }
 
     // Test-only overrides use GE_TEST_* names so they are clearly distinct from
-    // the real GE_YOUTUBE_* build/runtime configuration.
+    // the real GE_YOUTUBE_* build configuration.
     #[cfg(feature = "test-hooks")]
     pub(crate) fn resolve() -> Self {
         test_hooks::endpoints()
@@ -94,7 +68,8 @@ impl YoutubeEndpoints {
 pub(crate) mod test_hooks {
     use std::path::PathBuf;
 
-    use super::{AUTH_URL, CLIENT_ID, EnvVar, TOKEN_URL, UPLOAD_URL, USERINFO_URL, YoutubeEndpoints};
+    use super::{AUTH_URL, CLIENT_ID, TOKEN_URL, UPLOAD_URL, USERINFO_URL, YoutubeEndpoints};
+    use crate::config::EnvVar;
 
     static AUTH_URL_OVERRIDE: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_AUTH_URL");
     static CLIENT_ID_OVERRIDE: EnvVar = EnvVar::new("GE_TEST_YOUTUBE_CLIENT_ID");
