@@ -32,8 +32,11 @@ automatic update payloads because OBS has already loaded it.
 ## Compatible release selection
 
 Update checks read paginated release history and prefer the highest newer version with a matching
-updater number, platform, and architecture. Stable checks exclude drafts and prereleases. Releases
-without a valid package for the current platform are skipped.
+updater number, platform, and architecture. Checks always exclude drafts and exclude prereleases by
+default. The persisted `includePrereleases` setting (Options → Check for plugin updates → Include
+pre-releases) opts into both prerelease and stable releases, ranked by SemVer. A newer stable
+release can replace an installed prerelease. Releases without a valid package for the current
+platform are skipped.
 
 For example, a `u2-0.20.0` installation selects `u2-0.21.0` even when `u3-0.22.0` exists. After it
 reaches `u2-0.21.0`, the next check offers manual installation of `u3-0.22.0`. Automatic and
@@ -163,5 +166,4 @@ just simulate-update --updater-version 3
 ```
 
 - `GE_UPDATE_CHECK_URL` overrides the release API
-- `GE_UPDATE_INCLUDE_PRERELEASES` includes a check for prereleases (drafts are always ignored)
 - `GE_UPDATER_VERSION` overrides the updater number at build time

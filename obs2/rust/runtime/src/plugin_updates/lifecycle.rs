@@ -116,7 +116,7 @@ impl PluginUpdates {
         }
 
         let checked_at = now_unix_seconds();
-        let found = match fetch_latest_update(crate::PLUGIN_VERSION).await {
+        let found = match fetch_latest_update(crate::PLUGIN_VERSION, self.settings.get().include_prereleases).await {
             Ok(found) => found,
             Err(err) => {
                 let current = self.status();
@@ -208,7 +208,7 @@ impl PluginUpdates {
             return Ok(DownloadUpdateResult::Staged);
         }
         self.publish(UpdateStatus { phase: UpdatePhase::Downloading, available: previous.available.clone() });
-        let found = match fetch_latest_update(crate::PLUGIN_VERSION).await {
+        let found = match fetch_latest_update(crate::PLUGIN_VERSION, self.settings.get().include_prereleases).await {
             Ok(found) => found,
             Err(err) => {
                 self.publish(UpdateStatus {

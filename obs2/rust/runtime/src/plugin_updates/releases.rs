@@ -83,13 +83,14 @@ pub fn is_check_due(interval: UpdateCheckInterval, last_check_time: Option<u64>,
 
 pub(super) async fn fetch_latest_update(
     current_version: &str,
+    include_prereleases: bool,
 ) -> anyhow::Result<Option<(PluginUpdate, Vec<GithubAsset>)>> {
     let env_config = crate::config::UpdateEnvConfig::from_env();
     env_config.log();
     let releases = tokio::time::timeout(Duration::from_secs(60), fetch_releases(&env_config.releases_api_url()))
         .await
         .context("release history request timed out")??;
-    select_update_from_releases(current_version, releases, env_config.include_prereleases())
+    select_update_from_releases(current_version, releases, include_prereleases)
 }
 
 async fn fetch_releases(url: &str) -> anyhow::Result<Vec<GithubRelease>> {
