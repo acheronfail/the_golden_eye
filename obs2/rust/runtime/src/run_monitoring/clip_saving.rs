@@ -407,7 +407,34 @@ fn resolve_saved_replay(event_path: Option<String>, new_files: Vec<PathBuf>) -> 
 
 fn spawn_save_and_trim(job: SaveAndTrimJob) {
     let runtime = job.replay_saves.runtime.clone();
-    runtime.spawn_blocking(move || save_and_trim(job));
+    spawn_save_and_trim_with(
+        job,
+        move |work| {
+            runtime.spawn_blocking(work);
+        },
+        save_and_trim,
+    );
+}
+
+fn spawn_save_and_trim_with(
+    job: SaveAndTrimJob,
+    spawn: impl FnOnce(Box<dyn FnOnce() + Send>),
+    save: impl FnOnce(SaveAndTrimJob) + Send + 'static,
+) {
+    let tracking_id = job.tracking_id;
+    let saves = job.replay_saves.clone();
+    let worker_saves = saves.clone();
+    let work = Box::new(move || {
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| save(job))).is_err() {
+            tracing::error!(tracking_id, "replay save worker panicked");
+            worker_saves.fail(tracking_id, "replay save worker panicked".to_owned());
+        }
+    });
+    // Tokio panics if the OS refuses a blocking thread and none can take the job.
+    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| spawn(work))).is_err() {
+        tracing::error!(tracking_id, "failed to start replay save worker");
+        saves.fail(tracking_id, "failed to start replay save worker".to_owned());
+    }
 }
 
 /// Trim the saved replay file down to the requested run window and write it

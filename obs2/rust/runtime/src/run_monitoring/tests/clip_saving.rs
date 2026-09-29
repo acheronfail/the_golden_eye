@@ -249,6 +249,61 @@ fn pending_job(dir: &TestDir) -> (SaveAndTrimJob, broadcast::Receiver<AppEvent>)
 }
 
 #[test]
+fn worker_start_failure_marks_save_failed_without_unwinding_monitor() {
+    let dir = TestDir::new("save-worker-start-failure");
+    let (job, _events) = pending_job(&dir);
+    let saves = job.replay_saves.clone();
+    spawn_save_and_trim_with(job, |_| panic!("simulated OS thread exhaustion"), |_| panic!("must not save"));
+    assert_eq!(saves.current()[0].stage, ReplaySaveStage::Failed);
+    assert_eq!(saves.current()[0].error.as_deref(), Some("failed to start replay save worker"));
+}
+
+#[tokio::test]
+async fn worker_panic_marks_save_failed() {
+    let dir = TestDir::new("save-worker-panic");
+    let (job, _events) = pending_job(&dir);
+    let saves = job.replay_saves.clone();
+    let mut worker = None;
+    spawn_save_and_trim_with(job, |work| worker = Some(tokio::task::spawn_blocking(work)), |_| panic!("save panic"));
+    worker.unwrap().await.expect("worker panic should be reported as a save failure");
+    assert_eq!(saves.current()[0].stage, ReplaySaveStage::Failed);
+    assert_eq!(saves.current()[0].error.as_deref(), Some("replay save worker panicked"));
+}
+
+#[test]
+fn runtime_shutdown_waits_for_active_save_worker() {
+    let dir = TestDir::new("save-worker-shutdown");
+    let (mut job, _events) = pending_job(&dir);
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    job.replay_saves.runtime = runtime.handle().clone();
+    let saves = job.replay_saves.clone();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    spawn_save_and_trim_with(
+        job,
+        |work| {
+            runtime.spawn_blocking(work);
+        },
+        move |job| {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            job.replay_saves.complete(job.tracking_id);
+        },
+    );
+    started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let (stopped_tx, stopped_rx) = std::sync::mpsc::channel();
+    let shutdown = std::thread::spawn(move || {
+        drop(runtime);
+        stopped_tx.send(()).unwrap();
+    });
+    let early_shutdown = stopped_rx.recv_timeout(Duration::from_millis(100));
+    release_tx.send(()).unwrap();
+    shutdown.join().unwrap();
+    assert!(matches!(early_shutdown, Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
+    assert_eq!(saves.current()[0].stage, ReplaySaveStage::Completed);
+}
+
+#[test]
 fn successful_save_notifies_uploader_after_catalog_attachment() {
     let dir = TestDir::new("save-success");
     let replay = dir.join("replay.mov");
