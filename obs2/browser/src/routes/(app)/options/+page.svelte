@@ -16,13 +16,12 @@
 	import { settingsClasses, type RecordingSettingsView } from '$lib/features/settings/settingsView';
 	import { youtube } from '$lib/stores/youtube.svelte';
 
-	type OptionsTab = SettingsSection;
 	const OPTIONS_TAB_STORAGE_KEY = 'the-golden-eye.options-tab';
 
-	const tabFromUrl = (value: string | null): OptionsTab =>
+	const tabFromUrl = (value: string | null): SettingsSection =>
 		value === 'recording' || value === 'notifications' || (value === 'youtube' && youtube.enabled) ? value : 'general';
 
-	let activeTab = $state<OptionsTab>(tabFromUrl(page.url.searchParams.get('tab')));
+	let activeTab = $state<SettingsSection>(tabFromUrl(page.url.searchParams.get('tab')));
 	let pickingOutputPath = $state(false);
 	let revealingConfigFile = $state(false);
 	let resettingConfigFile = $state(false);
@@ -33,7 +32,7 @@
 	let completedValidationSeq = 0;
 	let clipTemplateSeparator = $state('/');
 
-	const rememberTab = (tab: OptionsTab) => {
+	const rememberTab = (tab: SettingsSection) => {
 		if (browser) localStorage.setItem(OPTIONS_TAB_STORAGE_KEY, tab);
 	};
 
@@ -52,7 +51,7 @@
 		rememberTab(tab);
 	});
 
-	const selectTab = (tab: OptionsTab) => {
+	const selectTab = (tab: SettingsSection) => {
 		activeTab = tab;
 		rememberTab(tab);
 		const url = new URL(page.url);
