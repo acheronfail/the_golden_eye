@@ -5,6 +5,7 @@ import RunsPage from './+page.svelte';
 import type { RunClip, RunsResponse, RunSort } from '$lib/api';
 import { EMPTY_RUN_FILTERS, visibleRunClips, type RunFilters } from '$lib/features/runs/runsView';
 import { youtube } from '$lib/stores/youtube.svelte';
+import { connectedYouTube, uploadForRun } from '../../../stories/fixtures';
 
 const mocks = vi.hoisted(() => ({
 	revealRunFolder: vi.fn(),
@@ -334,6 +335,29 @@ describe('/runs', () => {
 		expect(within(dialog).getByText('Kept')).toBeInTheDocument();
 		expect(within(dialog).getByText('Retention reason')).toBeInTheDocument();
 		expect(within(dialog).getByText('Kept manually')).toBeInTheDocument();
+	});
+
+	it.each(['upload link', 'runs list'])('shows upload progress when opening the modal from the %s', async (entry) => {
+		const run = runsResponse.clips[0];
+		youtube.applyStatus({
+			...connectedYouTube,
+			uploads: [uploadForRun('uploading', { runId: run.runId, path: '/saved-runs/pb.mov', progressRatio: 0.25 })]
+		});
+		if (entry === 'upload link') {
+			const url = `/runs?runId=${encodeURIComponent(run.runId)}`;
+			mocks.pageUrl = new URL(url, 'http://localhost');
+			window.history.replaceState({}, '', url);
+		}
+		render(RunsPage);
+		if (entry === 'runs list') {
+			await userEvent.setup().click(await screen.findByRole('button', { name: /facility-0058\.mov/i }));
+		}
+		const dialog = await screen.findByRole('dialog', { name: 'Run video' });
+		expect(within(dialog).getByRole('button', { name: 'Uploading 25%...' })).toBeDisabled();
+		expect(within(dialog).getByRole('progressbar', { name: 'YouTube upload progress' })).toHaveAttribute(
+			'aria-valuenow',
+			'25'
+		);
 	});
 
 	it('shows the YouTube Preview after connecting', async () => {

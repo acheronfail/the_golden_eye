@@ -13,7 +13,7 @@
 
 	let { clip }: { clip: RunClip } = $props();
 
-	let upload = $derived(youtube.uploadForPath(clip.path));
+	let upload = $derived(youtube.uploadForRun(clip.runId));
 	let history = $derived(youtube.historyForPath(clip.path));
 	let helpOpen = $state(false);
 	let initializedPath = $state<string | null>(null);

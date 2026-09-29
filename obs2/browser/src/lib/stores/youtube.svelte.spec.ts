@@ -1,5 +1,23 @@
-import { describe, expect, it } from 'vitest';
-import { youtubePathKeyForPlatform, youtubePathsMatchForPlatform } from '$lib/stores/youtube.svelte';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { youtube, youtubePathKeyForPlatform, youtubePathsMatchForPlatform } from '$lib/stores/youtube.svelte';
+import { completedRun, connectedYouTube, uploadForRun } from '../../stories/fixtures';
+
+describe('YouTube upload selection', () => {
+	beforeEach(() => youtube.applyStatus({ ...connectedYouTube, uploads: [] }));
+
+	it('prefers an active attempt for the run over a later terminal attempt', () => {
+		youtube.applyUpload(uploadForRun('uploading', { path: '/saved-runs/pb.mp4' }));
+		youtube.applyUpload(uploadForRun('failed', { startedAt: '2026-07-21T12:48:00Z' }));
+		expect(youtube.uploadForRun(completedRun.runId)?.state).toBe('uploading');
+	});
+
+	it('returns the latest terminal attempt for the run', () => {
+		youtube.applyUpload(uploadForRun('failed'));
+		youtube.applyUpload(uploadForRun('uploaded', { startedAt: '2026-07-21T12:48:00Z' }));
+		expect(youtube.uploadForRun(completedRun.runId)?.state).toBe('uploaded');
+		expect(youtube.uploadForRun('another-run')).toBeNull();
+	});
+});
 
 describe('YouTube upload path matching', () => {
 	it('matches case-insensitively on macOS', () => {

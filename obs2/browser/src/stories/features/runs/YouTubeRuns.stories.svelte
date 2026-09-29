@@ -19,6 +19,12 @@
 <Story name="Upload queued" args={{ status: { ...connectedYouTube, uploads: [uploadForRun('queued')] } }} />
 <Story name="Uploading" args={{ status: { ...connectedYouTube, uploads: [uploadForRun('uploading')] } }} />
 <Story
+	name="Automatic upload with a different saved path"
+	args={{
+		status: { ...connectedYouTube, uploads: [uploadForRun('uploading', { path: '/saved-runs/personal-best.mp4' })] }
+	}}
+/>
+<Story
 	name="Uploading without progress"
 	args={{ status: { ...connectedYouTube, uploads: [uploadForRun('uploading', { progressRatio: null })] } }}
 />

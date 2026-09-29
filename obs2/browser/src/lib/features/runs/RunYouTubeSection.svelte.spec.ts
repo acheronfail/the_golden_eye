@@ -29,6 +29,39 @@ function showUpload(upload: YouTubeUploadStatus) {
 	});
 }
 
+describe('YouTube upload run identity', () => {
+	it('shows and updates an automatic upload when its saved path differs from the catalog path', async () => {
+		const upload = uploadForRun('uploading', { path: '/saved-runs/personal-best.mp4', progressRatio: 0.25 });
+		youtube.handleUploadChanged(upload);
+		youtube.handlePersonalBestUploadStarted(upload);
+		render(RunYouTubeSection, { clip: completedRun });
+
+		expect(notifications.flags[0].href).toBe(`/runs?runId=${completedRun.runId}`);
+		expect(screen.getByRole('button', { name: 'Uploading 25%...' })).toBeDisabled();
+		expect(screen.getByRole('progressbar', { name: 'YouTube upload progress' })).toHaveAttribute('aria-valuenow', '25');
+		expect(screen.getByRole('button', { name: `Cancel upload: ${upload.title}` })).toBeEnabled();
+
+		youtube.handleUploadChanged({ ...upload, progressRatio: 0.75 });
+		await waitFor(() =>
+			expect(screen.getByRole('progressbar', { name: 'YouTube upload progress' })).toHaveAttribute(
+				'aria-valuenow',
+				'75'
+			)
+		);
+		youtube.handleUploadChanged({ ...upload, state: 'processing' });
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Processing...' })).toBeDisabled());
+		youtube.handleUploadChanged({ ...upload, state: 'uploaded', videoUrl: 'https://youtu.be/pb-video' });
+		await waitFor(() => expect(screen.getByText('Uploaded to YouTube.')).toBeInTheDocument());
+	});
+
+	it('does not show an upload for a different run that reused the same path', () => {
+		youtube.applyUpload(uploadForRun('uploading', { runId: 'previous-run' }));
+		render(RunYouTubeSection, { clip: completedRun });
+		expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled();
+		expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+	});
+});
+
 describe('YouTube upload cancellation', () => {
 	it.each(['queued', 'uploading'] as const)(
 		'cancels a %s upload from either progress display and permits retry',
@@ -55,7 +88,7 @@ describe('YouTube upload cancellation', () => {
 			youtube.handleUploadChanged(cancelled);
 			finish({ ...upload, state: 'cancelling' });
 			await waitFor(() => expect(youtube.cancellingUploadIds).toHaveLength(0));
-			expect(youtube.uploadForPath(upload.path)?.state).toBe('cancelled');
+			expect(youtube.uploadForRun(upload.runId)?.state).toBe('cancelled');
 			await header.rerender({ uploads: youtube.uploads });
 			expect(screen.getByText('No current uploads.')).toBeInTheDocument();
 			expect(screen.getByText('Upload cancelled. You can upload this clip again.')).toBeInTheDocument();
@@ -73,7 +106,7 @@ describe('YouTube upload cancellation', () => {
 		for (const alert of screen.getAllByRole('alert')) expect(alert).toHaveTextContent('Connection lost');
 		for (const button of screen.getAllByRole('button', { name: `Cancel upload: ${upload.title}` }))
 			expect(button).toBeEnabled();
-		expect(youtube.uploadForPath(upload.path)?.state).toBe('uploading');
+		expect(youtube.uploadForRun(upload.runId)?.state).toBe('uploading');
 	});
 
 	it('keeps completion and its video link when cancellation loses the race', async () => {
@@ -87,7 +120,7 @@ describe('YouTube upload cancellation', () => {
 		});
 		youtube.applyUpload({ ...upload, state: 'uploading' });
 		await waitFor(() => expect(screen.getByText('Uploaded to YouTube.')).toBeInTheDocument());
-		expect(youtube.uploadForPath(upload.path)?.videoId).toBe('video-123');
+		expect(youtube.uploadForRun(upload.runId)?.videoId).toBe('video-123');
 		expect(notifications.flags.map((flag) => flag.title)).toContain('Upload completed before cancellation');
 	});
 });
