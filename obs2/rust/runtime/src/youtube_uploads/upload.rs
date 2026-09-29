@@ -39,12 +39,28 @@ pub(crate) enum QueueError {
     File,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum UploadTrigger {
+    Manual,
+    PersonalBest,
+}
+
+impl UploadTrigger {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::PersonalBest => "personal_best",
+        }
+    }
+}
+
 impl YoutubeUploadStore {
     pub(crate) fn queue_upload(
         &self,
         settings: &SettingsStore,
         path: &str,
         datetime_local: Option<&str>,
+        trigger: UploadTrigger,
         event_tx: broadcast::Sender<AppEvent>,
     ) -> Result<(YoutubeUploadStatus, bool), QueueError> {
         if !self.enabled() {
@@ -82,10 +98,15 @@ impl YoutubeUploadStore {
             description.clone(),
             total_bytes,
         );
+        tracing::info!(
+            upload_id = %status.id, run_id = %status.run_id, trigger = trigger.as_str(),
+            "YouTube upload queued"
+        );
         let _ = event_tx.send(AppEvent::YoutubeUploadChanged { upload: status.clone() });
         let store = self.clone();
         let request = UploadRequest {
             upload_id: status.id.clone(),
+            run_id: status.run_id.clone(),
             path,
             title,
             description,
@@ -106,24 +127,33 @@ struct VideoInsertResponse {
 
 pub struct UploadRequest {
     pub upload_id: String,
+    pub run_id: String,
     pub path: PathBuf,
     pub title: String,
     pub description: String,
     pub visibility: YoutubeVisibility,
 }
 
+#[tracing::instrument(skip_all, fields(upload_id = %req.upload_id, run_id = %req.run_id, stage = "queued"))]
 pub async fn upload_video(
     store: YoutubeUploadStore,
     req: UploadRequest,
     event_tx: tokio::sync::broadcast::Sender<crate::app::AppEvent>,
     cancellation: CancellationToken,
 ) {
+    let started = Instant::now();
     let result = upload_video_inner(&store, &req, &event_tx, &cancellation).await;
     let UploadRequest { upload_id, path, title, .. } = req;
     match result {
         Ok(video_id) => {
             let video_url = format!("https://youtu.be/{video_id}");
             let status = store.update_upload(&upload_id, |status| {
+                let message = if status.state == YoutubeUploadState::Cancelling {
+                    "YouTube upload completed before cancellation"
+                } else {
+                    "YouTube upload completed"
+                };
+                tracing::info!(%video_id, elapsed_secs = started.elapsed().as_secs_f64(), "{message}");
                 status.state = YoutubeUploadState::Uploaded;
                 status.progress_bytes = status.total_bytes.unwrap_or(status.progress_bytes);
                 status.progress_ratio = Some(1.0);
@@ -131,28 +161,31 @@ pub async fn upload_video(
                 status.video_url = Some(video_url.clone());
                 status.error = None;
             });
-            let _ = store.set_history(
+            if let Err(error) = store.set_history(
                 &path,
                 YoutubeMetadata {
-                    video_id,
+                    video_id: video_id.clone(),
                     video_url,
                     uploaded_at: Some(now_iso()),
                     title,
                     source: YoutubeAssociationSource::PluginUpload,
                 },
-            );
+            ) {
+                tracing::warn!(%video_id, error = %format!("{error:#}"), "failed to persist completed YouTube upload association");
+            }
             if let Some(status) = status {
                 let _ = event_tx.send(crate::app::AppEvent::YoutubeUploadChanged { upload: status });
             }
         }
         Err(err) if err.is::<UploadCancelled>() => {
+            tracing::info!(elapsed_secs = started.elapsed().as_secs_f64(), "YouTube upload cancelled");
             publish_update(&store, &upload_id, &event_tx, |status| {
                 status.state = YoutubeUploadState::Cancelled;
                 status.error = None;
             });
         }
         Err(err) => {
-            tracing::warn!(path = %path.display(), "YouTube upload failed: {err:#}");
+            tracing::warn!(path = %path.display(), elapsed_secs = started.elapsed().as_secs_f64(), "YouTube upload failed: {err:#}");
             if let Some(status) = store.update_upload(&upload_id, |status| {
                 status.state = YoutubeUploadState::Failed;
                 status.error = Some(format!("{err:#}"));
@@ -169,10 +202,13 @@ async fn upload_video_inner(
     event_tx: &tokio::sync::broadcast::Sender<crate::app::AppEvent>,
     cancellation: &CancellationToken,
 ) -> anyhow::Result<String> {
-    let UploadRequest { upload_id, path, title, description, visibility } = req;
+    let UploadRequest { upload_id, path, title, description, visibility, .. } = req;
     let _permit =
         cancel_or(cancellation, store.semaphore().acquire_owned()).await.context("acquiring YouTube upload slot")?;
+    tracing::Span::current().record("stage", "preparing");
     let total_bytes = fs::metadata(path).with_context(|| format!("reading metadata for {}", path.display()))?.len();
+    tracing::info!(total_bytes, visibility = visibility.as_youtube_str(), "YouTube upload started");
+    tracing::Span::current().record("stage", "authentication");
     let access_token = cancel_or(cancellation, store.access_token()).await?;
     let config = store.config();
     publish_update(store, upload_id, event_tx, |status| {
@@ -187,6 +223,7 @@ async fn upload_video_inner(
         "status": { "privacyStatus": visibility.as_youtube_str() }
     });
     let init_url = format!("{}?uploadType=resumable&part=snippet,status", config.upload_url);
+    tracing::Span::current().record("stage", "session");
     let init_request = client
         .post(init_url)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
@@ -214,6 +251,7 @@ async fn upload_video_inner(
     let mut uploaded = 0u64;
     let mut progress_publisher = ProgressPublisher::new();
     let mut buffer = vec![0u8; CHUNK_SIZE as usize];
+    tracing::Span::current().record("stage", "transfer");
     loop {
         if cancellation.is_cancelled() {
             return Err(UploadCancelled.into());
@@ -237,9 +275,11 @@ async fn upload_video_inner(
         headers.insert(CONTENT_RANGE, format!("bytes {start}-{end}/{total_bytes}").parse()?);
         let request = client.put(&session_url).headers(headers).body(buffer[..n].to_vec());
         if end + 1 == total_bytes {
+            tracing::Span::current().record("stage", "final_chunk");
             match finish_upload(request, &client, &session_url, &access_token, total_bytes, cancellation).await? {
                 FinalChunk::Uploaded(video_id) => return Ok(video_id),
                 FinalChunk::Incomplete(bytes) => {
+                    tracing::Span::current().record("stage", "transfer");
                     uploaded = bytes;
                     progress_publisher.update(store, upload_id, event_tx, uploaded, total_bytes);
                     continue;
@@ -327,6 +367,7 @@ async fn finish_upload(
             biased;
             result = &mut completion => result,
             _ = cancellation.cancelled() => {
+                tracing::debug!("cancellation requested during final chunk; waiting for YouTube completion");
                 // Keep the final request alive briefly so its response can settle the completion race.
                 tokio::time::timeout(Duration::from_secs(10), &mut completion)
                     .await.unwrap_or_else(|_| Err(anyhow!("Timed out waiting for upload completion")))
@@ -334,11 +375,14 @@ async fn finish_upload(
         }
     };
     if cancellation.is_cancelled() && matches!(result, Ok(FinalChunk::Incomplete(_))) {
+        tracing::debug!("final chunk remained incomplete after cancellation");
         return Err(UploadCancelled.into());
     }
     if result.is_ok() || !cancellation.is_cancelled() {
         return result;
     }
+    tracing::Span::current().record("stage", "completion_probe");
+    tracing::debug!("checking YouTube completion after cancellation");
     let check = async {
         let response = client
             .put(session_url)
@@ -350,9 +394,17 @@ async fn finish_upload(
         video_response(response).await
     };
     // An incomplete status can race server-side finalization, so only a video ID settles this case.
-    tokio::time::timeout(Duration::from_secs(10), check).await
-        .map_err(anyhow::Error::from).and_then(|result| result).map(FinalChunk::Uploaded)
-        .context("Transfer stopped, but YouTube completion could not be verified. Check YouTube Studio before uploading again")
+    let verification = tokio::time::timeout(Duration::from_secs(10), check)
+        .await
+        .map_err(anyhow::Error::from)
+        .and_then(|result| result);
+    match &verification {
+        Ok(video_id) => tracing::debug!(%video_id, "YouTube completion verified after cancellation"),
+        Err(_) => tracing::debug!("YouTube completion probe failed"),
+    }
+    verification.map(FinalChunk::Uploaded).context(
+        "Transfer stopped, but YouTube completion could not be verified. Check YouTube Studio before uploading again",
+    )
 }
 
 struct ProgressPublisher {

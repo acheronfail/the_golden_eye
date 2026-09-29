@@ -49,7 +49,7 @@ impl Drop for Fixture {
 async fn only_opted_in_personal_bests_reach_the_upload_queue() {
     for (enabled, personal_best) in [(false, true), (true, false), (false, false)] {
         let mut fixture = Fixture::new(enabled);
-        fixture.uploader.queue_clip_with("clip.mov", personal_best, || panic!("must not queue upload"));
+        fixture.uploader.queue_clip_with("clip.mov", "run-1", personal_best, || panic!("must not queue upload"));
         assert!(fixture.events.try_recv().is_err());
     }
 }
@@ -58,7 +58,7 @@ async fn only_opted_in_personal_bests_reach_the_upload_queue() {
 async fn newly_queued_personal_best_publishes_notification() {
     let mut fixture = Fixture::new(true);
     let upload = fixture.upload();
-    fixture.uploader.queue_clip_with("clip.mov", true, || Ok((upload.clone(), true)));
+    fixture.uploader.queue_clip_with("clip.mov", "run-1", true, || Ok((upload.clone(), true)));
     let AppEvent::YoutubePersonalBestUploadStarted { upload: notified } = fixture.events.try_recv().unwrap() else {
         panic!("expected PB notification");
     };
@@ -70,9 +70,9 @@ async fn newly_queued_personal_best_publishes_notification() {
 async fn existing_upload_and_queue_errors_do_not_publish_pb_notification() {
     let mut fixture = Fixture::new(true);
     let upload = fixture.upload();
-    fixture.uploader.queue_clip_with("clip.mov", true, || Ok((upload, false)));
+    fixture.uploader.queue_clip_with("clip.mov", "run-1", true, || Ok((upload, false)));
     for error in [QueueError::Disabled, QueueError::Disconnected, QueueError::File] {
-        fixture.uploader.queue_clip_with("clip.mov", true, || Err(error));
+        fixture.uploader.queue_clip_with("clip.mov", "run-1", true, || Err(error));
     }
     assert!(fixture.events.try_recv().is_err());
 }

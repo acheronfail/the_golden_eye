@@ -4,7 +4,7 @@ use credentials::{YoutubeConfig, YoutubeCredentialStore, youtube_credential_stor
 mod personal_bests;
 mod upload;
 pub(crate) use personal_bests::PersonalBestUploader;
-pub(crate) use upload::QueueError;
+pub(crate) use upload::{QueueError, UploadTrigger};
 mod oauth;
 use std::collections::HashMap;
 use std::path::Path;
@@ -178,7 +178,11 @@ impl YoutubeUploadStore {
     ) -> Option<YoutubeUploadStatus> {
         let mut inner = self.inner.lock().unwrap();
         let status = inner.uploads.get_mut(id)?;
-        if !status.state.is_terminal() {
+        if !status.state.is_terminal() && status.state != YoutubeUploadState::Cancelling {
+            tracing::info!(
+                upload_id = %status.id, run_id = %status.run_id, previous_state = ?status.state,
+                progress_bytes = status.progress_bytes, "YouTube upload cancellation requested"
+            );
             status.state = YoutubeUploadState::Cancelling;
         }
         let status = status.clone();
