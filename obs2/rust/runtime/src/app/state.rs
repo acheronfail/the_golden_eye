@@ -5,6 +5,7 @@ use tokio::sync::{broadcast, watch};
 use super::{AppEvent, SharedStateStore};
 
 pub struct AppStateInner {
+    pub(crate) lifecycle: super::lifecycle::CoreLifecycle,
     /// YouTube OAuth credentials/history plus retained upload state.
     pub youtube: crate::youtube_uploads::YoutubeUploadStore,
     pub notifications: crate::streaming_notifications::StreamNotifier,

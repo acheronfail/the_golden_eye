@@ -233,6 +233,7 @@ pub extern "C" fn ge_runtime_start() -> bool {
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
+    REPLAY_BUFFER.reopen();
     let state = app::build_state(
         runtime.handle().clone(),
         settings,
@@ -296,6 +297,7 @@ pub extern "C" fn ge_runtime_commit_update() {
 /// server is not running is a no-op.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_runtime_stop() {
+    ge_runtime_begin_shutdown();
     let handle = {
         let mut guard = match SERVER.lock() {
             Ok(guard) => guard,
@@ -329,6 +331,17 @@ pub extern "C" fn ge_runtime_stop() {
     drop(PENDING_RUNTIME_DATA.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take());
 
     tracing::info!("server stopped");
+}
+
+/// Close work admission and wake OBS-dependent waits before removing callbacks.
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_runtime_begin_shutdown() {
+    let lifecycle =
+        SERVER.lock().unwrap_or_else(|p| p.into_inner()).as_ref().map(|handle| handle.state.lifecycle.clone());
+    if let Some(lifecycle) = lifecycle {
+        lifecycle.close();
+        REPLAY_BUFFER.begin_shutdown();
+    }
 }
 
 /// Spawn the YouTube stream-notifier on the tokio runtime; posts a Discord notification

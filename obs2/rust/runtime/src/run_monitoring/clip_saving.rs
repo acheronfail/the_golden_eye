@@ -169,6 +169,7 @@ impl SavePipeline {
         let finish_before_save_secs = now.saturating_duration_since(pending.finish_at).as_secs_f64();
         let trim_tail_secs = (finish_before_save_secs - policy.post_run_padding_secs).max(0.0);
         SaveAndTrimJob {
+            activity: self.replay_saves.lifecycle.start(crate::app::lifecycle::WorkKind::ReplaySave),
             personal_best_uploader: self.personal_best_uploader.clone(),
             tracking_id: pending.tracking_id,
             save_id: pending.save_id,
@@ -194,7 +195,15 @@ impl SavePipeline {
 
     #[cfg(not(test))]
     pub(super) fn flush_on_shutdown(&self, pending: PendingSave, now: Instant, policy: RunDetectionPolicy) {
-        self.flush_on_shutdown_with(pending, now, policy, std::thread::sleep, save_and_trim);
+        self.flush_on_shutdown_with(
+            pending,
+            now,
+            policy,
+            |duration| {
+                super::replay_buffer::REPLAY_BUFFER.wait_for_padding(duration);
+            },
+            save_and_trim,
+        );
     }
 
     pub(super) fn flush_on_shutdown_with(
@@ -218,6 +227,7 @@ impl SavePipeline {
 /// Inputs for saving the replay buffer and trimming it to the run window on a
 /// runtime-owned blocking worker.
 pub(super) struct SaveAndTrimJob {
+    activity: Option<crate::app::lifecycle::WorkPermit>,
     personal_best_uploader: Option<PersonalBestUploader>,
     pub(super) tracking_id: u64,
     pub(super) save_id: u64,
@@ -276,6 +286,9 @@ fn save_replay(job: &SaveAndTrimJob) -> Result<ResolvedReplay, &'static str> {
             tracing::error!(?REPLAY_SAVE_TIMEOUT, "replay buffer save did not complete in time");
             return Err("OBS replay buffer save timed out");
         }
+        ReplaySaveWait::ShuttingDown => {
+            return Err("Replay save cancelled during shutdown; any raw replay is preserved");
+        }
     };
 
     let resolved = match (output_directory.as_deref(), before) {
@@ -298,6 +311,10 @@ fn save_replay(job: &SaveAndTrimJob) -> Result<ResolvedReplay, &'static str> {
 }
 
 fn save_and_trim(job: SaveAndTrimJob) {
+    if job.activity.is_none() {
+        job.replay_saves.fail(job.tracking_id, "Replay save cancelled during shutdown".to_owned());
+        return;
+    }
     let uploader = job.personal_best_uploader.clone();
     save_and_trim_with(job, save_replay, |path, metadata| {
         if let Some(uploader) = uploader {

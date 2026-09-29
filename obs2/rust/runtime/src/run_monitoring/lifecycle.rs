@@ -22,6 +22,7 @@ use super::{
     RecordingStateStore,
     RunRecorder,
 };
+use crate::app::lifecycle::{WorkKind, WorkPermit};
 use crate::app::{AppEvent, SharedStateStore};
 use crate::config::MonitorTimingMode;
 use crate::obs::frame_capture::{FRAME_BUFFER_CAPACITY, FrameMailbox, ObsSource, ProducerCtx};
@@ -45,6 +46,7 @@ pub(crate) struct RunMonitor {
 
 #[derive(Debug)]
 pub(crate) enum StartError {
+    ShuttingDown,
     InvalidSourceName,
     AlreadyRunning,
     ReplayBufferUnavailable,
@@ -97,6 +99,7 @@ impl RunMonitor {
     }
 
     pub(crate) fn start(&self, status_source_name: String) -> Result<(), StartError> {
+        let activity = self.replay_saves.lifecycle.start(WorkKind::Monitor).ok_or(StartError::ShuttingDown)?;
         let recording_options = self.settings.get_recording_options();
         let recent_run_limit =
             Arc::new(AtomicUsize::new(recording_options.recent_run_limit.clamp(1, MAX_RECENT_RUN_LIMIT)));
@@ -226,6 +229,7 @@ impl RunMonitor {
         }
 
         *guard = Some(MonitorHandle {
+            activity,
             mailbox,
             producer,
             thread,
@@ -259,7 +263,7 @@ impl RunMonitor {
         // the in-flight match finishes. Joining the thread drops the session,
         // releasing the matcher and its scale cache.
         tokio::task::spawn_blocking(move || {
-            let MonitorHandle { mailbox, producer, thread, .. } = handle;
+            let MonitorHandle { mailbox, producer, thread, activity: _activity, .. } = handle;
             // Dropping the registration fences callbacks before reclaiming its state.
             drop(producer);
             // Wake the worker out of its blocking `recv` so the run loop exits.
@@ -344,6 +348,7 @@ impl RunMonitor {
 /// registered `producer`); the worker `thread` matches them. Stopping drops the
 /// registration, closes the mailbox, and joins the worker.
 struct MonitorHandle {
+    activity: WorkPermit,
     mailbox: Arc<FrameMailbox>,
     producer: crate::obs::RegisteredRenderCallback<ProducerCtx>,
     thread: JoinHandle<()>,

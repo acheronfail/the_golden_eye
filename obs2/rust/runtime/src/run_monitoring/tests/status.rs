@@ -1,6 +1,64 @@
 use super::*;
 use crate::run_monitoring::test_support::test_snapshot_store;
 
+#[tokio::test(start_paused = true)]
+async fn save_timeout_expires_without_clearing_a_newer_run() {
+    let snapshot = test_snapshot_store();
+    let store = RecordingStateStore::new(snapshot.clone(), tokio::runtime::Handle::current());
+    store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::SavePending));
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_secs(29)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(store.current(), Some(RecordingStatus::SavePending));
+    tokio::time::advance(Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(snapshot.current().recording_state, None);
+
+    store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::SavePending));
+    tokio::task::yield_now().await;
+    store.handle(RecordingStateEvent::PhaseChanged(RecordingStatus::Started));
+    tokio::time::advance(Duration::from_secs(30)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(snapshot.current().recording_state, Some(RecordingStatus::Started));
+}
+
+#[tokio::test(start_paused = true)]
+async fn replay_save_expiry_preserves_failed_and_in_progress_saves() {
+    use crate::run_monitoring::publication::{ReplaySaveStage, ReplaySaveStateStore, ReplaySaveStatus};
+
+    let snapshot = test_snapshot_store();
+    let saves = ReplaySaveStateStore::new(snapshot, tokio::runtime::Handle::current());
+    for tracking_id in [1, 2, 3] {
+        saves.schedule(ReplaySaveStatus {
+            tracking_id,
+            save_id: tracking_id,
+            stage: ReplaySaveStage::Scheduled,
+            level: "Runway".to_owned(),
+            difficulty: None,
+            run_status: "complete".to_owned(),
+            estimated_duration_secs: 28.0,
+            error: None,
+        });
+    }
+    saves.complete(1);
+    saves.fail(2, "save failed".to_owned());
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_secs(4)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(saves.current().len(), 3);
+    tokio::time::advance(Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    let retained = saves.current();
+    assert_eq!(retained.iter().map(|save| save.tracking_id).collect::<Vec<_>>(), vec![3, 2]);
+    assert_eq!(retained[1].error.as_deref(), Some("save failed"));
+    tokio::time::advance(Duration::from_secs(24)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(saves.current().len(), 2);
+    tokio::time::advance(Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(saves.current().iter().map(|save| save.tracking_id).collect::<Vec<_>>(), vec![3]);
+}
+
 #[test]
 fn recording_state_store_updates_snapshot_without_receivers() {
     let snapshot = test_snapshot_store();

@@ -1,13 +1,10 @@
 use std::fs::{self, OpenOptions};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use serde::Serialize;
-
-const PICKER_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
 #[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -30,17 +27,43 @@ pub struct FolderValidation {
     pub(crate) error: Option<String>,
 }
 
-pub(crate) fn pick_folder_on_ui_thread(title: String, start_dir: Option<PathBuf>) -> anyhow::Result<Option<PathBuf>> {
-    let (sender, receiver) = mpsc::channel();
-    crate::obs::queue_ui_task(move || {
-        let mut dialog = rfd::FileDialog::new().set_title(title).set_can_create_directories(true);
-        if let Some(start_dir) = start_dir {
-            dialog = dialog.set_directory(start_dir);
-        }
-        let _ = sender.send(dialog.pick_folder());
-    });
+pub(crate) async fn pick_folder_on_ui_thread(
+    lifecycle: crate::app::lifecycle::CoreLifecycle,
+    title: String,
+    start_dir: Option<PathBuf>,
+) -> anyhow::Result<Option<PathBuf>> {
+    queue_folder_picker(
+        lifecycle,
+        move || {
+            let mut dialog = rfd::FileDialog::new().set_title(title).set_can_create_directories(true);
+            if let Some(start_dir) = start_dir {
+                dialog = dialog.set_directory(start_dir);
+            }
+            dialog.pick_folder()
+        },
+        crate::obs::queue_ui_task,
+    )?
+    .await
+    .context("waiting for folder picker")
+}
 
-    receiver.recv_timeout(PICKER_TIMEOUT).context("waiting for folder picker")
+fn queue_folder_picker(
+    lifecycle: crate::app::lifecycle::CoreLifecycle,
+    pick: impl FnOnce() -> Option<PathBuf> + Send + 'static,
+    dispatch: impl FnOnce(Box<dyn FnOnce() + Send>) -> anyhow::Result<()>,
+) -> anyhow::Result<tokio::sync::oneshot::Receiver<Option<PathBuf>>> {
+    let activity = lifecycle.start(crate::app::lifecycle::WorkKind::FolderPicker).context("core is shutting down")?;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    dispatch(Box::new(move || {
+        let _activity = activity;
+        if lifecycle.is_closing() {
+            let _ = sender.send(None);
+            return;
+        }
+        let _ = sender.send(pick());
+    }))?;
+
+    Ok(receiver)
 }
 
 pub(crate) fn validate_folder_path(raw: &str) -> FolderValidation {

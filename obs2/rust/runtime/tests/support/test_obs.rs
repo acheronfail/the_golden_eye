@@ -102,6 +102,7 @@ struct State {
     live_dock_json: CString,
     replay_serial: usize,
     deferred_replay_saves: Option<Vec<PathBuf>>,
+    deferred_ui_tasks: Option<Vec<(ObsTask, usize)>>,
 }
 
 impl Default for State {
@@ -129,6 +130,7 @@ impl Default for State {
             live_dock_json: CString::new("[]").unwrap(),
             replay_serial: 0,
             deferred_replay_saves: None,
+            deferred_ui_tasks: None,
         }
     }
 }
@@ -145,6 +147,18 @@ impl TestObs {
 
     pub fn calls(&self) -> Calls {
         STATE.lock().unwrap().calls.clone()
+    }
+
+    pub fn defer_ui_tasks(&self) {
+        STATE.lock().unwrap().deferred_ui_tasks = Some(Vec::new());
+    }
+
+    pub fn finish_deferred_ui_tasks(&self) {
+        let tasks = STATE.lock().unwrap().deferred_ui_tasks.take().unwrap();
+        for (task, param) in tasks {
+            // SAFETY: the queue retains the task's original owned parameter.
+            unsafe { task(param as *mut c_void) };
+        }
     }
 
     pub fn replay_active(&self) -> bool {
@@ -258,9 +272,20 @@ fn malloc_frame(frame: &Frame, out_width: *mut u32, out_height: *mut u32) -> *mu
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn obs_queue_task(_kind: c_int, task: ObsTask, param: *mut c_void, _wait: bool) {
-    STATE.lock().unwrap().calls.queue_task += 1;
+    let mut state = STATE.lock().unwrap();
+    state.calls.queue_task += 1;
+    if let Some(tasks) = &mut state.deferred_ui_tasks {
+        tasks.push((task, param as usize));
+        return;
+    }
+    drop(state);
     // SAFETY: this test host executes UI work synchronously on its host thread.
     unsafe { task(param) };
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_obs_pin_core_for_ui() -> bool {
+    true
 }
 
 #[unsafe(no_mangle)]

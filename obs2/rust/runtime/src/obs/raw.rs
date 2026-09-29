@@ -52,6 +52,7 @@ pub(super) enum ObsTaskType {
 pub(super) type ObsTask = unsafe extern "C" fn(param: *mut c_void);
 
 unsafe extern "C" {
+    pub(super) fn ge_obs_pin_core_for_ui() -> bool;
     pub(super) fn obs_queue_task(task_type: ObsTaskType, task: ObsTask, param: *mut c_void, wait: bool);
 
     pub(super) fn obs_frontend_recording_start();

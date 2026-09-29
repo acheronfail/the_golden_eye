@@ -11,6 +11,7 @@ mod monitor_restart;
 mod monitor_snapshot;
 mod reload_notice;
 mod run_catalog_migration;
+mod runtime_shutdown;
 mod stats_time_accuracy;
 mod stream_notifications;
 mod update_apply;

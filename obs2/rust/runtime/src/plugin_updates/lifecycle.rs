@@ -16,6 +16,7 @@ const AUTO_APPLY_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 const AUTO_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
 pub(crate) struct PluginUpdates {
+    lifecycle: crate::app::lifecycle::CoreLifecycle,
     settings: Arc<SettingsStore>,
     snapshot: SharedStateStore,
     event_tx: broadcast::Sender<AppEvent>,
@@ -39,8 +40,18 @@ impl PluginUpdates {
         monitor: Arc<RunMonitor>,
         recording_state: RecordingStateStore,
         frontend_ready_tx: watch::Sender<bool>,
+        lifecycle: crate::app::lifecycle::CoreLifecycle,
     ) -> Self {
-        Self { settings, snapshot, event_tx, monitor, recording_state, frontend_ready_tx, check_lock: Mutex::new(()) }
+        Self {
+            lifecycle,
+            settings,
+            snapshot,
+            event_tx,
+            monitor,
+            recording_state,
+            frontend_ready_tx,
+            check_lock: Mutex::new(()),
+        }
     }
 
     pub(crate) fn status(&self) -> UpdateStatus {
@@ -62,7 +73,7 @@ impl PluginUpdates {
         if !has_staged_update() {
             return Err(ApplyError::NothingStaged);
         }
-        if !self.is_safe_to_apply() {
+        if !self.is_safe_to_apply() || !self.lifecycle.begin_update(cfg!(feature = "dev")) {
             return Err(ApplyError::ActivityInProgress);
         }
         let status = self.status();
@@ -250,6 +261,7 @@ impl PluginUpdates {
             || !*self.frontend_ready_tx.borrow()
             || !has_staged_update()
             || !self.is_safe_to_apply()
+            || !self.lifecycle.begin_update(cfg!(feature = "dev"))
         {
             return false;
         }

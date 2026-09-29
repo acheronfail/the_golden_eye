@@ -32,6 +32,7 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
 
 fn start_error_response(error: StartError) -> (StatusCode, &'static str) {
     match error {
+        StartError::ShuttingDown => (StatusCode::SERVICE_UNAVAILABLE, "core is shutting down"),
         StartError::InvalidSourceName => (StatusCode::BAD_REQUEST, "source name contains a null byte"),
         StartError::AlreadyRunning => (StatusCode::CONFLICT, "a monitor is already running"),
         StartError::ReplayBufferUnavailable => (StatusCode::PRECONDITION_FAILED, "replay buffer is unavailable"),

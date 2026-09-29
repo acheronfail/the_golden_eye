@@ -12,6 +12,11 @@ type FrameCallback = unsafe extern "C" fn(*mut c_void, u32, u32);
 static DOCK_JSON: LazyLock<Mutex<CString>> = LazyLock::new(|| Mutex::new(CString::new("[]").unwrap()));
 
 #[unsafe(no_mangle)]
+pub extern "C" fn ge_obs_pin_core_for_ui() -> bool {
+    true
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn obs_queue_task(_kind: c_int, task: ObsTask, param: *mut c_void, _wait: bool) {
     // SAFETY: stubs execute queued work synchronously.
     unsafe { task(param) };

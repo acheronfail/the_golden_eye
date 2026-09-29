@@ -156,6 +156,7 @@ pub struct ReplaySaveStatus {
 pub struct ReplaySaveStateStore {
     snapshot: SharedStateStore,
     pub(super) runtime: tokio::runtime::Handle,
+    pub(crate) lifecycle: crate::app::lifecycle::CoreLifecycle,
 }
 
 impl ReplaySaveStateStore {
@@ -163,7 +164,7 @@ impl ReplaySaveStateStore {
     const FAILED_LINGER: Duration = Duration::from_secs(30);
 
     pub fn new(snapshot: SharedStateStore, runtime: tokio::runtime::Handle) -> Self {
-        Self { snapshot, runtime }
+        Self { snapshot, runtime, lifecycle: Default::default() }
     }
 
     pub fn schedule(&self, status: ReplaySaveStatus) {

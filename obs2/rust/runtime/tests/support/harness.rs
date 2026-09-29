@@ -458,7 +458,7 @@ fn load_bgra(path: &Path) -> Frame {
     Frame { width: bgra.cols() as u32, height: bgra.rows() as u32, bgra: bgra.data_bytes().unwrap().to_vec() }
 }
 
-fn output_clip(dir: &Path) -> Option<PathBuf> {
+pub fn output_clip(dir: &Path) -> Option<PathBuf> {
     fs::read_dir(dir)
         .ok()?
         .flatten()

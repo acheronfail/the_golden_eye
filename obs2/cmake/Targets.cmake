@@ -59,6 +59,7 @@ target_sources(${CORE_NAME} PRIVATE
     core/obs_bridge.c
     core/core.c
     core/ge_log.c
+    core/ui_lifetime.c
 )
 
 if(NOT GE_OBS_NATIVE_DEPS_FOUND)
@@ -89,6 +90,7 @@ target_include_directories(${CORE_NAME} PRIVATE
     ${GE_SIMDE_INCLUDE_DIR}
 )
 target_link_libraries(${CORE_NAME} PRIVATE
+    ${CMAKE_DL_LIBS}
     ${OBS_LIBRARIES}
     ${OBS_FRONTEND_LIBRARIES}
     rust_libs
