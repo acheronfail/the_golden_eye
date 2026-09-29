@@ -6,7 +6,7 @@
 	import { backend, type FolderValidation } from '$lib/api';
 	import { dismissNotificationFlagsByKey } from '$lib/stores/notifications.svelte';
 	import { replayBuffer } from '$lib/stores/replayBuffer.svelte';
-	import Select from '$lib/ui/Select.svelte';
+	import SettingsSectionTabs, { type SettingsSection } from '$lib/features/settings/SettingsSectionTabs.svelte';
 	import { MAX_RECENT_RUN_LIMIT, settings } from '$lib/stores/settings.svelte';
 	import SettingsGeneral from '$lib/features/settings/SettingsGeneral.svelte';
 	import SettingsNotifications from '$lib/features/settings/SettingsNotifications.svelte';
@@ -16,15 +16,8 @@
 	import { settingsClasses, type RecordingSettingsView } from '$lib/features/settings/settingsView';
 	import { youtube } from '$lib/stores/youtube.svelte';
 
-	type OptionsTab = 'general' | 'recording' | 'notifications' | 'youtube';
+	type OptionsTab = SettingsSection;
 	const OPTIONS_TAB_STORAGE_KEY = 'the-golden-eye.options-tab';
-
-	const optionSections = $derived<{ value: OptionsTab; label: string }[]>([
-		{ value: 'general', label: 'General' },
-		{ value: 'recording', label: 'Recording' },
-		{ value: 'notifications', label: 'Notifications' },
-		...(youtube.enabled ? [{ value: 'youtube' as const, label: 'YouTube' }] : [])
-	]);
 
 	const tabFromUrl = (value: string | null): OptionsTab =>
 		value === 'recording' || value === 'notifications' || (value === 'youtube' && youtube.enabled) ? value : 'general';
@@ -73,10 +66,6 @@
 			noScroll: true,
 			keepFocus: true
 		});
-	};
-
-	const onSectionChange = (value: string) => {
-		selectTab(value as OptionsTab);
 	};
 
 	const { panel: panelClass, label: labelClass, hint: hintClass, pathButton: pathButtonClass } = settingsClasses;
@@ -322,16 +311,7 @@
 		<p class="text-xs text-(--obs-danger)">{configActionError}</p>
 	{/if}
 
-	<div class="flex items-center gap-3">
-		<label for="options-section" class="shrink-0 font-mono text-xs tracking-wide obs-dim uppercase">Section</label>
-		<Select
-			id="options-section"
-			class="min-w-0 flex-1 font-mono text-sm sm:max-w-60"
-			value={activeTab}
-			onChange={onSectionChange}
-			options={optionSections}
-		/>
-	</div>
+	<SettingsSectionTabs value={activeTab} includeYouTube={youtube.enabled} onChange={selectTab} />
 
 	<fieldset disabled={!settings.canEdit} class="flex flex-col gap-4 border-0 p-0">
 		{#if activeTab === 'general'}

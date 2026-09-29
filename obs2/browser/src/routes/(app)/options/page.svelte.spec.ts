@@ -131,12 +131,32 @@ describe('/options', () => {
 		render(OptionsPageHarness);
 
 		expect(await screen.findByRole('combobox', { name: /Monitor design/i })).toBeInTheDocument();
-		const section = screen.getByRole('combobox', { name: /^Section$/i });
-		expect(section).toHaveTextContent('Recording');
+		const sections = screen.getByRole('radiogroup', { name: 'Settings section' });
+		expect(within(sections).getByRole('radio', { name: 'Recording' })).toHaveAttribute('aria-checked', 'true');
+		expect(within(sections).getByRole('radio', { name: 'Recording' })).toHaveTextContent('Recording');
+		expect(within(sections).getByRole('radio', { name: 'Notifications' })).not.toHaveTextContent('Notifications');
 
-		await user.click(section);
-		await user.click(await screen.findByRole('option', { name: /^Notifications$/i }));
+		await user.click(within(sections).getByRole('radio', { name: 'Notifications' }));
+		expect(within(sections).getByRole('radio', { name: 'Notifications' })).toHaveAttribute('aria-checked', 'true');
+		expect(within(sections).getByRole('radio', { name: 'Notifications' })).toHaveTextContent('Notifications');
 		expect(localStorage.getItem('the-golden-eye.options-tab')).toBe('notifications');
+	});
+
+	it('switches sections with arrow keys', async () => {
+		const user = userEvent.setup();
+		render(OptionsPageHarness);
+
+		const sections = screen.getByRole('radiogroup', { name: 'Settings section' });
+		within(sections).getByRole('radio', { name: 'General' }).focus();
+		await user.keyboard('{ArrowRight}');
+
+		expect(within(sections).getByRole('radio', { name: 'Recording' })).toHaveAttribute('aria-checked', 'true');
+		expect(within(sections).getByRole('radio', { name: 'Recording' })).toHaveFocus();
+		expect(mocks.goto).toHaveBeenCalledWith('/options?tab=recording', {
+			replaceState: true,
+			noScroll: true,
+			keepFocus: true
+		});
 	});
 
 	it('saves to the backend after updating an option', async () => {
