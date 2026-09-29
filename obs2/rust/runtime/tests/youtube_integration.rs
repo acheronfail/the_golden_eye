@@ -126,7 +126,6 @@ async fn start_youtube_mock() -> (String, Arc<YoutubeMockState>, oneshot::Sender
 
 fn set_youtube_env(base_url: &str, token_file: Option<&std::path::Path>) {
     unsafe {
-        std::env::set_var("GE_YOUTUBE_ENABLED", "1");
         std::env::set_var("GE_TEST_YOUTUBE_OAUTH_STATE", "test-state");
         if let Some(token_file) = token_file {
             std::env::set_var("GE_TEST_YOUTUBE_TOKEN_FILE", token_file);
@@ -144,7 +143,6 @@ fn set_youtube_env(base_url: &str, token_file: Option<&std::path::Path>) {
 fn clear_youtube_env() {
     unsafe {
         for key in [
-            "GE_YOUTUBE_ENABLED",
             "GE_TEST_YOUTUBE_OAUTH_STATE",
             "GE_TEST_YOUTUBE_TOKEN_FILE",
             "GE_TEST_YOUTUBE_FORCE_KEYRING_FAILURE",

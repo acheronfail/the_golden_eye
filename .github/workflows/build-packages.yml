@@ -25,7 +25,6 @@ permissions:
 # We set these here for the entire run rather than just for the build package step
 # If they change it triggers rebuilds, which can be lengthy in CI
 env:
-  GE_YOUTUBE_ENABLED: ${{ vars.GE_YOUTUBE_ENABLED }}
   GE_YOUTUBE_CLIENT_ID: ${{ secrets.GE_YOUTUBE_CLIENT_ID }}
   GE_YOUTUBE_CLIENT_SECRET: ${{ secrets.GE_YOUTUBE_CLIENT_SECRET }}
 
