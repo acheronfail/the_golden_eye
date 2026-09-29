@@ -71,11 +71,10 @@ pub fn has_staged_update() -> bool {
     dir.join(leaf).is_file()
 }
 
-/// Wakes the loader's reload worker to apply whatever is staged. Must run on a plain OS
-/// thread, never a tokio worker of the runtime being torn down: `ge_runtime_stop()` (the
-/// reload triggers it) blocks, and tokio refuses to drop a runtime from its own worker.
+/// Wakes the loader's dedicated reload worker and returns immediately.
+/// Keep this call on the owned runtime so unloading waits for it to return.
 pub fn trigger_apply() {
-    std::thread::spawn(crate::obs::trigger_core_reload);
+    crate::obs::trigger_core_reload();
 }
 
 /// Downloads, verifies, and stages the release matching `update`. On success

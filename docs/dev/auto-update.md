@@ -130,6 +130,9 @@ Their behavioral contract is:
   remains in the applying phase and cannot request another reload. Commit clears that phase and
   enables the update notice for existing and new event clients.
 - `ge_core_unload` synchronously stops callbacks, Rust tasks, threads, and HTTP before returning.
+  Status-expiry timers belong to the core’s Tokio runtime so shutdown cancels them before DLL
+  unload. The reload-request callback only signals the loader’s dedicated worker and returns; it can
+  run directly on its caller’s owned task without spawning a detached thread.
 
 Every `u2` core must preserve these symbols, signatures, and semantics. A breaking change requires a
 new updater number and manual installation.

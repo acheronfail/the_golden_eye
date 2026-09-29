@@ -46,8 +46,14 @@ fn run_session(snapshot: SharedStateStore) -> RunSession {
     let (tx, _) = tokio::sync::broadcast::channel(8);
     let recording = crate::run_monitoring::RunRecorder::new(
         tx,
-        crate::run_monitoring::RecordingStateStore::new(snapshot.clone()),
-        crate::run_monitoring::publication::ReplaySaveStateStore::new(snapshot.clone()),
+        crate::run_monitoring::RecordingStateStore::new(
+            snapshot.clone(),
+            crate::run_monitoring::test_support::test_runtime_handle(),
+        ),
+        crate::run_monitoring::publication::ReplaySaveStateStore::new(
+            snapshot.clone(),
+            crate::run_monitoring::test_support::test_runtime_handle(),
+        ),
         crate::run_monitoring::RecordingOptions::default(),
         crate::run_monitoring::RecordingSessionContext::new("N64 Capture".to_owned(), "en".to_owned(), None),
         crate::run_monitoring::test_support::test_run_catalog("monitor-events"),

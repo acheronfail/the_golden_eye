@@ -218,7 +218,7 @@ fn monitor_snapshot_tracks_and_clears_the_active_cv_language() {
 #[test]
 fn replay_save_store_retains_pipeline_transitions() {
     let snapshot = SharedStateStore::new(test_snapshot());
-    let store = ReplaySaveStateStore::new(snapshot.clone());
+    let store = ReplaySaveStateStore::new(snapshot.clone(), crate::run_monitoring::test_support::test_runtime_handle());
     store.schedule(ReplaySaveStatus {
         tracking_id: 41,
         save_id: 7,

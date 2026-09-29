@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { ObsHarness, type HarnessOptions } from "./harness.ts";
 import { playRun } from "./media.ts";
@@ -84,7 +85,7 @@ const artifacts = await fs.mkdtemp(path.join(root, "obs2/build/real-obs-upgrade-
 await fs.writeFile(path.join(artifacts, "builds.json"), JSON.stringify(manifest, null, 2));
 const report = await runSuite({
   artifacts,
-  repeats: 1,
+  repeats: 2,
   interrupted: () => interrupted,
   create: (directory) => (current = new UpgradeSession(directory)),
   scenarios: [
@@ -111,6 +112,7 @@ const report = await runSuite({
           );
           await h.api("/api/v1/updates/check", {});
         }, "core reload succeeded");
+        const expiryDeadline = performance.now() + 31_000;
         const notice = await h.waitFor("version B update notice", () =>
           h.events.slice(eventStart).find((event) => event.type === "updateApplied"),
         );
@@ -133,6 +135,12 @@ const report = await runSuite({
         // The three-second fixture must allow cold language/scale detection on busy CI hosts.
         await playRun(h, "After upgrade", "kia.mp4", 14, "kia", 25);
         const runsAfter = await h.api("/api/v1/runs");
+        // Detached status timers used to wake in the unloaded core after 5 or 30 seconds.
+        // Keep exercising B beyond both deadlines before restarting OBS.
+        while (performance.now() < expiryDeadline) {
+          assert.deepEqual(await h.api("/api/v1/runs"), runsAfter);
+          await delay(250);
+        }
         const buildIdB = h.events
           .slice(eventStart)
           .find((event) => event.type === "version")!.buildId;

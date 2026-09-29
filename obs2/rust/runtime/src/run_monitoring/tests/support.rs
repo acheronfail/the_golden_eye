@@ -101,11 +101,12 @@ pub(super) fn test_snapshot_store() -> SharedStateStore {
 pub(super) fn test_recording(options: RecordingOptions) -> (RunRecorder, tokio::sync::broadcast::Receiver<AppEvent>) {
     let (event_tx, event_rx) = tokio::sync::broadcast::channel(8);
     let snapshot = test_snapshot_store();
-    let recording_state = RecordingStateStore::new(snapshot.clone());
+    let recording_state =
+        RecordingStateStore::new(snapshot.clone(), crate::run_monitoring::test_support::test_runtime_handle());
     let recording = RunRecorder::new(
         event_tx,
         recording_state,
-        ReplaySaveStateStore::new(snapshot),
+        ReplaySaveStateStore::new(snapshot, crate::run_monitoring::test_support::test_runtime_handle()),
         options,
         RecordingSessionContext::new("N64 Capture".to_owned(), "en".to_owned(), None),
         test_run_catalog("recording-state"),
@@ -247,4 +248,11 @@ impl RunRecorder {
         };
         self.save_pipeline.flush_on_shutdown_with(pending, now, self.detection_policy, sleep, save);
     }
+}
+
+// Synchronous state-machine tests need a timer owner; async tests use their own clock.
+pub(crate) fn test_runtime_handle() -> tokio::runtime::Handle {
+    static RUNTIME: std::sync::LazyLock<tokio::runtime::Runtime> =
+        std::sync::LazyLock::new(|| tokio::runtime::Runtime::new().unwrap());
+    tokio::runtime::Handle::try_current().unwrap_or_else(|_| RUNTIME.handle().clone())
 }

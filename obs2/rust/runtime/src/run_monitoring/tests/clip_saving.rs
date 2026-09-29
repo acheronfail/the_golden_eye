@@ -197,8 +197,8 @@ fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
     let snapshot = test_snapshot_store();
     let mut recording = RunRecorder::new(
         event_tx,
-        RecordingStateStore::new(snapshot.clone()),
-        ReplaySaveStateStore::new(snapshot),
+        RecordingStateStore::new(snapshot.clone(), crate::run_monitoring::test_support::test_runtime_handle()),
+        ReplaySaveStateStore::new(snapshot, crate::run_monitoring::test_support::test_runtime_handle()),
         options.clone(),
         RecordingSessionContext::new("N64 Capture".to_owned(), "en".to_owned(), None),
         catalog.clone(),

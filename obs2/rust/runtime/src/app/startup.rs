@@ -10,6 +10,7 @@ use crate::settings::SettingsStore;
 use crate::{diagnostics, obs, plugin_updates, run_library, run_monitoring, streaming_notifications, youtube_uploads};
 
 pub(crate) fn build_state(
+    runtime: tokio::runtime::Handle,
     settings: Arc<SettingsStore>,
     run_catalog: Arc<RunCatalog>,
     catalog_needs_seed: bool,
@@ -39,8 +40,8 @@ pub(crate) fn build_state(
     // so a full/empty channel never blocks frame processing.
     let (event_tx, _) = tokio::sync::broadcast::channel(64);
     let (frontend_ready_tx, _) = tokio::sync::watch::channel(frontend_ready);
-    let recording_state = RecordingStateStore::new(snapshot.clone());
-    let replay_saves = run_monitoring::publication::ReplaySaveStateStore::new(snapshot.clone());
+    let recording_state = RecordingStateStore::new(snapshot.clone(), runtime.clone());
+    let replay_saves = run_monitoring::publication::ReplaySaveStateStore::new(snapshot.clone(), runtime);
     let youtube = youtube_uploads::YoutubeUploadStore::new(settings.path(), run_catalog.clone());
     let monitor = Arc::new(run_monitoring::RunMonitor::new(
         settings.clone(),

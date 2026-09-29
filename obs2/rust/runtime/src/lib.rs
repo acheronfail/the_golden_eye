@@ -234,7 +234,14 @@ pub extern "C" fn ge_runtime_start() -> bool {
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
-    let state = app::build_state(settings, run_catalog, catalog_needs_seed, frontend_ready, applying_update);
+    let state = app::build_state(
+        runtime.handle().clone(),
+        settings,
+        run_catalog,
+        catalog_needs_seed,
+        frontend_ready,
+        applying_update,
+    );
 
     if let Some(transaction) = data_transaction {
         let mut pending = PENDING_RUNTIME_DATA.lock().unwrap_or_else(|poisoned| poisoned.into_inner());

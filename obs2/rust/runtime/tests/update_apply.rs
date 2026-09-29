@@ -312,11 +312,7 @@ fn staged_data_path(core_path: &std::path::Path, relative: &str) -> std::path::P
     core_path.parent().unwrap().join(".ge_update_staged/module-data").join(relative)
 }
 
-/// `trigger_apply` (update_apply.rs) deliberately fires `ge_core_trigger_reload`
-/// from a detached `std::thread` rather than the request-handling task -- see
-/// its doc comment -- so `/api/v1/updates/apply` returning 202 only means the
-/// trigger was dispatched, not that it has run yet. Poll instead of asserting
-/// the call count immediately after the response.
+/// Automatic application runs in the background; wait for its reload request.
 async fn wait_for_core_trigger_reload(harness: &Harness) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while harness.obs.calls().core_trigger_reload == 0 {

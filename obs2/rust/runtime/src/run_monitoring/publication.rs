@@ -155,14 +155,15 @@ pub struct ReplaySaveStatus {
 #[derive(Clone)]
 pub struct ReplaySaveStateStore {
     snapshot: SharedStateStore,
+    runtime: tokio::runtime::Handle,
 }
 
 impl ReplaySaveStateStore {
     const COMPLETED_LINGER: Duration = Duration::from_secs(5);
     const FAILED_LINGER: Duration = Duration::from_secs(30);
 
-    pub fn new(snapshot: SharedStateStore) -> Self {
-        Self { snapshot }
+    pub fn new(snapshot: SharedStateStore, runtime: tokio::runtime::Handle) -> Self {
+        Self { snapshot, runtime }
     }
 
     pub fn schedule(&self, status: ReplaySaveStatus) {
@@ -208,13 +209,10 @@ impl ReplaySaveStateStore {
 
     fn remove_after(&self, tracking_id: u64, duration: Duration) {
         let store = self.clone();
-        let spawned = std::thread::Builder::new().name("ge-replay-save-state-timeout".to_owned()).spawn(move || {
-            std::thread::sleep(duration);
+        self.runtime.spawn(async move {
+            tokio::time::sleep(duration).await;
             store.snapshot.update(|state| state.replay_saves.retain(|save| save.tracking_id != tracking_id));
         });
-        if let Err(err) = spawned {
-            tracing::error!("failed to spawn replay save state timeout thread: {err}");
-        }
     }
 }
 
