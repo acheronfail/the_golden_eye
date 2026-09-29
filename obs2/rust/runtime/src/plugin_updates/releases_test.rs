@@ -176,38 +176,43 @@ fn release_response_parses_release_array() {
 
 #[test]
 fn env_config_defaults_to_release_history_url() {
-    let config = crate::config::UpdateEnvConfig::from_values(None, None);
+    let config = crate::config::UpdateEnvConfig::from_values(None);
 
     assert_eq!(config.releases_api_url(), crate::config::RELEASES_API_URL);
-    assert!(!config.include_prereleases());
 }
 
 #[test]
-fn env_config_truthy_prereleases_uses_full_releases_url() {
-    let config = crate::config::UpdateEnvConfig::from_values(None, Some("true".to_owned()));
-
-    assert_eq!(config.releases_api_url(), crate::config::RELEASES_API_URL);
-    assert!(config.include_prereleases());
-}
-
-#[test]
-fn env_config_url_override_takes_precedence_over_prerelease_endpoint() {
-    let config = crate::config::UpdateEnvConfig::from_values(
-        Some("https://example.test/releases".to_owned()),
-        Some("true".to_owned()),
-    );
+fn env_config_can_override_release_history_url() {
+    let config = crate::config::UpdateEnvConfig::from_values(Some("https://example.test/releases".to_owned()));
 
     assert_eq!(config.releases_api_url(), "https://example.test/releases");
-    assert!(config.include_prereleases());
 }
 
 #[test]
-fn env_config_false_prerelease_override_is_recorded_but_disabled() {
-    let config = crate::config::UpdateEnvConfig::from_values(None, Some("false".to_owned()));
+fn installed_prerelease_can_upgrade_to_newer_stable_release() {
+    for include_prereleases in [false, true] {
+        for stable in ["v1.4.0", "v1.5.0"] {
+            let found = select_update_from_releases(
+                "1.4.0-beta.1",
+                vec![release("v1.4.0-beta.2", true, false), release(stable, false, false)],
+                include_prereleases,
+            )
+            .unwrap()
+            .unwrap()
+            .0;
+            assert_eq!(found.latest_version, stable);
+        }
+    }
+}
 
-    assert_eq!(config.include_prereleases_override, Some(false));
-    assert!(!config.include_prereleases());
-    assert_eq!(config.releases_api_url(), crate::config::RELEASES_API_URL);
+#[test]
+fn installed_prerelease_does_not_downgrade_to_older_stable() {
+    for include_prereleases in [false, true] {
+        let found =
+            select_update_from_releases("1.4.0-beta.1", vec![release("v1.3.9", false, false)], include_prereleases)
+                .unwrap();
+        assert!(found.is_none());
+    }
 }
 
 #[test]

@@ -224,6 +224,23 @@ describe('/options', () => {
 		);
 	});
 
+	it('saves the pre-release opt-in and opt-out', async () => {
+		const user = userEvent.setup();
+		render(OptionsPageHarness);
+
+		const checkbox = await screen.findByRole('checkbox', { name: /Include pre-releases/i });
+		await waitFor(() => expect(checkbox).toBeEnabled());
+		expect(checkbox).not.toBeChecked();
+		await user.click(checkbox);
+		await waitFor(() =>
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ includePrereleases: true }))
+		);
+		await user.click(checkbox);
+		await waitFor(() =>
+			expect(mocks.api.putSettings).toHaveBeenLastCalledWith(expect.objectContaining({ includePrereleases: false }))
+		);
+	});
+
 	it('confirms before resetting settings to defaults', async () => {
 		const user = userEvent.setup();
 		settings.applyReloaded(

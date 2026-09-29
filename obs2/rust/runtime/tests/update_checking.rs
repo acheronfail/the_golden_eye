@@ -137,6 +137,80 @@ async fn failed_startup_update_check_does_not_persist_check_time() {
     release_server.await.unwrap();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn update_checks_follow_saved_prerelease_preference_without_restart() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let app = Router::new()
+        .route(
+            "/latest",
+            get(|state| async move {
+                let axum::Json(mut release) = latest_release(state).await;
+                release["prerelease"] = json!(true);
+                release["tag_name"] = json!("v999.0.0-beta.1");
+                for asset in release["assets"].as_array_mut().unwrap() {
+                    asset["name"] = json!(asset["name"].as_str().unwrap().replace("v999.0.0-", "v999.0.0-beta.1-"));
+                }
+                axum::Json(release)
+            }),
+        )
+        .with_state(calls);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/latest", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    // SAFETY: integration tests run serially; set before starting the backend.
+    unsafe { std::env::set_var("GE_UPDATE_CHECK_URL", url) };
+    let harness = Harness::start_with_settings(Duration::ZERO, json!({})).await;
+
+    for include_prereleases in [false, true, false] {
+        let status: Value = harness
+            .client
+            .get(format!("{API}/api/v1/settings/status"))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let mut settings = status["settings"].clone();
+        settings["includePrereleases"] = json!(include_prereleases);
+        harness
+            .client
+            .put(format!("{API}/api/v1/settings"))
+            .json(&settings)
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+        let result: Value = harness
+            .client
+            .post(format!("{API}/api/v1/updates/check"))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if include_prereleases {
+            assert_eq!(result["update"]["latestVersion"], "v999.0.0-beta.1");
+        } else {
+            assert_eq!(result["update"], Value::Null);
+            let result = harness.client.post(format!("{API}/api/v1/updates/download")).send().await.unwrap();
+            assert_eq!(result.status(), StatusCode::NOT_FOUND);
+        }
+    }
+
+    drop(harness);
+    // SAFETY: the backend has stopped before removing its endpoint override.
+    unsafe { std::env::remove_var("GE_UPDATE_CHECK_URL") };
+    server.abort();
+}
+
 async fn wait_for_update_available_event(harness: &Harness, calls: &Arc<AtomicUsize>) -> Value {
     let (mut ws, _) = connect_async(event_ws_url()).await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);

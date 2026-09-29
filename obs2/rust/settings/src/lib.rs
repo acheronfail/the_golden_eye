@@ -93,6 +93,7 @@ pub struct AppSettings {
     pub streaming_started_message_template: String,
     pub streaming_stopped_message_template: String,
     pub update_check_interval: UpdateCheckInterval,
+    pub include_prereleases: bool,
     #[ts(type = "number | null")]
     pub last_update_check_time: Option<u64>,
     #[ts(skip)]
@@ -128,6 +129,7 @@ impl Default for AppSettings {
             streaming_started_message_template: DEFAULT_STREAMING_STARTED_MESSAGE_TEMPLATE.to_owned(),
             streaming_stopped_message_template: DEFAULT_STREAMING_STOPPED_MESSAGE_TEMPLATE.to_owned(),
             update_check_interval: DEFAULT_UPDATE_CHECK_INTERVAL,
+            include_prereleases: false,
             last_update_check_time: None,
             last_known_update_version: None,
             last_known_update_release_url: None,

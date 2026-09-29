@@ -38,6 +38,11 @@
 	<p class={styles.hint}>
 		Checks GitHub releases on app startup and shows a notice to download and install a newer version when one exists.
 	</p>
+	<label class="flex items-center gap-3">
+		<input type="checkbox" bind:checked={settings.values.includePrereleases} class="obs-checkbox rounded" />
+		<span class={styles.label}>Include pre-releases</span>
+	</label>
+	<p class={styles.hint}>Includes pre-releases alongside stable releases, choosing the newest compatible version.</p>
 </section>
 
 <section class={styles.panel}>

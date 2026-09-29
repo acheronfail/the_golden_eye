@@ -50,6 +50,7 @@ fn missing_fields_use_the_complete_contract_default() {
     assert_eq!(defaults.recent_run_limit, DEFAULT_RECENT_RUN_LIMIT);
     assert!(defaults.show_source_previews);
     assert!(!defaults.youtube_auto_upload_personal_bests);
+    assert!(!defaults.include_prereleases);
     assert_eq!(settings_from_json(json!({ "monitorDesign": "debug" })).monitor_design, MonitorDesign::Debug);
 }
 
@@ -168,6 +169,7 @@ fn store_persists_and_loads_settings_json() {
             "streamingStartedMessageTemplate": "Started {broadcast_url}",
             "streamingStoppedMessageTemplate": "Stopped {broadcast_url}",
             "updateCheckInterval": "monthly",
+            "includePrereleases": true,
             "lastUpdateCheckTime": 456
         })))
         .unwrap();
@@ -182,6 +184,7 @@ fn store_persists_and_loads_settings_json() {
     assert_eq!(saved.last_used_source_name.as_deref(), Some("N64 Capture"));
     assert!(saved.welcome_modal_shown);
     assert_eq!(saved.update_check_interval, UpdateCheckInterval::Monthly);
+    assert!(saved.include_prereleases);
     assert_eq!(saved.last_update_check_time, Some(456));
     assert!(path.exists());
 
