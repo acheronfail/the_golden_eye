@@ -59,6 +59,7 @@ pub(crate) enum RecordingStateEvent {
 pub struct RecordingStateStore {
     snapshot: SharedStateStore,
     state: Arc<Mutex<RecordingStateInner>>,
+    runtime: tokio::runtime::Handle,
 }
 
 struct RecordingStateInner {
@@ -70,10 +71,11 @@ impl RecordingStateStore {
     const CANCELLED_LINGER: Duration = Duration::from_secs(2);
     const SAVE_TIMEOUT: Duration = Duration::from_secs(30);
 
-    pub fn new(snapshot: SharedStateStore) -> Self {
+    pub fn new(snapshot: SharedStateStore, runtime: tokio::runtime::Handle) -> Self {
         RecordingStateStore {
             snapshot,
             state: Arc::new(Mutex::new(RecordingStateInner { status: None, generation: 0 })),
+            runtime,
         }
     }
 
@@ -110,13 +112,10 @@ impl RecordingStateStore {
         };
         if let Some(duration) = expires_after {
             let store = self.clone();
-            let spawned = std::thread::Builder::new().name("ge-recording-state-timeout".to_owned()).spawn(move || {
-                std::thread::sleep(duration);
+            self.runtime.spawn(async move {
+                tokio::time::sleep(duration).await;
                 store.handle(RecordingStateEvent::Expired(generation));
             });
-            if let Err(err) = spawned {
-                tracing::error!("failed to spawn recording-state timeout thread: {err}");
-            }
         }
         generation
     }

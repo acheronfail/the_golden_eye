@@ -19,7 +19,6 @@ use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 #[cfg(feature = "test-hooks")]
 use ge_clip::ClipMetadata;
@@ -234,7 +233,14 @@ pub extern "C" fn ge_runtime_start() -> bool {
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
-    let state = app::build_state(settings, run_catalog, catalog_needs_seed, frontend_ready, applying_update);
+    let state = app::build_state(
+        runtime.handle().clone(),
+        settings,
+        run_catalog,
+        catalog_needs_seed,
+        frontend_ready,
+        applying_update,
+    );
 
     if let Some(transaction) = data_transaction {
         let mut pending = PENDING_RUNTIME_DATA.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -314,8 +320,9 @@ pub extern "C" fn ge_runtime_stop() {
     // be gone if the server task exited on its own; that's fine.
     let _ = handle.shutdown.send(());
 
-    // Block until all tasks finish and the runtime is fully torn down.
-    handle.runtime.shutdown_timeout(Duration::from_secs(30));
+    // Join blocking work and cancel timers before the loader unmaps this core.
+    // A timed shutdown can leave threads executing code from an unloaded DLL.
+    drop(handle.runtime);
 
     // A normal unload after a committed update has nothing pending. Closing a
     // newly loaded core before commit drops this transaction and restores data.

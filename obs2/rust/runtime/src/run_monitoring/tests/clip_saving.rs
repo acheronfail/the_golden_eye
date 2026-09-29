@@ -35,6 +35,7 @@ fn shutdown_before_pending_save_fires_waits_and_preserves_save_job() {
     assert_eq!(*slept.borrow(), Some(Duration::from_secs_f64(3.5)));
     let job = saved_job.borrow_mut().take().expect("save job");
     assert_eq!(job.save_id, 1);
+    assert_eq!(job.replay_saves.current()[0].tracking_id, job.tracking_id);
     assert_eq!(job.status, RunStatus::Complete);
     assert!(job.completed_at <= SystemTime::now());
     assert_eq!(job.stats.as_ref().and_then(|m| m.times).map(|times| times.time), Some(123));
@@ -197,8 +198,8 @@ fn catalog_failure_still_saves_a_tagged_clip_and_recovers_the_run_row() {
     let snapshot = test_snapshot_store();
     let mut recording = RunRecorder::new(
         event_tx,
-        RecordingStateStore::new(snapshot.clone()),
-        ReplaySaveStateStore::new(snapshot),
+        RecordingStateStore::new(snapshot.clone(), crate::run_monitoring::test_support::test_runtime_handle()),
+        ReplaySaveStateStore::new(snapshot, crate::run_monitoring::test_support::test_runtime_handle()),
         options.clone(),
         RecordingSessionContext::new("N64 Capture".to_owned(), "en".to_owned(), None),
         catalog.clone(),

@@ -216,7 +216,7 @@ impl SavePipeline {
 }
 
 /// Inputs for saving the replay buffer and trimming it to the run window on a
-/// dedicated thread.
+/// runtime-owned blocking worker.
 pub(super) struct SaveAndTrimJob {
     personal_best_uploader: Option<PersonalBestUploader>,
     pub(super) tracking_id: u64,
@@ -406,13 +406,8 @@ fn resolve_saved_replay(event_path: Option<String>, new_files: Vec<PathBuf>) -> 
 }
 
 fn spawn_save_and_trim(job: SaveAndTrimJob) {
-    let tracking_id = job.tracking_id;
-    let replay_saves = job.replay_saves.clone();
-    let spawned = std::thread::Builder::new().name("ge-replay-save".to_owned()).spawn(move || save_and_trim(job));
-    if let Err(err) = spawned {
-        tracing::error!("failed to spawn replay save thread: {err}");
-        replay_saves.fail(tracking_id, format!("failed to start replay save worker: {err}"));
-    }
+    let runtime = job.replay_saves.runtime.clone();
+    runtime.spawn_blocking(move || save_and_trim(job));
 }
 
 /// Trim the saved replay file down to the requested run window and write it
