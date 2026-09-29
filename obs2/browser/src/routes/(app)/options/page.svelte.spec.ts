@@ -125,6 +125,25 @@ beforeEach(() => {
 });
 
 describe('/options', () => {
+	it('opens a linked section ahead of the saved section and preserves other URL parameters', async () => {
+		const user = userEvent.setup();
+		localStorage.setItem('the-golden-eye.options-tab', 'recording');
+		mocks.page.url = new URL('http://localhost/options?tab=notifications&from=dashboard');
+		render(OptionsPageHarness);
+
+		const sections = screen.getByRole('radiogroup', { name: 'Settings section' });
+		expect(within(sections).getByRole('radio', { name: 'Notifications' })).toHaveAttribute('aria-checked', 'true');
+		expect(localStorage.getItem('the-golden-eye.options-tab')).toBe('notifications');
+
+		await user.click(within(sections).getByRole('radio', { name: 'General' }));
+		expect(mocks.goto).toHaveBeenCalledWith('/options?from=dashboard', {
+			replaceState: true,
+			noScroll: true,
+			keepFocus: true
+		});
+		expect(localStorage.getItem('the-golden-eye.options-tab')).toBe('general');
+	});
+
 	it('reopens the last section saved in browser storage', async () => {
 		const user = userEvent.setup();
 		localStorage.setItem('the-golden-eye.options-tab', 'recording');
