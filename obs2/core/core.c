@@ -126,9 +126,6 @@ static void ge_on_frontend_event(enum obs_frontend_event event, void *private_da
     ge_frontend_finished_loading();
     ge_sources_changed();
     break;
-  case OBS_FRONTEND_EVENT_SCRIPTING_SHUTDOWN:
-    ge_runtime_begin_shutdown();
-    break;
   case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED:
     ge_sources_changed();
     break;
@@ -176,10 +173,9 @@ GE_EXPORT void ge_core_post_load(void) {
 GE_EXPORT void ge_core_commit_update(void) { ge_runtime_commit_update(); }
 
 // Called by the loader before it dlcloses this library (on OBS shutdown, or
-// before a reload). Runtime workers are joined; native UI callbacks separately
-// retain their core image until process exit (see ui_lifetime.c).
+// before a reload). `ge_runtime_stop` blocks until the tokio runtime is fully
+// torn down, so no Rust threads survive the dlclose that follows.
 GE_EXPORT void ge_core_unload(void) {
-  ge_runtime_begin_shutdown();
   ge_disconnect_source_signals();
   obs_frontend_remove_event_callback(ge_on_frontend_event, NULL);
   ge_runtime_stop();

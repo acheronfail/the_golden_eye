@@ -2,59 +2,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::*;
 
-#[test]
-fn queued_picker_is_skipped_after_shutdown_even_if_the_request_was_dropped() {
-    let lifecycle = crate::app::lifecycle::CoreLifecycle::default();
-    let mut queued = None;
-    let result = queue_folder_picker(
-        lifecycle.clone(),
-        || panic!("a cancelled queued dialog must not open"),
-        |task| {
-            queued = Some(task);
-            Ok(())
-        },
-    )
-    .unwrap();
-    assert!(!lifecycle.begin_update(false));
-    drop(result);
-    lifecycle.close();
-    queued.unwrap()();
-}
-
-#[test]
-fn open_picker_keeps_update_blocked_after_the_http_request_is_dropped() {
-    let lifecycle = crate::app::lifecycle::CoreLifecycle::default();
-    let (opened_tx, opened_rx) = std::sync::mpsc::channel();
-    let (close_tx, close_rx) = std::sync::mpsc::channel();
-    let mut native_thread = None;
-    let result = queue_folder_picker(
-        lifecycle.clone(),
-        move || {
-            opened_tx.send(()).unwrap();
-            close_rx.recv().unwrap();
-            None
-        },
-        |task| {
-            native_thread = Some(std::thread::spawn(task));
-            Ok(())
-        },
-    )
-    .unwrap();
-    opened_rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap();
-    drop(result);
-    assert!(!lifecycle.begin_update(false));
-    close_tx.send(()).unwrap();
-    native_thread.unwrap().join().unwrap();
-    assert!(lifecycle.begin_update(false));
-}
-
-#[test]
-fn failed_picker_dispatch_releases_update_gate() {
-    let lifecycle = crate::app::lifecycle::CoreLifecycle::default();
-    assert!(queue_folder_picker(lifecycle.clone(), || None, |_| anyhow::bail!("pin failed")).is_err());
-    assert!(lifecycle.begin_update(false));
-}
-
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 struct TestDir {

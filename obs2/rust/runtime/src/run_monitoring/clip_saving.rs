@@ -169,7 +169,6 @@ impl SavePipeline {
         let finish_before_save_secs = now.saturating_duration_since(pending.finish_at).as_secs_f64();
         let trim_tail_secs = (finish_before_save_secs - policy.post_run_padding_secs).max(0.0);
         SaveAndTrimJob {
-            activity: self.replay_saves.lifecycle.start(crate::app::lifecycle::WorkKind::ReplaySave),
             personal_best_uploader: self.personal_best_uploader.clone(),
             tracking_id: pending.tracking_id,
             save_id: pending.save_id,
@@ -195,15 +194,7 @@ impl SavePipeline {
 
     #[cfg(not(test))]
     pub(super) fn flush_on_shutdown(&self, pending: PendingSave, now: Instant, policy: RunDetectionPolicy) {
-        self.flush_on_shutdown_with(
-            pending,
-            now,
-            policy,
-            |duration| {
-                super::replay_buffer::REPLAY_BUFFER.wait_for_padding(duration);
-            },
-            save_and_trim,
-        );
+        self.flush_on_shutdown_with(pending, now, policy, std::thread::sleep, save_and_trim);
     }
 
     pub(super) fn flush_on_shutdown_with(
@@ -225,9 +216,8 @@ impl SavePipeline {
 }
 
 /// Inputs for saving the replay buffer and trimming it to the run window on a
-/// runtime-owned blocking worker.
+/// dedicated thread.
 pub(super) struct SaveAndTrimJob {
-    activity: Option<crate::app::lifecycle::WorkPermit>,
     personal_best_uploader: Option<PersonalBestUploader>,
     pub(super) tracking_id: u64,
     pub(super) save_id: u64,
@@ -286,9 +276,6 @@ fn save_replay(job: &SaveAndTrimJob) -> Result<ResolvedReplay, &'static str> {
             tracing::error!(?REPLAY_SAVE_TIMEOUT, "replay buffer save did not complete in time");
             return Err("OBS replay buffer save timed out");
         }
-        ReplaySaveWait::ShuttingDown => {
-            return Err("Replay save cancelled during shutdown; any raw replay is preserved");
-        }
     };
 
     let resolved = match (output_directory.as_deref(), before) {
@@ -311,10 +298,6 @@ fn save_replay(job: &SaveAndTrimJob) -> Result<ResolvedReplay, &'static str> {
 }
 
 fn save_and_trim(job: SaveAndTrimJob) {
-    if job.activity.is_none() {
-        job.replay_saves.fail(job.tracking_id, "Replay save cancelled during shutdown".to_owned());
-        return;
-    }
     let uploader = job.personal_best_uploader.clone();
     save_and_trim_with(job, save_replay, |path, metadata| {
         if let Some(uploader) = uploader {
@@ -423,34 +406,12 @@ fn resolve_saved_replay(event_path: Option<String>, new_files: Vec<PathBuf>) -> 
 }
 
 fn spawn_save_and_trim(job: SaveAndTrimJob) {
-    let runtime = job.replay_saves.runtime.clone();
-    spawn_save_and_trim_with(
-        job,
-        move |work| {
-            runtime.spawn_blocking(work);
-        },
-        save_and_trim,
-    );
-}
-
-fn spawn_save_and_trim_with(
-    job: SaveAndTrimJob,
-    spawn: impl FnOnce(Box<dyn FnOnce() + Send>),
-    save: impl FnOnce(SaveAndTrimJob) + Send + 'static,
-) {
     let tracking_id = job.tracking_id;
-    let saves = job.replay_saves.clone();
-    let worker_saves = saves.clone();
-    let work = Box::new(move || {
-        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| save(job))).is_err() {
-            tracing::error!(tracking_id, "replay save worker panicked");
-            worker_saves.fail(tracking_id, "replay save worker panicked".to_owned());
-        }
-    });
-    // Tokio panics if the OS refuses a blocking thread and none can take the job.
-    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| spawn(work))).is_err() {
-        tracing::error!(tracking_id, "failed to start replay save worker");
-        saves.fail(tracking_id, "failed to start replay save worker".to_owned());
+    let replay_saves = job.replay_saves.clone();
+    let spawned = std::thread::Builder::new().name("ge-replay-save".to_owned()).spawn(move || save_and_trim(job));
+    if let Err(err) = spawned {
+        tracing::error!("failed to spawn replay save thread: {err}");
+        replay_saves.fail(tracking_id, format!("failed to start replay save worker: {err}"));
     }
 }
 

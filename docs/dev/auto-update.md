@@ -129,16 +129,10 @@ Their behavioral contract is:
   replaced the canonical core and removed the consumed staging directory. Until commit, the runtime
   remains in the applying phase and cannot request another reload. Commit clears that phase and
   enables the update notice for existing and new event clients.
-- `ge_core_unload` closes work admission and cancels OBS-dependent replay waits before removing
-  callbacks. Runtime shutdown cancels timers and joins blocking work; it must not abandon threads
-  with a timeout. Update admission waits for replay-save and native picker work, including work
-  remaining after monitoring stops.
-- Native picker requests await asynchronously. Their callbacks retain the loaded core image until
-  OBS exits, protecting queued/open UI work without blocking runtime teardown. This can retain
-  memory across hot reloads and a temporary DLL on Windows. See
-  [shutdown ownership](pr-200-audit.md) for the workaround and coverage.
-- The reload-request callback runs directly on its caller's owned task because the loader performs
-  actual teardown on its dedicated OS worker.
+- `ge_core_unload` synchronously stops callbacks, Rust tasks, threads, and HTTP before returning.
+  Status-expiry timers belong to the core’s Tokio runtime so shutdown cancels them before DLL
+  unload. The reload-request callback only signals the loader’s dedicated worker and returns; it can
+  run directly on its caller’s owned task without spawning a detached thread.
 
 Every `u2` core must preserve these symbols, signatures, and semantics. A breaking change requires a
 new updater number and manual installation.

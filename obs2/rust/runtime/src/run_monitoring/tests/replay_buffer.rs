@@ -1,49 +1,6 @@
 use super::*;
 
 #[test]
-fn shutdown_cancels_save_waits_and_rejects_new_requests() {
-    let coordinator = ReplayCoordinator::new();
-    std::thread::scope(|scope| {
-        let (started_tx, started_rx) = std::sync::mpsc::channel();
-        let coordinator = &coordinator;
-        let worker = scope.spawn(move || {
-            coordinator.acquire_save().save_and_wait(
-                || started_tx.send(()).unwrap(),
-                Duration::from_secs(30),
-                Duration::from_secs(120),
-            )
-        });
-        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        coordinator.begin_shutdown();
-        assert_eq!(worker.join().unwrap(), ReplaySaveWait::ShuttingDown);
-        let result = coordinator.acquire_save().save_and_wait(
-            || panic!("must not call OBS after shutdown"),
-            Duration::ZERO,
-            Duration::ZERO,
-        );
-        assert_eq!(result, ReplaySaveWait::ShuttingDown);
-        coordinator.handle(ReplayEvent::Saved(Some("raw-replay.mp4".to_owned())));
-        assert_eq!(coordinator.saved.lock().unwrap().pending_requests, 0);
-        assert_eq!(coordinator.saved.lock().unwrap().generation, 0);
-    });
-}
-
-#[test]
-fn shutdown_interrupts_padding_and_replay_lifecycle_waits() {
-    let coordinator = ReplayCoordinator::new();
-    coordinator.handle(ReplayEvent::Stopping);
-    std::thread::scope(|scope| {
-        let padding = scope.spawn(|| coordinator.wait_for_padding(Duration::from_secs(120)));
-        let stopping = scope.spawn(|| coordinator.wait_for_replay_buffer_not_stopping(Duration::from_secs(120)));
-        coordinator.begin_shutdown();
-        padding.join().unwrap();
-        assert!(!stopping.join().unwrap());
-    });
-    coordinator.reopen();
-    assert!(coordinator.wait_for_replay_buffer_not_stopping(Duration::ZERO));
-}
-
-#[test]
 fn replay_save_wait_keeps_ownership_after_the_slow_warning() {
     let coordinator = ReplayCoordinator::new();
     std::thread::scope(|scope| {

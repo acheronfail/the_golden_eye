@@ -27,7 +27,6 @@ const REPLAY_STOP_SETTLE_DELAY: Duration = Duration::from_millis(400);
 /// The latest replay-saved event, published by the OBS frontend callback and
 /// awaited by the save thread.
 struct ReplaySaved {
-    shutting_down: bool,
     /// Ticks per event so a waiter can tell a fresh event from a stale one.
     generation: u64,
     /// The file OBS just wrote, or `None` if it reported none.
@@ -38,7 +37,6 @@ struct ReplaySaved {
 }
 
 struct ReplayBufferLifecycle {
-    shutting_down: bool,
     starting: bool,
     stopping: bool,
     last_stopped_at: Option<Instant>,
@@ -48,7 +46,6 @@ struct ReplayBufferLifecycle {
 pub(crate) enum ReplaySaveWait {
     Saved(Option<String>),
     TimedOut,
-    ShuttingDown,
 }
 
 /// One coordinator per core lifetime; callbacks never acquire either operation gate.
@@ -59,50 +56,18 @@ pub(crate) struct ReplayCoordinator {
     lifecycle_changed: Condvar,
     ensure_serialized: Mutex<()>,
     save_serialized: Mutex<()>,
-    request_gate: Mutex<()>,
 }
 
 impl ReplayCoordinator {
     pub(crate) const fn new() -> Self {
         Self {
-            saved: Mutex::new(ReplaySaved {
-                shutting_down: false,
-                generation: 0,
-                last_path: None,
-                pending_requests: 0,
-            }),
+            saved: Mutex::new(ReplaySaved { generation: 0, last_path: None, pending_requests: 0 }),
             saved_changed: Condvar::new(),
-            lifecycle: Mutex::new(ReplayBufferLifecycle {
-                shutting_down: false,
-                starting: false,
-                stopping: false,
-                last_stopped_at: None,
-            }),
+            lifecycle: Mutex::new(ReplayBufferLifecycle { starting: false, stopping: false, last_stopped_at: None }),
             lifecycle_changed: Condvar::new(),
             ensure_serialized: Mutex::new(()),
             save_serialized: Mutex::new(()),
-            request_gate: Mutex::new(()),
         }
-    }
-
-    pub(crate) fn begin_shutdown(&self) {
-        let _request = self.request_gate.lock().unwrap_or_else(|p| p.into_inner());
-        self.saved.lock().unwrap_or_else(|p| p.into_inner()).shutting_down = true;
-        self.lifecycle.lock().unwrap_or_else(|p| p.into_inner()).shutting_down = true;
-        self.saved_changed.notify_all();
-        self.lifecycle_changed.notify_all();
-    }
-
-    pub(crate) fn reopen(&self) {
-        *self.saved.lock().unwrap_or_else(|p| p.into_inner()) =
-            ReplaySaved { shutting_down: false, generation: 0, last_path: None, pending_requests: 0 };
-        *self.lifecycle.lock().unwrap_or_else(|p| p.into_inner()) =
-            ReplayBufferLifecycle { shutting_down: false, starting: false, stopping: false, last_stopped_at: None };
-    }
-
-    pub(crate) fn wait_for_padding(&self, duration: Duration) {
-        let state = self.saved.lock().unwrap_or_else(|p| p.into_inner());
-        let _ = self.saved_changed.wait_timeout_while(state, duration, |state| !state.shutting_down);
     }
 
     pub(crate) fn handle(&self, event: ReplayEvent) {
@@ -189,10 +154,6 @@ impl ReplayCoordinator {
         let mut warned = false;
         let mut guard = self.saved.lock().unwrap_or_else(|p| p.into_inner());
         while guard.generation == since {
-            if guard.shutting_down {
-                guard.pending_requests = guard.pending_requests.saturating_sub(1);
-                return ReplaySaveWait::ShuttingDown;
-            }
             let elapsed = start.elapsed();
             if elapsed >= timeout {
                 // Our event never arrived; release the request so a later user save
@@ -219,13 +180,7 @@ impl ReplayCoordinator {
         let start = Instant::now();
         loop {
             let mut guard = self.lifecycle.lock().unwrap_or_else(|p| p.into_inner());
-            if guard.shutting_down {
-                return false;
-            }
             while guard.stopping {
-                if guard.shutting_down {
-                    return false;
-                }
                 let elapsed = start.elapsed();
                 if elapsed >= timeout {
                     return false;
@@ -258,9 +213,6 @@ impl ReplayCoordinator {
         let start = Instant::now();
         let mut guard = self.lifecycle.lock().unwrap_or_else(|p| p.into_inner());
         while !crate::obs::replay_buffer_active() {
-            if guard.shutting_down {
-                return false;
-            }
             if guard.stopping {
                 guard.starting = false;
                 return false;
@@ -344,13 +296,8 @@ impl ReplaySavePermit<'_> {
         slow_warning: Duration,
         timeout: Duration,
     ) -> ReplaySaveWait {
-        let request_gate = self.coordinator.request_gate.lock().unwrap_or_else(|p| p.into_inner());
-        if self.coordinator.saved.lock().unwrap_or_else(|p| p.into_inner()).shutting_down {
-            return ReplaySaveWait::ShuttingDown;
-        }
         let since = self.coordinator.begin_replay_save_request();
         request();
-        drop(request_gate);
         self.coordinator.wait_for_replay_saved(since, slow_warning, timeout)
     }
 }

@@ -158,7 +158,7 @@ fn runtime_shutdown_drops_pending_expiry_work_from_native_threads() {
     .unwrap();
 
     assert!(updates.has_changed().is_ok(), "pending timers retain the publisher");
-    drop(runtime);
+    runtime.shutdown_timeout(Duration::from_secs(30));
     assert!(updates.has_changed().is_err(), "no timer may survive core runtime shutdown");
 }
 

@@ -10,14 +10,6 @@ project(ge_loader_tests C)
 enable_testing()
 find_package(Threads REQUIRED)
 
-add_library(ge_fixture_ui_lifetime SHARED ../../core/ui_lifetime.c)
-set_target_properties(ge_fixture_ui_lifetime PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
-target_link_libraries(ge_fixture_ui_lifetime PRIVATE ${CMAKE_DL_LIBS})
-add_executable(ge_ui_lifetime_tests ../dynlib.c test_ui_lifetime.c)
-target_link_libraries(ge_ui_lifetime_tests PRIVATE ${CMAKE_DL_LIBS})
-add_dependencies(ge_ui_lifetime_tests ge_fixture_ui_lifetime)
-add_test(NAME core_ui_lifetime COMMAND ge_ui_lifetime_tests "$<TARGET_FILE:ge_fixture_ui_lifetime>")
-
 set(GE_FIXTURE_DIR "${CMAKE_CURRENT_BINARY_DIR}/fixtures")
 
 add_library(ge_fixture_v1 SHARED fixture.c)

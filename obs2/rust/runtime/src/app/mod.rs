@@ -1,6 +1,5 @@
 //! Application composition and the state published to connected clients.
 mod events;
-pub(crate) mod lifecycle;
 mod publication;
 mod startup;
 mod state;

@@ -1,5 +1,4 @@
 use axum::Json;
-use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
 use serde::Deserialize;
@@ -26,17 +25,20 @@ pub struct FolderValidateRequest {
 }
 
 #[axum::debug_handler]
-pub async fn handle_pick(
-    State(state): State<crate::app::AppState>,
-    Json(req): Json<FolderPickRequest>,
-) -> Result<impl IntoResponse> {
+pub async fn handle_pick(Json(req): Json<FolderPickRequest>) -> Result<impl IntoResponse> {
     let title = req.title.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "Choose folder".to_owned());
     let start_dir = req.current_path.as_deref().and_then(initial_directory).or_else(default_videos_directory);
 
-    let selected = pick_folder_on_ui_thread(state.lifecycle.clone(), title, start_dir).await.map_err(|err| {
-        tracing::error!("folder picker failed: {err:#}");
-        (StatusCode::INTERNAL_SERVER_ERROR, "folder picker failed").into_response()
-    })?;
+    let selected = tokio::task::spawn_blocking(move || pick_folder_on_ui_thread(title, start_dir))
+        .await
+        .map_err(|err| {
+            tracing::error!("folder picker task failed: {err:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "folder picker failed").into_response()
+        })?
+        .map_err(|err| {
+            tracing::error!("folder picker failed: {err:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "folder picker failed").into_response()
+        })?;
 
     Ok((
         StatusCode::OK,
