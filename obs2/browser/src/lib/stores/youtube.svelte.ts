@@ -197,8 +197,8 @@ export const youtube = new (class {
 		this.uploads = next;
 	}
 
-	uploadForPath(path: string): YouTubeUploadStatus | null {
-		const matches = this.uploads.filter((upload) => pathsMatch(upload.path, path));
+	uploadForRun(runId: string): YouTubeUploadStatus | null {
+		const matches = this.uploads.filter((upload) => upload.runId === runId);
 		const active = matches.findLast((upload) => !terminalUploadStates.has(upload.state));
 		return active ?? matches.at(-1) ?? null;
 	}
