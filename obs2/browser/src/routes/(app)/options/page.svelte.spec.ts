@@ -125,18 +125,57 @@ beforeEach(() => {
 });
 
 describe('/options', () => {
+	it('opens a linked section ahead of the saved section and preserves other URL parameters', async () => {
+		const user = userEvent.setup();
+		localStorage.setItem('the-golden-eye.options-tab', 'recording');
+		mocks.page.url = new URL('http://localhost/options?tab=notifications&from=dashboard');
+		render(OptionsPageHarness);
+
+		const sections = screen.getByRole('radiogroup', { name: 'Settings section' });
+		expect(within(sections).getByRole('radio', { name: 'Notifications' })).toHaveAttribute('aria-checked', 'true');
+		expect(localStorage.getItem('the-golden-eye.options-tab')).toBe('notifications');
+
+		await user.click(within(sections).getByRole('radio', { name: 'General' }));
+		expect(mocks.goto).toHaveBeenCalledWith('/options?from=dashboard', {
+			replaceState: true,
+			noScroll: true,
+			keepFocus: true
+		});
+		expect(localStorage.getItem('the-golden-eye.options-tab')).toBe('general');
+	});
+
 	it('reopens the last section saved in browser storage', async () => {
 		const user = userEvent.setup();
 		localStorage.setItem('the-golden-eye.options-tab', 'recording');
 		render(OptionsPageHarness);
 
 		expect(await screen.findByRole('combobox', { name: /Monitor design/i })).toBeInTheDocument();
-		const section = screen.getByRole('combobox', { name: /^Section$/i });
-		expect(section).toHaveTextContent('Recording');
+		const sections = screen.getByRole('radiogroup', { name: 'Settings section' });
+		expect(within(sections).getByRole('radio', { name: 'Recording' })).toHaveAttribute('aria-checked', 'true');
+		expect(within(sections).getByRole('radio', { name: 'Recording' })).toHaveTextContent('Recording');
+		expect(within(sections).getByRole('radio', { name: 'Notifications' })).not.toHaveTextContent('Notifications');
 
-		await user.click(section);
-		await user.click(await screen.findByRole('option', { name: /^Notifications$/i }));
+		await user.click(within(sections).getByRole('radio', { name: 'Notifications' }));
+		expect(within(sections).getByRole('radio', { name: 'Notifications' })).toHaveAttribute('aria-checked', 'true');
+		expect(within(sections).getByRole('radio', { name: 'Notifications' })).toHaveTextContent('Notifications');
 		expect(localStorage.getItem('the-golden-eye.options-tab')).toBe('notifications');
+	});
+
+	it('switches sections with arrow keys', async () => {
+		const user = userEvent.setup();
+		render(OptionsPageHarness);
+
+		const sections = screen.getByRole('radiogroup', { name: 'Settings section' });
+		within(sections).getByRole('radio', { name: 'General' }).focus();
+		await user.keyboard('{ArrowRight}');
+
+		expect(within(sections).getByRole('radio', { name: 'Recording' })).toHaveAttribute('aria-checked', 'true');
+		expect(within(sections).getByRole('radio', { name: 'Recording' })).toHaveFocus();
+		expect(mocks.goto).toHaveBeenCalledWith('/options?tab=recording', {
+			replaceState: true,
+			noScroll: true,
+			keepFocus: true
+		});
 	});
 
 	it('saves to the backend after updating an option', async () => {
