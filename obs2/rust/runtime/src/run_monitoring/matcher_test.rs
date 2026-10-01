@@ -206,11 +206,15 @@ fn matches_known_frames() {
 }
 
 #[test]
-fn start_screen_language_mismatch_is_detected_and_rejected() {
+fn dossier_language_mismatch_is_detected_and_rejected() {
     let cases = [
         ("jp", "en", "screenshots-emu/en - start - 01 - Agent.png"),
         ("en", "jp", "screenshots-emu/jp - start - 01 - Agent.png"),
         ("jp", "en", "screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png"),
+        ("jp", "en", "screenshots-emu/en - select - 03.png"),
+        ("en", "jp", "screenshots-retrogem/jp - select - 01.png"),
+        ("jp", "en", "screenshots-emu/en - stats - 03 - Agent - 0033_0500_0033.png"),
+        ("en", "jp", "screenshots-emu/jp - stats - 01 - Agent - 0137_0137.png"),
     ];
 
     for (configured, detected, file) in cases {
@@ -225,11 +229,11 @@ fn start_screen_language_mismatch_is_detected_and_rejected() {
 }
 
 #[test]
-fn detected_language_switches_active_monitor_language() {
+fn stats_page_switches_active_monitor_language_without_start_tab() {
     let mut session = MonitorMatcher::new("en", TEMPLATES_DIR).expect("session");
     let mut active_lang = "en".to_owned();
 
-    let (start_b, start_w, start_h) = load_bgra("screenshots-emu/jp - start - 01 - Agent.png");
+    let (start_b, start_w, start_h) = load_bgra("screenshots-emu/jp - stats - 01 - Agent - 0137_0137.png");
     let mismatch = session.match_frame(&start_b, start_w, start_h).expect("mismatch match");
     assert_eq!(mismatch.detected_lang.as_deref(), Some("jp"));
     assert_eq!(mismatch.screen, ge_cv::Screen::Unknown);
@@ -260,7 +264,7 @@ fn detected_language_can_switch_more_than_once_per_monitor_session() {
     let mut session = MonitorMatcher::new("en", TEMPLATES_DIR).expect("session");
     let mut active_lang = "en".to_owned();
 
-    let (en_b, en_w, en_h) = load_bgra("screenshots-emu/en - start - 01 - Agent.png");
+    let (en_b, en_w, en_h) = load_bgra("screenshots-emu/en - select - 03.png");
     let en_detected = session.match_frame(&en_b, en_w, en_h).expect("en match");
     assert_eq!(en_detected.detected_lang.as_deref(), Some("en"));
 
@@ -270,7 +274,7 @@ fn detected_language_can_switch_more_than_once_per_monitor_session() {
     assert!(!first, "initial same-language detection should not switch");
     assert_eq!(active_lang, "en");
 
-    let (jp_b, jp_w, jp_h) = load_bgra("screenshots-emu/jp - start - 01 - Agent.png");
+    let (jp_b, jp_w, jp_h) = load_bgra("screenshots-retrogem/jp - select - 01.png");
     let jp_mismatch = session.match_frame(&jp_b, jp_w, jp_h).expect("jp mismatch match");
     assert_eq!(jp_mismatch.detected_lang.as_deref(), Some("jp"));
 

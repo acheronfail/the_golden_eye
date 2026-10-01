@@ -39,26 +39,18 @@ interface EvaluatedTest {
   checks: Record<string, CheckResult | undefined>;
 }
 
-const languageMismatchCases = [
-  {
-    name: "language mismatch: English start with Japanese templates",
-    filePath: "screenshots-emu/en - start - 01 - Agent.png",
-    configuredLang: "jp",
-    detectedLang: "en",
-  },
-  {
-    name: "language mismatch: Japanese start with English templates",
-    filePath: "screenshots-emu/jp - start - 01 - Agent.png",
-    configuredLang: "en",
-    detectedLang: "jp",
-  },
-  {
-    name: "language mismatch: English blackbar start with Japanese templates",
-    filePath: "screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png",
-    configuredLang: "jp",
-    detectedLang: "en",
-  },
-];
+const languageMismatchCases = screenshots
+  .filter((screenshot) => screenshot.screen !== "unknown" && screenshot.screen !== "levels")
+  .map((screenshot) => path.relative(testRoot, screenshot.filePath))
+  .map((filePath) => {
+    const detectedLang = path.basename(filePath).slice(0, 2);
+    return {
+      name: `language mismatch: ${filePath}`,
+      filePath,
+      configuredLang: detectedLang === "en" ? "jp" : "en",
+      detectedLang,
+    };
+  });
 
 type LanguageMismatchCase = (typeof languageMismatchCases)[number];
 type TestCase =
@@ -218,9 +210,25 @@ async function evaluateLanguageMismatchTest(
   const { stdout } = await execCommand(runner.command(filePath, mismatch.configuredLang));
   const result = JSON.parse(stdout);
 
+  const screenshot = screenshots.find((item) => path.resolve(item.filePath) === filePath);
+  if (!screenshot) throw new Error(`Missing screenshot expectations: ${filePath}`);
+  const rematched = await evaluateScreenshotTest(runner, screenshot);
+  const { stdout: switchedStdout } = await execCommand(
+    runner.command(filePath, mismatch.detectedLang),
+  );
+  const switched = JSON.parse(switchedStdout);
+
   return {
     name: mismatch.name,
     checks: {
+      ...Object.fromEntries(
+        Object.entries(rematched.checks).map(([key, value]) => [`switched_${key}`, value]),
+      ),
+      switchedDetectedLang: check(
+        switched.detected_lang,
+        mismatch.detectedLang,
+        switched.detected_lang === mismatch.detectedLang,
+      ),
       lang: check(result.lang, mismatch.configuredLang, result.lang === mismatch.configuredLang),
       detectedLang: check(
         result.detected_lang,

@@ -392,7 +392,7 @@ fn overlay_screens_with_complete_markers_remain_trusted() {
     for (screen, raw_times) in cases {
         let mut result = level_match(screen, 1, 1, ge_game::Difficulty::Agent.number(), raw_times);
 
-        reject_untrusted_screen(&mut result);
+        reject_untrusted_screen(&mut result, false);
 
         assert_eq!(result.screen, screen, "{screen:?} should remain trusted with all markers");
     }
@@ -409,7 +409,7 @@ fn overlay_screens_are_rejected_when_any_required_marker_is_missing() {
             let raw_times = if screen == Screen::Stats { vec![62] } else { Vec::new() };
             let mut result = level_match(screen, mission, part, difficulty, raw_times);
 
-            reject_untrusted_screen(&mut result);
+            reject_untrusted_screen(&mut result, false);
 
             assert_eq!(result.screen, Screen::Unknown, "{screen:?} should reject incomplete markers");
             assert_eq!(result.raw_times, Vec::<i32>::new());
@@ -422,7 +422,7 @@ fn overlay_screens_are_rejected_when_any_required_marker_is_missing() {
 fn stats_screen_is_rejected_without_a_readable_run_time() {
     let mut result = level_match(Screen::Stats, 1, 1, ge_game::Difficulty::Agent.number(), Vec::new());
 
-    reject_untrusted_screen(&mut result);
+    reject_untrusted_screen(&mut result, false);
 
     assert_eq!(result.screen, Screen::Unknown);
 }
@@ -430,9 +430,8 @@ fn stats_screen_is_rejected_without_a_readable_run_time() {
 #[test]
 fn stats_screen_is_rejected_when_the_start_tab_is_visible() {
     let mut result = level_match(Screen::Stats, 1, 1, ge_game::Difficulty::Agent.number(), vec![62]);
-    result.detected_lang = Some("jp".to_owned());
 
-    reject_untrusted_screen(&mut result);
+    reject_untrusted_screen(&mut result, true);
 
     assert_eq!(result.screen, Screen::Unknown);
     assert!(result.raw_times.is_empty());
@@ -444,8 +443,41 @@ fn non_overlay_screens_do_not_require_header_markers() {
     for screen in [Screen::Opts007, Screen::Select, Screen::Levels, Screen::Unknown] {
         let mut result = level_match(screen, -1, -1, -1, Vec::new());
 
-        reject_untrusted_screen(&mut result);
+        reject_untrusted_screen(&mut result, false);
 
         assert_eq!(result.screen, screen, "{screen:?} should not require mission/part/difficulty markers");
+    }
+}
+
+#[test]
+fn detected_dossier_language_does_not_invalidate_statistics() {
+    for lang in ["en", "jp"] {
+        let mut result = level_match(Screen::Stats, 1, 1, 0, vec![62]);
+        result.detected_lang = Some(lang.to_owned());
+        reject_untrusted_screen(&mut result, false);
+        assert_eq!(result.screen, Screen::Stats);
+        assert_eq!(result.times.unwrap().time, 62);
+    }
+}
+
+#[test]
+fn language_is_not_detected_on_gameplay_or_level_grid() {
+    for configured in ["en", "jp"] {
+        let matcher = CvMatcher::new(configured, TEMPLATES_DIR).unwrap();
+        for fixture in [
+            "screenshots-emu/en - levels.png",
+            "screenshots-emu/jp - levels.png",
+            "screenshots-retrogem/en - unknown - gameplay - not-black-frame.png",
+        ] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests").join(fixture);
+            let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
+            let mut bgra = Mat::default();
+            imgproc::cvt_color_def(&bgr, &mut bgra, imgproc::COLOR_BGR2BGRA).unwrap();
+            assert_eq!(
+                matcher.match_level_from_bgra_frame(&bgra).unwrap().detected_lang,
+                None,
+                "{configured}: {fixture}"
+            );
+        }
     }
 }

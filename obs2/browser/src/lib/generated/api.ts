@@ -43,7 +43,7 @@ export type LevelDifficultyCounts = { difficultyNumber: DifficultyNumber | null,
 export type LevelMatch = { screen: Screen, mission: number, part: number, difficulty: number,
 /**
  * Game language detected from language-specific static UI, when a strong
- * signal is visible. Currently emitted on level-start briefing screens.
+ * signal is visible. Emitted across dossier pages with a visible PREVIOUS tab.
  */
 detected_lang?: "en" | "jp",
 /**
