@@ -16,7 +16,11 @@ concurrency:
 jobs:
   build:
     name: Build
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/build-packages.yml
     secrets: inherit
     with:
       package-profile: true
+      publish-vcpkg-cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
