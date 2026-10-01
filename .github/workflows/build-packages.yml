@@ -56,19 +56,36 @@ jobs:
             obs2/vendor/obs
             obs2/vendor/opencv-static
             obs2/vendor/ffmpeg-static
-          key: ${{ runner.os }}-${{ runner.arch }}-static-deps-${{ hashFiles('obs2/scripts/obs-headers.sh', 'obs2/scripts/opencv-static.sh', 'obs2/scripts/ffmpeg-static.sh') }}
+          key:
+            ${{ runner.os }}-${{ runner.arch }}-static-deps-${{
+            hashFiles('obs2/scripts/obs-headers.sh', 'obs2/scripts/opencv-static.sh',
+            'obs2/scripts/ffmpeg-static.sh') }}
 
-      - name: Cache cargo dependencies
+      - name: Cache Cargo builds
         uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/git
             ~/.cargo/registry
+            obs2/rust/target/**/debug/.fingerprint
+            obs2/rust/target/**/debug/build
+            obs2/rust/target/**/debug/deps
+            obs2/rust/target/**/debug/incremental
             obs2/rust/target/**/release/.fingerprint
             obs2/rust/target/**/release/build
             obs2/rust/target/**/release/deps
             obs2/rust/target/**/release/incremental
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}
+            obs2/rust/target/**/dist/.fingerprint
+            obs2/rust/target/**/dist/build
+            obs2/rust/target/**/dist/deps
+            obs2/rust/target/**/dist/incremental
+          # Refresh project artifacts per commit; reuse compatible builds first.
+          key:
+            ${{ runner.os }}-${{ runner.arch }}-cargo-build-v2-${{ github.job }}-${{
+            hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs',
+            'obs2/rust/rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-build-v2-${{ github.job }}-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}-
 
       - name: Install system dependencies
         run: |
@@ -228,19 +245,36 @@ jobs:
             obs2/vendor/obs
             obs2/vendor/opencv-static
             obs2/vendor/ffmpeg-static
-          key: ${{ runner.os }}-${{ runner.arch }}-static-deps-${{ hashFiles('obs2/scripts/obs-headers.sh', 'obs2/scripts/opencv-static.sh', 'obs2/scripts/ffmpeg-static.sh') }}
+          key:
+            ${{ runner.os }}-${{ runner.arch }}-static-deps-${{
+            hashFiles('obs2/scripts/obs-headers.sh', 'obs2/scripts/opencv-static.sh',
+            'obs2/scripts/ffmpeg-static.sh') }}
 
-      - name: Cache cargo dependencies
+      - name: Cache Cargo builds
         uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/git
             ~/.cargo/registry
+            obs2/rust/target/**/debug/.fingerprint
+            obs2/rust/target/**/debug/build
+            obs2/rust/target/**/debug/deps
+            obs2/rust/target/**/debug/incremental
             obs2/rust/target/**/release/.fingerprint
             obs2/rust/target/**/release/build
             obs2/rust/target/**/release/deps
             obs2/rust/target/**/release/incremental
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}
+            obs2/rust/target/**/dist/.fingerprint
+            obs2/rust/target/**/dist/build
+            obs2/rust/target/**/dist/deps
+            obs2/rust/target/**/dist/incremental
+          # Refresh project artifacts per commit; reuse compatible builds first.
+          key:
+            ${{ runner.os }}-${{ runner.arch }}-cargo-build-v2-${{ github.job }}-${{
+            hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs',
+            'obs2/rust/rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-build-v2-${{ github.job }}-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}-
 
       - name: Install system dependencies
         run: |
@@ -282,8 +316,13 @@ jobs:
         run: just test-integration
 
   windows:
-    name: Windows
+    name: Windows ${{ matrix.suite }}
     runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [tests, package]
 
     env:
       VCPKG_ROOT: C:\vcpkg
@@ -321,21 +360,37 @@ jobs:
             C:\vcpkg\installed
             C:\vcpkg\downloads
             .vcpkg-bincache
-          key: windows-vcpkg-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('obs2/cmake/OpenCVStatic.cmake', 'obs2/cmake/FFmpegStatic.cmake') }}
+          key:
+            windows-vcpkg-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{
+            hashFiles('obs2/cmake/OpenCVStatic.cmake', 'obs2/cmake/FFmpegStatic.cmake') }}
           restore-keys: |
             windows-vcpkg-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
 
-      - name: Cache cargo dependencies
+      - name: Cache Cargo builds
         uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/git
             ~/.cargo/registry
+            obs2/rust/target/**/debug/.fingerprint
+            obs2/rust/target/**/debug/build
+            obs2/rust/target/**/debug/deps
+            obs2/rust/target/**/debug/incremental
             obs2/rust/target/**/release/.fingerprint
             obs2/rust/target/**/release/build
             obs2/rust/target/**/release/deps
             obs2/rust/target/**/release/incremental
-          key: Windows-${{ runner.arch }}-cargo-build-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}
+            obs2/rust/target/**/dist/.fingerprint
+            obs2/rust/target/**/dist/build
+            obs2/rust/target/**/dist/deps
+            obs2/rust/target/**/dist/incremental
+          # Refresh project artifacts per commit; reuse compatible builds first.
+          key:
+            ${{ runner.os }}-${{ runner.arch }}-cargo-build-v2-${{ github.job }}-${{ matrix.suite
+            }}-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml',
+            'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-build-v2-${{ github.job }}-${{ matrix.suite }}-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}-
 
       - name: Install system dependencies
         shell: pwsh
@@ -373,7 +428,9 @@ jobs:
           Remove-Item -Recurse -Force C:\vcpkg\packages\* -ErrorAction SilentlyContinue
 
       - name: Save vcpkg dependencies
-        if: steps.install-vcpkg.outcome == 'success' && steps.restore-vcpkg.outputs.cache-hit != 'true'
+        if:
+          steps.install-vcpkg.outcome == 'success' && steps.restore-vcpkg.outputs.cache-hit !=
+          'true'
         uses: actions/cache/save@v6
         with:
           path: |
@@ -432,27 +489,33 @@ jobs:
         run: just setup
 
       - name: Run loader reload tests
+        if: matrix.suite == 'tests'
         shell: bash
         run: just test-loader
 
       - name: Run frame regression tests
+        if: matrix.suite == 'tests'
         shell: bash
         run: just test-cv
 
       - name: Build Windows package
+        if: matrix.suite == 'package'
         shell: bash
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
 
       - name: Check Windows package contract
+        if: matrix.suite == 'package'
         shell: bash
         run: just test-package-contract obs2/build
 
       - name: Determine package name
+        if: matrix.suite == 'package'
         id: package
         shell: bash
         run: echo "basename=$(basename obs2/build/dist/*.zip .zip)" >> "$GITHUB_OUTPUT"
 
       - name: Upload Windows package
+        if: matrix.suite == 'package'
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.package.outputs.basename }}
@@ -460,11 +523,13 @@ jobs:
           if-no-files-found: error
 
       - name: Build Windows OBS upgrade fixtures
+        if: matrix.suite == 'package'
         shell: bash
         timeout-minutes: 30
         run: just test-obs-upgrade --build-only
 
       - name: Run Windows OBS upgrade tests
+        if: matrix.suite == 'package'
         shell: bash
         timeout-minutes: 5
         env:
@@ -475,7 +540,7 @@ jobs:
           node --experimental-strip-types frame_tests/obs/upgrade.ts "${builds[0]}"
 
       - name: Upload Windows OBS upgrade results
-        if: ${{ always() }}
+        if: ${{ always() && matrix.suite == 'package' }}
         uses: actions/upload-artifact@v7
         with:
           name: real-obs-upgrade-results-windows-${{ runner.arch }}
@@ -493,9 +558,11 @@ jobs:
           retention-days: 7
 
       - name: Run Rust tests
+        if: matrix.suite == 'tests'
         shell: bash
         run: just test-rust
 
       - name: Run Integration tests
+        if: matrix.suite == 'tests'
         shell: bash
         run: just test-integration
