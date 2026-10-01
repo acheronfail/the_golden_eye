@@ -6,6 +6,10 @@ resolver = "3"
 [workspace.dependencies]
 ts-rs = { version = "12.0.1", features = ["serde-compat", "no-serde-warnings"] }
 
+# Pixel loops must meet the capture budget in `just dev`; retain debug symbols.
+[profile.dev.package.ge_cv]
+opt-level = 3
+
 [profile.dist]
 inherits = "release"
 # Reducing binary size. See: https://github.com/johnthagen/min-sized-rust

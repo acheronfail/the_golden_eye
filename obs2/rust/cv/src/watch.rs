@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::ops::Range;
+
 use serde::Serialize;
 
 use super::{ActivePictureRegion, AnnotationRect, AnnotationSet};
@@ -34,6 +37,56 @@ pub struct WatchSignal {
     pub sample_region: ActivePictureRegion,
 }
 
+struct WatchGeometry {
+    width: usize,
+    region: ActivePictureRegion,
+    ring: Vec<Range<usize>>,
+    face: Vec<Range<usize>>,
+    ring_samples: u32,
+    face_samples: u32,
+}
+
+thread_local! {
+    // Each capture thread retains only its latest geometry, without a shared lock.
+    static WATCH_GEOMETRY: RefCell<Option<WatchGeometry>> = const { RefCell::new(None) };
+}
+
+impl WatchGeometry {
+    fn new(width: usize, region: ActivePictureRegion) -> Self {
+        let center_x = region.x as f32 + region.width as f32 / 2.0;
+        let center_y = region.y as f32 + region.height as f32 / 2.0;
+        let radius_x = region.width as f32 * WATCH_RADIUS_SCALE;
+        let radius_y = region.height as f32 * WATCH_RADIUS_SCALE;
+        let mut geometry = Self { width, region, ring: Vec::new(), face: Vec::new(), ring_samples: 0, face_samples: 0 };
+        for y in region.y..region.y + region.height {
+            let dy = (y as f32 + 0.5 - center_y) / radius_y;
+            for x in region.x..region.x + region.width {
+                let dx = (x as f32 + 0.5 - center_x) / radius_x;
+                let radius = (dx * dx + dy * dy).sqrt();
+                let offset = (y as usize * width + x as usize) * 4;
+                if radius < RING_OUTER && radius > RING_INNER {
+                    extend_pixel_span(&mut geometry.ring, offset);
+                    geometry.ring_samples += 1;
+                } else if radius < FACE_OUTER {
+                    extend_pixel_span(&mut geometry.face, offset);
+                    geometry.face_samples += 1;
+                }
+            }
+        }
+        geometry
+    }
+}
+
+fn extend_pixel_span(spans: &mut Vec<Range<usize>>, offset: usize) {
+    if let Some(last) = spans.last_mut()
+        && last.end == offset
+    {
+        last.end += 4;
+    } else {
+        spans.push(offset..offset + 4);
+    }
+}
+
 /// Experimental watch classifier using only neutral dial geometry.
 pub fn detect_watch(data: &[u8], width: u32, height: u32, active_picture: ActivePictureRegion) -> Option<WatchSignal> {
     let width = usize::try_from(width).ok()?;
@@ -44,46 +97,39 @@ pub fn detect_watch(data: &[u8], width: u32, height: u32, active_picture: Active
     }
 
     let active_picture = active_picture.clamp(width as u32, height as u32)?;
-    let center_x = active_picture.x as f32 + active_picture.width as f32 / 2.0;
-    let center_y = active_picture.y as f32 + active_picture.height as f32 / 2.0;
-    let radius_x = active_picture.width as f32 * WATCH_RADIUS_SCALE;
-    let radius_y = active_picture.height as f32 * WATCH_RADIUS_SCALE;
-    let mut ring_samples = 0_u32;
+    WATCH_GEOMETRY.with_borrow_mut(|cached| {
+        let geometry = cached.get_or_insert_with(|| WatchGeometry::new(width, active_picture));
+        if geometry.width != width || geometry.region != active_picture {
+            *geometry = WatchGeometry::new(width, active_picture);
+        }
+        classify_watch(data, geometry)
+    })
+}
+
+fn classify_watch(data: &[u8], geometry: &WatchGeometry) -> Option<WatchSignal> {
+    let ring_samples = geometry.ring_samples;
+    let face_samples = geometry.face_samples;
     let mut bright_ticks = 0_u32;
     let mut dark_ring = 0_u32;
-    let mut face_samples = 0_u32;
     let mut green_face = 0_u32;
     let mut dark_face = 0_u32;
 
-    for y in active_picture.y..active_picture.y + active_picture.height {
-        let dy = (y as f32 + 0.5 - center_y) / radius_y;
-        for x in active_picture.x..active_picture.x + active_picture.width {
-            let dx = (x as f32 + 0.5 - center_x) / radius_x;
-            let radius = (dx * dx + dy * dy).sqrt();
-            if radius >= RING_OUTER {
-                continue;
-            }
-
-            let offset = (y as usize * width + x as usize) * 4;
-            let b = data[offset];
-            let g = data[offset + 1];
-            let r = data[offset + 2];
-            let max_channel = b.max(g).max(r);
-            let min_channel = b.min(g).min(r);
-            let luma = ((29 * u32::from(b) + 150 * u32::from(g) + 77 * u32::from(r) + 128) >> 8) as u8;
-
-            if radius > RING_INNER {
-                ring_samples += 1;
-                bright_ticks += u32::from(
-                    luma > BRIGHT_NEUTRAL_LUMA_MIN
-                        && max_channel.saturating_sub(min_channel) < BRIGHT_NEUTRAL_CHROMA_MAX,
-                );
-                dark_ring += u32::from(luma < DARK_RING_LUMA_MAX);
-            } else if radius < FACE_OUTER {
-                face_samples += 1;
-                green_face += u32::from(g > 20 && i16::from(g) > i16::from(r) + 8 && i16::from(g) > i16::from(b) + 5);
-                dark_face += u32::from(luma < DARK_RING_LUMA_MAX);
-            }
+    for span in &geometry.ring {
+        for pixel in data[span.clone()].chunks_exact(4) {
+            let [b, g, r] = [pixel[0], pixel[1], pixel[2]];
+            let luma = pixel_luma(b, g, r);
+            bright_ticks += u32::from(
+                luma > BRIGHT_NEUTRAL_LUMA_MIN
+                    && b.max(g).max(r).saturating_sub(b.min(g).min(r)) < BRIGHT_NEUTRAL_CHROMA_MAX,
+            );
+            dark_ring += u32::from(luma < DARK_RING_LUMA_MAX);
+        }
+    }
+    for span in &geometry.face {
+        for pixel in data[span.clone()].chunks_exact(4) {
+            let [b, g, r] = [pixel[0], pixel[1], pixel[2]];
+            green_face += u32::from(g > 20 && i16::from(g) > i16::from(r) + 8 && i16::from(g) > i16::from(b) + 5);
+            dark_face += u32::from(pixel_luma(b, g, r) < DARK_RING_LUMA_MAX);
         }
     }
 
@@ -112,8 +158,12 @@ pub fn detect_watch(data: &[u8], width: u32, height: u32, active_picture: Active
         bright_tick_percent,
         green_face_percent,
         dark_ring_percent,
-        sample_region: active_picture,
+        sample_region: geometry.region,
     })
+}
+
+fn pixel_luma(b: u8, g: u8, r: u8) -> u8 {
+    ((29 * u32::from(b) + 150 * u32::from(g) + 77 * u32::from(r) + 128) >> 8) as u8
 }
 
 fn percent(count: u32, total: u32) -> Option<f32> {
@@ -191,3 +241,7 @@ impl WatchDetector {
         WatchState { is_paused: self.is_paused, transition }
     }
 }
+
+#[cfg(test)]
+#[path = "watch_test.rs"]
+mod tests;

@@ -32,6 +32,77 @@ serve as test expectations.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup and the other test suites.
 
+## Stats-screen performance capture
+
+`screenshots-obs-developer/en - stats - 06 - Agent - 0153_0300_0144.png` is the
+losslessly converted developer-tab BMP captured on 2026-10-01. The three supplied
+BMP downloads were identical, so only one fixture is retained. It reads Silo Agent,
+1:53, target 3:00, best 1:44.
+
+After building the matcher, reproduce a warmed OBS-size benchmark from the repository root:
+
+```sh
+GE_CV_BENCH=100 GE_CV_BENCH_WARMUPS=5 GE_CV_BENCH_JSON=1 \
+GE_CV_BENCH_CAPTURE=obs \
+GE_CV_BENCH_WARM='frame_tests/screenshots-obs-developer/en - stats - 06 - Agent - 0153_0300_0144.png' \
+obs2/rust/target/release/test_match en \
+  'frame_tests/screenshots-obs-developer/en - stats - 06 - Agent - 0153_0300_0144.png'
+```
+
+Use `target/debug/test_match` for the development matcher. The CV crate now uses
+optimization in dev builds while retaining debug symbols; other crates keep their
+normal debug profile. Set `GE_CV_DIAGNOSTICS=1` to include developer annotations.
+
+The benchmark now includes watch detection, which previously went unmeasured and
+cost about 12 ms in unoptimized debug builds. On the development host, 100 warmed
+samples of the complete CV path after tab-scale reuse, before the watch optimization
+below, gave these results (all below the 16.67 ms budget):
+
+| Build | Annotations | Median | p95 | Maximum |
+| --- | --- | --- | --- | --- |
+| Dev | Off | 11.61 ms | 12.73 ms | 13.58 ms |
+| Dev | On | 13.48 ms | 15.16 ms | 16.25 ms |
+| Release | Off | 10.77 ms | 12.63 ms | 13.18 ms |
+| Release | On | 13.35 ms | 14.71 ms | 15.22 ms |
+
+These measurements exclude OBS rendering/capture and do not guarantee performance
+on other hardware or on the first uncached frame. Before scale reuse, matching
+plus black-frame detection alone took 35.89 ms (debug) / 32.66 ms (release) median.
+
+The expensive path was repeatedly sweeping both languages at 13 scales to confirm
+the START tab was absent. PREVIOUS now supplies the scale for both vertical tabs;
+its cached scale is checked on each frame, with a recovery sweep when confidence
+is insufficient. Independent recovery candidates run concurrently. Timing logs
+separate `previous tab language` and `screen validation` from digit recognition.
+
+Two full-suite experiments bounded scale reuse: forcing the header-colon scale on
+both tabs failed 748 checks; forcing PREVIOUS's scale on labels and digits failed
+622 checks. The retained tab-only sharing passed all 17,849 checks. Small glyphs
+retain their existing scale handling until the template families can be normalized.
+
+### Watch detection
+
+Watch geometry is cached per thread for the latest image stride and active-picture
+rectangle. The detector scans contiguous ring and face spans, preserving every
+sampled pixel and threshold. Changes to the stride or crop rebuild the geometry;
+no pixels or classification results are cached. The first frame still pays for
+geometry construction, and the cache retains only one geometry per thread.
+
+Using the command above with the stats capture and the watch fixtures below,
+100 warmed samples gave these median `watch_runtime_ms` values:
+
+| Capture | Dev before / after | Release before / after |
+| --- | --- | --- |
+| Stats | 1.204 / 0.584 ms | 1.187 / 0.296 ms |
+| English clock face | 1.719 / 0.695 ms | 1.618 / 0.391 ms |
+| Japanese menu | 1.275 / 0.458 ms | 1.287 / 0.274 ms |
+
+The watch fixtures are `screenshots-yt-rt4kce/en - unknown - 1 - watch-clock-face.png`
+and `screenshots-yt-rt4kce/jp - unknown - 1 - watch-menu-surface.png`. All 600 before/after
+watch signals matched exactly, including percentages. Differential Rust tests compare
+the cached scan with the original full-frame scan across changing pixel data, odd
+sizes, crop offsets, clipped regions, and invalid buffers.
+
 Language regressions in `frames.test.ts` run every dossier fixture with the opposite template language,
 verify safe rejection plus the detected language, and rerun with that language to check the normal
 screen and time expectations. These include difficulty selection, 007 options, reports, and

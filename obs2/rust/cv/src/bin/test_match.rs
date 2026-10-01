@@ -96,6 +96,9 @@ fn benchmark_monitor_cv_sample(matcher: &CvMatcher, frame: &Mat) -> Result<(Leve
     let active_picture = matcher.active_picture_region(width, height);
     let black_frame = detect_black_frame(bytes, width, height, active_picture)
         .ok_or_else(|| opencv::Error::new(core::StsError, "could not sample benchmark frame".to_owned()))?;
+    let watch_started = Instant::now();
+    let watch = detect_watch(bytes, width, height, active_picture);
+    let watch_runtime_ms = watch_started.elapsed().as_secs_f64() * 1000.0;
     let monitor_cv_runtime_ms = pipeline_started.elapsed().as_secs_f64() * 1000.0;
 
     let black_frame_started = Instant::now();
@@ -111,6 +114,8 @@ fn benchmark_monitor_cv_sample(matcher: &CvMatcher, frame: &Mat) -> Result<(Leve
     object.insert("black_frame_runtime_us".to_owned(), json!(black_frame_runtime_us));
     object.insert("monitor_cv_runtime_ms".to_owned(), json!(monitor_cv_runtime_ms));
     object.insert("black_frame".to_owned(), json!(black_frame));
+    object.insert("watch".to_owned(), json!(watch));
+    object.insert("watch_runtime_ms".to_owned(), json!(watch_runtime_ms));
     Ok((result, payload))
 }
 
@@ -159,7 +164,7 @@ fn run() -> Result<i32> {
     if let Some(runs) = env::var("GE_CV_BENCH").ok().map(|value| value.parse().unwrap_or(5)) {
         let target_warmups = env::var("GE_CV_BENCH_WARMUPS").ok().and_then(|value| value.parse().ok()).unwrap_or(0);
         let json_output = env_truthy("GE_CV_BENCH_JSON");
-        let matcher = CvMatcher::new(lang, templates_dir)?;
+        let matcher = CvMatcher::new(lang, templates_dir)?.with_diagnostics(diagnostics);
         let mut cache_warm = Vec::new();
         let mut capture_region = None;
 
