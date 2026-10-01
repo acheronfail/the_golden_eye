@@ -61,31 +61,19 @@ jobs:
             hashFiles('obs2/scripts/obs-headers.sh', 'obs2/scripts/opencv-static.sh',
             'obs2/scripts/ffmpeg-static.sh') }}
 
-      - name: Cache Cargo builds
+      # Keep room for native dependencies: Cargo targets displaced the hour-long vcpkg build.
+      - name: Cache Cargo downloads
         uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/git
-            ~/.cargo/registry
-            obs2/rust/target/**/debug/.fingerprint
-            obs2/rust/target/**/debug/build
-            obs2/rust/target/**/debug/deps
-            obs2/rust/target/**/debug/incremental
-            obs2/rust/target/**/release/.fingerprint
-            obs2/rust/target/**/release/build
-            obs2/rust/target/**/release/deps
-            obs2/rust/target/**/release/incremental
-            obs2/rust/target/**/dist/.fingerprint
-            obs2/rust/target/**/dist/build
-            obs2/rust/target/**/dist/deps
-            obs2/rust/target/**/dist/incremental
-          # Refresh project artifacts per commit; reuse compatible builds first.
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
           key:
-            ${{ runner.os }}-${{ runner.arch }}-cargo-build-v2-${{ github.job }}-${{
-            hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs',
-            'obs2/rust/rust-toolchain.toml') }}-${{ github.sha }}
+            ${{ runner.os }}-${{ runner.arch }}-cargo-downloads-${{
+            hashFiles('obs2/rust/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-build-v2-${{ github.job }}-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}-
+            ${{ runner.os }}-${{ runner.arch }}-cargo-downloads-
 
       - name: Install system dependencies
         run: |
@@ -250,31 +238,19 @@ jobs:
             hashFiles('obs2/scripts/obs-headers.sh', 'obs2/scripts/opencv-static.sh',
             'obs2/scripts/ffmpeg-static.sh') }}
 
-      - name: Cache Cargo builds
+      # Keep room for native dependencies: Cargo targets displaced the hour-long vcpkg build.
+      - name: Cache Cargo downloads
         uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/git
-            ~/.cargo/registry
-            obs2/rust/target/**/debug/.fingerprint
-            obs2/rust/target/**/debug/build
-            obs2/rust/target/**/debug/deps
-            obs2/rust/target/**/debug/incremental
-            obs2/rust/target/**/release/.fingerprint
-            obs2/rust/target/**/release/build
-            obs2/rust/target/**/release/deps
-            obs2/rust/target/**/release/incremental
-            obs2/rust/target/**/dist/.fingerprint
-            obs2/rust/target/**/dist/build
-            obs2/rust/target/**/dist/deps
-            obs2/rust/target/**/dist/incremental
-          # Refresh project artifacts per commit; reuse compatible builds first.
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
           key:
-            ${{ runner.os }}-${{ runner.arch }}-cargo-build-v2-${{ github.job }}-${{
-            hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs',
-            'obs2/rust/rust-toolchain.toml') }}-${{ github.sha }}
+            ${{ runner.os }}-${{ runner.arch }}-cargo-downloads-${{
+            hashFiles('obs2/rust/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-build-v2-${{ github.job }}-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}-
+            ${{ runner.os }}-${{ runner.arch }}-cargo-downloads-
 
       - name: Install system dependencies
         run: |
@@ -366,31 +342,19 @@ jobs:
           restore-keys: |
             windows-vcpkg-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
 
-      - name: Cache Cargo builds
+      # Keep room for native dependencies: Cargo targets displaced the hour-long vcpkg build.
+      - name: Cache Cargo downloads
         uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/git
-            ~/.cargo/registry
-            obs2/rust/target/**/debug/.fingerprint
-            obs2/rust/target/**/debug/build
-            obs2/rust/target/**/debug/deps
-            obs2/rust/target/**/debug/incremental
-            obs2/rust/target/**/release/.fingerprint
-            obs2/rust/target/**/release/build
-            obs2/rust/target/**/release/deps
-            obs2/rust/target/**/release/incremental
-            obs2/rust/target/**/dist/.fingerprint
-            obs2/rust/target/**/dist/build
-            obs2/rust/target/**/dist/deps
-            obs2/rust/target/**/dist/incremental
-          # Refresh project artifacts per commit; reuse compatible builds first.
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
           key:
-            ${{ runner.os }}-${{ runner.arch }}-cargo-build-v2-${{ github.job }}-${{ matrix.suite
-            }}-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml',
-            'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}-${{ github.sha }}
+            ${{ runner.os }}-${{ runner.arch }}-cargo-downloads-${{
+            hashFiles('obs2/rust/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-build-v2-${{ github.job }}-${{ matrix.suite }}-${{ hashFiles('obs2/rust/Cargo.lock', 'obs2/rust/**/Cargo.toml', 'obs2/rust/**/build.rs', 'obs2/rust/rust-toolchain.toml') }}-
+            ${{ runner.os }}-${{ runner.arch }}-cargo-downloads-
 
       - name: Install system dependencies
         shell: pwsh
