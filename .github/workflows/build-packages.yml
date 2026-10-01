@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      publish-vcpkg-cache:
+        description: Populate the GitHub Packages binary cache from a trusted master build.
+        required: false
+        type: boolean
+        default: false
     secrets:
       GE_YOUTUBE_CLIENT_ID:
         required: false
@@ -294,6 +299,9 @@ jobs:
   windows:
     name: Windows ${{ matrix.suite }}
     runs-on: windows-latest
+    permissions:
+      contents: read
+      packages: write
 
     strategy:
       fail-fast: false
@@ -328,10 +336,37 @@ jobs:
           git -C $env:VCPKG_ROOT checkout --force $env:VCPKG_COMMIT
           & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
 
+      - name: Configure vcpkg GitHub Packages cache
+        shell: pwsh
+        env:
+          NUGET_TOKEN: ${{ github.token }}
+          PUBLISH_CACHE:
+            ${{ inputs.publish-vcpkg-cache && github.event_name == 'push' && github.ref ==
+            'refs/heads/master' && matrix.suite == 'package' }}
+        run: |
+          $nuget = (& "$env:VCPKG_ROOT\vcpkg.exe" fetch nuget | Select-Object -Last 1).Trim()
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $feed = "https://nuget.pkg.github.com/$env:GITHUB_REPOSITORY_OWNER/index.json"
+          $config = Join-Path $env:RUNNER_TEMP 'ge-vcpkg-nuget.config'
+          '<configuration><packageSources><clear /></packageSources></configuration>' | Set-Content $config
+          & $nuget sources add -Name GitHub -Source $feed -Username $env:GITHUB_REPOSITORY_OWNER -Password $env:NUGET_TOKEN -StorePasswordInClearText -ConfigFile $config -NonInteractive
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $nuget setapikey $env:NUGET_TOKEN -Source $feed -ConfigFile $config -NonInteractive
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $nuget config -Set "defaultPushSource=$feed" -ConfigFile $config -NonInteractive
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $mode = if ($env:PUBLISH_CACHE -eq 'true') { 'readwrite' } else { 'read' }
+          "VCPKG_BINARY_SOURCES=clear;default,readwrite;nugetconfig,$config,$mode" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VCPKG_NUGET_REPOSITORY=$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Restore vcpkg dependencies
         id: restore-vcpkg
         uses: actions/cache/restore@v6
         with:
+          # The publisher restores from NuGet so an installed-tree hit cannot skip seeding the feed.
+          lookup-only:
+            ${{ inputs.publish-vcpkg-cache && github.event_name == 'push' && github.ref ==
+            'refs/heads/master' && matrix.suite == 'package' }}
           path: |
             C:\vcpkg\installed
             C:\vcpkg\downloads
@@ -531,3 +566,10 @@ jobs:
         if: matrix.suite == 'tests'
         shell: bash
         run: just test-integration
+
+      - name: Remove NuGet credentials
+        if: always()
+        shell: pwsh
+        run:
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'ge-vcpkg-nuget.config') -Force -ErrorAction
+          SilentlyContinue
