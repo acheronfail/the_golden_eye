@@ -141,3 +141,23 @@ executable order) confirmed 82.42 to 2.95 ms for PP7 gold. The other 79 scenario
 median ratio was 0.99; the largest median increase was 0.36 ms.
 Cold matching still sweeps other scales and can admit false header candidates;
 these warmed results do not establish a first-frame latency bound.
+
+English RetroGEM cheat-menu fixtures cover Gold PP7, 2x Laser, and the shorter
+list with 2x Throwing Knife selected. These are pixel-identical PNG conversions
+of the supplied 1920×1080 BMP captures. All expect `unknown`, since cheat menus
+are not run screens. Benchmark each fixture explicitly when checking coverage:
+`bench-cv` selects only one representative per capture source/language/screen.
+
+Individual release benchmarks used 100 samples, OBS capture emulation, and
+`en - start - 01 - 00 Agent.png` for calibration (five target warmups):
+
+| English cheat selection | Warm median | Warm p95 | Uncalibrated median |
+| --- | --- | --- | --- |
+| Gold PP7 | 3.02 ms | 3.82 ms | 139.04 ms |
+| 2x Laser | 2.95 ms | 3.29 ms | 136.94 ms |
+| 2x Throwing Knife | 2.93 ms | 3.60 ms | 143.01 ms |
+
+All samples correctly returned `unknown`, with no times or black-frame detection.
+The full fixture suite passed 17,861 checks. The uncalibrated runs omitted the
+calibration frame and target warmups; their expensive recovery repeats until a
+real dossier supplies the overlay scale, rather than being only a first-frame cost.
