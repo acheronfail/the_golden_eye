@@ -39,34 +39,18 @@ interface EvaluatedTest {
   checks: Record<string, CheckResult | undefined>;
 }
 
-const languageMismatchCases = [
-  "screenshots-emu/en - start - 01 - Agent.png",
-  "screenshots-emu/jp - start - 01 - Agent.png",
-  "screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png",
-  "screenshots-av2hdmi/en - 007opts - 01 - 007 - dltk.png",
-  "screenshots-emu/en - select - 03.png",
-  "screenshots-retrogem/jp - select - 01.png",
-  "screenshots-retrogem/en - select - 01.png",
-  "screenshots-retrogem/jp - detail - 01 - Agent.png",
-  "screenshots-retrogem/jp - detail - 13 - Agent.png",
-  "screenshots-emu/en - 007opts - 01 - 007 - default.png",
-  "screenshots-emu/jp - 007opts - 04 - 007 - ltk.png",
-  "screenshots-emu/en - stats - 03 - Agent - 0033_0500_0033.png",
-  "screenshots-emu/jp - stats - 01 - Agent - 0137_0137.png",
-  "screenshots-retrogem/jp - stats - 03 - Agent - 0002_0500_0024.png",
-  "screenshots-emu/en - complete - 03 - Agent.png",
-  "screenshots-emu/jp - complete - 01 - Agent.png",
-  "screenshots-emu/en - abort - 03 - Agent.png",
-  "screenshots-emu/jp - abort - 01 - Agent.png",
-].map((filePath) => {
-  const detectedLang = path.basename(filePath).slice(0, 2);
-  return {
-    name: `language mismatch: ${filePath}`,
-    filePath,
-    configuredLang: detectedLang === "en" ? "jp" : "en",
-    detectedLang,
-  };
-});
+const languageMismatchCases = screenshots
+  .filter((screenshot) => screenshot.screen !== "unknown" && screenshot.screen !== "levels")
+  .map((screenshot) => path.relative(testRoot, screenshot.filePath))
+  .map((filePath) => {
+    const detectedLang = path.basename(filePath).slice(0, 2);
+    return {
+      name: `language mismatch: ${filePath}`,
+      filePath,
+      configuredLang: detectedLang === "en" ? "jp" : "en",
+      detectedLang,
+    };
+  });
 
 type LanguageMismatchCase = (typeof languageMismatchCases)[number];
 type TestCase =

@@ -514,9 +514,9 @@ impl CvMatcher {
         let search_rect = fractional_rect(frame.cols(), frame.rows(), region);
         let region = frame.roi(search_rect)?.try_clone()?;
         // The taller PREVIOUS text is more scale-sensitive than a header colon.
-        let match_tab = |template: &Mat| -> Result<Option<MatchRect>> {
+        let match_tab = |template: &Mat, factors: &[f64]| -> Result<Option<MatchRect>> {
             let mut best: Option<MatchRect> = None;
-            for factor in [1.0, 0.95, 1.05] {
+            for factor in factors {
                 if let Some(rect) = best_match(&region, &scaled(template, scale * factor)?)?
                     && best.is_none_or(|current| rect.score > current.score)
                 {
@@ -525,8 +525,20 @@ impl CvMatcher {
             }
             Ok(best)
         };
-        let en = match_tab(en_template)?;
-        let jp = match_tab(jp_template)?;
+        let mut en = match_tab(en_template, &[1.0, 0.95, 1.05])?;
+        let mut jp = match_tab(jp_template, &[1.0, 0.95, 1.05])?;
+        let scores = (en.map_or(-1.0, |r| r.score), jp.map_or(-1.0, |r| r.score));
+        if scores.0.max(scores.1) < LANGUAGE_TAB_THRESHOLD || (scores.0 - scores.1).abs() < LANGUAGE_TAB_MARGIN {
+            // Recover imprecise header scales without slowing down confident matches.
+            let factors = [0.85, 0.875, 0.90, 0.925, 0.975, 1.025, 1.075, 1.10, 1.125, 1.15];
+            for (best, template) in [(&mut en, en_template), (&mut jp, jp_template)] {
+                if let Some(candidate) = match_tab(template, &factors)?
+                    && best.is_none_or(|current| candidate.score > current.score)
+                {
+                    *best = Some(candidate);
+                }
+            }
+        }
         let en_score = en.map_or(-1.0, |r| r.score);
         let jp_score = jp.map_or(-1.0, |r| r.score);
         dbg_cv!("[language] start={start} en={en_score:.3} jp={jp_score:.3}");

@@ -32,7 +32,7 @@ serve as test expectations.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup and the other test suites.
 
-Language regressions in `frames.test.ts` run dossier fixtures with the opposite template language,
+Language regressions in `frames.test.ts` run every dossier fixture with the opposite template language,
 verify safe rejection plus the detected language, and rerun with that language to check the normal
 screen and time expectations. These include difficulty selection, 007 options, reports, and
 statistics, not only the start page.
