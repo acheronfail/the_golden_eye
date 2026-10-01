@@ -327,13 +327,13 @@ fn mission_anchor_survives_capture_downscaling_and_cache_reuse() {
 fn mission_scale_recovers_when_switching_from_dam_to_silo() {
     let matcher = CvMatcher::new("en", TEMPLATES_DIR).unwrap().with_diagnostics(true);
     let cases = [
-        ("en - start - 01 - Agent.png", 1, 0),
-        ("en - start - 06 - 00 Agent.png", 3, 2),
-        ("en - start - 01 - Agent.png", 1, 0),
+        ("en - start - 01 - Agent - cache-recovery.png", 1, 0),
+        ("en - start - 06 - 00 Agent - cache-recovery.png", 3, 2),
+        ("en - start - 01 - Agent - cache-recovery.png", 1, 0),
     ];
     for (fixture, mission, difficulty) in cases {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../frame_tests/screenshots-capture-card")
+            .join("../../../frame_tests/screenshots-retrogem")
             .join(fixture);
         let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
         let mut source = Mat::default();
