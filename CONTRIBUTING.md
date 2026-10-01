@@ -74,35 +74,6 @@ measure the reduced build. CI keys its installed-dependency cache by this packag
 
 CI runs `just check` and checks that generated files match the committed versions.
 
-## Windows binary cache
-
-Windows CI also reads vcpkg binaries from the repository owner's GitHub Packages NuGet feed. Only
-the Windows package job on a push to `master` publishes binaries. It restores from NuGet instead of
-the installed-tree Actions cache, so an existing Actions cache cannot prevent the feed from being
-populated. PRs, release builds, and the Windows test job only read the feed. The existing Actions
-cache remains available to those readers.
-
-Authentication uses the job's `GITHUB_TOKEN`; no repository secret or paid plan is required for
-public packages. The temporary NuGet configuration lives outside cached directories and is removed
-at the end of the job. Local `just setup` does not require GitHub credentials.
-
-GitHub creates new NuGet packages as **private**, even when they are linked to this public
-repository. After the first publishing build, open each generated package from the owner's Packages
-page, select **Package settings → Change visibility → Public**, and verify its repository
-association and Actions access. Repeat this for newly introduced package names; later versions of an
-existing public package retain its visibility. Public visibility cannot be reverted to private.
-
-Public packages are free. Until visibility is changed, packages count toward the Free plan's private
-storage allowance and uploads can be blocked when that allowance is exhausted. Check visibility
-during the first publication; do not assume the public repository makes packages public
-automatically. Keep recent compiler/dependency versions and periodically delete obsolete versions if
-the feed grows unnecessarily.
-
-See GitHub's
-[NuGet authentication guide](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-nuget-registry),
-[package visibility settings](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility),
-and [Packages billing](https://docs.github.com/en/billing/concepts/product-billing/github-packages).
-
 ## Choose a test suite
 
 | Command                 | Coverage                                     |
