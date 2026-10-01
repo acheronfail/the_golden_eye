@@ -542,11 +542,7 @@ windows-vcpkg-deps:
     fi
     vcpkg="${vcpkg_root}/vcpkg"
     [ -x "${vcpkg}.exe" ] && vcpkg="${vcpkg}.exe"
-    packages=()
-    while IFS= read -r package; do
-      packages+=("${package%$'\r'}")
-    done < obs2/vcpkg-packages.txt
-    "${vcpkg}" install --triplet "${VCPKGRS_TRIPLET:-x64-windows-static-md}" --clean-after-build "${packages[@]}"
+    "${vcpkg}" install --triplet "${VCPKGRS_TRIPLET:-x64-windows-static-md}" --clean-after-build @obs2/vcpkg-packages.txt
 
 # install the pinned Rust toolchain, Clippy, and the Rust formatter
 setup-toolchains:

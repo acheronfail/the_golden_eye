@@ -387,8 +387,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
-          $packages = Get-Content obs2/vcpkg-packages.txt
-          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet $env:VCPKGRS_TRIPLET --clean-after-build @packages
+          just windows-vcpkg-deps
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Remove-Item -Recurse -Force C:\vcpkg\buildtrees\* -ErrorAction SilentlyContinue
           Remove-Item -Recurse -Force C:\vcpkg\packages\* -ErrorAction SilentlyContinue
