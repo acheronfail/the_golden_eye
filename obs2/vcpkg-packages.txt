@@ -1,0 +1,3 @@
+opencv4[core,fs,intrinsics,jpeg,png,thread]
+ffmpeg[core,avcodec,avformat,swresample,swscale]
+simde
