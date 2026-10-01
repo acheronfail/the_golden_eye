@@ -363,6 +363,53 @@ fn mission_scale_recovers_when_switching_from_dam_to_silo() {
     }
 }
 
+#[test]
+fn tab_scale_cache_survives_dossier_language_and_resolution_changes() {
+    let fixtures = [
+        "screenshots-emu/en - start - 01 - Secret Agent.png",
+        "screenshots-emu/en - stats - 03 - Agent - 0033_0500_0033.png",
+        "screenshots-emu/jp - start - 01 - 00 Agent.png",
+        "screenshots-emu/jp - stats - 01 - Agent - 0137_0137.png",
+        "screenshots-av2hdmi/en - abort - 1 - Secret Agent.png",
+        "screenshots-obs-developer/en - stats - 06 - Agent - 0153_0300_0144.png",
+    ];
+    for lang in ["en", "jp"] {
+        for fixtures in [&fixtures[..4], &fixtures[4..5], &fixtures[5..]] {
+            let matcher = CvMatcher::new(lang, TEMPLATES_DIR).unwrap();
+            for height in [WORK_HEIGHT, 360, WORK_HEIGHT] {
+                for fixture in fixtures {
+                    let path =
+                        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests").join(fixture);
+                    let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
+                    let mut source = Mat::default();
+                    imgproc::cvt_color_def(&bgr, &mut source, imgproc::COLOR_BGR2BGRA).unwrap();
+                    let width = (source.cols() as f64 * height as f64 / source.rows() as f64).round() as i32;
+                    let mut frame = Mat::default();
+                    imgproc::resize(&source, &mut frame, core::Size::new(width, height), 0.0, 0.0, imgproc::INTER_AREA)
+                        .unwrap();
+                    let cold =
+                        CvMatcher::new(lang, TEMPLATES_DIR).unwrap().match_level_from_bgra_frame(&frame).unwrap();
+                    for _ in 0..2 {
+                        let warm = matcher.match_level_from_bgra_frame(&frame).unwrap();
+                        assert_eq!(
+                            (warm.screen, warm.mission, warm.part, warm.difficulty, warm.detected_lang, warm.raw_times),
+                            (
+                                cold.screen,
+                                cold.mission,
+                                cold.part,
+                                cold.difficulty,
+                                cold.detected_lang.clone(),
+                                cold.raw_times.clone()
+                            ),
+                            "{lang}: {fixture}, height={height}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn level_match(screen: Screen, mission: i32, part: i32, difficulty: i32, raw_times: Vec<i32>) -> LevelMatch {
     LevelMatch {
         screen,

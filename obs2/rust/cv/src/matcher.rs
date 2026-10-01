@@ -126,6 +126,14 @@ struct ScaleCache {
     mission_cx: i32,
     mission_cy: i32,
 }
+#[derive(Clone, Copy)]
+struct TabScaleCache {
+    width: i32,
+    height: i32,
+    header_scale: f64,
+    scale: f64,
+}
+
 pub struct CvMatcher {
     lang: String,
     diagnostics: bool,
@@ -159,6 +167,8 @@ pub struct CvMatcher {
     // Aspect correction learned from the first frame that shows a manilla
     // folder; reused for every later frame at the same source resolution.
     calibration_cache: Mutex<Option<FrameCalibration>>,
+    // PREVIOUS refines the common vertical-tab scale; validate it on each frame.
+    tab_scale_cache: Mutex<Option<TabScaleCache>>,
     // Lazily populated because cold scale recovery may try several scales, but
     // a live source normally settles on one work scale and one native scale.
     glyph_cache: Mutex<Vec<(u64, Arc<ScaledGlyphs>)>>,
@@ -227,6 +237,7 @@ impl CvMatcher {
             levels,
             scale_cache: Mutex::new(None),
             calibration_cache: Mutex::new(None),
+            tab_scale_cache: Mutex::new(None),
             glyph_cache: Mutex::new(Vec::new()),
         })
     }
@@ -505,7 +516,13 @@ impl CvMatcher {
         Ok(best)
     }
 
-    fn detect_tab_language(&self, frame: &Mat, scale: f64, start: bool) -> Result<Option<(&'static str, MatchRect)>> {
+    fn detect_tab_language(
+        &self,
+        frame: &Mat,
+        scale: f64,
+        start: bool,
+        shared_scale: Option<f64>,
+    ) -> Result<Option<(&'static str, MatchRect, f64)>> {
         let (region, en_template, jp_template) = if start {
             (LANGUAGE_START_REGION, &self.language_start_en, &self.language_start_jp)
         } else {
@@ -513,40 +530,71 @@ impl CvMatcher {
         };
         let search_rect = fractional_rect(frame.cols(), frame.rows(), region);
         let region = frame.roi(search_rect)?.try_clone()?;
-        // The taller PREVIOUS text is more scale-sensitive than a header colon.
-        let match_tab = |template: &Mat, factors: &[f64]| -> Result<Option<MatchRect>> {
-            let mut best: Option<MatchRect> = None;
-            for factor in factors {
-                if let Some(rect) = best_match(&region, &scaled(template, scale * factor)?)?
-                    && best.is_none_or(|current| rect.score > current.score)
+        // Score independent language/scale candidates together, then reduce in
+        // the original order so equal scores keep the same winning rectangle.
+        let match_tabs = |factors: &[f64]| -> Result<[Option<(MatchRect, f64)>; 2]> {
+            let templates = [en_template, jp_template];
+            let matches = par_map(templates.len() * factors.len(), |i| {
+                best_match(&region, &scaled(templates[i / factors.len()], scale * factors[i % factors.len()])?)
+            });
+            let mut best: [Option<(MatchRect, f64)>; 2] = [None, None];
+            for (i, candidate) in matches.into_iter().enumerate() {
+                let current = &mut best[i / factors.len()];
+                if let Some(rect) = candidate?
+                    && current.is_none_or(|(current, _)| rect.score > current.score)
                 {
-                    best = Some(rect);
+                    *current = Some((rect, scale * factors[i % factors.len()]));
                 }
             }
             Ok(best)
         };
-        let mut en = match_tab(en_template, &[1.0, 0.95, 1.05])?;
-        let mut jp = match_tab(jp_template, &[1.0, 0.95, 1.05])?;
-        let scores = (en.map_or(-1.0, |r| r.score), jp.map_or(-1.0, |r| r.score));
-        if scores.0.max(scores.1) < LANGUAGE_TAB_THRESHOLD || (scores.0 - scores.1).abs() < LANGUAGE_TAB_MARGIN {
-            // Recover imprecise header scales without slowing down confident matches.
-            let factors = [0.85, 0.875, 0.90, 0.925, 0.975, 1.025, 1.075, 1.10, 1.125, 1.15];
-            for (best, template) in [(&mut en, en_template), (&mut jp, jp_template)] {
-                if let Some(candidate) = match_tab(template, &factors)?
-                    && best.is_none_or(|current| candidate.score > current.score)
-                {
-                    *best = Some(candidate);
+        let cached =
+            self.tab_scale_cache.lock().ok().and_then(|cache| *cache).filter(|cache| {
+                cache.width == frame.cols() && cache.height == frame.rows() && cache.header_scale == scale
+            });
+        let preferred_scale = shared_scale.or_else(|| cached.map(|cache| cache.scale));
+        let confident = |scores: &[Option<(MatchRect, f64)>; 2]| {
+            let en = scores[0].map_or(-1.0, |(rect, _)| rect.score);
+            let jp = scores[1].map_or(-1.0, |(rect, _)| rect.score);
+            en.max(jp) >= LANGUAGE_TAB_THRESHOLD && (en - jp).abs() >= LANGUAGE_TAB_MARGIN
+        };
+        let mut matches =
+            if let Some(preferred) = preferred_scale { match_tabs(&[preferred / scale])? } else { [None, None] };
+        // A PREVIOUS match on this frame fixes the scale of both vertical tabs.
+        // Its absence on START is meaningful; do not search for a different scale.
+        if !(confident(&matches) || start && shared_scale.is_some()) {
+            matches = match_tabs(&[1.0, 0.95, 1.05])?;
+            if !confident(&matches) {
+                let factors = [0.85, 0.875, 0.90, 0.925, 0.975, 1.025, 1.075, 1.10, 1.125, 1.15];
+                for (best, candidate) in matches.iter_mut().zip(match_tabs(&factors)?) {
+                    if let Some((rect, scale)) = candidate
+                        && best.is_none_or(|(current, _)| rect.score > current.score)
+                    {
+                        *best = Some((rect, scale));
+                    }
                 }
             }
         }
-        let en_score = en.map_or(-1.0, |r| r.score);
-        let jp_score = jp.map_or(-1.0, |r| r.score);
+        let [en, jp] = matches;
+        let en_score = en.map_or(-1.0, |(r, _)| r.score);
+        let jp_score = jp.map_or(-1.0, |(r, _)| r.score);
         dbg_cv!("[language] start={start} en={en_score:.3} jp={jp_score:.3}");
 
         let (lang, rect, score, other) =
             if en_score >= jp_score { ("en", en, en_score, jp_score) } else { ("jp", jp, jp_score, en_score) };
         if score >= LANGUAGE_TAB_THRESHOLD && score - other >= LANGUAGE_TAB_MARGIN {
-            Ok(rect.map(|r| (lang, r.offset(search_rect.x, search_rect.y))))
+            if !start
+                && let Some((_, refined_scale)) = rect
+                && let Ok(mut cache) = self.tab_scale_cache.lock()
+            {
+                *cache = Some(TabScaleCache {
+                    width: frame.cols(),
+                    height: frame.rows(),
+                    header_scale: scale,
+                    scale: refined_scale,
+                });
+            }
+            Ok(rect.map(|(r, scale)| (lang, r.offset(search_rect.x, search_rect.y), scale)))
         } else {
             Ok(None)
         }
@@ -799,7 +847,9 @@ impl CvMatcher {
             "language previous tab search",
             fractional_rect(frame.cols(), frame.rows(), LANGUAGE_PREVIOUS_REGION),
         );
-        if let Some((detected_lang, rect)) = self.detect_tab_language(&frame, header.scale, false)? {
+        let mut tab_scale = None;
+        if let Some((detected_lang, rect, scale)) = self.detect_tab_language(&frame, header.scale, false, None)? {
+            tab_scale = Some(scale);
             result.detected_lang = Some(detected_lang.to_owned());
             self.push_work_region(&mut match_regions, &mapper, format!("language {detected_lang} previous tab"), rect);
             if detected_lang != self.lang {
@@ -811,6 +861,8 @@ impl CvMatcher {
                 return Ok(result);
             }
         }
+
+        timer.lap("previous tab language");
 
         // The mission/part/difficulty labels always sit in the upper-left of the
         // stats overlay, so their template matching only needs the top-left corner
@@ -1100,9 +1152,10 @@ impl CvMatcher {
             );
         }
 
-        let start_tab_visible =
-            result.screen == Screen::Stats && self.detect_tab_language(&frame, header.scale, true)?.is_some();
+        let start_tab_visible = result.screen == Screen::Stats
+            && self.detect_tab_language(&frame, header.scale, true, tab_scale)?.is_some();
         reject_untrusted_screen(&mut result, start_tab_visible);
+        timer.lap("screen validation");
 
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
         result.match_regions = match_regions;
