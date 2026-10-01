@@ -88,14 +88,11 @@ const SCREEN_THRESHOLD: f64 = 0.78;
 // (x, y, w, h) as fractions of the frame.
 const SCREEN_BANNER_REGION: (f64, f64, f64, f64) = (0.04, 0.39, 0.56, 0.11);
 const SCREEN_STATUS_REGION: (f64, f64, f64, f64) = (0.18, 0.47, 0.48, 0.10);
-// Language detection uses the side tab on the level-start briefing: short,
-// static, and distinct between the English and Japanese ROMs, so it rejects a
-// wrong game/template language before a same-shaped banner is misclassified.
-const LANGUAGE_START_THRESHOLD: f64 = 0.82;
-const LANGUAGE_START_MARGIN: f64 = 0.12;
-// The language marker is the vertical START tab on the right of the level-start
-// briefing. It is fixed near the top-right of both 4:3 and 16:9 captures, so
-// there is no need to search the whole frame.
+// The PREVIOUS tab stays visible across dossier pages, including difficulty
+// selection and results where START is absent.
+const LANGUAGE_TAB_THRESHOLD: f64 = 0.82;
+const LANGUAGE_TAB_MARGIN: f64 = 0.12;
+const LANGUAGE_PREVIOUS_REGION: (f64, f64, f64, f64) = (0.68, 0.65, 0.30, 0.35);
 const LANGUAGE_START_REGION: (f64, f64, f64, f64) = (0.68, 0.035, 0.30, 0.35);
 // The mission-select grid carries none of the shared header colons, so the gate
 // rejects it. It is instead recognized by its film-strip divider (static, en/jp
@@ -149,6 +146,8 @@ pub struct CvMatcher {
     status_failed: Mat,
     status_abort: Mat,
     status_kia: Mat,
+    language_previous_en: Mat,
+    language_previous_jp: Mat,
     language_start_en: Mat,
     language_start_jp: Mat,
     // Film-strip divider of the mission-select grid, used to recognize the
@@ -200,6 +199,8 @@ impl CvMatcher {
         let status_failed = load_template(templates_dir, lang, "status_failed")?;
         let status_abort = load_template(templates_dir, lang, "status_abort")?;
         let status_kia = load_template(templates_dir, lang, "status_kia")?;
+        let language_previous_en = load_template(templates_dir, "en", "previous")?;
+        let language_previous_jp = load_template(templates_dir, "jp", "previous")?;
         let language_start_en = load_template(templates_dir, "en", "start")?;
         let language_start_jp = load_template(templates_dir, "jp", "start")?;
         let levels = load_template(templates_dir, lang, "levels")?;
@@ -219,6 +220,8 @@ impl CvMatcher {
             status_failed,
             status_abort,
             status_kia,
+            language_previous_en,
+            language_previous_jp,
             language_start_en,
             language_start_jp,
             levels,
@@ -502,18 +505,35 @@ impl CvMatcher {
         Ok(best)
     }
 
-    fn detect_start_language(&self, frame: &Mat, scale: f64) -> Result<Option<(&'static str, MatchRect)>> {
-        let search_rect = fractional_rect(frame.cols(), frame.rows(), LANGUAGE_START_REGION);
+    fn detect_tab_language(&self, frame: &Mat, scale: f64, start: bool) -> Result<Option<(&'static str, MatchRect)>> {
+        let (region, en_template, jp_template) = if start {
+            (LANGUAGE_START_REGION, &self.language_start_en, &self.language_start_jp)
+        } else {
+            (LANGUAGE_PREVIOUS_REGION, &self.language_previous_en, &self.language_previous_jp)
+        };
+        let search_rect = fractional_rect(frame.cols(), frame.rows(), region);
         let region = frame.roi(search_rect)?.try_clone()?;
-        let en = best_match(&region, &scaled(&self.language_start_en, scale)?)?;
-        let jp = best_match(&region, &scaled(&self.language_start_jp, scale)?)?;
+        // The taller PREVIOUS text is more scale-sensitive than a header colon.
+        let match_tab = |template: &Mat| -> Result<Option<MatchRect>> {
+            let mut best: Option<MatchRect> = None;
+            for factor in [1.0, 0.95, 1.05] {
+                if let Some(rect) = best_match(&region, &scaled(template, scale * factor)?)?
+                    && best.is_none_or(|current| rect.score > current.score)
+                {
+                    best = Some(rect);
+                }
+            }
+            Ok(best)
+        };
+        let en = match_tab(en_template)?;
+        let jp = match_tab(jp_template)?;
         let en_score = en.map_or(-1.0, |r| r.score);
         let jp_score = jp.map_or(-1.0, |r| r.score);
-        dbg_cv!("[language] start en={en_score:.3} jp={jp_score:.3}");
+        dbg_cv!("[language] start={start} en={en_score:.3} jp={jp_score:.3}");
 
         let (lang, rect, score, other) =
             if en_score >= jp_score { ("en", en, en_score, jp_score) } else { ("jp", jp, jp_score, en_score) };
-        if score >= LANGUAGE_START_THRESHOLD && score - other >= LANGUAGE_START_MARGIN {
+        if score >= LANGUAGE_TAB_THRESHOLD && score - other >= LANGUAGE_TAB_MARGIN {
             Ok(rect.map(|r| (lang, r.offset(search_rect.x, search_rect.y))))
         } else {
             Ok(None)
@@ -764,12 +784,12 @@ impl CvMatcher {
         self.push_work_search_region(
             &mut search_regions,
             &mapper,
-            "language start tab search",
-            fractional_rect(frame.cols(), frame.rows(), LANGUAGE_START_REGION),
+            "language previous tab search",
+            fractional_rect(frame.cols(), frame.rows(), LANGUAGE_PREVIOUS_REGION),
         );
-        if let Some((detected_lang, rect)) = self.detect_start_language(&frame, header.scale)? {
+        if let Some((detected_lang, rect)) = self.detect_tab_language(&frame, header.scale, false)? {
             result.detected_lang = Some(detected_lang.to_owned());
-            self.push_work_region(&mut match_regions, &mapper, format!("language {detected_lang} start tab"), rect);
+            self.push_work_region(&mut match_regions, &mapper, format!("language {detected_lang} previous tab"), rect);
             if detected_lang != self.lang {
                 dbg_cv!("[language] configured={} detected={detected_lang}; rejecting wrong-language frame", self.lang);
                 result.match_regions = match_regions;
@@ -1068,7 +1088,9 @@ impl CvMatcher {
             );
         }
 
-        reject_untrusted_screen(&mut result);
+        let start_tab_visible =
+            result.screen == Screen::Stats && self.detect_tab_language(&frame, header.scale, true)?.is_some();
+        reject_untrusted_screen(&mut result, start_tab_visible);
 
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
         result.match_regions = match_regions;

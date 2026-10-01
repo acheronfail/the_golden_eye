@@ -1,6 +1,7 @@
 # Frame regression tests
 
-For tests through real OBS rendering, capture, and replay saves, see [the OBS test guide](obs/README.md).
+For tests through real OBS rendering, capture, and replay saves, see
+[the OBS test guide](obs/README.md).
 
 This harness runs the Rust `test_match` CLI against PNG fixtures. It derives expected results from
 filenames and writes `test_results.json`. The Rust tests also use fixtures under `clips/` and
@@ -11,8 +12,8 @@ high, with the aspect ratio preserved. Smaller fixtures keep their original size
 receive this frame, including the mission-digit, black-frame, and watch detectors.
 
 This emulates capture dimensions with OpenCV resizing. It does not test OBS GPU rendering or the
-crop correction that OBS applies to later frames after calibration. The benchmark suite defaults
-to OBS capture emulation and can use a separate calibration frame.
+crop correction that OBS applies to later frames after calibration. The benchmark suite defaults to
+OBS capture emulation and can use a separate calibration frame.
 
 Run from the repository root:
 
@@ -30,3 +31,18 @@ for filename parsing and `frames.test.ts` for assertions. Keep filenames descrip
 serve as test expectations.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup and the other test suites.
+
+Language regressions in `frames.test.ts` run dossier fixtures with the opposite template language,
+verify safe rejection plus the detected language, and rerun with that language to check the normal
+screen and time expectations. These include difficulty selection, 007 options, reports, and
+statistics, not only the start page.
+
+The `en-previous.png` and `jp-previous.png` templates are grayscale crops from
+`screenshots-emu/{en,jp} - start - 01 - Agent.png`: pixel rectangle `(1280, 755, 70, 280)` (x, y,
+width, height) after resetting PNG page offsets. No resizing or lossy capture source was used. For
+example, regenerate the English template with ImageMagick:
+
+```sh
+magick "frame_tests/screenshots-emu/en - start - 01 - Agent.png" +repage \
+  -crop 70x280+1280+755 +repage -grayscale Rec601Luma obs2/cv_templates/en-previous.png
+```

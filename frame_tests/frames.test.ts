@@ -40,25 +40,32 @@ interface EvaluatedTest {
 }
 
 const languageMismatchCases = [
-  {
-    name: "language mismatch: English start with Japanese templates",
-    filePath: "screenshots-emu/en - start - 01 - Agent.png",
-    configuredLang: "jp",
-    detectedLang: "en",
-  },
-  {
-    name: "language mismatch: Japanese start with English templates",
-    filePath: "screenshots-emu/jp - start - 01 - Agent.png",
-    configuredLang: "en",
-    detectedLang: "jp",
-  },
-  {
-    name: "language mismatch: English blackbar start with Japanese templates",
-    filePath: "screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png",
-    configuredLang: "jp",
-    detectedLang: "en",
-  },
-];
+  "screenshots-emu/en - start - 01 - Agent.png",
+  "screenshots-emu/jp - start - 01 - Agent.png",
+  "screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png",
+  "screenshots-emu/en - select - 03.png",
+  "screenshots-retrogem/jp - select - 01.png",
+  "screenshots-retrogem/en - select - 01.png",
+  "screenshots-retrogem/jp - detail - 01 - Agent.png",
+  "screenshots-retrogem/jp - detail - 13 - Agent.png",
+  "screenshots-emu/en - 007opts - 01 - 007 - default.png",
+  "screenshots-emu/jp - 007opts - 04 - 007 - ltk.png",
+  "screenshots-emu/en - stats - 03 - Agent - 0033_0500_0033.png",
+  "screenshots-emu/jp - stats - 01 - Agent - 0137_0137.png",
+  "screenshots-retrogem/jp - stats - 03 - Agent - 0002_0500_0024.png",
+  "screenshots-emu/en - complete - 03 - Agent.png",
+  "screenshots-emu/jp - complete - 01 - Agent.png",
+  "screenshots-emu/en - abort - 03 - Agent.png",
+  "screenshots-emu/jp - abort - 01 - Agent.png",
+].map((filePath) => {
+  const detectedLang = path.basename(filePath).slice(0, 2);
+  return {
+    name: `language mismatch: ${filePath}`,
+    filePath,
+    configuredLang: detectedLang === "en" ? "jp" : "en",
+    detectedLang,
+  };
+});
 
 type LanguageMismatchCase = (typeof languageMismatchCases)[number];
 type TestCase =
@@ -218,9 +225,25 @@ async function evaluateLanguageMismatchTest(
   const { stdout } = await execCommand(runner.command(filePath, mismatch.configuredLang));
   const result = JSON.parse(stdout);
 
+  const screenshot = screenshots.find((item) => path.resolve(item.filePath) === filePath);
+  if (!screenshot) throw new Error(`Missing screenshot expectations: ${filePath}`);
+  const rematched = await evaluateScreenshotTest(runner, screenshot);
+  const { stdout: switchedStdout } = await execCommand(
+    runner.command(filePath, mismatch.detectedLang),
+  );
+  const switched = JSON.parse(switchedStdout);
+
   return {
     name: mismatch.name,
     checks: {
+      ...Object.fromEntries(
+        Object.entries(rematched.checks).map(([key, value]) => [`switched_${key}`, value]),
+      ),
+      switchedDetectedLang: check(
+        switched.detected_lang,
+        mismatch.detectedLang,
+        switched.detected_lang === mismatch.detectedLang,
+      ),
       lang: check(result.lang, mismatch.configuredLang, result.lang === mismatch.configuredLang),
       detectedLang: check(
         result.detected_lang,

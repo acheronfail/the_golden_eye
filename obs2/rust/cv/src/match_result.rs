@@ -130,7 +130,7 @@ pub struct LevelMatch {
     pub part: i32,
     pub difficulty: i32,
     /// Game language detected from language-specific static UI, when a strong
-    /// signal is visible. Currently emitted on level-start briefing screens.
+    /// signal is visible. Emitted across dossier pages with a visible PREVIOUS tab.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"en\" | \"jp\"")]
     pub detected_lang: Option<String>,
@@ -177,13 +177,13 @@ pub(super) fn has_overlay_markers(result: &LevelMatch) -> bool {
     result.mission >= 0 && result.part >= 0 && result.difficulty >= 0
 }
 
-pub(super) fn reject_untrusted_screen(result: &mut LevelMatch) {
+pub(super) fn reject_untrusted_screen(result: &mut LevelMatch, start_tab_visible: bool) {
     let missing_required_markers = screen_requires_overlay_markers(result.screen) && !has_overlay_markers(result);
     let stats_without_times = result.screen == Screen::Stats && result.raw_times.is_empty();
     // A strong START-tab match identifies the pre-level briefing flow. Briefing
     // text can resemble both the statistics banner and time rows, but real
     // post-run stats screens never carry this tab.
-    let stats_with_start_tab = result.screen == Screen::Stats && result.detected_lang.is_some();
+    let stats_with_start_tab = result.screen == Screen::Stats && start_tab_visible;
     if missing_required_markers || stats_without_times || stats_with_start_tab {
         result.screen = Screen::Unknown;
         result.times = None;
