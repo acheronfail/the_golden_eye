@@ -836,12 +836,13 @@ impl CvMatcher {
 
         let (mut found, mut mission_scale) = self.read_mission(&gray, mission_rect, &mission_scales)?;
         let mut mission_rect = mission_rect;
-        // Warm box missed (capture jitter / overlay shifted): retry the full
-        // header band at the cached scale before giving up.
-        if found.mission < 0 && hint.is_some() {
+        // A different mission digit can need a different scale after downsampling.
+        // Recover both the position and scale when the cached read misses.
+        let mission_retry = found.mission < 0 && hint.is_some();
+        if mission_retry {
             mission_rect = header_box();
             self.push_corrected_search_region(&mut search_regions, &mapper, "mission digit retry search", mission_rect);
-            let (f, s) = self.read_mission(&gray, mission_rect, &mission_scales)?;
+            let (f, s) = self.read_mission(&gray, mission_rect, &candidate_scales(gray.rows()))?;
             found = f;
             mission_scale = s;
         }
@@ -1047,10 +1048,10 @@ impl CvMatcher {
         result.raw_times = times;
         timer.lap("time assembly");
 
-        // Learn the scale from this fully-resolved overlay (slow path only) so
+        // Learn or recover the scale from this fully-resolved overlay so
         // later frames at this resolution fast-path the scale search. Require
         // every header marker so a partial match never poisons the cache.
-        if hint.is_none()
+        if (hint.is_none() || mission_retry)
             && has_overlay_markers(&result)
             && let Ok(mut cache) = self.scale_cache.lock()
         {

@@ -323,6 +323,46 @@ fn mission_anchor_survives_capture_downscaling_and_cache_reuse() {
     }
 }
 
+#[test]
+fn mission_scale_recovers_when_switching_from_dam_to_silo() {
+    let matcher = CvMatcher::new("en", TEMPLATES_DIR).unwrap().with_diagnostics(true);
+    let cases = [
+        ("en - start - 01 - Agent - cache-recovery.png", 1, 0),
+        ("en - start - 06 - 00 Agent - cache-recovery.png", 3, 2),
+        ("en - start - 01 - Agent - cache-recovery.png", 1, 0),
+    ];
+    for (fixture, mission, difficulty) in cases {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../frame_tests/screenshots-retrogem")
+            .join(fixture);
+        let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
+        let mut source = Mat::default();
+        imgproc::cvt_color_def(&bgr, &mut source, imgproc::COLOR_BGR2BGRA).unwrap();
+        let width = (source.cols() as f64 * WORK_HEIGHT as f64 / source.rows() as f64).round() as i32;
+        let mut frame = Mat::default();
+        imgproc::resize(&source, &mut frame, core::Size::new(width, WORK_HEIGHT), 0.0, 0.0, imgproc::INTER_AREA)
+            .unwrap();
+        for iteration in 0..3 {
+            let result = matcher.match_level_from_bgra_frame(&frame).unwrap();
+            assert_eq!(
+                (result.screen, result.mission, result.part, result.difficulty),
+                (Screen::Start, mission, 1, difficulty),
+                "{fixture}, iteration={iteration}"
+            );
+            if iteration > 0 {
+                assert!(
+                    !result
+                        .annotation_sets
+                        .iter()
+                        .flat_map(|set| &set.annotations)
+                        .any(|region| region.label == "mission digit retry search"),
+                    "{fixture}: recovered scale must be reused without a broad retry"
+                );
+            }
+        }
+    }
+}
+
 fn level_match(screen: Screen, mission: i32, part: i32, difficulty: i32, raw_times: Vec<i32>) -> LevelMatch {
     LevelMatch {
         screen,

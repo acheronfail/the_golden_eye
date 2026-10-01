@@ -5,14 +5,6 @@
 	import { triggerKiaDeathOverlay } from './kiaPreview';
 	import { onDestroy } from 'svelte';
 
-	const knownVideoSourceIds = [
-		'screen_capture',
-		'macos-avcapture',
-		'macos-avcapture-fast',
-		'ffmpeg_source',
-		'v4l2_input'
-	];
-
 	let imageData = $state<string | null>(null);
 	let sources = $state<{ name: string; id: string }[]>([]);
 	let selectedSource = $state<{ name: string; id: string } | null>(null);
@@ -308,44 +300,40 @@
 					<p class="font-mono text-xs obs-dim">{selectedSource.id}</p>
 				</div>
 
-				{#if knownVideoSourceIds.includes(selectedSource.id)}
-					<div class="flex flex-wrap gap-2">
-						{#if !screenshottingSource}
-							<button class="obs-button px-2 py-1 text-sm" onclick={getScreenshot(selectedSource.name)}
-								>Get screenshot</button
-							>
-							<button class="obs-button px-2 py-1 text-sm" disabled={matchLoading} onclick={runMatcher}>
-								{matchLoading ? 'matching…' : 'match screenshot'}
-							</button>
-						{/if}
+				<div class="flex flex-wrap gap-2">
+					{#if !screenshottingSource}
+						<button class="obs-button px-2 py-1 text-sm" onclick={getScreenshot(selectedSource.name)}
+							>Get screenshot</button
+						>
+						<button class="obs-button px-2 py-1 text-sm" disabled={matchLoading} onclick={runMatcher}>
+							{matchLoading ? 'matching…' : 'match screenshot'}
+						</button>
+					{/if}
 
-						{#if screenshottingSource === selectedSource.name}
-							<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={stopScreenshotting}
-								>Stop screenshotting</button
-							>
-						{:else}
-							<button
-								class="obs-button obs-button-gold px-2 py-1 text-sm"
-								disabled={!!screenshottingSource}
-								onclick={startScreenshotting(selectedSource.name)}>Start screenshotting</button
-							>
-						{/if}
+					{#if screenshottingSource === selectedSource.name}
+						<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={stopScreenshotting}
+							>Stop screenshotting</button
+						>
+					{:else}
+						<button
+							class="obs-button obs-button-gold px-2 py-1 text-sm"
+							disabled={!!screenshottingSource}
+							onclick={startScreenshotting(selectedSource.name)}>Start screenshotting</button
+						>
+					{/if}
 
-						{#if frameDumpMode}
-							<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={() => (frameDumpMode = false)}
-								>Stop frame dump</button
-							>
-						{:else}
-							<button
-								class="obs-button px-2 py-1 text-sm"
-								title="Dump this source's frames to a temp folder (path logged to the OBS log), independent of the monitor. Stops on reload or when the source is closed."
-								onclick={() => (frameDumpMode = true)}>Start frame dump</button
-							>
-						{/if}
-					</div>
-				{:else}
-					<p class="font-mono obs-dim">(not a video source)</p>
-				{/if}
+					{#if frameDumpMode}
+						<button class="obs-button obs-button-danger px-2 py-1 text-sm" onclick={() => (frameDumpMode = false)}
+							>Stop frame dump</button
+						>
+					{:else}
+						<button
+							class="obs-button px-2 py-1 text-sm"
+							title="Dump this source's frames to a temp folder (path logged to the OBS log), independent of the monitor. Stops on reload or when the source is closed."
+							onclick={() => (frameDumpMode = true)}>Start frame dump</button
+						>
+					{/if}
+				</div>
 			</div>
 		{:else if sources.length == 0}
 			<p class="obs-dim">No sources, click "Load sources" to fetch them from OBS.</p>
@@ -356,11 +344,7 @@
 						<span class="text-right font-mono obs-muted">{source.name}: </span>
 
 						<div class="flex flex-wrap gap-2">
-							{#if knownVideoSourceIds.includes(source.id)}
-								<button class="obs-button px-2 py-1 text-sm" onclick={() => selectSource(source)}>Choose source</button>
-							{:else}
-								<span class="font-mono obs-dim">(not a video source)</span>
-							{/if}
+							<button class="obs-button px-2 py-1 text-sm" onclick={() => selectSource(source)}>Choose source</button>
 						</div>
 					</li>
 				{/each}
