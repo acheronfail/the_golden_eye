@@ -336,11 +336,11 @@ jobs:
             C:\vcpkg\installed
             C:\vcpkg\downloads
             .vcpkg-bincache
+          # Installed features are additive; do not restore a different package selection.
           key:
-            windows-vcpkg-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{
-            hashFiles('obs2/cmake/OpenCVStatic.cmake', 'obs2/cmake/FFmpegStatic.cmake') }}
-          restore-keys: |
-            windows-vcpkg-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
+            windows-vcpkg-v2-${{ runner.arch }}-${{ env.VCPKGRS_TRIPLET }}-${{ env.VCPKG_COMMIT
+            }}-${{ hashFiles('obs2/vcpkg-packages.txt', 'obs2/cmake/OpenCVStatic.cmake',
+            'obs2/cmake/FFmpegStatic.cmake') }}
 
       # Keep room for native dependencies: Cargo targets displaced the hour-long vcpkg build.
       - name: Cache Cargo downloads
@@ -387,7 +387,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
-          vcpkg install --triplet $env:VCPKGRS_TRIPLET --clean-after-build opencv4 ffmpeg simde
+          just windows-vcpkg-deps
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Remove-Item -Recurse -Force C:\vcpkg\buildtrees\* -ErrorAction SilentlyContinue
           Remove-Item -Recurse -Force C:\vcpkg\packages\* -ErrorAction SilentlyContinue
 

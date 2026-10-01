@@ -55,6 +55,12 @@ Setup installs the pinned Rust toolchain, Clippy, nightly rustfmt, npm dependenc
 and native dependencies. Run it again after dependency changes. `just setup-browser` reinstalls
 Chromium after a Playwright update; `just setup-toolchains` reinstalls the Rust tools.
 
+Windows CI and `just setup` share the explicit vcpkg features in `obs2/vcpkg-packages.txt`. OpenCV
+keeps filesystem access, PNG/JPEG support, threading, and intrinsics; FFmpeg keeps the codec,
+format, scaling, and resampling libraries. The `core` feature disables each port's defaults.
+Existing vcpkg installations retain previously installed features; use a fresh vcpkg installation to
+measure the reduced build. CI keys its installed-dependency cache by this package list.
+
 | Command             | Purpose                                                           |
 | ------------------- | ----------------------------------------------------------------- |
 | `just make`         | Debug plugin build; uses the OBS Flatpak SDK on Linux             |
