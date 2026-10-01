@@ -37,12 +37,17 @@ verify safe rejection plus the detected language, and rerun with that language t
 screen and time expectations. These include difficulty selection, 007 options, reports, and
 statistics, not only the start page.
 
-The `en-previous.png` and `jp-previous.png` templates are grayscale crops from
-`screenshots-emu/{en,jp} - start - 01 - Agent.png`: pixel rectangle `(1280, 755, 70, 280)` (x, y,
-width, height) after resetting PNG page offsets. No resizing or lossy capture source was used. For
-example, regenerate the English template with ImageMagick:
+The `en-previous.png` and `jp-previous.png` templates are grayscale crops from RetroGEM screenshots.
+The English crop comes from `en - start - 06 - 00 Agent.png`; the Japanese crop comes from
+`jp - start - 01 - Agent.png`. The Japanese capture is horizontally stretched, so its crop is
+normalized from 81 to 70 pixels wide to match the template geometry. Neither template uses an analog
+or cheap HDMI-converter capture.
+
+Regenerate the templates from the repository root with ImageMagick:
 
 ```sh
-magick "frame_tests/screenshots-emu/en - start - 01 - Agent.png" +repage \
-  -crop 70x280+1280+755 +repage -grayscale Rec601Luma obs2/cv_templates/en-previous.png
+magick "frame_tests/screenshots-retrogem/en - start - 06 - 00 Agent.png" +repage \
+  -crop 70x280+1513+750 +repage -grayscale Rec601Luma obs2/cv_templates/en-previous.png
+magick "frame_tests/screenshots-retrogem/jp - start - 01 - Agent.png" +repage \
+  -crop 81x280+1605+755 +repage -resize '70x280!' -grayscale Rec601Luma obs2/cv_templates/jp-previous.png
 ```

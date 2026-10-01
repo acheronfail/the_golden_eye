@@ -43,6 +43,7 @@ const languageMismatchCases = [
   "screenshots-emu/en - start - 01 - Agent.png",
   "screenshots-emu/jp - start - 01 - Agent.png",
   "screenshots-av2hdmi/en - start - 3 - 00 Agent - blackbars.png",
+  "screenshots-av2hdmi/en - 007opts - 01 - 007 - dltk.png",
   "screenshots-emu/en - select - 03.png",
   "screenshots-retrogem/jp - select - 01.png",
   "screenshots-retrogem/en - select - 01.png",
