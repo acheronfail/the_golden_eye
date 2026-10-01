@@ -122,3 +122,22 @@ magick "frame_tests/screenshots-retrogem/en - start - 06 - 00 Agent.png" +repage
 magick "frame_tests/screenshots-retrogem/jp - start - 01 - Agent.png" +repage \
   -crop 81x280+1605+755 +repage -resize '70x280!' -grayscale Rec601Luma obs2/cv_templates/jp-previous.png
 ```
+
+### Cheat-menu header rejection
+
+RetroGEM's Japanese PP7 gold cheat menu matched unrelated text as header colons.
+That admitted the frame to mission recovery and a full part-label scale sweep,
+which alone cost about 62 ms despite there being no part label to find.
+The header gate now requires two colon hits separated by 0.55–2.60 glyph heights:
+distinct header rows, allowing a missing middle row and the mission reader's
+existing spacing tolerance. Same-line and widely separated text cannot open it.
+
+On the development host, 25 warmed release samples with OBS capture emulation
+reduced the complete CV pipeline median from 82.55 to 2.82 ms, and p95 from
+85.67 to 2.99 ms. All 17,849 frame checks pass. Synthetic row-spacing tests and
+a cheat-menu/dossier transition test protect rejection and subsequent recovery.
+A paired before/after run of all 80 scenarios (50 samples each, alternating
+executable order) confirmed 82.42 to 2.95 ms for PP7 gold. The other 79 scenarios'
+median ratio was 0.99; the largest median increase was 0.36 ms.
+Cold matching still sweeps other scales and can admit false header candidates;
+these warmed results do not establish a first-frame latency bound.
