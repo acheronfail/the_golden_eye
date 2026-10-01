@@ -65,9 +65,9 @@ pub(super) struct FoundMission {
     pub(super) digit: Option<MatchRect>,
 }
 
-// What the entry gate found in the header colon band: how many colons, the peak
-// correlation, and the scale they matched best at. The scale is reused for the
-// label searches so they are not re-run across every candidate scale.
+// Header colon count (capped at one without plausible row spacing), peak
+// correlation, and matching scale. Labels reuse the scale to avoid sweeping
+// every candidate again.
 pub(super) struct HeaderColons {
     pub(super) count: usize,
     pub(super) peak: f64,
@@ -117,7 +117,15 @@ pub(super) fn detect_header_colons(
         collect_detections(colon_region, &colon_tmpl, threshold, 0, &mut colons)?;
         let colons = suppress(colons, colon_tmpl.cols(), colon_tmpl.rows(), 0.5);
         let peak = colons.iter().map(|d| d.score).fold(-1.0, f64::max);
-        Ok(Some((colons.len(), peak)))
+        // Require distinct header rows, allowing one missing row. Cheat-menu
+        // text can match several colons on one line or far apart vertically.
+        let row_pair = colons.iter().enumerate().any(|(i, a)| {
+            colons[i + 1..].iter().any(|b| {
+                let gap = (a.y - b.y).abs() as f64 / colon_tmpl.rows() as f64;
+                (0.55..=2.60).contains(&gap)
+            })
+        });
+        Ok(Some((if row_pair { colons.len() } else { colons.len().min(1) }, peak)))
     });
 
     // Replay the sequential selection over the parallel results so the chosen

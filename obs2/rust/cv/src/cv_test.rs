@@ -294,6 +294,54 @@ fn match_level_from_encoded_image_decodes_and_matches() {
 }
 
 #[test]
+fn header_gate_requires_plausibly_spaced_rows() {
+    use crate::overlay_reading::{TIME_GATE_COLON_THRESHOLD, detect_header_colons};
+    use crate::template_matching::load_template;
+
+    let colon = load_template(TEMPLATES_DIR, "jp", "colon").unwrap();
+    for (gap, admitted) in [(0.0, false), (0.3, false), (0.88, true), (1.76, true), (3.3, false)] {
+        let mut frame = Mat::new_rows_cols_with_default(400, 400, core::CV_8UC1, core::Scalar::all(128.0)).unwrap();
+        for (x, y) in [(30, 30), (130, 30 + (colon.rows() as f64 * gap).round() as i32)] {
+            let mut roi = frame.roi_mut(Rect::new(x, y, colon.cols(), colon.rows())).unwrap();
+            colon.copy_to(&mut roi).unwrap();
+        }
+        let header =
+            detect_header_colons(&frame, &colon, &[1.0], TIME_GATE_COLON_THRESHOLD, (0.0, 0.0, 1.0, 1.0)).unwrap();
+        assert_eq!(header.count >= 2, admitted, "row gap {gap}");
+    }
+}
+
+#[test]
+fn cheat_menu_rejection_preserves_subsequent_dossier_matching() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests/screenshots-retrogem");
+    let matcher = CvMatcher::new("jp", TEMPLATES_DIR).unwrap();
+    for (iteration, name) in [
+        "jp - unknown - cheat-options - pp7-gold.png",
+        "jp - start - 01 - 00 Agent.png",
+        "jp - unknown - cheat-options - pp7-gold.png",
+        "jp - start - 01 - 00 Agent.png",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let bgr = imgcodecs::imread(root.join(name).to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
+        let mut resized = Mat::default();
+        imgproc::resize(&bgr, &mut resized, core::Size::new(853, WORK_HEIGHT), 0.0, 0.0, imgproc::INTER_AREA).unwrap();
+        let mut frame = Mat::default();
+        imgproc::cvt_color_def(&resized, &mut frame, imgproc::COLOR_BGR2BGRA).unwrap();
+        let result = matcher.match_level_from_bgra_frame(&frame).unwrap();
+        if name.contains("unknown") {
+            assert_eq!(result.screen, Screen::Unknown);
+            if iteration > 0 {
+                assert_eq!(result.mission, -1, "warmed cheat text must not enter mission recovery");
+            }
+        } else {
+            assert_eq!((result.screen, result.mission, result.part, result.difficulty), (Screen::Start, 1, 1, 2));
+        }
+    }
+}
+
+#[test]
 fn mission_anchor_survives_capture_downscaling_and_cache_reuse() {
     let cases = [
         ("en", "screenshots-emu/en - start - 01 - Secret Agent.png", Screen::Start, 1, 1),
