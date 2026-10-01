@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatDebugValue as value, formatDebugJson } from './monitorDebugDisplay';
 	import { formatWallClockTime } from './monitorWallClocks.svelte';
 	import type { MonitorDesignProps } from './monitorView';
 	import { formatMonitorTime, monitorPresentation } from './monitorView';
@@ -34,10 +35,9 @@
 			onStop
 		})
 	);
-	const value = (input: unknown): string => (input == null ? 'null' : String(input));
 	const seconds = (input: number | null | undefined): string =>
-		input == null ? 'null' : `${input} s (${formatMonitorTime(input)})`;
-	const matchJson = $derived(match ? JSON.stringify(match, null, 2) : 'null');
+		input == null ? 'null' : `${value(input)} s (${formatMonitorTime(input)})`;
+	const matchJson = $derived(match ? formatDebugJson(match, 2) : 'null');
 	const stageLabel = (stage: string): string => stage.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
 	const labelClass = 'text-[0.65rem] tracking-[0.1em] text-(--obs-text-dim) uppercase';
 	const gridClass =
@@ -118,7 +118,7 @@
 				<dd>
 					{@render scalar(
 						wallClocks.introSwirlDelayMs,
-						wallClocks.introSwirlDelayMs == null ? 'null' : `${wallClocks.introSwirlDelayMs / 1_000} s`
+						wallClocks.introSwirlDelayMs == null ? 'null' : `${value(wallClocks.introSwirlDelayMs / 1_000)} s`
 					)}
 				</dd>
 			</div>
@@ -135,7 +135,7 @@
 				<dd>
 					{@render scalar(
 						wallClocks.fadeDetection?.darkPixelPercent,
-						wallClocks.fadeDetection ? `${wallClocks.fadeDetection.darkPixelPercent}%` : 'null'
+						wallClocks.fadeDetection ? `${value(wallClocks.fadeDetection.darkPixelPercent)}%` : 'null'
 					)}
 				</dd>
 			</div>
@@ -276,7 +276,7 @@
 			</div>
 			<div>
 				<dt>runtime</dt>
-				<dd>{@render scalar(match?.runtime_ms, match ? `${match.runtime_ms} ms` : 'null')}</dd>
+				<dd>{@render scalar(match?.runtime_ms, match ? `${value(match.runtime_ms)} ms` : 'null')}</dd>
 			</div>
 			<div>
 				<dt>time</dt>
@@ -292,7 +292,7 @@
 			</div>
 			<div>
 				<dt>raw times</dt>
-				<dd>{@render scalar(match?.raw_times, match?.raw_times ? JSON.stringify(match.raw_times) : 'null')}</dd>
+				<dd>{@render scalar(match?.raw_times, match?.raw_times ? formatDebugJson(match.raw_times) : 'null')}</dd>
 			</div>
 			<div>
 				<dt>match regions</dt>
@@ -338,7 +338,7 @@
 	</section>
 
 	<section class="mt-3" aria-labelledby="payload-heading">
-		<h2 class="mb-1 {labelClass}" id="payload-heading">Raw match payload</h2>
+		<h2 class="mb-1 {labelClass}" id="payload-heading">Match payload (rounded for display)</h2>
 		<pre
 			class="m-0 border border-(--obs-border-muted) bg-(--obs-bg-elevated) p-2.5 font-[inherit] [overflow-wrap:anywhere] whitespace-pre-wrap text-(--obs-text-muted)">{matchJson}</pre>
 	</section>

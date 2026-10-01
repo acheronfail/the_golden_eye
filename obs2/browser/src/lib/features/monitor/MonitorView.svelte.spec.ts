@@ -227,6 +227,50 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 });
 
 describe('debug monitor', () => {
+	it('limits diagnostic precision without changing the match data', () => {
+		const levelMatch: LevelMatch = {
+			...match('start'),
+			runtime_ms: 12.345678,
+			match_regions: [{ label: 'time', x: 10, y: 20, w: 30, h: 40, score: 0.987654 }]
+		};
+		const view = render(MonitorView, {
+			...props('debug', 'started', levelMatch),
+			fps: {
+				processedFps: 59.946789,
+				capturedFps: 59.999999,
+				sourceFps: 59.940059,
+				droppedFrames: 1,
+				health: 'healthy'
+			},
+			wallClockState: {
+				...wallClockState,
+				introSwirlDelayMs: 3654,
+				fadeDetection: {
+					detected: false,
+					meanLuma: 12.345678,
+					darkPixelPercent: 98.765432,
+					sampleCount: 576,
+					sampleRegion: { x: 107, y: 0, width: 640, height: 480 }
+				}
+			}
+		});
+		for (const [label, expected] of Object.entries({
+			'processed FPS': '59.95',
+			'captured FPS': '60',
+			'configured FPS': '59.94',
+			'sampled mean luma': '12.35',
+			'dark sample coverage': '98.77%',
+			runtime: '12.35 ms',
+			'intro swirl delay': '3.65 s'
+		})) {
+			expect(screen.getByText(label).nextElementSibling?.textContent).toBe(expected);
+		}
+		expect(view.container.querySelector('pre')).toHaveTextContent('"score": 0.99');
+		expect(view.container.textContent).not.toMatch(/\d+\.\d{3,}/);
+		expect(levelMatch.runtime_ms).toBe(12.345678);
+		expect(levelMatch.match_regions?.[0].score).toBe(0.987654);
+	});
+
 	it('shows all available recording diagnostics without animation wrappers', () => {
 		const levelMatch: LevelMatch = {
 			...match('stats', { time: 58, target_time: 65, best_time: 61 }),
