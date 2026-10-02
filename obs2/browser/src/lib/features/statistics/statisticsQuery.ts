@@ -11,7 +11,9 @@ export interface StatisticsRouteState {
 }
 
 export const parseStatisticsTab = (value: string | null): StatisticsTab =>
-	['overview', 'improvement', 'outcomes', 'sessions'].includes(value ?? '') ? (value as StatisticsTab) : 'overview';
+	['overview', 'improvement', 'outcomes', 'sessions', 'times'].includes(value ?? '')
+		? (value as StatisticsTab)
+		: 'overview';
 
 export const parseDateRangePreset = (value: string | null): DateRangePreset =>
 	['today', '7d', '30d', '12m', 'all', 'custom'].includes(value ?? '') ? (value as DateRangePreset) : '30d';

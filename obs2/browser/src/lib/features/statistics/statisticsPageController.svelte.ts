@@ -4,6 +4,7 @@ import type {
 	MonitoringSessionDetail,
 	MonitoringSessionSummary,
 	RunStatus,
+	RunClip,
 	StatisticsBucket,
 	StatisticsResponse
 } from '$lib/api';
@@ -19,10 +20,11 @@ import {
 } from '$lib/features/statistics/statisticsPreferences';
 import { defaultDateRange, resolveDateRange, type DateRangeSelection } from '$lib/features/statistics/statisticsRange';
 import { ALL_STATUSES } from '$lib/features/statistics/statisticsView';
+import { EMPTY_RUN_FILTERS } from '$lib/features/runs/runsView';
 import { untrack } from 'svelte';
 import { statisticsRouteHref, statisticsRouteState, type StatisticsRouteState } from './statisticsQuery';
 
-type StatisticsBackend = Pick<Backend, 'getStatistics' | 'getStatisticsSessions' | 'getStatisticsSession'>;
+type StatisticsBackend = Pick<Backend, 'getStatistics' | 'getStatisticsSessions' | 'getStatisticsSession' | 'getRuns'>;
 
 export interface StatisticsPageNavigation {
 	currentUrl: () => URL;
@@ -53,6 +55,10 @@ export class StatisticsPageController {
 	sessionsLoading = $state(false);
 	sessionDetailLoading = $state(false);
 	error = $state<string | null>(null);
+	times = $state<RunClip[]>([]);
+	timesLoading = $state(false);
+	timesError = $state<string | null>(null);
+	private timesAbort: AbortController | null = null;
 
 	private mounted = $state(false);
 	private initialCohortResolved = $state(false);
@@ -107,12 +113,17 @@ export class StatisticsPageController {
 	}
 
 	destroy(): void {
+		this.timesAbort?.abort();
 		this.dataAbort?.abort();
 		this.sessionsAbort?.abort();
 		this.sessionDetailAbort?.abort();
 	}
 
 	private setupEffects(): void {
+		$effect(() => {
+			if (this.mounted && this.tab === 'times') void untrack(() => this.loadTimes());
+			return () => this.timesAbort?.abort();
+		});
 		$effect(() => {
 			const mounted = this.mounted;
 			const state = this.routeState();
@@ -172,6 +183,35 @@ export class StatisticsPageController {
 			const sessionId = this.selectedSessionId;
 			if (mounted && tab === 'sessions') void untrack(() => this.loadSessionDetail(sessionId));
 		});
+	}
+
+	async loadTimes(): Promise<void> {
+		this.timesAbort?.abort();
+		const abort = new AbortController();
+		this.timesAbort = abort;
+		this.timesLoading = true;
+		this.timesError = null;
+		try {
+			const runs: RunClip[] = [];
+			let cursor: string | undefined;
+			do {
+				const response = await this.api.getRuns({
+					sort: 'newest',
+					limit: 200,
+					cursor,
+					signal: abort.signal,
+					filters: { ...EMPTY_RUN_FILTERS, status: 'complete' }
+				});
+				if (abort.signal.aborted) return;
+				runs.push(...response.clips);
+				cursor = response.nextCursor ?? undefined;
+			} while (cursor);
+			this.times = runs;
+		} catch (error) {
+			if (!abort.signal.aborted) this.timesError = errorMessage(error);
+		} finally {
+			if (this.timesAbort === abort) this.timesLoading = false;
+		}
 	}
 
 	private routeState(): StatisticsRouteState {

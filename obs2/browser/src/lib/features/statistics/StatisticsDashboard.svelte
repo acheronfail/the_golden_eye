@@ -53,7 +53,8 @@
 		outcomeMeasure = $bindable('share'),
 		levelMeasure = $bindable('attempts'),
 		levelOrder = $bindable('attempts'),
-		controls
+		controls,
+		times
 	}: {
 		data: StatisticsResponse | null;
 		loading: boolean;
@@ -75,10 +76,12 @@
 		levelMeasure?: StatisticsLevelMeasure;
 		levelOrder?: StatisticsLevelOrder;
 		controls?: Snippet;
+		times?: Snippet;
 	} = $props();
 
 	const tabs: Array<{ id: StatisticsTab; label: string }> = [
 		{ id: 'overview', label: 'Overview' },
+		{ id: 'times', label: 'Times' },
 		{ id: 'improvement', label: 'Improvement' },
 		{ id: 'outcomes', label: 'Outcomes' },
 		{ id: 'sessions', label: 'Sessions' }
@@ -140,19 +143,21 @@
 	</div>
 </div>
 
-{#if controls}
+{#if controls && tab !== 'times'}
 	<div class="mt-4">
 		{@render controls()}
 	</div>
 {/if}
 
-{#if error}
+{#if error && tab !== 'times'}
 	<div class="mt-4 rounded-sm border border-(--obs-danger) bg-(--obs-danger-surface) p-3 text-sm" role="alert">
 		{error}
 	</div>
 {/if}
 
-{#if loading && !data}
+{#if tab === 'times'}
+	{#if times}{@render times()}{/if}
+{:else if loading && !data}
 	<div class="mt-4 rounded-sm obs-panel p-8 text-center text-sm obs-muted">Loading statistics…</div>
 {:else if data}
 	{#if tab === 'overview'}

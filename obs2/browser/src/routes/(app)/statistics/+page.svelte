@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { backend } from '$lib/api';
+	import TimesStatistics from '$lib/features/statistics/TimesStatistics.svelte';
 	import DateRangeSelect from '$lib/features/statistics/DateRangeSelect.svelte';
 	import SectionTitle from '$lib/ui/SectionTitle.svelte';
 	import StatisticsDashboard from '$lib/features/statistics/StatisticsDashboard.svelte';
@@ -49,6 +50,16 @@
 		bind:levelMeasure={controller.levelMeasure}
 		bind:levelOrder={controller.levelOrder}
 	>
+		{#snippet times()}
+			<TimesStatistics
+				runs={controller.times}
+				loading={controller.timesLoading}
+				error={controller.timesError}
+				retry={() => void controller.loadTimes()}
+				level={Number(page.url.searchParams.get('timesLevel')) || null}
+				difficulty={page.url.searchParams.get('timesDifficulty')}
+			/>
+		{/snippet}
 		{#snippet controls()}
 			<section>
 				<SectionTitle title="Filters" class="mb-3" />

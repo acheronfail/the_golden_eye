@@ -3,9 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { statisticsFixture } from '../../../stories/features/statistics/statisticsFixtures';
 import { STATISTICS_PREFERENCES_STORAGE_KEY } from '$lib/features/statistics/statisticsPreferences';
+import { completedRun } from '../../../stories/fixtures';
 import StatisticsPage from './+page.svelte';
 
 const mocks = vi.hoisted(() => ({
+	getRuns: vi.fn(),
 	getStatistics: vi.fn(),
 	getStatisticsSessions: vi.fn(),
 	getStatisticsSession: vi.fn(),
@@ -29,6 +31,7 @@ vi.mock('$lib/api', async (importOriginal) => {
 		...actual,
 		backend: {
 			...actual.backend,
+			getRuns: mocks.getRuns,
 			getStatistics: mocks.getStatistics,
 			getStatisticsSessions: mocks.getStatisticsSessions,
 			getStatisticsSession: mocks.getStatisticsSession
@@ -52,6 +55,40 @@ beforeEach(() => {
 });
 
 describe('/statistics', () => {
+	it('loads every page of all-time times and links bests to their history', async () => {
+		mocks.pageUrl = new URL('http://localhost/statistics?tab=times');
+		mocks.getRuns
+			.mockResolvedValueOnce({ clips: [completedRun], nextCursor: 'older' })
+			.mockResolvedValueOnce({
+				clips: [
+					{ ...completedRun, runId: 'old-best', path: '', metadata: { ...completedRun.metadata, timeSeconds: 45 } }
+				]
+			});
+		render(StatisticsPage);
+		expect(await screen.findByRole('link', { name: 'Facility 00 Agent 0:45 history' })).toHaveAttribute(
+			'href',
+			'/statistics?tab=times&timesLevel=2&timesDifficulty=00+Agent'
+		);
+		expect(mocks.getRuns).toHaveBeenLastCalledWith(
+			expect.objectContaining({ cursor: 'older', filters: expect.objectContaining({ status: 'complete' }) })
+		);
+		expect(screen.queryByRole('combobox', { name: 'Group by' })).not.toBeInTheDocument();
+	});
+
+	it('shows dates and systems in history and links to the run detail route', async () => {
+		mocks.pageUrl = new URL('http://localhost/statistics?tab=times&timesLevel=2&timesDifficulty=00+Agent');
+		mocks.getRuns.mockResolvedValue({
+			clips: [{ ...completedRun, metadata: { ...completedRun.metadata, romVersion: 'pal' } }]
+		});
+		render(StatisticsPage);
+		expect(await screen.findByRole('link', { name: /Open run 0:58 from/ })).toHaveAttribute(
+			'href',
+			'/runs?runId=completed-run'
+		);
+		expect(screen.getByText('PAL')).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: '← All best times' })).toHaveAttribute('href', '/statistics?tab=times');
+	});
+
 	it('toggles difficulty series from the level chart legend', async () => {
 		const user = userEvent.setup();
 		render(StatisticsPage);
