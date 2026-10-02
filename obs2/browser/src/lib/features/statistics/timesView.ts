@@ -2,7 +2,7 @@ import type { RunClip } from '$lib/api';
 import { clipTimeSeconds, DIFFICULTY_OPTIONS } from '$lib/features/runs/runsView';
 import { LEVEL_NAMES } from './statisticsView';
 
-export const TIME_DIFFICULTIES = DIFFICULTY_OPTIONS.map(({ value }) => value);
+export const TIME_DIFFICULTIES = DIFFICULTY_OPTIONS.map(({ value }) => value).filter((value) => value !== '007');
 
 export function timesForLevel(runs: RunClip[], level: number, difficulty: string): RunClip[] {
 	return runs

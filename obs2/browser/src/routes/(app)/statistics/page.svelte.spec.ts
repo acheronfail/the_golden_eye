@@ -57,13 +57,9 @@ beforeEach(() => {
 describe('/statistics', () => {
 	it('loads every page of all-time times and links bests to their history', async () => {
 		mocks.pageUrl = new URL('http://localhost/statistics?tab=times');
-		mocks.getRuns
-			.mockResolvedValueOnce({ clips: [completedRun], nextCursor: 'older' })
-			.mockResolvedValueOnce({
-				clips: [
-					{ ...completedRun, runId: 'old-best', path: '', metadata: { ...completedRun.metadata, timeSeconds: 45 } }
-				]
-			});
+		mocks.getRuns.mockResolvedValueOnce({ clips: [completedRun], nextCursor: 'older' }).mockResolvedValueOnce({
+			clips: [{ ...completedRun, runId: 'old-best', path: '', metadata: { ...completedRun.metadata, timeSeconds: 45 } }]
+		});
 		render(StatisticsPage);
 		expect(await screen.findByRole('link', { name: 'Facility 00 Agent 0:45 history' })).toHaveAttribute(
 			'href',

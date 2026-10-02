@@ -39,6 +39,9 @@
 			}))
 		}))
 	);
+	const hasTimes = $derived(
+		selected ? history.length > 0 : rows.some((row) => row.times.some((time) => time.best !== null))
+	);
 	const dateLabel = (timestamp: string) => {
 		const date = new Date(timestamp);
 		return Number.isNaN(date.getTime()) ? 'Unknown date' : date.toLocaleString();
@@ -49,10 +52,14 @@
 	{#if selected}
 		<a class="obs-text-button inline-block px-2 py-1 text-sm" href="/statistics?tab=times">← All best times</a>
 		<h2 class="mt-4 text-lg font-semibold obs-heading">{LEVEL_NAMES[level! - 1]} · {difficulty}</h2>
-		<p class="mt-1 text-sm obs-muted">All completed times, newest first. Select a time to open its run details.</p>
+		{#if hasTimes && !loading && !error}
+			<p class="mt-1 text-sm obs-muted">All completed times, newest first. Select a time to open its run details.</p>
+		{/if}
 	{:else}
 		<h2 class="text-lg font-semibold obs-heading">Best times</h2>
-		<p class="mt-1 text-sm obs-muted">All-time best completed runs. Select a time to view its history.</p>
+		{#if hasTimes && !loading && !error}
+			<p class="mt-1 text-sm obs-muted">All-time best completed runs. Select a time to view its history.</p>
+		{/if}
 	{/if}
 
 	{#if loading}
@@ -63,39 +70,42 @@
 			{#if retry}<button type="button" class="mt-2 obs-text-button px-2 py-1 text-sm" onclick={retry}>Retry</button
 				>{/if}
 		</div>
+	{:else if !hasTimes}
+		<div class="mt-4 rounded obs-empty-state px-4 py-6 text-center">
+			<p class="text-sm obs-muted">
+				{selected ? 'No completed times for this level and difficulty yet.' : 'No completed times yet.'}
+			</p>
+			<p class="mt-1 font-mono text-xs obs-dim">Recorded and imported times will appear here.</p>
+		</div>
 	{:else if selected}
-		{#if history.length === 0}
-			<p class="py-8 text-center text-sm obs-muted">No completed times for this level and difficulty yet.</p>
-		{:else}
-			<div class="mt-4 overflow-x-auto">
-				<table class="w-full text-left text-sm">
-					<caption class="sr-only">{LEVEL_NAMES[level! - 1]} {difficulty} time history</caption>
-					<thead class="border-b border-(--obs-border-muted) obs-dim"
-						><tr
-							><th scope="col" class="p-2">Date</th><th scope="col" class="p-2">Time</th><th scope="col" class="p-2"
-								>System</th
-							></tr
-						></thead
-					>
-					<tbody>
-						{#each history as run (run.runId)}
-							<tr class="border-b border-(--obs-border-muted)">
-								<td class="p-2 obs-muted">{dateLabel(run.metadata.timestamp)}</td>
-								<td class="p-2"
-									><a
-										class="obs-text-button inline-block px-2 py-1 font-mono text-sm"
-										href={`/runs?runId=${encodeURIComponent(run.runId)}`}
-										aria-label={`Open run ${formatDuration(clipTimeSeconds(run)!)} from ${dateLabel(run.metadata.timestamp)}`}
-										>{formatDuration(clipTimeSeconds(run)!)}</a
-									></td
-								>
-								<td class="p-2 font-mono text-xs obs-muted">{romVersionLabel(run.metadata.romVersion) ?? 'Unknown'}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
+		<div class="mt-4 overflow-x-auto">
+			<table class="w-full text-left text-sm">
+				<caption class="sr-only">{LEVEL_NAMES[level! - 1]} {difficulty} time history</caption>
+				<thead class="border-b border-(--obs-border-muted) obs-dim"
+					><tr
+						><th scope="col" class="p-2">Date</th><th scope="col" class="p-2">Time</th><th scope="col" class="p-2"
+							>System</th
+						></tr
+					></thead
+				>
+				<tbody>
+					{#each history as run (run.runId)}
+						<tr class="border-b border-(--obs-border-muted)">
+							<td class="p-2 obs-muted">{dateLabel(run.metadata.timestamp)}</td>
+							<td class="p-2"
+								><a
+									class="obs-text-button inline-block px-2 py-1 font-mono text-sm"
+									href={`/runs?runId=${encodeURIComponent(run.runId)}`}
+									aria-label={`Open run ${formatDuration(clipTimeSeconds(run)!)} from ${dateLabel(run.metadata.timestamp)}`}
+									>{formatDuration(clipTimeSeconds(run)!)}</a
+								></td
+							>
+							<td class="p-2 font-mono text-xs obs-muted">{romVersionLabel(run.metadata.romVersion) ?? 'Unknown'}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
 	{:else}
 		<div class="mt-4 overflow-x-auto">
 			<table class="w-full text-left text-sm">
@@ -127,8 +137,5 @@
 				</tbody>
 			</table>
 		</div>
-		{#if rows.every((row) => row.times.every((time) => time.best === null))}<p class="mt-4 text-sm obs-muted">
-				No completed times yet. Recorded and imported times will appear here.
-			</p>{/if}
 	{/if}
 </section>
