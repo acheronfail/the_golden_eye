@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount, tick, untrack } from 'svelte';
 	import AppHeader from '$lib/app/AppHeader.svelte';
 	import { monitorPhaseStyleForPhase } from '$lib/stores/monitor.svelte';
 	import MonitorView from '$lib/features/monitor/MonitorView.svelte';
@@ -15,11 +16,49 @@
 
 	let {
 		view = 'monitor',
-		design = 'mission-glass'
+		design = 'mission-glass',
+		statsFrame = false
 	}: {
 		view?: 'monitor' | 'runs' | 'statistics';
 		design?: MonitorDesign;
+		statsFrame?: boolean;
 	} = $props();
+	let frame = $state({
+		...monitorMatch('start'),
+		mission: 1,
+		part: untrack(() => statsFrame) ? 3 : 2,
+		difficulty: untrack(() => statsFrame) ? 0 : 2
+	});
+	onMount(() => {
+		if (statsFrame)
+			void tick().then(() => {
+				frame = {
+					...frame,
+					screen: 'stats',
+					detected_lang: 'jp',
+					times: { time: 27, target_time: 300, best_time: 24 }
+				};
+			});
+	});
+	const previewRuns = $derived(
+		statsFrame
+			? readmeRuns.slice(0, 4).map((run, index) => ({
+					...run,
+					retentionState: index === 0 ? ('pending' as const) : run.retentionState,
+					retentionReason: index === 0 ? 'recent' : run.retentionReason,
+					metadata: {
+						...run.metadata,
+						level: 'Runway',
+						levelNumber: 3,
+						difficulty: 'Agent',
+						gameLanguage: 'jp',
+						time: ['00:27', '00:29', '00:31', '00:24'][index],
+						timeSeconds: [27, 29, 31, 24][index],
+						wasPersonalBest: index === 3
+					}
+				}))
+			: readmeRuns.slice(0, 5)
+	);
 	const links = [
 		{ href: '/', label: 'Monitor' },
 		{ href: '/statistics', label: 'Statistics' },
@@ -32,7 +71,7 @@
 
 <div
 	class="obs-window-focused obs-app-shell flex h-screen min-h-0 min-w-100 flex-col overflow-hidden {monitorPhaseStyleForPhase(
-		view === 'monitor' ? 'recording' : 'complete'
+		view === 'monitor' && !statsFrame ? 'recording' : 'complete'
 	).border}"
 >
 	<AppHeader
@@ -40,7 +79,7 @@
 		currentPath={view === 'monitor' ? '/sources/N64%20Capture' : `/${view}`}
 		pluginVersion="0.0.0"
 		activeMonitorHref={view === 'monitor' ? '/sources/N64%20Capture' : null}
-		recordingState={view === 'monitor' ? 'started' : null}
+		recordingState={view === 'monitor' ? (statsFrame ? 'complete' : 'started') : null}
 		youtubeConnected={true}
 	/>
 	<div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto obs-content-scroller">
@@ -48,14 +87,14 @@
 			<MonitorView
 				{...monitorBaseArgs}
 				{design}
-				recordingState="started"
-				match={{ ...monitorMatch('start'), mission: 1, part: 2, difficulty: 2 }}
+				recordingState={statsFrame ? 'complete' : 'started'}
+				match={frame}
 				wallClockState={{
 					...monitorBaseArgs.wallClockState,
 					sessionElapsedMs: 1_345_000,
 					levelTimerPhase: 'awaitingInitialBlack'
 				}}
-				recentRuns={readmeRuns.slice(0, 5)}
+				recentRuns={previewRuns}
 			/>
 		{:else}
 			<main class="mx-auto w-full max-w-3xl px-4 obs-page-top pb-4 sm:px-6 sm:pb-6">

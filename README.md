@@ -18,6 +18,9 @@ This is a plugin for OBS Studio that assists with GoldenEye N64 speed-running.
     <td align="center" valign="top"><a href="docs/assets/preview-runs.png"><img src="docs/assets/preview-runs.png" alt="Run library with times, results, and saved clips" width="220" height="450"></a></td>
     <td align="center" valign="top"><a href="docs/assets/preview-statistics.png"><img src="docs/assets/preview-statistics.png" alt="Statistics chart showing personal-best progression" width="220" height="450"></a></td>
   </tr>
+  <tr>
+    <td colspan="3" align="center"><a href="docs/assets/preview-obs.png"><img src="docs/assets/preview-obs.png" alt="OBS mockup with N64 Capture and the monitor showing matching Runway stats" width="800"></a></td>
+  </tr>
 </table>
 
 ... and more!

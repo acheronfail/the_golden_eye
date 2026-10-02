@@ -13,3 +13,5 @@
 <Story name="Signal band" args={{ design: 'signal-band' }} />
 <Story name="Runs" args={{ view: 'runs' }} />
 <Story name="Statistics" args={{ view: 'statistics' }} />
+
+<Story name="OBS stats frame" args={{ statsFrame: true }} />
