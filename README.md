@@ -2,7 +2,25 @@
 
 This is a plugin for OBS Studio that assists with GoldenEye N64 speed-running.
 
-<video src="https://github.com/user-attachments/assets/7721bc3c-38cb-4363-b76b-4148b23c33c4" controls></video>
+- 🎬 Automatically capture runs
+- ⭐ Keep your best clips
+- 📉 Track your progress
+- 📺 One-click (or automatic) YouTube uploads
+
+<table>
+  <tr>
+    <th width="33%">Automatic recording</th>
+    <th width="33%">Run library</th>
+    <th width="33%">Progress statistics</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><a href="docs/assets/preview-monitor.png"><img src="docs/assets/preview-monitor.png" alt="Live monitor detecting a Facility run and showing recent results" width="220" height="450"></a></td>
+    <td align="center" valign="top"><a href="docs/assets/preview-runs.png"><img src="docs/assets/preview-runs.png" alt="Run library with times, results, and saved clips" width="220" height="450"></a></td>
+    <td align="center" valign="top"><a href="docs/assets/preview-statistics.png"><img src="docs/assets/preview-statistics.png" alt="Statistics chart showing personal-best progression" width="220" height="450"></a></td>
+  </tr>
+</table>
+
+... and more!
 
 ## OBS compatibility
 
@@ -11,10 +29,9 @@ and later.
 
 ## How to install
 
-> [!WARNING]
-> Until version `1.0.0`, this plugin is pre-release software with no stability or compatibility
-> guarantees. `0.x.x` releases may include breaking changes, including to stored run data or the
-> installation format. See
+> [!WARNING] Until version `1.0.0`, this plugin is pre-release software with no stability or
+> compatibility guarantees. `0.x.x` releases may include breaking changes, including to stored run
+> data or the installation format. See
 > [Changes for 1.0.0](https://github.com/acheronfail/the_golden_eye/issues/119) for details.
 
 Follow the instructions for your operating system:

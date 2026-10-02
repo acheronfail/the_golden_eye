@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { readmeStatistics } from '../../readmeFixtures';
 	import StatisticsDashboard from '$lib/features/statistics/StatisticsDashboard.svelte';
 	import { sessionDetailFixture, sessionSummaryFixture, statisticsFixture } from './statisticsFixtures';
 	const { Story } = defineMeta({
@@ -22,6 +23,13 @@
 <Story name="Overview" />
 <Story name="Overview time spent" args={{ levelMeasure: 'time' }} />
 <Story name="Improvement" args={{ tab: 'improvement' }} />
+<Story
+	name="README preview"
+	args={{
+		tab: 'improvement',
+		data: readmeStatistics
+	}}
+/>
 <Story name="Outcomes" args={{ tab: 'outcomes' }} />
 <Story name="Sessions" args={{ tab: 'sessions' }} />
 <Story name="Loading" args={{ data: null, loading: true }} />

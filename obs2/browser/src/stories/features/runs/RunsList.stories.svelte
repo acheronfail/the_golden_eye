@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import RunListStory from './RunListStory.svelte';
 	import { runClips } from '../../fixtures';
+	import { readmeRuns } from '../../readmeFixtures';
 
 	const { Story } = defineMeta({
 		title: 'Runs/Run list',
@@ -15,6 +16,7 @@
 <Story name="No folders configured" args={{ clips: [], visibleClips: [], directoryCount: 0 }} />
 <Story name="No tagged clips" args={{ clips: [], visibleClips: [], directoryCount: 2 }} />
 <Story name="Different runs" args={{ clips: runClips, visibleClips: runClips }} />
+<Story name="README preview" args={{ clips: readmeRuns }} />
 <Story name="Virtualized 116-run history" args={{ clips: runClips, generatedRunCount: 116 }} />
 <Story name="Virtualized 5,000-run same-date history" args={{ clips: runClips, generatedRunCount: 5000 }} />
 <Story
