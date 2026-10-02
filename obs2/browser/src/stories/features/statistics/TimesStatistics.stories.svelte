@@ -31,3 +31,10 @@
 <Story name="Empty history" args={{ runs: [], level: 1, difficulty: 'Agent' }} />
 <Story name="Loading" args={{ loading: true }} />
 <Story name="Error" args={{ error: 'The catalog could not be read.', retry: () => {} }} />
+
+<Story name="More history" args={{ level: 2, difficulty: '00 Agent', loadMore: () => {} }} />
+<Story name="Loading more history" args={{ level: 2, difficulty: '00 Agent', loadMore: () => {}, loadingMore: true }} />
+<Story
+	name="History page error"
+	args={{ level: 2, difficulty: '00 Agent', error: 'Connection lost', retry: () => {} }}
+/>

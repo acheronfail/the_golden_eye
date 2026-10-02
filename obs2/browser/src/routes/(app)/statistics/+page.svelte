@@ -55,7 +55,9 @@
 				runs={controller.times}
 				loading={controller.timesLoading}
 				error={controller.timesError}
-				retry={() => void controller.loadTimes()}
+				retry={() => void controller.loadTimes(controller.times.length > 0 && !!controller.timesNextCursor)}
+				loadMore={controller.timesNextCursor ? () => void controller.loadTimes(true) : undefined}
+				loadingMore={controller.timesMoreLoading}
 				level={Number(page.url.searchParams.get('timesLevel')) || null}
 				difficulty={page.url.searchParams.get('timesDifficulty')}
 			/>

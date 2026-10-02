@@ -90,6 +90,11 @@ impl RunLibrary {
         Ok(response)
     }
 
+    pub(crate) fn best_times(&self, settings: &AppSettings) -> anyhow::Result<Vec<RunClip>> {
+        self.seed_if_needed(settings);
+        self.catalog.list_best_times().map(|runs| runs.into_iter().map(run_clip_from_record).collect())
+    }
+
     pub(crate) fn recent(&self, settings: &AppSettings, limit: usize) -> anyhow::Result<Vec<RunClip>> {
         self.seed_if_needed(settings);
         self.catalog.recent_runs(limit).map(|runs| runs.into_iter().map(run_clip_from_record).collect())

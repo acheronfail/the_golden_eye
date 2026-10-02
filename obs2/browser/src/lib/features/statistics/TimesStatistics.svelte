@@ -9,6 +9,8 @@
 		loading = false,
 		error = null,
 		retry,
+		loadMore,
+		loadingMore = false,
 		level = null,
 		difficulty = null
 	}: {
@@ -16,6 +18,8 @@
 		loading?: boolean;
 		error?: string | null;
 		retry?: () => void;
+		loadMore?: () => void;
+		loadingMore?: boolean;
 		level?: number | null;
 		difficulty?: string | null;
 	} = $props();
@@ -64,7 +68,7 @@
 
 	{#if loading}
 		<p class="py-8 text-center text-sm obs-muted" role="status">Loading times…</p>
-	{:else if error}
+	{:else if error && !hasTimes}
 		<div class="mt-4 rounded obs-alert-error p-3" role="alert">
 			<p class="text-sm">Could not load times: {error}</p>
 			{#if retry}<button type="button" class="mt-2 obs-text-button px-2 py-1 text-sm" onclick={retry}>Retry</button
@@ -106,6 +110,17 @@
 				</tbody>
 			</table>
 		</div>
+		{#if error}
+			<div class="mt-4 rounded obs-alert-error p-3" role="alert">
+				<p class="text-sm">Could not load more times: {error}</p>
+				{#if retry}<button type="button" class="mt-2 obs-text-button px-2 py-1 text-sm" onclick={retry}>Retry</button
+					>{/if}
+			</div>
+		{:else if loadMore}
+			<button type="button" class="mt-4 obs-text-button px-2 py-1 text-sm" disabled={loadingMore} onclick={loadMore}>
+				{loadingMore ? 'Loading more times…' : 'Load more times'}
+			</button>
+		{/if}
 	{:else}
 		<div class="mt-4 overflow-x-auto">
 			<table class="w-full text-left text-sm">

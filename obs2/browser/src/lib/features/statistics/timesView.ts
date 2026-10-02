@@ -4,6 +4,18 @@ import { LEVEL_NAMES } from './statisticsView';
 
 export const TIME_DIFFICULTIES = DIFFICULTY_OPTIONS.map(({ value }) => value).filter((value) => value !== '007');
 
+export function timesSelection(url: URL): { level: number; difficulty: string } | null {
+	const level = Number(url.searchParams.get('timesLevel'));
+	const difficulty = url.searchParams.get('timesDifficulty');
+	return Number.isInteger(level) &&
+		level >= 1 &&
+		level <= 20 &&
+		difficulty !== null &&
+		TIME_DIFFICULTIES.includes(difficulty)
+		? { level, difficulty }
+		: null;
+}
+
 export function timesForLevel(runs: RunClip[], level: number, difficulty: string): RunClip[] {
 	return runs
 		.filter((run) => {

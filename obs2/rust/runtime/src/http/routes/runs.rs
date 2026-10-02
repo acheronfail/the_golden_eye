@@ -50,6 +50,16 @@ pub async fn handle_list(State(state): State<AppState>, Query(params): Query<Run
 }
 
 #[axum::debug_handler]
+pub async fn handle_best_times(State(state): State<AppState>) -> Result<impl IntoResponse> {
+    let settings = state.settings.get_effective();
+    let runs = tokio::task::spawn_blocking(move || state.runs.best_times(&settings))
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?;
+    Ok(Json(runs))
+}
+
+#[axum::debug_handler]
 pub async fn handle_recent(
     State(state): State<AppState>,
     Query(params): Query<RecentRunsParams>,
