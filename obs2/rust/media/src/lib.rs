@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, anyhow};
 use ffmpeg_next::ffi::AV_TIME_BASE;
-use ffmpeg_next::{Dictionary, DictionaryRef, Rescale, codec, encoder, format, media, rescale};
+use ffmpeg_next::{Dictionary, DictionaryRef, codec, encoder, format, media};
 use ge_clip::{ClipMetadata, RomVersion, RunStatus};
 
 const TAG_CREATED_BY: &str = "fail.acheron.thegoldeneye.created_by";
@@ -147,7 +147,7 @@ fn remux_with_metadata(
         None => ictx.metadata().to_owned(),
     };
     octx.set_metadata(metadata);
-    write_header(&mut octx, output).context("writing output header")?;
+    write_header(&mut octx, output, trim_window.is_some()).context("writing output header")?;
 
     // Seek to (or just before) the start so we don't decode the whole file; the
     // demuxer lands on the nearest keyframe at or before this point.
@@ -158,14 +158,6 @@ fn remux_with_metadata(
         // Ignore seek failures: a tiny/keyframe-less file just plays from 0.
         let _ = ictx.seek(start_avtb, ..start_avtb);
     }
-
-    // Shift a timestamp from the input to the output stream time base, minus the
-    // global start offset so the clip begins at ~0. Clamps to 0 (muxers like mov
-    // reject negative timestamps).
-    let shift = |t: i64, in_tb: ffmpeg_next::Rational, out_tb: ffmpeg_next::Rational| -> i64 {
-        let avtb = t.rescale(in_tb, rescale::TIME_BASE) - start_avtb;
-        avtb.max(0).rescale(rescale::TIME_BASE, out_tb)
-    };
 
     // Track which kept streams have run past `end_secs`; stop once all have, so
     // we copy every stream right up to the cut without reading the whole file.
@@ -197,8 +189,9 @@ fn remux_with_metadata(
         }
 
         let out_tb = octx.stream(ost_index as usize).expect("output stream exists").time_base();
-        packet.set_pts(packet.pts().map(|t| shift(t, in_tb, out_tb)));
-        packet.set_dts(packet.dts().map(|t| shift(t, in_tb, out_tb)));
+        // Preserve preroll and B-frame timing; the muxer shifts all streams
+        // together for trims instead of clamping individual timestamps to zero.
+        packet.rescale_ts(in_tb, out_tb);
         packet.set_position(-1);
         packet.set_stream(ost_index as usize);
         packet.write_interleaved(&mut octx).context("writing packet")?;
@@ -370,14 +363,14 @@ fn replace_file_with_backup(path: &Path, replacement: &Path, backup: &Path) -> a
     }
 }
 
-fn write_header(octx: &mut format::context::Output, output: &Path) -> anyhow::Result<()> {
-    if !needs_mov_metadata_tags(output) {
-        octx.write_header()?;
-        return Ok(());
-    }
-
+fn write_header(octx: &mut format::context::Output, output: &Path, trimming: bool) -> anyhow::Result<()> {
     let mut options = Dictionary::new();
-    options.set("movflags", "use_metadata_tags");
+    if trimming {
+        options.set("avoid_negative_ts", "make_zero");
+    }
+    if needs_mov_metadata_tags(output) {
+        options.set("movflags", "use_metadata_tags");
+    }
     let unused = octx.write_header_with(options)?;
     for (key, value) in unused.iter() {
         tracing::debug!(key, value, "FFmpeg muxer returned unused header option");

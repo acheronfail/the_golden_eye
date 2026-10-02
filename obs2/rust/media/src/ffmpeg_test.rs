@@ -47,6 +47,73 @@ fn trims_to_requested_window() {
     let _ = std::fs::remove_file(&out);
 }
 
+#[derive(Debug)]
+struct PacketTiming {
+    stream: usize,
+    data: Vec<u8>,
+    pts: f64,
+    dts: f64,
+    duration: f64,
+    key: bool,
+}
+
+fn packet_timings(path: &Path) -> Vec<PacketTiming> {
+    init().unwrap();
+    let mut input = format::input(path).unwrap();
+    input
+        .packets()
+        .map(|(stream, packet)| {
+            let seconds = |value: i64| value as f64 * f64::from(stream.time_base());
+            PacketTiming {
+                stream: stream.index(),
+                data: packet.data().unwrap().to_vec(),
+                pts: seconds(packet.pts().unwrap()),
+                dts: seconds(packet.dts().unwrap()),
+                duration: seconds(packet.duration()),
+                key: packet.is_key(),
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn remux_preserves_packet_timing_and_audio_video_sync() {
+    let input = sample_clip();
+    let original = packet_timings(&input);
+    assert!(original.iter().any(|packet| packet.pts != packet.dts), "fixture must have reordered frames");
+
+    for (case, window) in [None, Some((0.0, 5.0)), Some((1.0, 5.0)), Some((3.25, 6.0))].into_iter().enumerate() {
+        let out = std::env::temp_dir().join(format!("ge_packet_timing_{}_{case}.mp4", std::process::id()));
+        remux_with_metadata(&input, &out, window, None).unwrap();
+        let copied = packet_timings(&out);
+        std::fs::remove_file(&out).unwrap();
+
+        let mut common_shift: Option<f64> = None;
+        for stream in 0..=1 {
+            let source: Vec<_> = original.iter().filter(|packet| packet.stream == stream).collect();
+            let result: Vec<_> = copied.iter().filter(|packet| packet.stream == stream).collect();
+            assert!(result.len() > 2, "both audio and video must survive");
+            let first = source.iter().position(|packet| packet.data == result[0].data).unwrap();
+            if stream == 0 {
+                assert!(result[0].key, "video must begin with a keyframe");
+            }
+            assert!(result.windows(2).all(|pair| pair[1].dts > pair[0].dts), "DTS must advance");
+            for (index, packet) in result.iter().enumerate() {
+                let before = source[first + index];
+                assert_eq!(packet.data, before.data, "encoded packets must be unchanged");
+                let shift = *common_shift.get_or_insert(packet.dts - before.dts);
+                assert!((packet.dts - before.dts - shift).abs() < 0.002, "DTS spacing and A/V sync must survive");
+                assert!((packet.pts - before.pts - shift).abs() < 0.002, "presentation order must survive");
+                assert!((packet.duration - before.duration).abs() < 0.002, "packet duration must survive");
+            }
+        }
+        if window.is_some() {
+            let first_dts = copied.iter().map(|packet| packet.dts).fold(f64::INFINITY, f64::min);
+            assert!(first_dts.abs() < 0.002, "trim must start near zero: {first_dts}");
+        }
+    }
+}
+
 #[test]
 fn trims_with_metadata_and_reads_it_back() {
     let input = sample_clip();
