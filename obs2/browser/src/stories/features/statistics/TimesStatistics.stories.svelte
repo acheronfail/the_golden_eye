@@ -27,6 +27,26 @@
 
 <Story name="Best times" />
 <Story name="History" args={{ level: 2, difficulty: '00 Agent' }} />
+<Story
+	name="History with language fallback"
+	args={{
+		level: 2,
+		difficulty: '00 Agent',
+		runs: [
+			...runs,
+			...['en', 'jp', ''].map((gameLanguage, index) => ({
+				...completedRun,
+				runId: `language-fallback-${index}`,
+				metadata: {
+					...completedRun.metadata,
+					timestamp: `2026-07-${20 - index}T12:00:00Z`,
+					gameLanguage,
+					romVersion: null
+				}
+			}))
+		]
+	}}
+/>
 <Story name="No times" args={{ runs: [] }} />
 <Story name="Empty history" args={{ runs: [], level: 1, difficulty: 'Agent' }} />
 <Story name="Loading" args={{ loading: true }} />
