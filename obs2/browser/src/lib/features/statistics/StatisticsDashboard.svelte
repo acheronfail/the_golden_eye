@@ -79,6 +79,26 @@
 		times?: Snippet;
 	} = $props();
 
+	let tabList = $state<HTMLDivElement>();
+
+	function chooseTab(index: number) {
+		const item = tabs[index];
+		if (!item) return;
+		tab = item.id;
+		tabList?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[index]?.focus();
+	}
+
+	function onTabKeydown(event: KeyboardEvent, index: number) {
+		let next: number | undefined;
+		if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + tabs.length) % tabs.length;
+		else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabs.length;
+		else if (event.key === 'Home') next = 0;
+		else if (event.key === 'End') next = tabs.length - 1;
+		if (next == null) return;
+		event.preventDefault();
+		chooseTab(next);
+	}
+
 	const tabs: Array<{ id: StatisticsTab; label: string }> = [
 		{ id: 'overview', label: 'Overview' },
 		{ id: 'times', label: 'Times' },
@@ -123,21 +143,56 @@
 	/>
 {/snippet}
 
-<div class="sticky top-0 z-20 -mx-4 border-b border-(--obs-border-muted) bg-(--obs-bg) px-4 sm:-mx-6 sm:px-6">
-	<div class="flex gap-1 overflow-x-auto" role="tablist" aria-label="Statistics views">
-		{#each tabs as item}
+<div class="sticky top-0 z-20 -mx-4 bg-(--obs-bg) px-4 py-2 sm:-mx-6 sm:px-6">
+	<div
+		bind:this={tabList}
+		class="flex w-full overflow-hidden rounded border border-(--obs-border)"
+		role="tablist"
+		aria-label="Statistics views"
+	>
+		{#each tabs as item, index}
 			<button
 				type="button"
 				role="tab"
+				aria-label={item.label}
 				aria-selected={tab === item.id}
-				class="border-b-2 px-3 py-2 text-sm font-semibold transition-colors"
-				class:border-(--obs-gold)={tab === item.id}
-				class:text-(--obs-gold-hover)={tab === item.id}
-				class:border-transparent={tab !== item.id}
-				class:obs-muted={tab !== item.id}
-				onclick={() => (tab = item.id)}
+				tabindex={tab === item.id ? 0 : -1}
+				title={item.label}
+				class="flex min-w-0 items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold transition-colors hover:bg-(--obs-control-hover) focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-(--obs-accent)"
+				class:w-12={tab !== item.id}
+				class:flex-1={tab === item.id}
+				class:border-l={index > 0}
+				class:border-(--obs-border)={index > 0}
+				class:bg-(--obs-control-active)={tab === item.id}
+				onclick={() => chooseTab(index)}
+				onkeydown={(event) => onTabKeydown(event, index)}
 			>
-				{item.label}
+				<svg
+					class="size-4 shrink-0"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.8"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+				>
+					{#if item.id === 'overview'}
+						<path d="M4 20V10h4v10M10 20V4h4v16M16 20v-7h4v7M3 20h18" />
+					{:else if item.id === 'times'}
+						<circle cx="12" cy="14" r="8" />
+						<path d="M12 10v4l3 2M9 2h6M12 2v4M18 7l2-2" />
+					{:else if item.id === 'improvement'}
+						<path d="m3 17 6-6 4 4 8-10M15 5h6v6" />
+					{:else if item.id === 'outcomes'}
+						<circle cx="12" cy="12" r="9" />
+						<path d="m8 12 3 3 5-6" />
+					{:else}
+						<rect x="3" y="5" width="18" height="16" rx="2" />
+						<path d="M16 3v4M8 3v4M3 11h18M7 15h3M14 15h3" />
+					{/if}
+				</svg>
+				{#if tab === item.id}<span aria-hidden="true" class="truncate">{item.label}</span>{/if}
 			</button>
 		{/each}
 	</div>

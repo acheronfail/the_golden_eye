@@ -21,6 +21,12 @@
 </script>
 
 <Story name="Overview" />
+<Story name="Times" args={{ tab: 'times' }} />
+<Story
+	name="Compact dock"
+	args={{ tab: 'improvement' }}
+	globals={{ viewport: { value: 'obsDockHalfHeight', isRotated: false } }}
+/>
 <Story name="Overview time spent" args={{ levelMeasure: 'time' }} />
 <Story name="Improvement" args={{ tab: 'improvement' }} />
 <Story
