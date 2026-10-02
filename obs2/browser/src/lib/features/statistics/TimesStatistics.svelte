@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { RunClip } from '$lib/api';
-	import { clipTimeSeconds, romVersionLabel } from '$lib/features/runs/runsView';
+	import { clipTimeSeconds, gameLanguageLabel, romVersionLabel } from '$lib/features/runs/runsView';
 	import { formatDuration, LEVEL_NAMES } from './statisticsView';
 	import { bestTime, TIME_DIFFICULTIES, timesForLevel, timesHistoryHref } from './timesView';
 
@@ -88,7 +88,7 @@
 				<thead class="border-b border-(--obs-border-muted) obs-dim"
 					><tr
 						><th scope="col" class="p-2">Date</th><th scope="col" class="p-2">Time</th><th scope="col" class="p-2"
-							>System</th
+							>System / language</th
 						></tr
 					></thead
 				>
@@ -104,7 +104,11 @@
 									>{formatDuration(clipTimeSeconds(run)!)}</a
 								></td
 							>
-							<td class="p-2 font-mono text-xs obs-muted">{romVersionLabel(run.metadata.romVersion) ?? 'Unknown'}</td>
+							<td class="p-2 font-mono text-xs obs-muted"
+								>{romVersionLabel(run.metadata.romVersion) ??
+									gameLanguageLabel(run.metadata.gameLanguage) ??
+									'Unknown'}</td
+							>
 						</tr>
 					{/each}
 				</tbody>
