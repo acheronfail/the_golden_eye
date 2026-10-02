@@ -26,7 +26,9 @@ describe('RunVideoPlayer', () => {
 		const { video, onReveal } = setup();
 		mediaState(video, 0);
 		await fireEvent.loadedData(video);
-		expect(screen.getByRole('alert')).toHaveTextContent("OBS's built-in browser may not support this clip's video format");
+		expect(screen.getByRole('alert')).toHaveTextContent(
+			"OBS's built-in browser may not support this clip's video format"
+		);
 		await fireEvent.click(screen.getByRole('button', { name: 'Show in Finder' }));
 		expect(onReveal).toHaveBeenCalledOnce();
 	});
