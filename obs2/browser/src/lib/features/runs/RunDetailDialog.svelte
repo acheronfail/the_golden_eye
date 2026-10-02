@@ -15,6 +15,7 @@
 		type RunDetailView
 	} from '$lib/features/runs/runsView';
 	import CopyToClipboard from './CopyToClipboard.svelte';
+	import RunVideoPlayer from './RunVideoPlayer.svelte';
 
 	let {
 		clip,
@@ -105,7 +106,7 @@
 				{#if clip.path && clip.retentionState === 'pending'}
 					<section
 						aria-label="Pending video retention"
-						class="mb-4 flex flex-col gap-3 rounded obs-alert-warning px-4 py-3 sm:flex-row sm:items-center"
+						class="mb-4 rounded border border-[color-mix(in_srgb,var(--obs-gold),var(--obs-border)_45%)] bg-(--obs-gold-surface) px-4 py-3"
 					>
 						<div class="min-w-0 flex-1">
 							<p class="text-sm font-semibold obs-alert-warning-title">Pending cleanup</p>
@@ -118,7 +119,7 @@
 							type="button"
 							onclick={view.actions.keep}
 							disabled={view.modal.busy !== null}
-							class="obs-text-button shrink-0 obs-button-gold px-3 py-2 font-mono text-xs"
+							class="mt-3 obs-text-button h-9 w-44 max-w-full obs-button-gold px-3 py-2 font-mono text-xs"
 						>
 							{view.modal.busy === 'keep' ? 'Keeping...' : 'Keep video'}
 						</button>
@@ -156,8 +157,12 @@
 						</span>
 						<span class="truncate font-mono text-[10px] obs-dim" title={clip.path}>{clip.fileName}</span>
 					</div>
-					<!-- svelte-ignore a11y_media_has_caption -->
-					<video src={backend.runVideoUrl(clip.path)} controls class="aspect-video w-full obs-preview"></video>
+					<RunVideoPlayer
+						src={backend.runVideoUrl(clip.path)}
+						fileBrowserLabel={view.display.fileBrowserLabel}
+						onReveal={view.actions.reveal}
+						busy={view.modal.busy !== null}
+					/>
 					<RunYouTubeSection {clip} />
 				{:else if clip.youtube}
 					{@const ytLink = `https://youtu.be/${clip.youtube.videoId}`}
