@@ -133,6 +133,12 @@ pub fn list_runs_sorted(conn: &Connection, sort: RunSort) -> anyhow::Result<Vec<
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+pub fn list_best_times(conn: &Connection) -> anyhow::Result<Vec<RunRecord>> {
+    let mut stmt = conn.prepare(include_str!("sql/runs/list_best_times.sql"))?;
+    let rows = stmt.query_map([], row_to_run)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 pub fn list_run_page(conn: &Connection, query: &RunListQuery) -> anyhow::Result<RunPage> {
     let mut filters = Vec::new();
     let mut values = Vec::<Value>::new();

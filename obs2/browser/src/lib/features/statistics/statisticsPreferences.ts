@@ -1,7 +1,7 @@
 import type { DifficultyNumber, RunStatus, StatisticsBucket } from '$lib/api';
 import { isLocalDateValue, type DateRangeSelection } from './statisticsRange';
 
-export type StatisticsTab = 'overview' | 'improvement' | 'outcomes' | 'sessions';
+export type StatisticsTab = 'overview' | 'improvement' | 'outcomes' | 'sessions' | 'times';
 export type StatisticsLevelOrder = 'attempts' | 'mission';
 export type StatisticsOutcomeMeasure = 'share' | 'count';
 export type StatisticsLevelMeasure = 'attempts' | 'time';
@@ -32,7 +32,7 @@ type StorageWriter = Pick<Storage, 'setItem'>;
 
 export const STATISTICS_PREFERENCES_STORAGE_KEY = 'the-golden-eye.statistics-preferences';
 
-const tabs: StatisticsTab[] = ['overview', 'improvement', 'outcomes', 'sessions'];
+const tabs: StatisticsTab[] = ['overview', 'improvement', 'outcomes', 'sessions', 'times'];
 const presets: DateRangeSelection['preset'][] = ['today', '7d', '30d', '12m', 'all', 'custom'];
 const buckets: StatisticsBucket[] = ['day', 'week', 'month', 'year'];
 const statuses: RunStatus[] = ['complete', 'failed', 'abort', 'kia'];

@@ -189,6 +189,41 @@ fn catalog_sorts_runs_by_time_with_missing_times_last() {
 }
 
 #[test]
+fn best_times_returns_one_completed_run_per_standard_cohort() {
+    let dir = TestDir::new("best-times");
+    let catalog = catalog(&dir);
+    assert!(catalog.list_best_times().unwrap().is_empty());
+    let base = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+    let mut expected = Vec::new();
+    for level in 1..=20 {
+        for difficulty in ["Agent", "Secret Agent", "00 Agent"] {
+            for (offset, seconds) in [(0, 50), (1, 60), (2, 50)] {
+                let mut metadata = finalized_metadata(RunStatus::Complete, Some(seconds), difficulty);
+                metadata.level_number = Some(level);
+                let run = catalog.create_finalized_run(base + Duration::from_secs(offset), metadata).unwrap();
+                if offset == 2 {
+                    expected.push(run.run_id);
+                }
+            }
+        }
+    }
+    for (offset, status, time, difficulty) in [
+        (3, RunStatus::Failed, Some(1), "Agent"),
+        (4, RunStatus::Complete, None, "Agent"),
+        (5, RunStatus::Complete, Some(-1), "Agent"),
+        (6, RunStatus::Complete, Some(1), "007"),
+    ] {
+        catalog
+            .create_finalized_run(base + Duration::from_secs(offset), finalized_metadata(status, time, difficulty))
+            .unwrap();
+    }
+    let bests = catalog.list_best_times().unwrap();
+    assert_eq!(bests.len(), 60);
+    assert!(bests.iter().all(|run| run.clip.is_none()));
+    assert_eq!(bests.into_iter().map(|run| run.run_id).collect::<Vec<_>>(), expected);
+}
+
+#[test]
 fn catalog_pages_runs_with_stable_sort_cursors_and_filters() {
     let dir = TestDir::new("run-pages");
     let catalog = catalog(&dir);

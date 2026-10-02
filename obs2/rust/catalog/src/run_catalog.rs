@@ -222,6 +222,10 @@ impl RunCatalog {
         runs::list_runs_sorted(&self.lock(), sort)
     }
 
+    pub fn list_best_times(&self) -> anyhow::Result<Vec<RunRecord>> {
+        runs::list_best_times(&self.lock())
+    }
+
     pub fn list_run_page(&self, query: &RunListQuery) -> anyhow::Result<RunPage> {
         runs::list_run_page(&self.lock(), query)
     }

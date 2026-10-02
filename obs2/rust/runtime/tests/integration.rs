@@ -13,6 +13,7 @@ mod reload_notice;
 mod run_catalog_migration;
 mod stats_time_accuracy;
 mod stream_notifications;
+mod times;
 mod update_apply;
 mod update_checking;
 mod user_replay_save;

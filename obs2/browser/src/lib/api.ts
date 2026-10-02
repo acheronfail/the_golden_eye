@@ -133,6 +133,10 @@ export class Backend {
 		return this.getJson(`/api/v1/runs?${query}`, { signal: options.signal });
 	}
 
+	public getBestTimes(options: { signal?: AbortSignal } = {}): Promise<RunClip[]> {
+		return this.getJson('/api/v1/runs/best-times', options);
+	}
+
 	public getRecentRuns(limit?: number): Promise<RunClip[]> {
 		const query = limit == null ? '' : `?limit=${encodeURIComponent(limit)}`;
 		return this.getJson(`/api/v1/runs/recent${query}`);

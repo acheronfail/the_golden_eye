@@ -4,6 +4,7 @@ import type {
 	MonitoringSessionDetail,
 	MonitoringSessionSummary,
 	RunStatus,
+	RunClip,
 	StatisticsBucket,
 	StatisticsResponse
 } from '$lib/api';
@@ -18,11 +19,16 @@ import {
 	type StatisticsTab
 } from '$lib/features/statistics/statisticsPreferences';
 import { defaultDateRange, resolveDateRange, type DateRangeSelection } from '$lib/features/statistics/statisticsRange';
-import { ALL_STATUSES } from '$lib/features/statistics/statisticsView';
+import { timesSelection } from './timesView';
+import { ALL_STATUSES, LEVEL_NAMES } from '$lib/features/statistics/statisticsView';
+import { EMPTY_RUN_FILTERS } from '$lib/features/runs/runsView';
 import { untrack } from 'svelte';
 import { statisticsRouteHref, statisticsRouteState, type StatisticsRouteState } from './statisticsQuery';
 
-type StatisticsBackend = Pick<Backend, 'getStatistics' | 'getStatisticsSessions' | 'getStatisticsSession'>;
+type StatisticsBackend = Pick<
+	Backend,
+	'getStatistics' | 'getStatisticsSessions' | 'getStatisticsSession' | 'getRuns' | 'getBestTimes'
+>;
 
 export interface StatisticsPageNavigation {
 	currentUrl: () => URL;
@@ -53,6 +59,12 @@ export class StatisticsPageController {
 	sessionsLoading = $state(false);
 	sessionDetailLoading = $state(false);
 	error = $state<string | null>(null);
+	times = $state<RunClip[]>([]);
+	timesLoading = $state(false);
+	timesMoreLoading = $state(false);
+	timesNextCursor = $state<string | null>(null);
+	timesError = $state<string | null>(null);
+	private timesAbort: AbortController | null = null;
 
 	private mounted = $state(false);
 	private initialCohortResolved = $state(false);
@@ -107,12 +119,18 @@ export class StatisticsPageController {
 	}
 
 	destroy(): void {
+		this.timesAbort?.abort();
 		this.dataAbort?.abort();
 		this.sessionsAbort?.abort();
 		this.sessionDetailAbort?.abort();
 	}
 
 	private setupEffects(): void {
+		$effect(() => {
+			const selection = timesSelection(this.navigation.currentUrl());
+			if (this.mounted && this.tab === 'times') void untrack(() => this.loadTimes(false, selection));
+			return () => this.timesAbort?.abort();
+		});
 		$effect(() => {
 			const mounted = this.mounted;
 			const state = this.routeState();
@@ -128,7 +146,8 @@ export class StatisticsPageController {
 				difficultyNumber: this.difficultyNumber,
 				initialCohortResolved: this.initialCohortResolved
 			};
-			if (mounted) void untrack(() => this.loadStatistics(request));
+			if (mounted && this.tab !== 'times') void untrack(() => this.loadStatistics(request));
+			else this.dataAbort?.abort();
 		});
 
 		$effect(() => {
@@ -172,6 +191,52 @@ export class StatisticsPageController {
 			const sessionId = this.selectedSessionId;
 			if (mounted && tab === 'sessions') void untrack(() => this.loadSessionDetail(sessionId));
 		});
+	}
+
+	async loadTimes(append = false, selection = timesSelection(this.navigation.currentUrl())): Promise<void> {
+		if (append && (this.timesLoading || this.timesMoreLoading || !this.timesNextCursor || !selection)) return;
+		const cursor = append ? this.timesNextCursor! : undefined;
+		this.timesAbort?.abort();
+		const abort = new AbortController();
+		this.timesAbort = abort;
+		this.timesLoading = !append;
+		this.timesMoreLoading = append;
+		this.timesError = null;
+		if (!append) {
+			this.times = [];
+			this.timesNextCursor = null;
+		}
+		try {
+			if (selection) {
+				const response = await this.api.getRuns({
+					sort: 'newest',
+					limit: 50,
+					cursor,
+					signal: abort.signal,
+					filters: {
+						...EMPTY_RUN_FILTERS,
+						status: 'complete',
+						level: LEVEL_NAMES[selection.level - 1],
+						difficulty: selection.difficulty,
+						minTime: '0'
+					}
+				});
+				if (abort.signal.aborted) return;
+				this.times = append ? [...this.times, ...response.clips] : response.clips;
+				this.timesNextCursor = response.nextCursor ?? null;
+			} else {
+				const runs = await this.api.getBestTimes({ signal: abort.signal });
+				if (abort.signal.aborted) return;
+				this.times = runs;
+			}
+		} catch (error) {
+			if (!abort.signal.aborted) this.timesError = errorMessage(error);
+		} finally {
+			if (this.timesAbort === abort) {
+				this.timesLoading = false;
+				this.timesMoreLoading = false;
+			}
+		}
 	}
 
 	private routeState(): StatisticsRouteState {
