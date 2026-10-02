@@ -456,8 +456,8 @@ describe('/runs', () => {
 
 		await user.click(await screen.findByRole('button', { name: /facility-pending\.mov/i }));
 		const notice = screen.getByRole('region', { name: 'Pending video retention' });
-		expect(notice).toHaveClass('obs-alert-warning');
-		expect(notice).not.toHaveClass('obs-alert-error');
+		expect(notice).toHaveClass('rounded', 'border', 'bg-(--obs-gold-surface)');
+		expect(notice).not.toHaveClass('border-l-4', 'bg-(--obs-danger-surface)');
 		expect(screen.getByText(/deleted when it falls outside your recent-run history/i)).toBeInTheDocument();
 		await user.click(screen.getByRole('button', { name: 'Keep video' }));
 
