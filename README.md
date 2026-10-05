@@ -32,10 +32,14 @@ and later.
 
 ## How to install
 
-> [!WARNING] Until version `1.0.0`, this plugin is pre-release software with no stability or
-> compatibility guarantees. `0.x.x` releases may include breaking changes, including to stored run
-> data or the installation format. See
-> [Changes for 1.0.0](https://github.com/acheronfail/the_golden_eye/issues/119) for details.
+Version `1.0.0` establishes the stable run-storage baseline. Future upgrades preserve stored run
+data through migrations when the schema changes. See
+[data compatibility](docs/data-compatibility.md).
+
+> [!WARNING] Upgrading from `0.x.x` resets the run database. Clip files and settings remain intact,
+> and tagged clips are reimported as kept runs. Database-only history, monitoring sessions, and
+> YouTube associations are lost. See
+> [upgrading to 1.0](docs/data-compatibility.md#upgrading-from-0xx).
 
 Follow the instructions for your operating system:
 
@@ -49,6 +53,9 @@ The plugin has an auto-update feature! Most of the time it can update itself jus
 
 If there's ever a new update that requires the plugin to be manually installed, the plugin will let
 you know.
+
+Version `1.0.0` keeps the `u2` updater contract. Existing `u2` installations can update
+automatically; older `u1` installations require a full manual installation with OBS closed.
 
 ## Troubleshooting
 

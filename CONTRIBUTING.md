@@ -164,10 +164,19 @@ sections, split it into separate PRs.
 
 ```shell
 git tag vX.Y.Z [sha]
-git push --tags
+git push origin vX.Y.Z
 ```
 
-Pushing a `vX.Y.Z` tag starts the release workflow, which builds packages and creates the GitHub
-release with generated notes and assets. Any release with a hyphen (e.g., `vX.Y.Z-beta`) will
-trigger a pre-release version. Generated notes always start from the previous stable `vX.Y.Z`
-release, so pre-release tags do not shorten the final stable release notes.
+Pushing a `vX.Y.Z` tag starts the release workflow, which builds packages and creates a draft GitHub
+release with generated notes and assets. Review the notes and all four platform packages plus
+`checksums.txt`, then publish the draft. Include upgrade instructions and data compatibility changes
+in the release notes when applicable.
+
+Any release with a hyphen (e.g., `vX.Y.Z-beta`) is marked as a prerelease. Stable release notes
+start from the previous published stable release; prerelease notes start from the previous published
+prerelease. Prerelease tags do not shorten the final stable release notes.
+
+Version `1.0.0` establishes catalog schema 4 as the stable baseline. Pre-1.0 schemas are reset
+rather than migrated. Future schema changes require explicit migrations preserving the baseline's
+user data; unsupported future schemas must never be reset. See
+[data compatibility](docs/data-compatibility.md).
