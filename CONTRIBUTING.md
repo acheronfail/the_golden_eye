@@ -164,10 +164,14 @@ sections, split it into separate PRs.
 
 ```shell
 git tag vX.Y.Z [sha]
-git push --tags
+git push origin vX.Y.Z
 ```
 
-Pushing a `vX.Y.Z` tag starts the release workflow, which builds packages and creates the GitHub
-release with generated notes and assets. Any release with a hyphen (e.g., `vX.Y.Z-beta`) will
-trigger a pre-release version. Generated notes always start from the previous stable `vX.Y.Z`
-release, so pre-release tags do not shorten the final stable release notes.
+Pushing the tag builds four platform packages and creates a draft release. Check the notes,
+packages, and `checksums.txt`, then publish the draft. Include any upgrade or data-loss
+instructions.
+
+Tags with a suffix (such as `vX.Y.Z-beta`) create prereleases. Notes start from the previous
+published release of the same kind: stable or prerelease.
+
+For the v1 storage rules, see [data compatibility](docs/data-compatibility.md).

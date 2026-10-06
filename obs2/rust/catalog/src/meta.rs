@@ -13,8 +13,6 @@ const CREATE_META_TABLE: &str = "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMA
 const SET_SCHEMA_VERSION: &str = "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?1)";
 // Read the schema version so supported upgrades can migrate explicitly.
 const GET_SCHEMA_VERSION: &str = "SELECT value FROM meta WHERE key = 'schema_version'";
-// Drop the meta table when reseeding the documented schema-1 catalog.
-const DROP_META_TABLE: &str = "DROP TABLE IF EXISTS meta";
 
 pub fn initialise(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(PRAGMA_JOURNAL_MODE_WAL)?;
@@ -25,11 +23,6 @@ pub fn initialise(conn: &Connection) -> anyhow::Result<()> {
 
 pub fn set_schema_version(conn: &Connection) -> anyhow::Result<()> {
     conn.execute(SET_SCHEMA_VERSION, [SCHEMA_VERSION.to_string()])?;
-    Ok(())
-}
-
-pub fn drop_tables(conn: &Connection) -> anyhow::Result<()> {
-    conn.execute_batch(DROP_META_TABLE)?;
     Ok(())
 }
 
