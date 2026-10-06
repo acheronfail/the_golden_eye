@@ -32,14 +32,9 @@ and later.
 
 ## How to install
 
-Version `1.0.0` establishes the stable run-storage baseline. Future upgrades preserve stored run
-data through migrations when the schema changes. See
-[data compatibility](docs/data-compatibility.md).
-
-> [!WARNING] Upgrading from `0.x.x` resets the run database. Clip files and settings remain intact,
-> and tagged clips are reimported as kept runs. Database-only history, monitoring sessions, and
-> YouTube associations are lost. See
-> [upgrading to 1.0](docs/data-compatibility.md#upgrading-from-0xx).
+> [!WARNING] Updating from `0.x.x` resets the run database. The update keeps settings and clip files.
+> It imports tagged clips as kept runs. It removes database-only history, monitoring sessions, and
+> YouTube links. See [data compatibility](docs/data-compatibility.md).
 
 Follow the instructions for your operating system:
 
@@ -54,8 +49,8 @@ The plugin has an auto-update feature! Most of the time it can update itself jus
 If there's ever a new update that requires the plugin to be manually installed, the plugin will let
 you know.
 
-Version `1.0.0` keeps the `u2` updater contract. Existing `u2` installations can update
-automatically; older `u1` installations require a full manual installation with OBS closed.
+Version `1.0.0` uses updater `u2`. Existing `u2` installations can update automatically.
+For older `u1` installations, close OBS and install the full package manually.
 
 ## Troubleshooting
 
