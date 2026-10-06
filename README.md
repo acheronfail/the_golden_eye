@@ -32,9 +32,8 @@ and later.
 
 ## How to install
 
-> [!WARNING] Updating from `0.x.x` resets the run database. The update keeps settings and clip files.
-> It imports tagged clips as kept runs. It removes database-only history, monitoring sessions, and
-> YouTube links. See [data compatibility](docs/data-compatibility.md).
+Version `1.0.0` keeps run history from schemas 2 and 3. Only schema 1 databases reset.
+See [data compatibility](docs/data-compatibility.md).
 
 Follow the instructions for your operating system:
 

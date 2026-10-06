@@ -691,7 +691,7 @@ impl RunCatalog {
 fn initialise_schema(conn: &mut Connection) -> anyhow::Result<bool> {
     meta::initialise(conn)?;
     match meta::stored_schema_version(conn)? {
-        None | Some(1..=3) => {
+        None | Some(1) => {
             let tx = conn.transaction()?;
             runs::drop_tables(&tx)?;
             runs::initialise(&tx)?;
@@ -699,6 +699,10 @@ fn initialise_schema(conn: &mut Connection) -> anyhow::Result<bool> {
             meta::set_schema_version(&tx)?;
             tx.commit()?;
             Ok(true)
+        }
+        Some(2) => {
+            runs::migrate_v2_to_v3(conn)?;
+            Ok(false)
         }
         Some(meta::SCHEMA_VERSION) => {
             runs::initialise(conn)?;

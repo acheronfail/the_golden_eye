@@ -30,6 +30,7 @@ const CREATE_TIME_SORT_INDEX: &str = include_str!("sql/runs/create_time_sort_ind
 const CREATE_TIME_SORT_DESC_INDEX: &str = include_str!("sql/runs/create_time_sort_desc_index.sql");
 const CREATE_TIMESTAMP_SORT_INDEX: &str = include_str!("sql/runs/create_timestamp_sort_index.sql");
 const DROP_TABLES: &str = include_str!("sql/runs/drop_tables.sql");
+const MIGRATE_V2_ROWS: &str = include_str!("sql/runs/migrate_v2_rows.sql");
 const CREATE_SESSION_TABLES: &str = include_str!("sql/runs/create_session_tables.sql");
 const LIST_RUNS_NEWEST: &str = include_str!("sql/runs/list_runs_newest.sql");
 const LIST_RUNS_OLDEST: &str = include_str!("sql/runs/list_runs_oldest.sql");
@@ -96,6 +97,18 @@ pub fn initialise(conn: &Connection) -> anyhow::Result<()> {
 
 pub fn drop_tables(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(DROP_TABLES)?;
+    Ok(())
+}
+
+pub fn migrate_v2_to_v3(conn: &mut Connection) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute_batch("ALTER TABLE runs RENAME TO runs_v2;")?;
+    tx.execute_batch(CREATE_TABLE)?;
+    tx.execute_batch(MIGRATE_V2_ROWS)?;
+    initialise(&tx)?;
+    initialise_sessions(&tx)?;
+    super::meta::set_schema_version(&tx)?;
+    tx.commit()?;
     Ok(())
 }
 

@@ -1,7 +1,7 @@
 use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension};
 
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 3;
 
 // Use WAL so reads can continue while catalog writes are committed.
 const PRAGMA_JOURNAL_MODE_WAL: &str = "PRAGMA journal_mode = WAL";

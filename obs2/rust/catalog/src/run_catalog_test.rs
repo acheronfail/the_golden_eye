@@ -728,65 +728,82 @@ fn sqlite_metadata_document_round_trips_complete_metadata() {
 }
 
 #[test]
-fn pre_v1_catalogs_reset_and_reseed_without_deleting_clips() {
-    for version in [1, 2, 3] {
-        let dir = TestDir::new("pre-v1-reset");
-        let db_path = dir.join("runs.sqlite");
-        let root = dir.join("completed");
-        let clip = root.join("full.mov");
-        write_tagged_clip(&clip, "complete", "2026-01-01T00:00:00Z");
-        {
-            let catalog = RunCatalog::open(db_path.clone()).unwrap();
-            let session_id =
-                catalog.create_monitor_session(UNIX_EPOCH, "Capture".to_owned(), None, "0.13.1".to_owned()).unwrap();
-            catalog
-                .create_finalized_run_in_session(
-                    UNIX_EPOCH + Duration::from_secs(10),
-                    finalized_metadata(RunStatus::Complete, Some(91), "Agent"),
-                    Some(&session_id),
-                )
-                .unwrap();
-            catalog.resync(&[RunCatalogRoot { path: root.clone() }]).unwrap();
-            catalog.set_youtube_history(&clip, &youtube_metadata("legacy-video")).unwrap();
-        }
-        {
-            let conn = rusqlite::Connection::open(&db_path).unwrap();
-            conn.execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", [version.to_string()]).unwrap();
-        }
-
+fn schema_one_resets_and_reseeds_without_deleting_clips() {
+    let dir = TestDir::new("pre-v1-reset");
+    let db_path = dir.join("runs.sqlite");
+    let root = dir.join("completed");
+    let clip = root.join("full.mov");
+    write_tagged_clip(&clip, "complete", "2026-01-01T00:00:00Z");
+    {
         let catalog = RunCatalog::open(db_path.clone()).unwrap();
-        assert!(catalog.needs_seed());
-        assert!(catalog.list(&[RunCatalogRoot { path: root.clone() }]).unwrap().is_empty());
-        assert!(catalog.youtube_history().unwrap().is_empty());
-        let conn = rusqlite::Connection::open(&db_path).unwrap();
-        for table in ["runs", "monitor_sessions", "run_sessions"] {
-            let count: i64 = conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row.get(0)).unwrap();
-            assert_eq!(count, 0);
-        }
-        assert_eq!(crate::meta::stored_schema_version(&conn).unwrap(), Some(crate::meta::SCHEMA_VERSION));
-        assert!(clip.exists());
+        let session_id =
+            catalog.create_monitor_session(UNIX_EPOCH, "Capture".to_owned(), None, "0.13.1".to_owned()).unwrap();
+        catalog
+            .create_finalized_run_in_session(
+                UNIX_EPOCH + Duration::from_secs(10),
+                finalized_metadata(RunStatus::Complete, Some(91), "Agent"),
+                Some(&session_id),
+            )
+            .unwrap();
         catalog.resync(&[RunCatalogRoot { path: root.clone() }]).unwrap();
-        let imported = catalog.list(&[RunCatalogRoot { path: root }]).unwrap();
-        assert_eq!(imported.len(), 1);
-        assert_eq!(imported[0].retention_state, RunRetentionState::Kept);
+        catalog.set_youtube_history(&clip, &youtube_metadata("legacy-video")).unwrap();
     }
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", ["1"]).unwrap();
+    }
+
+    let catalog = RunCatalog::open(db_path.clone()).unwrap();
+    assert!(catalog.needs_seed());
+    assert!(catalog.list(&[RunCatalogRoot { path: root.clone() }]).unwrap().is_empty());
+    assert!(catalog.youtube_history().unwrap().is_empty());
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    for table in ["runs", "monitor_sessions", "run_sessions"] {
+        let count: i64 = conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 0);
+    }
+    assert_eq!(crate::meta::stored_schema_version(&conn).unwrap(), Some(crate::meta::SCHEMA_VERSION));
+    assert!(clip.exists());
+    catalog.resync(&[RunCatalogRoot { path: root.clone() }]).unwrap();
+    let imported = catalog.list(&[RunCatalogRoot { path: root }]).unwrap();
+    assert_eq!(imported.len(), 1);
+    assert_eq!(imported[0].retention_state, RunRetentionState::Kept);
 }
 
 #[test]
-fn schema_two_resets_instead_of_migrating() {
-    let dir = TestDir::new("schema-two-reset");
+fn schema_two_migrates_difficulty_to_numbers_without_reseeding() {
+    let dir = TestDir::new("schema-two-migration");
     let db_path = dir.join("runs.sqlite");
     let metadata = finalized_metadata(RunStatus::Complete, Some(91), " secret AGENT ");
+    let metadata_json = serde_json::to_string(&metadata).unwrap();
+    let youtube = youtube_metadata("legacy-video");
+    let youtube_json = serde_json::to_string(&youtube).unwrap();
     {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         conn.execute_batch(CREATE_SCHEMA_V2_FIXTURE).unwrap();
-        conn.execute(INSERT_SCHEMA_V2_RUN_FIXTURE, [serde_json::to_string(&metadata).unwrap()]).unwrap();
+        conn.execute(INSERT_SCHEMA_V2_RUN_FIXTURE, [&metadata_json, &youtube_json]).unwrap();
     }
 
-    let catalog = RunCatalog::open(db_path).unwrap();
-    assert!(catalog.needs_seed());
-    assert!(catalog.get_run("durable-id").unwrap().is_none());
-    catalog.create_finalized_run(UNIX_EPOCH, metadata).unwrap();
+    let catalog = RunCatalog::open(db_path.clone()).expect("schema two migrates");
+    assert!(!catalog.needs_seed());
+    let run = catalog.get_run("durable-id").unwrap().unwrap();
+    assert_eq!(run.metadata, metadata);
+    assert_eq!(run.youtube, Some(youtube));
+    assert_eq!(run.retention_state, RunRetentionState::Kept);
+    assert!(run.clip.is_none());
+    drop(catalog);
+
+    let conn = rusqlite::Connection::open(db_path).unwrap();
+    let migrated: (i32, String) = conn
+        .query_row("SELECT difficulty_number, metadata_json FROM runs WHERE run_id = 'durable-id'", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .unwrap();
+    assert_eq!(migrated.0, 1);
+    assert_eq!(migrated.1, metadata_json);
+    let version: String =
+        conn.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| row.get(0)).unwrap();
+    assert_eq!(version, "3");
 }
 
 #[test]

@@ -15,7 +15,7 @@ fn write_tagged_clip(root: &Path, path: &Path, status: &str, timestamp: &str) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
-async fn pre_v1_catalog_is_reset_and_existing_clips_are_reseeded_as_kept() {
+async fn schema_one_catalog_is_reset_and_existing_clips_are_reseeded_as_kept() {
     let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
         let completed = temp.join("clips");
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
@@ -24,7 +24,7 @@ async fn pre_v1_catalog_is_reset_and_existing_clips_are_reseeded_as_kept() {
         let database = run_catalog_path(temp);
         std::fs::create_dir_all(database.parent().unwrap()).unwrap();
         let conn = rusqlite::Connection::open(database).unwrap();
-        conn.execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO meta VALUES ('schema_version', '3'); CREATE TABLE stale (value TEXT);").unwrap();
+        conn.execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO meta VALUES ('schema_version', '1'); CREATE TABLE stale (value TEXT);").unwrap();
         recording_settings(&completed, &temp.join("unused"))
     })
     .await;
@@ -41,4 +41,28 @@ async fn pre_v1_catalog_is_reset_and_existing_clips_are_reseeded_as_kept() {
     assert_eq!(clips[0]["retentionState"], "kept");
     assert_eq!(clips[1]["metadata"]["status"], "failed");
     assert_eq!(clips[1]["retentionState"], "kept");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn schema_three_keeps_database_only_history() {
+    let mut run_id = String::new();
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        let completed = temp.join("clips");
+        let clip = completed.join("old.mov");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        write_tagged_clip(&root, &clip, "complete", "2026-01-01T00:00:00Z");
+        let metadata = ge_media::read_clip_metadata(&clip).unwrap().unwrap();
+        let catalog = ge_catalog::run_catalog::RunCatalog::open(run_catalog_path(temp)).unwrap();
+        run_id = catalog.create_finalized_run(std::time::UNIX_EPOCH, metadata).unwrap().run_id;
+        std::fs::remove_file(&clip).unwrap();
+        recording_settings(&completed, &temp.join("unused"))
+    })
+    .await;
+
+    let runs: Value = harness.client.get(format!("{API}/api/v1/runs")).send().await.unwrap().json().await.unwrap();
+    let clips = runs["clips"].as_array().unwrap();
+    assert_eq!(clips.len(), 1);
+    assert_eq!(clips[0]["metadata"]["runId"], run_id);
+    assert_eq!(clips[0]["metadata"]["status"], "complete");
 }

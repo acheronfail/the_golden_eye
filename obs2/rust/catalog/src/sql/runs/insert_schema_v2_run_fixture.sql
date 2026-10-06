@@ -6,7 +6,8 @@ INSERT INTO runs (
     status,
     time_seconds,
     retention_state,
-    metadata_json
+    metadata_json,
+    youtube_json
 )
 VALUES (
     'durable-id',
@@ -16,5 +17,6 @@ VALUES (
     'complete',
     91,
     'kept',
-    ?1
+    ?1,
+    ?2
 );
