@@ -32,9 +32,6 @@ and later.
 
 ## How to install
 
-Version `1.0.0` keeps run history from schemas 2 and 3. Only schema 1 databases reset.
-See [data compatibility](docs/data-compatibility.md).
-
 Follow the instructions for your operating system:
 
 - [Install on Linux](docs/install-linux.md)
@@ -47,9 +44,6 @@ The plugin has an auto-update feature! Most of the time it can update itself jus
 
 If there's ever a new update that requires the plugin to be manually installed, the plugin will let
 you know.
-
-Version `1.0.0` uses updater `u2`. Existing `u2` installations can update automatically.
-For older `u1` installations, close OBS and install the full package manually.
 
 ## Troubleshooting
 
