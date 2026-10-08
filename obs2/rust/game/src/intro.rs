@@ -2,6 +2,10 @@
 
 use super::Level;
 
+// Intro and skipped-gameplay screen fades use 60 game ticks.
+// n64decomp/007: src/game/bondview2.c, bondviewSetCameraMode.
+pub const SCREEN_FADE_DURATION_MS: u64 = 1_000;
+
 pub const SKIPPED_SWIRL_INITIAL_ELAPSED_MS: u64 = 200;
 
 /// Delay from the second cutscene's first visible frame to player control.

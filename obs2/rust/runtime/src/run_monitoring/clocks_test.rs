@@ -50,15 +50,25 @@ fn wall_clock_snapshot_projects_timer_and_resets_with_session() {
         sample_count: 576,
         sample_region: ge_cv::ActivePictureRegion::full(640, 480),
     };
-    for (time, black) in [(1_200, true), (1_300, false), (2_000, true), (2_100, false), (5_300, false)] {
+    for (time, black) in [
+        (1_200, true),
+        (1_300, true),
+        (1_400, false),
+        (1_500, false),
+        (2_400, true),
+        (2_500, true),
+        (2_600, false),
+        (2_700, false),
+        (5_800, false),
+    ] {
         signal.detected = black;
         clocks.reconcile_black_frame(signal, time);
     }
     assert!(clocks.snapshot().level_running);
-    assert_eq!(clocks.snapshot().level_started_at_unix_ms, Some(5_267));
+    assert_eq!(clocks.snapshot().level_started_at_unix_ms, Some(5_767));
     assert!(clocks.reconcile_watch_transition(WatchTransition::Paused, 6_000));
     let json = serde_json::to_value(&clocks.snapshot()).unwrap();
-    assert_eq!(json["levelElapsedMs"], 733);
+    assert_eq!(json["levelElapsedMs"], 233);
     assert_eq!(json["levelPaused"], true);
     assert_eq!(json["levelTimerPhase"], "running");
     assert_eq!(json["levelStartReason"], "swirl");
@@ -67,7 +77,7 @@ fn wall_clock_snapshot_projects_timer_and_resets_with_session() {
     assert!(json.get("timer").is_none());
     assert!(clocks.reconcile_watch_transition(WatchTransition::Resumed, 7_000));
     clocks.stop_session(8_000);
-    assert_eq!(clocks.snapshot().level_elapsed_ms, 1_733);
+    assert_eq!(clocks.snapshot().level_elapsed_ms, 1_233);
     assert_eq!(clocks.snapshot().session_elapsed_ms, 7_000);
     assert!(!clocks.snapshot().level_running);
     clocks.start_session(9_000);

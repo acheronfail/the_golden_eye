@@ -292,8 +292,8 @@
 				<dd>{@render scalar(match?.times?.best_time, seconds(match?.times?.best_time))}</dd>
 			</div>
 			<div>
-				<dt>Personal Best</dt>
-				<dd>{@render scalar(personalBest, seconds(personalBest))}</dd>
+				<dt class="font-bold! text-(--obs-gold)!">Personal Best</dt>
+				<dd class="text-(--obs-gold)!">{@render scalar(personalBest, seconds(personalBest))}</dd>
 			</div>
 			<div>
 				<dt>raw times</dt>

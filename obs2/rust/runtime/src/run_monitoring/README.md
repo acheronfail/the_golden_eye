@@ -56,6 +56,13 @@ replay coordinator. Cross-thread replay completion and recording-status expiry r
 synchronization. Ordinary per-frame processing uses direct calls, without translating between
 internal event enums.
 
+Intro observations must remain black or visible for 100 ms before they advance the timer. Confirmed
+transitions during a scene's fade-in are queued until its nominal one-second fade window ends;
+early skips retain their original timestamps. Skipped gameplay likewise waits for its fade-in window,
+then backdates the clock to the first confirmed visible observation plus the existing 200 ms offset.
+The fade duration follows `bondviewSetCameraMode` in the
+[GoldenEye decomp](https://github.com/n64decomp/007/blob/c4356466796c697dfd298010b9bed261f9ed8c6a/src/game/bondview2.c#L772-L860).
+
 ## Review checkpoint
 
 Compared with `fae15db`, this reorganization removes `MonitorEvent` and `RecordingEvent`, groups the

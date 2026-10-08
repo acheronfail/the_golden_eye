@@ -119,20 +119,27 @@ async fn render_until_snapshot(
 ) -> Value {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut last = Value::Null;
+    let mut matched_at = None;
     loop {
         harness.obs.render(frame.clone());
         match tokio::time::timeout(Duration::from_millis(120), ws.next()).await {
             Ok(Some(Ok(message))) => {
                 if let Some(snapshot) = snapshot_from_message(message) {
-                    last = snapshot.clone();
-                    if predicate(&snapshot) {
-                        return snapshot;
-                    }
+                    last = snapshot;
                 }
             }
             Ok(Some(Err(err))) => panic!("app event stream failed while waiting for {label}: {err}"),
             Ok(None) => panic!("app event stream ended while waiting for {label}"),
             Err(_) => {}
+        }
+        // Raw fade snapshots precede confirmed observations; keep each fixture
+        // visible long enough for the timer's 100 ms confirmation to complete.
+        if predicate(&last) {
+            if matched_at.get_or_insert_with(Instant::now).elapsed() >= Duration::from_millis(200) {
+                return last;
+            }
+        } else {
+            matched_at = None;
         }
         assert!(Instant::now() < deadline, "timed out waiting for {label}; last snapshot: {last}");
     }
