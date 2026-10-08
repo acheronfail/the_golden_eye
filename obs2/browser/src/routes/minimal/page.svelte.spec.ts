@@ -24,20 +24,75 @@ afterEach(() => {
 });
 
 describe('minimal overlay', () => {
-	it('toggles times with T and restores the preference on remount', async () => {
+	it('toggles times with R and restores the preference on remount', async () => {
 		const page = render(Page);
 		expect(screen.getByLabelText('Recognised times')).toBeInTheDocument();
-		await fireEvent.keyDown(window, { key: 't' });
+		await fireEvent.keyDown(window, { key: 'r' });
 		expect(screen.queryByLabelText('Recognised times')).not.toBeInTheDocument();
 		expect(localStorage.getItem('the-golden-eye.minimal.show-times')).toBe('false');
 		page.unmount();
 		render(Page);
 		expect(screen.queryByLabelText('Recognised times')).not.toBeInTheDocument();
-		await fireEvent.keyDown(window, { key: 'T', repeat: true });
+		await fireEvent.keyDown(window, { key: 'R', repeat: true });
 		expect(screen.queryByLabelText('Recognised times')).not.toBeInTheDocument();
-		await fireEvent.keyDown(window, { key: 'T' });
+		await fireEvent.keyDown(window, { key: 'R' });
 		expect(screen.getByLabelText('Recognised times')).toBeInTheDocument();
 		expect(localStorage.getItem('the-golden-eye.minimal.show-times')).toBe('true');
+	});
+
+	it('toggles the approximate timer independently and restores its preference', async () => {
+		const page = render(Page);
+		expect(screen.queryByLabelText('Approximate in-game timer')).not.toBeInTheDocument();
+		await fireEvent.keyDown(window, { key: 't' });
+		expect(screen.getByLabelText('Approximate in-game timer')).toHaveTextContent('~--:--:---');
+		expect(screen.getByLabelText('Recognised times')).toBeInTheDocument();
+		expect(localStorage.getItem('the-golden-eye.minimal.show-timer')).toBe('true');
+		page.unmount();
+		render(Page);
+		expect(screen.getByLabelText('Approximate in-game timer')).toBeInTheDocument();
+		await fireEvent.keyDown(window, { key: 'T', repeat: true });
+		expect(screen.getByLabelText('Approximate in-game timer')).toBeInTheDocument();
+		await fireEvent.keyDown(window, { key: 'T' });
+		expect(screen.queryByLabelText('Approximate in-game timer')).not.toBeInTheDocument();
+		expect(localStorage.getItem('the-golden-eye.minimal.show-timer')).toBe('false');
+	});
+
+	it('shows the level timer beneath recognised times and clears it on stop or disconnect', async () => {
+		render(Page);
+		await fireEvent.keyDown(window, { key: 't' });
+		const snapshot = async () => {
+			receive({
+				type: 'snapshot',
+				state: {
+					monitor: { enabled: true, wallClocks: { levelElapsedMs: 61234, levelRunning: false } },
+					recordingState: 'started'
+				}
+			} as AppEvent);
+			await tick();
+		};
+		await snapshot();
+		const timer = screen.getByLabelText('Approximate in-game timer');
+		expect(timer).toHaveTextContent('~01:01:234');
+		expect(screen.getByLabelText('Recognised times').nextElementSibling).toBe(timer);
+		receive({ type: 'monitorStopped', reason: 'replayBufferStopped' } as AppEvent);
+		await tick();
+		expect(timer).toHaveTextContent('~--:--:---');
+		await snapshot();
+		disconnect();
+		await tick();
+		expect(timer).toHaveTextContent('~--:--:---');
+	});
+
+	it.each(['h', 'H', '?'])('shows the hotkey list with %s without repeating alerts', async (key) => {
+		const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+		render(Page);
+		await fireEvent.keyDown(window, { key, repeat: true });
+		expect(alert).not.toHaveBeenCalled();
+		await fireEvent.keyDown(window, { key });
+		expect(alert).toHaveBeenCalledOnce();
+		for (const description of ['Space', '↑ / ↓', 'R —', 'T —', 'H / ?']) {
+			expect(alert.mock.calls[0][0]).toContain(description);
+		}
 	});
 
 	it('starts the last-used source and stops the active monitor with Space', async () => {

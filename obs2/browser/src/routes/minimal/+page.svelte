@@ -1,13 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { backend, type AppEvent, type LevelMatch, type RecordingStatus } from '$lib/api';
+	import { MonitorWallClocks } from '$lib/features/monitor/monitorWallClocks.svelte';
 	import MinimalOverlay from '$lib/features/minimal/MinimalOverlay.svelte';
 
 	const storageKey = 'the-golden-eye.minimal.font-size';
+	const timerStorageKey = 'the-golden-eye.minimal.show-timer';
+	const wallClocks = new MonitorWallClocks();
 	const timesStorageKey = 'the-golden-eye.minimal.show-times';
 	const clampSize = (value: number) => Math.max(6, Math.min(128, value));
 	let fontSize = $state(16);
 	let showTimes = $state(true);
+	let showTimer = $state(false);
+	let timerAvailable = $state(false);
 	let connected = $state(false);
 	let enabled = $state(false);
 	let times = $state<LevelMatch['times']>(null);
@@ -37,7 +42,26 @@
 	};
 
 	const handleKeydown = (event: KeyboardEvent) => {
+		if (event.key.toLowerCase() === 'h' || event.key === '?') {
+			event.preventDefault();
+			if (!event.repeat)
+				window.alert(
+					'Hotkeys\n\nSpace — Start/stop monitoring\n↑ / ↓ — Increase/decrease font size\nR — Show/hide recognised times\nT — Show/hide approximate in-game timer\nH / ? — Show this help'
+				);
+			return;
+		}
 		if (event.key.toLowerCase() === 't') {
+			event.preventDefault();
+			if (event.repeat) return;
+			showTimer = !showTimer;
+			try {
+				localStorage.setItem(timerStorageKey, String(showTimer));
+			} catch {
+				/* Keep the toggle usable when storage is unavailable. */
+			}
+			return;
+		}
+		if (event.key.toLowerCase() === 'r') {
 			event.preventDefault();
 			if (event.repeat) return;
 			showTimes = !showTimes;
@@ -77,6 +101,16 @@
 			/* Keep times visible when storage is unavailable. */
 		}
 
+		try {
+			showTimer = localStorage.getItem(timerStorageKey) === 'true';
+		} catch {
+			/* Keep the timer hidden when storage is unavailable. */
+		}
+
+		const clearTimer = () => {
+			timerAvailable = false;
+			wallClocks.destroy();
+		};
 		let stopped = false;
 		let socket: WebSocket | null = null;
 		let reconnect: ReturnType<typeof setTimeout> | undefined;
@@ -89,8 +123,12 @@
 				if (enabled) error = null;
 				recordingState = event.state.recordingState;
 				times = event.state.match?.times ?? null;
+				timerAvailable = enabled && event.state.monitor.wallClocks != null;
+				if (timerAvailable) wallClocks.sync(event.state.monitor.wallClocks);
+				else clearTimer();
 			} else if (event.type === 'monitorStopped') {
 				enabled = false;
+				clearTimer();
 				times = null;
 				recordingState = null;
 			} else if (event.type === 'recordingSaved' && recordingState !== 'started') {
@@ -100,6 +138,7 @@
 		const connect = () => {
 			socket = backend.connectAppSocket(receive, () => {
 				connected = false;
+				clearTimer();
 				times = null;
 				if (!stopped) reconnect = setTimeout(connect, 1000);
 			});
@@ -107,6 +146,7 @@
 		connect();
 		return () => {
 			stopped = true;
+			wallClocks.destroy();
 			clearTimeout(reconnect);
 			socket?.close();
 		};
@@ -115,4 +155,15 @@
 
 <svelte:head><title>The Golden Eye — Minimal overlay</title></svelte:head>
 <svelte:window onkeydown={handleKeydown} />
-<MinimalOverlay {connected} {enabled} {recordingState} {times} {showTimes} {fontSize} {transition} {error} />
+<MinimalOverlay
+	{connected}
+	{enabled}
+	{recordingState}
+	{times}
+	{showTimes}
+	{showTimer}
+	levelElapsedMs={timerAvailable ? wallClocks.levelElapsedMs : null}
+	{fontSize}
+	{transition}
+	{error}
+/>

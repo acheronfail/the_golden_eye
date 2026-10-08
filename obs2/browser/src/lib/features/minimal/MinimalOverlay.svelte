@@ -1,12 +1,16 @@
 <script lang="ts">
 	import type { LevelMatch, RecordingStatus } from '$lib/api';
 
+	import { formatWallClockTime } from '$lib/features/monitor/monitorWallClocks.svelte';
+
 	let {
 		connected = false,
 		enabled = false,
 		recordingState = null,
 		times = null,
 		showTimes = true,
+		showTimer = false,
+		levelElapsedMs = null,
 		transition = null,
 		error = null,
 		fontSize = 16
@@ -16,6 +20,8 @@
 		recordingState?: RecordingStatus | null;
 		times?: LevelMatch['times'];
 		showTimes?: boolean;
+		showTimer?: boolean;
+		levelElapsedMs?: number | null;
 		transition?: 'starting' | 'stopping' | null;
 		error?: string | null;
 		fontSize?: number;
@@ -88,6 +94,14 @@
 				<span aria-label="Run time" title="Run time">{formatTime(visibleTimes?.time)}</span>
 				<span aria-label="Target time" title="Target time">{formatTime(visibleTimes?.target_time)}</span>
 				<span aria-label="Best time" title="Best time">{formatTime(visibleTimes?.best_time)}</span>
+			</div>
+		{/if}
+		{#if showTimer}
+			<div
+				aria-label="Approximate in-game timer"
+				class="font-mono text-[1.25em] leading-tight whitespace-nowrap text-(--obs-text)"
+			>
+				~{connected && enabled && levelElapsedMs != null ? formatWallClockTime(levelElapsedMs) : '--:--:---'}
 			</div>
 		{/if}
 	</div>
