@@ -59,8 +59,8 @@
 				class="col-span-3 {personalBest === null ? unavailableMetricClass : ''}"
 				data-available={personalBest !== null}
 			>
-				<small>Personal Best</small>
-				<strong>{personalBest === null ? '--:--' : formatMonitorTime(personalBest)}</strong>
+				<small class="font-bold! text-(--obs-gold)!">Personal Best</small>
+				<strong class="text-(--obs-gold)">{personalBest === null ? '--:--' : formatMonitorTime(personalBest)}</strong>
 			</span>
 		{:else}
 			<span
