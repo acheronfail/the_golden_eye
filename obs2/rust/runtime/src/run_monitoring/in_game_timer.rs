@@ -4,6 +4,7 @@ use ge_cv::{LevelMatch, WatchTransition};
 use serde::Serialize;
 
 const END_FADE_CONFIRMATION_MS: u64 = 250;
+const GAMEPLAY_VISIBLE_CONFIRMATION_MS: u64 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +47,7 @@ pub(crate) struct InGameTimer {
     second_cutscene_visible: bool,
     black_frame_active: bool,
     end_fade_started_at_ms: Option<u64>,
+    gameplay_visible_started_at_ms: Option<u64>,
 }
 
 impl InGameTimer {
@@ -54,6 +56,7 @@ impl InGameTimer {
     }
 
     fn reconcile_screen(&mut self, screen: ge_cv::Screen, now_ms: u64) {
+        let previous_phase = self.snapshot.level_timer_phase;
         match screen {
             screen if screen.is_level_launch() => {
                 self.snapshot.level_started_at_unix_ms = None;
@@ -67,11 +70,15 @@ impl InGameTimer {
                 self.second_cutscene_visible = false;
                 self.black_frame_active = false;
                 self.end_fade_started_at_ms = None;
+                self.gameplay_visible_started_at_ms = None;
             }
             ge_cv::Screen::Unknown => {}
             _ => {
-                self.stop_level(now_ms);
+                self.stop_level_with_reason(now_ms, "screen_match");
             }
+        }
+        if self.snapshot.level_timer_phase != previous_phase {
+            tracing::info!(?screen, ?previous_phase, phase = ?self.snapshot.level_timer_phase, observed_at_ms = now_ms, "in-game timer screen transition");
         }
     }
 
@@ -85,9 +92,14 @@ impl InGameTimer {
     }
 
     pub(crate) fn observe_black_frame(&mut self, black: bool, now_ms: u64) -> bool {
+        let previous_phase = self.snapshot.level_timer_phase;
         let edge = black != self.black_frame_active;
         self.black_frame_active = black;
-        self.reconcile_level_timer(black, edge, now_ms)
+        let changed = self.reconcile_level_timer(black, edge, now_ms);
+        if changed {
+            tracing::info!(?previous_phase, phase = ?self.snapshot.level_timer_phase, black, edge, observed_at_ms = now_ms, "in-game timer fade transition");
+        }
+        changed
     }
 
     fn reconcile_level_timer(&mut self, black: bool, edge: bool, now_ms: u64) -> bool {
@@ -114,7 +126,30 @@ impl InGameTimer {
                 && let Some(started_at) = self.end_fade_started_at_ms
                 && now_ms.saturating_sub(started_at) >= END_FADE_CONFIRMATION_MS
             {
-                self.stop_level(started_at);
+                tracing::info!(
+                    fade_started_at_ms = started_at,
+                    confirmed_at_ms = now_ms,
+                    confirmation_ms = now_ms.saturating_sub(started_at),
+                    "in-game timer end fade confirmed"
+                );
+                self.stop_level_with_reason(started_at, "confirmed_end_fade");
+            }
+            return self.snapshot.level_timer_phase != previous_phase;
+        }
+
+        if self.snapshot.level_timer_phase == LevelTimerPhase::AwaitingGameplayAfterSkip {
+            if black {
+                self.gameplay_visible_started_at_ms = None;
+            } else {
+                let started_at = *self.gameplay_visible_started_at_ms.get_or_insert(now_ms);
+                let visible_ms = now_ms.saturating_sub(started_at);
+                if visible_ms >= GAMEPLAY_VISIBLE_CONFIRMATION_MS {
+                    self.start_level_with_elapsed(
+                        now_ms,
+                        ge_game::intro::SKIPPED_SWIRL_INITIAL_ELAPSED_MS.saturating_add(visible_ms),
+                        LevelTimerStartReason::Fade,
+                    );
+                }
             }
             return self.snapshot.level_timer_phase != previous_phase;
         }
@@ -138,13 +173,6 @@ impl InGameTimer {
                 }
                 (LevelTimerPhase::AwaitingSecondFadeOrSwirl, true) if self.second_cutscene_visible => {
                     self.snapshot.level_timer_phase = LevelTimerPhase::AwaitingGameplayAfterSkip;
-                }
-                (LevelTimerPhase::AwaitingGameplayAfterSkip, false) => {
-                    self.start_level_with_elapsed(
-                        now_ms,
-                        ge_game::intro::SKIPPED_SWIRL_INITIAL_ELAPSED_MS,
-                        LevelTimerStartReason::Fade,
-                    );
                 }
                 _ => {}
             }
@@ -175,9 +203,16 @@ impl InGameTimer {
         self.second_cutscene_started_at_ms = None;
         self.second_cutscene_visible = false;
         self.end_fade_started_at_ms = None;
+        self.gameplay_visible_started_at_ms = None;
+        tracing::info!(?reason, started_at_ms = ?self.snapshot.level_started_at_unix_ms, observed_at_ms = now_ms, initial_elapsed_ms = elapsed_ms, "in-game timer started");
     }
 
     pub(crate) fn stop_level(&mut self, now_ms: u64) {
+        self.stop_level_with_reason(now_ms, "monitor_stopped");
+    }
+
+    fn stop_level_with_reason(&mut self, now_ms: u64, reason: &'static str) {
+        let previous_phase = self.snapshot.level_timer_phase;
         self.snapshot.level_elapsed_ms =
             elapsed_ms(self.snapshot.level_started_at_unix_ms, self.snapshot.level_elapsed_ms, now_ms);
         self.snapshot.level_started_at_unix_ms = None;
@@ -185,6 +220,16 @@ impl InGameTimer {
         self.snapshot.level_paused = false;
         self.snapshot.level_timer_phase = LevelTimerPhase::Stopped;
         self.end_fade_started_at_ms = None;
+        self.gameplay_visible_started_at_ms = None;
+        if previous_phase != LevelTimerPhase::Stopped {
+            tracing::info!(
+                reason,
+                ?previous_phase,
+                stopped_at_ms = now_ms,
+                elapsed_ms = self.snapshot.level_elapsed_ms,
+                "in-game timer stopped"
+            );
+        }
     }
 
     pub(crate) fn reconcile_watch_transition(&mut self, transition: WatchTransition, now_ms: u64) -> bool {
@@ -199,12 +244,22 @@ impl InGameTimer {
                 self.snapshot.level_running = false;
                 self.snapshot.level_paused = true;
                 self.end_fade_started_at_ms = None;
+                tracing::info!(
+                    observed_at_ms = now_ms,
+                    elapsed_ms = self.snapshot.level_elapsed_ms,
+                    "in-game timer paused by watch"
+                );
                 true
             }
             WatchTransition::Resumed if self.snapshot.level_paused => {
                 self.snapshot.level_started_at_unix_ms = Some(now_ms.saturating_sub(self.snapshot.level_elapsed_ms));
                 self.snapshot.level_running = true;
                 self.snapshot.level_paused = false;
+                tracing::info!(
+                    observed_at_ms = now_ms,
+                    elapsed_ms = self.snapshot.level_elapsed_ms,
+                    "in-game timer resumed by watch"
+                );
                 true
             }
             _ => false,

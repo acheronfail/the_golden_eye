@@ -49,6 +49,11 @@ impl MonitorClocks {
         if !(timer_changed || classification_changed || region_changed || diagnostics_changed && diagnostics_due) {
             return false;
         }
+        if timer_changed || classification_changed || region_changed {
+            tracing::info!(observed_at_ms = now_ms, ?signal, phase = ?self.timer.snapshot().level_timer_phase, "in-game timer fade evidence");
+        } else {
+            tracing::debug!(observed_at_ms = now_ms, ?signal, phase = ?self.timer.snapshot().level_timer_phase, "in-game timer fade evidence");
+        }
         self.fade_detection = Some(signal);
         self.fade_diagnostics_published_at_ms = Some(now_ms);
         true

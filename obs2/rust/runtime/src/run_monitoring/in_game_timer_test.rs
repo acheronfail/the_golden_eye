@@ -86,8 +86,10 @@ fn monitor_wall_clock_starts_on_a_skipped_second_cutscene_and_stops_on_the_next_
     assert_eq!(clocks.snapshot.level_timer_phase, LevelTimerPhase::AwaitingGameplayAfterSkip);
     assert!(!clocks.snapshot.level_running, "a sustained skip fade must not start the timer");
     clocks.observe_black_frame(visible.detected, 3_000);
+    assert!(!clocks.snapshot.level_running);
+    clocks.observe_black_frame(visible.detected, 3_100);
     assert_eq!(clocks.snapshot.level_started_at_unix_ms, Some(2_800));
-    assert_eq!(clocks.snapshot.level_elapsed_ms, 200);
+    assert_eq!(clocks.snapshot.level_elapsed_ms, 300);
     assert_eq!(clocks.snapshot.level_start_reason, Some(LevelTimerStartReason::Fade));
     assert_eq!(clocks.snapshot.level_timer_phase, LevelTimerPhase::Running);
     clocks.observe_black_frame(black.detected, 5_000);
@@ -97,6 +99,59 @@ fn monitor_wall_clock_starts_on_a_skipped_second_cutscene_and_stops_on_the_next_
     assert_eq!(clocks.snapshot.level_elapsed_ms, 2_200);
     assert_eq!(clocks.snapshot.level_timer_phase, LevelTimerPhase::Stopped);
     assert!(!clocks.snapshot.level_running);
+}
+
+#[test]
+fn archives_intro_flicker_does_not_start_or_stop_the_timer() {
+    let mut clocks = InGameTimer::default();
+    clocks.reconcile_match(&level_match(ge_cv::Screen::Start, 6, 2), 2_296);
+    for (at, black) in [
+        (2_626, true),
+        (6_592, false),
+        (8_243, true),
+        (8_643, false),
+        (10_210, true),
+        (10_226, false),
+        (10_243, false),
+        (10_260, true),
+        (10_526, true),
+    ] {
+        clocks.observe_black_frame(black, at);
+    }
+    assert_eq!(clocks.snapshot.level_timer_phase, LevelTimerPhase::AwaitingGameplayAfterSkip);
+    assert!(!clocks.snapshot.level_running);
+    assert_eq!(clocks.snapshot.level_elapsed_ms, 0);
+
+    clocks.observe_black_frame(false, 10_725);
+    clocks.observe_black_frame(false, 10_824);
+    assert!(!clocks.snapshot.level_running);
+    clocks.observe_black_frame(false, 10_844);
+    assert!(clocks.snapshot.level_running);
+    assert_eq!(clocks.snapshot.level_started_at_unix_ms, Some(10_525));
+    assert_eq!(clocks.snapshot.level_elapsed_ms, 319);
+
+    clocks.observe_black_frame(true, 38_500);
+    clocks.observe_black_frame(true, 38_750);
+    assert_eq!(clocks.snapshot.level_timer_phase, LevelTimerPhase::Stopped);
+    assert_eq!(clocks.snapshot.level_elapsed_ms, 27_975);
+}
+
+#[test]
+fn a_new_launch_discards_pending_gameplay_confirmation() {
+    let mut clocks = InGameTimer::default();
+    clocks.reconcile_screen(ge_cv::Screen::Start, 1_000);
+    for (at, black) in [(1_100, true), (1_200, false), (1_300, true), (1_400, false), (1_500, true)] {
+        clocks.observe_black_frame(black, at);
+    }
+    clocks.observe_black_frame(false, 1_600);
+    clocks.reconcile_screen(ge_cv::Screen::Start, 1_650);
+    for (at, black) in [(1_700, true), (1_800, false), (1_900, true), (2_000, false), (2_100, true)] {
+        clocks.observe_black_frame(black, at);
+    }
+    clocks.observe_black_frame(false, 2_200);
+    assert!(!clocks.snapshot.level_running);
+    clocks.observe_black_frame(false, 2_300);
+    assert_eq!(clocks.snapshot.level_started_at_unix_ms, Some(2_000));
 }
 
 #[test]

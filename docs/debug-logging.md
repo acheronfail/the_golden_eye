@@ -15,6 +15,10 @@ own and are prefixed with `[the_golden_eye]`.
 To share a log when reporting an issue, use **Help → Log Files → Upload Current Log File** — OBS
 uploads it and gives you a link you can paste into the report.
 
+In-game timer logs include phase changes, start/stop reasons, fade evidence, and watch pause/resume
+events at the normal log level. Debug logging adds watch classification changes and updated fade
+measurements, throttled to one update every 250 milliseconds between transitions.
+
 If you'd rather open the file yourself, the current session's log is the newest file in:
 
 - **macOS:** `~/Library/Application Support/obs-studio/logs/`

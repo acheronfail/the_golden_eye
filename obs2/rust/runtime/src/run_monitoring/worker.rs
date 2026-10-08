@@ -49,6 +49,7 @@ impl FrameWorker {
     }
 
     pub(super) fn run(mut self, mut source: ObsSource, session: &mut RunSession) {
+        let mut last_watch_presentation = None;
         loop {
             let diagnostics_enabled = self.annotations_enabled.load(Ordering::Acquire);
             if diagnostics_enabled != self.last_diagnostics_enabled {
@@ -110,10 +111,20 @@ impl FrameWorker {
             if let Some(signal) = black_frame {
                 session.observe_black_frame(signal, unix_time_ms());
             }
-            if let Some(signal) = watch_signal
-                && let Some(transition) = self.watch_detector.observe(signal).transition
-            {
-                session.observe_watch(transition, observed_at_unix_ms);
+            if let Some(signal) = watch_signal {
+                if last_watch_presentation != Some(signal.presentation) {
+                    tracing::debug!(observed_at_ms = observed_at_unix_ms, ?signal, "watch classification changed");
+                    last_watch_presentation = Some(signal.presentation);
+                }
+                if let Some(transition) = self.watch_detector.observe(signal).transition {
+                    tracing::info!(
+                        observed_at_ms = observed_at_unix_ms,
+                        ?transition,
+                        ?signal,
+                        "watch transition detected"
+                    );
+                    session.observe_watch(transition, observed_at_unix_ms);
+                }
             }
         }
         tracing::info!("monitor loop exiting");
