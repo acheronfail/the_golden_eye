@@ -14,6 +14,7 @@
 		cvLanguage = null,
 		replaySaves = [],
 		match = null,
+		personalBest = null,
 		fps = null,
 		recentRuns = [],
 		recentRunsBusyId = null,
@@ -21,7 +22,7 @@
 		onKeepRun = () => {},
 		onStop,
 		wallClocks
-	}: MonitorDesignProps = $props();
+	}: MonitorDesignProps & { personalBest?: number | null } = $props();
 
 	const presentation = $derived(
 		monitorPresentation({
@@ -289,6 +290,10 @@
 			<div>
 				<dt>best</dt>
 				<dd>{@render scalar(match?.times?.best_time, seconds(match?.times?.best_time))}</dd>
+			</div>
+			<div>
+				<dt>Personal Best</dt>
+				<dd>{@render scalar(personalBest, seconds(personalBest))}</dd>
 			</div>
 			<div>
 				<dt>raw times</dt>

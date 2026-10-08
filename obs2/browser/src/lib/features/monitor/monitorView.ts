@@ -26,6 +26,7 @@ export interface MonitorViewProps {
 	showMonitorFps?: boolean;
 	showInGameTimer?: boolean;
 	wallClockState: MonitorWallClockState | null;
+	bestTimes?: RunClip[];
 	recentRuns?: RunClip[];
 	recentRunsBusyId?: string | null;
 	recentRunsError?: string | null;

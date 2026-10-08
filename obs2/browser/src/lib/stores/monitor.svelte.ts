@@ -157,6 +157,7 @@ export const monitor = $state<{
 	recordingState: RecordingStatus | null;
 	chromePhase: MonitorPhase | null;
 	kiaEffectId: number;
+	personalBestEffectId: number;
 	wallClocks: MonitorWallClockState | null;
 }>({
 	status: null,
@@ -168,6 +169,7 @@ export const monitor = $state<{
 	recordingState: null,
 	chromePhase: null,
 	kiaEffectId: 0,
+	personalBestEffectId: 0,
 	wallClocks: null
 });
 

@@ -2,7 +2,7 @@
 	import type { LevelMatch, MonitorWallClockState, RecordingStatus } from '$lib/api';
 	import MonitorView, { type MonitorDesign } from '$lib/features/monitor/MonitorView.svelte';
 
-	import { monitorClockState } from './monitorStoryFixtures';
+	import { monitorBestTimes, monitorClockState } from './monitorStoryFixtures';
 
 	type Outcome = 'complete' | 'aborted' | 'kia';
 	type TransitionStep = {
@@ -112,6 +112,7 @@
 	<div class="min-h-0 flex-1">
 		<MonitorView
 			{design}
+			bestTimes={monitorBestTimes}
 			verified={true}
 			monitoring={true}
 			recordingState={step.recordingState}

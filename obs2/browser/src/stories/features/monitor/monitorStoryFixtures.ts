@@ -28,9 +28,25 @@ export const monitorClockState: MonitorWallClockState = {
 	fadeDetection: null
 };
 
-// Shared across every monitor-state story; each state file overrides the
-// state-specific fields and renders one story per design.
+export const monitorBestTimes: RunClip[] = [
+	{
+		...completedRun,
+		path: '',
+		metadata: {
+			...completedRun.metadata,
+			level: 'Surface 1',
+			levelNumber: 4,
+			difficulty: 'Agent',
+			time: '01:01',
+			timeSeconds: 61,
+			status: 'complete'
+		}
+	}
+];
+
+// Shared across monitor-state stories, with state-specific overrides per design.
 export const monitorBaseArgs: MonitorStoryArgs & { wallClockState: MonitorWallClockState } = {
+	bestTimes: monitorBestTimes,
 	sourceName: 'N64 Capture',
 	verified: true,
 	monitoring: true,

@@ -1,6 +1,8 @@
+import { PersonalBestCelebrations } from '$lib/features/monitor/personalBestCelebrations';
 import { browser } from '$app/environment';
 import { backend, type AppEvent, type AppSnapshot } from '$lib/api';
 import {
+	monitor,
 	applyMonitorFps,
 	applyMonitorSnapshot,
 	applyMonitorStopped,
@@ -9,11 +11,20 @@ import {
 
 import { refreshReplayBuffer, setReplayBufferStatus } from '$lib/stores/replayBuffer.svelte';
 import { settings } from '$lib/stores/settings.svelte';
+import { bestTimes } from '$lib/stores/bestTimes.svelte';
 import { recentRuns } from '$lib/stores/recentRuns.svelte';
 import { setRunCatalogSync } from '$lib/stores/runCatalog.svelte';
 import { setObsSources } from '$lib/stores/sources.svelte';
 import { updates } from '$lib/stores/updates.svelte';
 import { youtube } from '$lib/stores/youtube.svelte';
+
+const personalBestCelebrations = new PersonalBestCelebrations(
+	backend,
+	() => (monitor.status?.enabled ? monitor.status.sourceName : null),
+	() => {
+		monitor.personalBestEffectId += 1;
+	}
+);
 
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -56,7 +67,9 @@ const handleAppEvent = (event: AppEvent): void => {
 			void recentRuns.refresh();
 			break;
 		case 'runCatalogChanged':
+			void personalBestCelebrations.handle(event);
 			void recentRuns.refresh(event.saveId);
+			void bestTimes.refresh();
 			break;
 		case 'monitorStopped':
 			applyMonitorStopped(event.reason);
