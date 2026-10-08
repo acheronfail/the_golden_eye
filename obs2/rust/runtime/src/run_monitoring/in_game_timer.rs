@@ -1,10 +1,12 @@
 //! Estimated in-game time driven by screen, fade, and watch observations.
 
+use std::collections::VecDeque;
+
 use ge_cv::{LevelMatch, WatchTransition};
 use serde::Serialize;
 
 const END_FADE_CONFIRMATION_MS: u64 = 250;
-const GAMEPLAY_VISIBLE_CONFIRMATION_MS: u64 = 100;
+const INTRO_OBSERVATION_CONFIRMATION_MS: u64 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +50,11 @@ pub(crate) struct InGameTimer {
     black_frame_active: bool,
     end_fade_started_at_ms: Option<u64>,
     gameplay_visible_started_at_ms: Option<u64>,
+    intro_pending_signal: Option<(bool, u64)>,
+    intro_black_frame_active: bool,
+    intro_observations: VecDeque<(bool, u64)>,
+    intro_fade_in_started_at_ms: Option<u64>,
+    intro_watch_transitions: VecDeque<(WatchTransition, u64)>,
 }
 
 impl InGameTimer {
@@ -71,6 +78,7 @@ impl InGameTimer {
                 self.black_frame_active = false;
                 self.end_fade_started_at_ms = None;
                 self.gameplay_visible_started_at_ms = None;
+                self.reset_intro_observations();
             }
             ge_cv::Screen::Unknown => {}
             _ => {
@@ -104,16 +112,6 @@ impl InGameTimer {
 
     fn reconcile_level_timer(&mut self, black: bool, edge: bool, now_ms: u64) -> bool {
         let previous_phase = self.snapshot.level_timer_phase;
-        if let Some(deadline) = self.pending_swirl_deadline()
-            && now_ms >= deadline
-        {
-            self.start_level(deadline, LevelTimerStartReason::Swirl);
-            if edge && black {
-                self.end_fade_started_at_ms = Some(now_ms);
-            }
-            return self.snapshot.level_timer_phase != previous_phase;
-        }
-
         if self.snapshot.level_timer_phase == LevelTimerPhase::Running {
             if self.snapshot.level_paused {
                 self.end_fade_started_at_ms = None;
@@ -137,47 +135,105 @@ impl InGameTimer {
             return self.snapshot.level_timer_phase != previous_phase;
         }
 
-        if self.snapshot.level_timer_phase == LevelTimerPhase::AwaitingGameplayAfterSkip {
+        self.reconcile_intro(black, now_ms);
+        if let Some(deadline) = self.pending_swirl_deadline()
+            && now_ms >= deadline
+        {
+            self.start_level(deadline, LevelTimerStartReason::Swirl);
             if black {
-                self.gameplay_visible_started_at_ms = None;
-            } else {
-                let started_at = *self.gameplay_visible_started_at_ms.get_or_insert(now_ms);
-                let visible_ms = now_ms.saturating_sub(started_at);
-                if visible_ms >= GAMEPLAY_VISIBLE_CONFIRMATION_MS {
-                    self.start_level_with_elapsed(
-                        now_ms,
-                        ge_game::intro::SKIPPED_SWIRL_INITIAL_ELAPSED_MS.saturating_add(visible_ms),
-                        LevelTimerStartReason::Fade,
-                    );
-                }
+                self.end_fade_started_at_ms = Some(now_ms);
             }
-            return self.snapshot.level_timer_phase != previous_phase;
+        }
+        self.snapshot.level_timer_phase != previous_phase
+    }
+
+    fn reconcile_intro(&mut self, black: bool, now_ms: u64) {
+        if matches!(self.snapshot.level_timer_phase, LevelTimerPhase::Idle | LevelTimerPhase::Stopped) {
+            return;
+        }
+        if black == self.intro_black_frame_active {
+            self.intro_pending_signal = None;
+        } else {
+            let pending = self.intro_pending_signal.get_or_insert((black, now_ms));
+            let confirmation_ms = INTRO_OBSERVATION_CONFIRMATION_MS;
+            if now_ms.saturating_sub(pending.1) >= confirmation_ms {
+                self.intro_observations.push_back(*pending);
+                self.intro_black_frame_active = black;
+                self.intro_pending_signal = None;
+            }
         }
 
-        if edge {
+        while let Some(&(black, observed_at_ms)) = self.intro_observations.front() {
+            // Keep early skips queued until the scene's nominal fade-in ends.
+            if black
+                && self.intro_fade_in_started_at_ms.is_some_and(|started_at| {
+                    now_ms.saturating_sub(started_at) < ge_game::intro::SCREEN_FADE_DURATION_MS
+                })
+            {
+                break;
+            }
+            self.intro_observations.pop_front();
             match (self.snapshot.level_timer_phase, black) {
                 (LevelTimerPhase::AwaitingInitialBlack, true) => {
                     self.snapshot.level_timer_phase = LevelTimerPhase::AwaitingFirstCutscene;
                 }
                 (LevelTimerPhase::AwaitingFirstCutscene, false) => {
                     self.snapshot.level_timer_phase = LevelTimerPhase::AwaitingFirstCutsceneFade;
+                    self.intro_fade_in_started_at_ms = Some(observed_at_ms);
                 }
                 (LevelTimerPhase::AwaitingFirstCutsceneFade, true) => {
                     self.snapshot.level_timer_phase = LevelTimerPhase::AwaitingSecondFadeOrSwirl;
-                    self.second_cutscene_started_at_ms = None;
-                    self.second_cutscene_visible = false;
+                    self.intro_fade_in_started_at_ms = None;
                 }
                 (LevelTimerPhase::AwaitingSecondFadeOrSwirl, false) => {
-                    self.second_cutscene_started_at_ms = Some(now_ms);
+                    self.second_cutscene_started_at_ms = Some(observed_at_ms);
                     self.second_cutscene_visible = true;
+                    self.intro_fade_in_started_at_ms = Some(observed_at_ms);
                 }
                 (LevelTimerPhase::AwaitingSecondFadeOrSwirl, true) if self.second_cutscene_visible => {
                     self.snapshot.level_timer_phase = LevelTimerPhase::AwaitingGameplayAfterSkip;
+                    self.intro_fade_in_started_at_ms = None;
+                }
+                (LevelTimerPhase::AwaitingGameplayAfterSkip, false) => {
+                    self.gameplay_visible_started_at_ms = Some(observed_at_ms);
+                }
+                (LevelTimerPhase::AwaitingGameplayAfterSkip, true) => {
+                    self.gameplay_visible_started_at_ms = None;
                 }
                 _ => {}
             }
+            tracing::info!(black, observed_at_ms, confirmed_at_ms = now_ms, phase = ?self.snapshot.level_timer_phase, "in-game timer confirmed intro observation");
         }
-        self.snapshot.level_timer_phase != previous_phase
+
+        if self.snapshot.level_timer_phase == LevelTimerPhase::AwaitingGameplayAfterSkip
+            && !black
+            && !self.intro_black_frame_active
+            && self.intro_pending_signal.is_none()
+            && let Some(started_at) = self.gameplay_visible_started_at_ms
+            && now_ms.saturating_sub(started_at) >= ge_game::intro::SCREEN_FADE_DURATION_MS
+        {
+            let watch_transitions = std::mem::take(&mut self.intro_watch_transitions);
+            self.start_level_with_elapsed(
+                now_ms,
+                ge_game::intro::SKIPPED_SWIRL_INITIAL_ELAPSED_MS.saturating_add(now_ms.saturating_sub(started_at)),
+                LevelTimerStartReason::Fade,
+            );
+            for (transition, at_ms) in watch_transitions {
+                if at_ms >= started_at {
+                    self.reconcile_watch_transition(transition, at_ms);
+                }
+            }
+            self.snapshot.level_elapsed_ms =
+                elapsed_ms(self.snapshot.level_started_at_unix_ms, self.snapshot.level_elapsed_ms, now_ms);
+        }
+    }
+
+    fn reset_intro_observations(&mut self) {
+        self.intro_pending_signal = None;
+        self.intro_black_frame_active = false;
+        self.intro_observations.clear();
+        self.intro_fade_in_started_at_ms = None;
+        self.intro_watch_transitions.clear();
     }
 
     fn pending_swirl_deadline(&self) -> Option<u64> {
@@ -204,6 +260,7 @@ impl InGameTimer {
         self.second_cutscene_visible = false;
         self.end_fade_started_at_ms = None;
         self.gameplay_visible_started_at_ms = None;
+        self.reset_intro_observations();
         tracing::info!(?reason, started_at_ms = ?self.snapshot.level_started_at_unix_ms, observed_at_ms = now_ms, initial_elapsed_ms = elapsed_ms, "in-game timer started");
     }
 
@@ -221,6 +278,7 @@ impl InGameTimer {
         self.snapshot.level_timer_phase = LevelTimerPhase::Stopped;
         self.end_fade_started_at_ms = None;
         self.gameplay_visible_started_at_ms = None;
+        self.reset_intro_observations();
         if previous_phase != LevelTimerPhase::Stopped {
             tracing::info!(
                 reason,
@@ -234,6 +292,9 @@ impl InGameTimer {
 
     pub(crate) fn reconcile_watch_transition(&mut self, transition: WatchTransition, now_ms: u64) -> bool {
         if self.snapshot.level_timer_phase != LevelTimerPhase::Running {
+            if !matches!(self.snapshot.level_timer_phase, LevelTimerPhase::Idle | LevelTimerPhase::Stopped) {
+                self.intro_watch_transitions.push_back((transition, now_ms));
+            }
             return false;
         }
         match transition {

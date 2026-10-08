@@ -82,12 +82,22 @@ fn session_publishes_recording_and_timer_from_the_same_match() {
     assert_eq!(matched.recording_state, Some(crate::run_monitoring::RecordingStatus::Started));
     assert_eq!(matched.level_match.unwrap().screen, ge_cv::Screen::Start);
     assert_eq!(matched.monitor.wall_clocks.level_timer_phase, LevelTimerPhase::AwaitingInitialBlack);
-    for (at, detected) in [(1_200, true), (1_300, false), (2_000, true), (2_100, false), (5_300, false)] {
+    for (at, detected) in [
+        (1_200, true),
+        (1_300, true),
+        (1_400, false),
+        (1_500, false),
+        (2_400, true),
+        (2_500, true),
+        (2_600, false),
+        (2_700, false),
+        (5_800, false),
+    ] {
         session.observe_black_frame(black(detected), at);
     }
-    assert_eq!(snapshot.current().monitor.wall_clocks.level_started_at_unix_ms, Some(5_267));
+    assert_eq!(snapshot.current().monitor.wall_clocks.level_started_at_unix_ms, Some(5_767));
     session.observe_watch(WatchTransition::Paused, 6_000);
-    assert_eq!(snapshot.current().monitor.wall_clocks.level_elapsed_ms, 733);
+    assert_eq!(snapshot.current().monitor.wall_clocks.level_elapsed_ms, 233);
     session.observe_watch(WatchTransition::Resumed, 7_000);
     assert!(snapshot.current().monitor.wall_clocks.level_running);
     session.set_language("jp".to_owned());
