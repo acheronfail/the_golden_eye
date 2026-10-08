@@ -33,3 +33,11 @@
 <Story name="Start error" args={{ enabled: false, error: 'Replay buffer is unavailable' }} />
 
 <Story name="Times hidden" args={{ showTimes: false }} />
+
+<Story name="In-game timer" args={{ recordingState: 'started', showTimer: true, levelElapsedMs: 61234 }} />
+<Story
+	name="Timer below times"
+	args={{ times: { time: 83, target_time: 120, best_time: 75 }, showTimer: true, levelElapsedMs: 83234 }}
+/>
+<Story name="Timer unavailable" args={{ connected: false, showTimer: true }} />
+<Story name="Timer only" args={{ showTimes: false, showTimer: true, levelElapsedMs: 0 }} />
