@@ -2,6 +2,7 @@
 	import { backend, type AnnotationSet, type LevelMatch } from '$lib/api';
 	import AnnotationOverlay from './AnnotationOverlay.svelte';
 	import ScreenshotDatasetControls from './ScreenshotDatasetControls.svelte';
+	import { monitor } from '$lib/stores/monitor.svelte';
 	import { triggerKiaDeathOverlay } from './kiaPreview';
 	import { onDestroy } from 'svelte';
 
@@ -223,6 +224,14 @@
 		<div class="flex flex-wrap gap-2">
 			<button class="obs-button obs-button-danger px-3 py-1.5 text-sm" onclick={triggerKiaDeathOverlay}>
 				Trigger KIA overlay
+			</button>
+			<button
+				class="obs-button obs-button-gold px-3 py-1.5 text-sm"
+				onclick={() => {
+					monitor.personalBestEffectId += 1;
+				}}
+			>
+				Trigger PB confetti
 			</button>
 		</div>
 	</div>

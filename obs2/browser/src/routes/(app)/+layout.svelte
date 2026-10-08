@@ -9,6 +9,7 @@
 	} from '$lib/stores/monitor.svelte';
 	import { startAppSocket, stopAppSocket } from '$lib/stores/appSocket.svelte';
 	import AppHeader from '$lib/app/AppHeader.svelte';
+	import PersonalBestConfetti from '$lib/features/monitor/PersonalBestConfetti/PersonalBestConfetti.svelte';
 	import KiaDeathOverlay from '$lib/features/monitor/KiaDeathOverlay/KiaDeathOverlay.svelte';
 	import NotificationFlags from '$lib/app/NotificationFlags.svelte';
 	import WelcomeDialog from '$lib/features/onboarding/WelcomeDialog.svelte';
@@ -159,6 +160,7 @@
 
 	<NotificationFlags />
 	<KiaDeathOverlay trigger={monitor.kiaEffectId} />
+	<PersonalBestConfetti trigger={monitor.personalBestEffectId} />
 
 	{#if runCatalog.sync}
 		<RunCatalogSyncDialog sync={runCatalog.sync} />
