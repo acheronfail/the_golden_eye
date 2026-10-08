@@ -30,6 +30,11 @@ let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let stopped = true;
 const applyAppSnapshot = (snapshot: AppSnapshot): void => {
+	if (
+		monitor.status?.enabled !== snapshot.monitor.enabled ||
+		(monitor.status?.enabled ? monitor.status.sourceName : undefined) !== snapshot.monitor.sourceName
+	)
+		personalBestCelebrations.reset();
 	applyMonitorSnapshot(snapshot);
 	setRunCatalogSync(snapshot.runCatalogSync ?? null);
 	setObsSources(snapshot.sources);
@@ -61,6 +66,7 @@ const handleAppEvent = (event: AppEvent): void => {
 			break;
 		case 'recordingSavePending':
 			recentRuns.applySavePending(event);
+			personalBestCelebrations.handlePending(event);
 			break;
 		case 'recordingSaved':
 			applyRecordingSaved(event);
@@ -72,6 +78,7 @@ const handleAppEvent = (event: AppEvent): void => {
 			void bestTimes.refresh();
 			break;
 		case 'monitorStopped':
+			personalBestCelebrations.reset();
 			applyMonitorStopped(event.reason);
 			void refreshReplayBuffer();
 			break;
@@ -135,6 +142,7 @@ export const startAppSocket = (): void => {
 
 export const stopAppSocket = (): void => {
 	stopped = true;
+	personalBestCelebrations.reset();
 	clearReconnectTimer();
 	socket?.close();
 	socket = null;
