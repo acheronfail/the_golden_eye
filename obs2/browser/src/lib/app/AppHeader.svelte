@@ -32,11 +32,18 @@
 		menuOpen?: boolean;
 	} = $props();
 
-	const currentUploads = $derived(
+	const activeUploads = $derived(
 		uploads.filter(
 			(upload) => upload.state === 'queued' || upload.state === 'uploading' || upload.state === 'cancelling'
 		)
 	);
+	const recentUploads = $derived(
+		uploads
+			.filter((upload) => upload.state === 'uploaded' || upload.state === 'failed' || upload.state === 'cancelled')
+			.toSorted((a, b) => (b.finishedAt ?? b.startedAt).localeCompare(a.finishedAt ?? a.startedAt))
+			.slice(0, 10)
+	);
+	const visibleUploads = $derived([...activeUploads, ...recentUploads]);
 	let uploadsButton = $state<HTMLButtonElement>();
 	let uploadsPanel = $state<HTMLElement>();
 	$effect(() => {
@@ -146,8 +153,8 @@
 				type="button"
 				class="{menuButtonClass} relative {activeMonitorStyle.button}"
 				class:obs-icon-button-open={uploadsOpen}
-				aria-label={`Uploads${currentUploads.length ? ` (${currentUploads.length} active)` : ''}`}
-				aria-controls="current-uploads"
+				aria-label={`Uploads${activeUploads.length ? ` (${activeUploads.length} active)` : ''}`}
+				aria-controls="uploads"
 				aria-expanded={uploadsOpen}
 				title="Uploads"
 				onclick={() => {
@@ -167,27 +174,29 @@
 				>
 					<path d="M12 16V3m-5 5 5-5 5 5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" />
 				</svg>
-				{#if currentUploads.length}
+				{#if activeUploads.length}
 					<span
 						aria-hidden="true"
 						class="absolute -top-1.5 -right-1.5 min-w-4 rounded-full bg-(--obs-gold) px-1 text-center text-[10px] leading-4 font-semibold text-[#111318]"
-						>{currentUploads.length}</span
+						>{activeUploads.length}</span
 					>
 				{/if}
 			</button>
 			{#if uploadsOpen}
 				<section
 					bind:this={uploadsPanel}
-					id="current-uploads"
-					aria-label="Current uploads"
+					id="uploads"
+					aria-label="Uploads"
 					class="absolute top-full right-2 z-40 mt-2 w-80 max-w-[calc(100vw-1rem)] rounded obs-menu-panel p-3 font-sans text-sm"
 				>
 					<h2 class="mb-3 font-semibold">Uploads</h2>
-					{#if currentUploads.length === 0}
-						<p class="text-(--obs-text-muted)">No current uploads.</p>
+					{#if visibleUploads.length === 0}
+						<p class="text-(--obs-text-muted)">No uploads this session.</p>
 					{:else}
 						<ul class="flex max-h-[min(24rem,calc(100dvh-9rem))] flex-col gap-4 overflow-y-auto">
-							{#each currentUploads as upload (upload.id)}
+							{#each visibleUploads as upload (upload.id)}
+								{@const active =
+									upload.state === 'queued' || upload.state === 'uploading' || upload.state === 'cancelling'}
 								{@const title = upload.title || upload.fileName}
 								{@const progress =
 									upload.state === 'queued'
@@ -202,30 +211,38 @@
 										onclick={() => (uploadsOpen = false)}>{title}</a
 									>
 									<div class="mt-1 mb-2 px-1 text-xs text-(--obs-text-muted)">
-										{upload.state === 'cancelling'
-											? 'Cancelling…'
-											: upload.state === 'queued'
-												? 'Queued'
-												: progress === undefined
-													? 'Uploading…'
-													: `Uploading ${progress}%`}
+										{upload.state === 'uploaded'
+											? 'Completed'
+											: upload.state === 'failed'
+												? 'Failed'
+												: upload.state === 'cancelled'
+													? 'Cancelled'
+													: upload.state === 'cancelling'
+														? 'Cancelling…'
+														: upload.state === 'queued'
+															? 'Queued'
+															: progress === undefined
+																? 'Uploading…'
+																: `Uploading ${progress}%`}
 									</div>
-									<div
-										role="progressbar"
-										aria-label={title}
-										aria-valuemin={0}
-										aria-valuemax={100}
-										aria-valuenow={progress}
-										aria-valuetext={upload.state === 'queued' ? 'Queued' : undefined}
-										class="h-1.5 overflow-hidden rounded-full bg-(--obs-control)"
-									>
+									{#if active}
 										<div
-											class="h-full w-(--upload-progress) rounded-full bg-(--obs-gold) transition-[width] duration-300 motion-reduce:animate-none motion-reduce:transition-none"
-											class:animate-pulse={progress === undefined}
-											style:--upload-progress={`${progress ?? 100}%`}
-										></div>
-									</div>
-									<div class="mt-2"><YouTubeUploadCancel {upload} /></div>
+											role="progressbar"
+											aria-label={title}
+											aria-valuemin={0}
+											aria-valuemax={100}
+											aria-valuenow={progress}
+											aria-valuetext={upload.state === 'queued' ? 'Queued' : undefined}
+											class="h-1.5 overflow-hidden rounded-full bg-(--obs-control)"
+										>
+											<div
+												class="h-full w-(--upload-progress) rounded-full bg-(--obs-gold) transition-[width] duration-300 motion-reduce:animate-none motion-reduce:transition-none"
+												class:animate-pulse={progress === undefined}
+												style:--upload-progress={`${progress ?? 100}%`}
+											></div>
+										</div>
+										<div class="mt-2"><YouTubeUploadCancel {upload} /></div>
+									{/if}
 								</li>
 							{/each}
 						</ul>

@@ -46,7 +46,7 @@ describe('AppHeader', () => {
 	});
 });
 
-const upload = (state: YouTubeUploadStatus['state'], id = state): YouTubeUploadStatus => ({
+const upload = (state: YouTubeUploadStatus['state'], id: string = state): YouTubeUploadStatus => ({
 	id,
 	runId: 'run/with spaces',
 	path: '/clips/dam.mp4',
@@ -74,13 +74,13 @@ describe('header uploads', () => {
 		expect(screen.queryByText('Monitoring')).not.toBeInTheDocument();
 		expect(screen.getByRole('link', { name: 'Return to monitoring screen' })).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Uploads' }));
-		expect(screen.getByText('No current uploads.')).toBeInTheDocument();
+		expect(screen.getByText('No uploads this session.')).toBeInTheDocument();
 		await rerender({ ...props, youtubeConnected: false });
-		expect(screen.queryByRole('region', { name: 'Current uploads' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('region', { name: 'Uploads' })).not.toBeInTheDocument();
 		expect(screen.getByText('Monitoring')).toBeInTheDocument();
 	});
 
-	it('updates progress and the badge, excluding completed and failed uploads', async () => {
+	it('updates progress and the active badge while retaining finished uploads', async () => {
 		const { rerender } = render(AppHeader, {
 			...props,
 			youtubeConnected: true,
@@ -99,8 +99,47 @@ describe('header uploads', () => {
 		expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '81');
 		expect(screen.getByRole('button', { name: 'Uploads (1 active)' })).toHaveTextContent('1');
 		await rerender({ uploads: [upload('uploaded'), upload('failed')] });
-		expect(screen.getByText('No current uploads.')).toBeInTheDocument();
+		expect(screen.getByText('Completed')).toBeInTheDocument();
+		expect(screen.getByText('Failed')).toBeInTheDocument();
+		expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Uploads' })).toHaveTextContent('');
+	});
+
+	it('keeps a completing upload visible without active controls', async () => {
+		const { rerender } = render(AppHeader, {
+			...props,
+			youtubeConnected: true,
+			uploadsOpen: true,
+			uploads: [upload('uploading')]
+		});
+		await rerender({ uploads: [{ ...upload('uploading'), state: 'uploaded', progressRatio: 1 }] });
+		expect(screen.getByRole('link', { name: 'Dam uploading' })).toBeInTheDocument();
+		expect(screen.getByText('Completed')).toBeInTheDocument();
+		expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /Cancel upload/ })).not.toBeInTheDocument();
+	});
+
+	it('shows the ten most recently finished uploads after all active uploads', () => {
+		const history = Array.from({ length: 12 }, (_, i) => ({
+			...upload(i === 11 ? 'cancelled' : 'uploaded', `history-${i}`),
+			finishedAt: `2026-09-28T00:00:${String(i).padStart(2, '0')}Z`
+		}));
+		render(AppHeader, {
+			...props,
+			youtubeConnected: true,
+			uploadsOpen: true,
+			uploads: [...history, upload('uploading'), upload('queued')]
+		});
+		const rows = screen.getAllByRole('listitem');
+		expect(rows).toHaveLength(12);
+		expect(rows[0]).toHaveTextContent('Dam uploading');
+		expect(rows[1]).toHaveTextContent('Dam queued');
+		expect(rows[2]).toHaveTextContent('Dam history-11');
+		expect(rows[11]).toHaveTextContent('Dam history-2');
+		expect(screen.queryByRole('link', { name: 'Dam history-0' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('link', { name: 'Dam history-1' })).not.toBeInTheDocument();
+		expect(screen.getByText('Cancelled')).toBeInTheDocument();
+		expect(screen.getAllByRole('progressbar')).toHaveLength(2);
 	});
 
 	it('dismisses on Escape and outside clicks and keeps popovers mutually exclusive', async () => {
@@ -117,7 +156,7 @@ describe('header uploads', () => {
 		await fireEvent.click(button);
 		expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Open navigation menu' }));
-		expect(screen.queryByRole('region', { name: 'Current uploads' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('region', { name: 'Uploads' })).not.toBeInTheDocument();
 		expect(screen.getByRole('navigation')).toBeInTheDocument();
 	});
 });

@@ -90,7 +90,14 @@ describe('YouTube upload cancellation', () => {
 			await waitFor(() => expect(youtube.cancellingUploadIds).toHaveLength(0));
 			expect(youtube.uploadForRun(upload.runId)?.state).toBe('cancelled');
 			await header.rerender({ uploads: youtube.uploads });
-			expect(screen.getByText('No current uploads.')).toBeInTheDocument();
+			expect(screen.getByRole('link', { name: upload.title })).toHaveAttribute(
+				'href',
+				`/runs?runId=${encodeURIComponent(upload.runId)}`
+			);
+			expect(screen.getByText('Cancelled')).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: 'Uploads' })).toHaveTextContent('');
+			expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: `Cancel upload: ${upload.title}` })).not.toBeInTheDocument();
 			expect(screen.getByText('Upload cancelled. You can upload this clip again.')).toBeInTheDocument();
 			expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled();
 			expect(notifications.flags).toHaveLength(0);
