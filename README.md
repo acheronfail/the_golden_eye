@@ -25,6 +25,14 @@ This is a plugin for OBS Studio that assists with GoldenEye N64 speed-running.
 
 ... and more!
 
+## Contents
+
+- [OBS compatibility](#obs-compatibility)
+- [How to install](#how-to-install)
+- [Updates](#updates)
+- [Troubleshooting / FAQ](#troubleshooting--faq)
+- [Contributing](#contributing)
+
 ## OBS compatibility
 
 The recommended minimum OBS Studio version is `31.1.0`, but the plugin should work on OBS `31.0.0`
@@ -45,7 +53,10 @@ The plugin has an auto-update feature! Most of the time it can update itself jus
 If there's ever a new update that requires the plugin to be manually installed, the plugin will let
 you know.
 
-## Troubleshooting
+## Troubleshooting / FAQ
+
+- [Linux troubleshooting](docs/troubleshooting-linux.md): computer slowdowns while saving replays,
+  RAM-backed output setup, and recording precautions.
 
 If the plugin misbehaves, [enabling debug logging](docs/debug-logging.md) helps you (and
 maintainers) see what's going on.
