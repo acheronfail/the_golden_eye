@@ -9,6 +9,7 @@
 	import { monitor, monitorPresentationPhase } from '$lib/stores/monitor.svelte';
 	import { refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import { obsSources } from '$lib/stores/sources.svelte';
+	import { bestTimes } from '$lib/stores/bestTimes.svelte';
 	import { recentRuns } from '$lib/stores/recentRuns.svelte';
 	import { onDestroy, untrack } from 'svelte';
 	import type { PageProps } from './$types';
@@ -54,6 +55,7 @@
 		session.navigationSettled();
 		if (!isCurrentPage) return;
 		void recentRuns.refresh();
+		void bestTimes.refresh();
 	});
 
 	$effect(() => {
@@ -93,6 +95,7 @@
 	showMonitorFps={settings.values.showMonitorFps}
 	showInGameTimer={settings.values.showInGameTimer}
 	wallClockState={monitor.wallClocks}
+	bestTimes={bestTimes.items}
 	recentRuns={recentRuns.items}
 	recentRunsBusyId={recentRuns.busyRunId}
 	recentRunsError={recentRuns.error}

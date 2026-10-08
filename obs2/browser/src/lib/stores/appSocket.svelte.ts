@@ -9,6 +9,7 @@ import {
 
 import { refreshReplayBuffer, setReplayBufferStatus } from '$lib/stores/replayBuffer.svelte';
 import { settings } from '$lib/stores/settings.svelte';
+import { bestTimes } from '$lib/stores/bestTimes.svelte';
 import { recentRuns } from '$lib/stores/recentRuns.svelte';
 import { setRunCatalogSync } from '$lib/stores/runCatalog.svelte';
 import { setObsSources } from '$lib/stores/sources.svelte';
@@ -57,6 +58,7 @@ const handleAppEvent = (event: AppEvent): void => {
 			break;
 		case 'runCatalogChanged':
 			void recentRuns.refresh(event.saveId);
+			void bestTimes.refresh();
 			break;
 		case 'monitorStopped':
 			applyMonitorStopped(event.reason);

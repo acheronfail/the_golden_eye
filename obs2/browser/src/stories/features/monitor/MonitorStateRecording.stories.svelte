@@ -5,6 +5,7 @@
 	import { monitorBaseArgs, monitorDesignArgs, monitorMatch as match } from './monitorStoryFixtures';
 
 	const readmeArgs = {
+		bestTimes: readmeRuns,
 		match: { ...match('start'), mission: 1, part: 2, difficulty: 2 },
 		wallClockState: {
 			...monitorBaseArgs.wallClockState,
@@ -33,3 +34,8 @@
 
 <Story name="README preview" args={{ ...monitorDesignArgs.missionGlass, ...readmeArgs }} />
 <Story name="README signal band" args={{ ...monitorDesignArgs.signalBand, ...readmeArgs }} />
+
+<Story name="Mission glass without a personal best" args={{ ...monitorDesignArgs.missionGlass, bestTimes: [] }} />
+<Story name="Signal band without a personal best" args={{ ...monitorDesignArgs.signalBand, bestTimes: [] }} />
+
+<Story name="For Your Eyes Only without a personal best" args={{ ...monitorDesignArgs.debug, bestTimes: [] }} />

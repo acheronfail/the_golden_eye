@@ -20,9 +20,16 @@
 		onKeepRun = () => {},
 		onStop,
 		wallClocks,
+		personalBest,
+		showPersonalBest,
 		runIdentityLabel,
 		runIdentityAvailable
-	}: MonitorDesignProps & { runIdentityLabel: string; runIdentityAvailable: boolean } = $props();
+	}: MonitorDesignProps & {
+		showPersonalBest: boolean;
+		personalBest: number | null;
+		runIdentityLabel: string;
+		runIdentityAvailable: boolean;
+	} = $props();
 
 	const presentation = $derived(
 		monitorPresentation({ verified, monitoring, transition, recordingState, match, fps, showMonitorFps, onStop })
@@ -92,6 +99,8 @@
 				{verified}
 				{presentation}
 				{match}
+				{personalBest}
+				{showPersonalBest}
 				statsPosition="before"
 				statusLabel={runIdentityLabel}
 				statusAvailable={runIdentityAvailable}

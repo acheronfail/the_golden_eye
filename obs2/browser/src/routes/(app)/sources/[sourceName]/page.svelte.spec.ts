@@ -8,6 +8,7 @@ import { obsSources } from '$lib/stores/sources.svelte';
 
 const mocks = vi.hoisted(() => {
 	const api = {
+		getBestTimes: vi.fn(),
 		getReplayBufferStatus: vi.fn(),
 		startMonitor: vi.fn(),
 		stopMonitor: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock('$lib/api', async (importOriginal) => {
 		...actual,
 		backend: {
 			...actual.backend,
+			getBestTimes: mocks.api.getBestTimes,
 			getReplayBufferStatus: mocks.api.getReplayBufferStatus,
 			startMonitor: mocks.api.startMonitor,
 			stopMonitor: mocks.api.stopMonitor,
@@ -57,6 +59,7 @@ vi.mock('$lib/api', async (importOriginal) => {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.api.getBestTimes.mockResolvedValue([]);
 	mocks.page.url = new URL('http://localhost/sources/N64%20Capture');
 	obsSources.items = [{ name: 'N64 Capture', id: 'video_capture_device' }];
 	obsSources.loaded = true;
@@ -93,6 +96,21 @@ beforeEach(() => {
 });
 
 describe('/sources/[sourceName]', () => {
+	it('loads the catalog PB for the detected launch screen', async () => {
+		monitor.recordingState = 'started';
+		monitor.match = { screen: 'start', mission: 1, part: 2, difficulty: 2, times: null, runtime_ms: 1 };
+		mocks.api.getBestTimes.mockResolvedValue([
+			{
+				path: '',
+				metadata: { level: 'Facility', difficulty: '00 Agent', status: 'complete', timeSeconds: 58 }
+			}
+		]);
+		render(SourcePage, { props: { data: {}, params: { sourceName: 'N64 Capture' } } });
+		expect(await screen.findByText('Personal Best')).toBeInTheDocument();
+		expect(await screen.findByText('0:58')).toBeInTheDocument();
+		expect(mocks.api.getBestTimes).toHaveBeenCalled();
+	});
+
 	it('reuses an active monitor when its snapshot arrives after the page mounts', async () => {
 		monitor.status = null;
 		monitor.loaded = false;

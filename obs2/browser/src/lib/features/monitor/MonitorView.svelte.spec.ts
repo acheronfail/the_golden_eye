@@ -178,6 +178,55 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 		expect(screen.queryByText(/monitoring \/ active/i)).not.toBeInTheDocument();
 	});
 
+	it('shows the catalog PB from launch through gameplay, then restores stats', async () => {
+		const bestTimes = [{ ...recentRun, path: '', metadata: { ...recentRun.metadata, timeSeconds: 58 } }];
+		const start = { ...match('start'), mission: 1, part: 2, difficulty: 2 };
+		const view = render(MonitorView, { ...props(design, 'started', match('select')), bestTimes });
+		expect(screen.queryByText('Personal Best')).not.toBeInTheDocument();
+		await view.rerender({ ...props(design, 'started', start), bestTimes });
+		expect(screen.getByText('Personal Best')).toBeInTheDocument();
+		expect(screen.getByText('0:58')).toBeInTheDocument();
+		expect(screen.queryByText('target')).not.toBeInTheDocument();
+		await view.rerender({ ...props(design, 'started', match('unknown')), bestTimes });
+		expect(screen.getByText('Personal Best')).toBeInTheDocument();
+		await view.rerender({ ...props(design, 'complete', match('complete')), bestTimes });
+		expect(screen.getByText('Personal Best')).toBeInTheDocument();
+		await view.rerender({
+			...props(design, 'complete', match('stats', { time: 57, target_time: 65, best_time: 58 })),
+			bestTimes
+		});
+		expect(screen.queryByText('Personal Best')).not.toBeInTheDocument();
+		expect(screen.getByText('0:57')).toBeInTheDocument();
+		expect(screen.getByText('target')).toBeInTheDocument();
+		await view.rerender({ ...props(design, 'complete', match('unknown')), bestTimes });
+		expect(screen.queryByText('Personal Best')).not.toBeInTheDocument();
+	});
+
+	it.each(['cancelled', 'statsSkipped', null] as const)('clears the PB when recording becomes %s', async (state) => {
+		const bestTimes = [recentRun];
+		const start = { ...match('start'), mission: 1, part: 2, difficulty: 2 };
+		const view = render(MonitorView, { ...props(design, 'started', start), bestTimes });
+		expect(screen.getByText('Personal Best')).toBeInTheDocument();
+		await view.rerender({ ...props(design, state, match('unknown')), bestTimes });
+		expect(screen.queryByText('Personal Best')).not.toBeInTheDocument();
+		expect(screen.getByText('target')).toBeInTheDocument();
+	});
+
+	it('matches PBs by level and difficulty and switches them at the next launch', async () => {
+		const bestTimes = [recentRun];
+		const start = { ...match('start'), mission: 1, part: 2, difficulty: 2 };
+		const view = render(MonitorView, { ...props(design, 'started', start), bestTimes });
+		expect(screen.getByText('0:58')).toBeInTheDocument();
+		await view.rerender({ ...props(design, 'started', { ...start, difficulty: 0 }), bestTimes });
+		expect(screen.getByText('Personal Best').parentElement).toHaveAttribute('data-available', 'false');
+		await view.rerender({ ...props(design, 'started', { ...start, part: 1 }), bestTimes });
+		expect(screen.getByText('Personal Best').parentElement).toHaveAttribute('data-available', 'false');
+		await view.rerender({ ...props(design, 'started', start), bestTimes });
+		expect(screen.getByText('Personal Best')).toBeInTheDocument();
+		await view.rerender({ ...props(design, 'started', match('levels')), bestTimes });
+		expect(screen.queryByText('Personal Best')).not.toBeInTheDocument();
+	});
+
 	it('keeps subtly styled stat placeholders mounted when run times appear', async () => {
 		const view = render(MonitorView, props(design, 'started', match('unknown')));
 		const selector = design === 'signal-band' ? '.signal-metrics' : '.glass-metrics';
@@ -227,6 +276,34 @@ describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (de
 });
 
 describe('debug monitor', () => {
+	it('keeps a separate catalog PB cell alongside every matcher time', async () => {
+		const bestTimes = [recentRun];
+		const start = { ...match('start'), mission: 1, part: 2, difficulty: 2 };
+		const view = render(MonitorView, { ...props('debug', 'started', start), bestTimes });
+		const cell = (label: string) => screen.getByText(label).nextElementSibling;
+		expect(cell('Personal Best')).toHaveTextContent('58 s (0:58)');
+		for (const label of ['time', 'target', 'best']) expect(cell(label)).toHaveTextContent('null');
+
+		await view.rerender({ ...props('debug', 'started', match('unknown')), bestTimes });
+		expect(cell('Personal Best')).toHaveTextContent('58 s (0:58)');
+		await view.rerender({
+			...props('debug', 'complete', match('stats', { time: 57, target_time: 65, best_time: 60 })),
+			bestTimes
+		});
+		expect(cell('Personal Best')).toHaveTextContent('58 s (0:58)');
+		expect(cell('time')).toHaveTextContent('57 s (0:57)');
+		expect(cell('target')).toHaveTextContent('65 s (1:05)');
+		expect(cell('best')).toHaveTextContent('60 s (1:00)');
+
+		await view.rerender({ ...props('debug', null, match('levels')), bestTimes });
+		expect(cell('Personal Best')?.querySelector('span')).toHaveAttribute('data-value-kind', 'null');
+	});
+
+	it('keeps the PB cell visible when no catalog time exists', () => {
+		render(MonitorView, props('debug', 'started', match('start')));
+		expect(screen.getByText('Personal Best').nextElementSibling).toHaveTextContent('null');
+	});
+
 	it('limits diagnostic precision without changing the match data', () => {
 		const levelMatch: LevelMatch = {
 			...match('start'),

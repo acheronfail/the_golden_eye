@@ -6,6 +6,8 @@
 		verified,
 		presentation,
 		match = null,
+		personalBest = null,
+		showPersonalBest = false,
 		statsPosition,
 		statusLabel,
 		statusAvailable = true,
@@ -20,6 +22,8 @@
 		verified: boolean;
 		presentation: MonitorPresentation;
 		match?: LevelMatch | null;
+		personalBest?: number | null;
+		showPersonalBest?: boolean;
 		statsPosition: 'inside' | 'before';
 		statusLabel: string;
 		statusAvailable?: boolean;
@@ -50,24 +54,37 @@
 
 {#snippet runTimes()}
 	<div class={metricsClass} aria-label="Run times">
-		<span class={match?.times?.time == null ? unavailableMetricClass : ''} data-available={match?.times?.time != null}>
-			<small>time</small>
-			<strong>{match?.times?.time == null ? '--:--' : formatMonitorTime(match.times.time)}</strong>
-		</span>
-		<span
-			class={match?.times?.target_time == null ? unavailableMetricClass : ''}
-			data-available={match?.times?.target_time != null}
-		>
-			<small>target</small>
-			<strong>{match?.times?.target_time == null ? '--:--' : formatMonitorTime(match.times.target_time)}</strong>
-		</span>
-		<span
-			class={match?.times?.best_time == null ? unavailableMetricClass : ''}
-			data-available={match?.times?.best_time != null}
-		>
-			<small>best</small>
-			<strong>{match?.times?.best_time == null ? '--:--' : formatMonitorTime(match.times.best_time)}</strong>
-		</span>
+		{#if showPersonalBest}
+			<span
+				class="col-span-3 {personalBest === null ? unavailableMetricClass : ''}"
+				data-available={personalBest !== null}
+			>
+				<small>Personal Best</small>
+				<strong>{personalBest === null ? '--:--' : formatMonitorTime(personalBest)}</strong>
+			</span>
+		{:else}
+			<span
+				class={match?.times?.time == null ? unavailableMetricClass : ''}
+				data-available={match?.times?.time != null}
+			>
+				<small>time</small>
+				<strong>{match?.times?.time == null ? '--:--' : formatMonitorTime(match.times.time)}</strong>
+			</span>
+			<span
+				class={match?.times?.target_time == null ? unavailableMetricClass : ''}
+				data-available={match?.times?.target_time != null}
+			>
+				<small>target</small>
+				<strong>{match?.times?.target_time == null ? '--:--' : formatMonitorTime(match.times.target_time)}</strong>
+			</span>
+			<span
+				class={match?.times?.best_time == null ? unavailableMetricClass : ''}
+				data-available={match?.times?.best_time != null}
+			>
+				<small>best</small>
+				<strong>{match?.times?.best_time == null ? '--:--' : formatMonitorTime(match.times.best_time)}</strong>
+			</span>
+		{/if}
 	</div>
 {/snippet}
 
