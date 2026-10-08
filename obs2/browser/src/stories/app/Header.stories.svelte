@@ -7,7 +7,7 @@
 	const upload = (
 		id: string,
 		title: string,
-		state: 'queued' | 'uploading',
+		state: YouTubeUploadStatus['state'],
 		progressRatio: number | null
 	): YouTubeUploadStatus => ({
 		id,
@@ -77,7 +77,7 @@
 		const canvas = within(canvasElement);
 		const button = canvas.getByRole('button', { name: 'Uploads' });
 		await userEvent.click(button);
-		await expect(canvas.getByText('No current uploads.')).toBeVisible();
+		await expect(canvas.getByText('No uploads this session.')).toBeVisible();
 		await userEvent.keyboard('{Escape}');
 		await expect(button).toHaveFocus();
 	}}
@@ -138,7 +138,8 @@
 		uploadsOpen: true,
 		uploads: [
 			{ ...uploads[0], state: 'uploaded' },
-			{ ...uploads[1], state: 'failed' }
+			{ ...uploads[1], state: 'failed' },
+			{ ...uploads[2], state: 'cancelled' }
 		]
 	}}
 />
@@ -150,4 +151,26 @@
 <Story
 	name="Cancelled upload"
 	args={{ youtubeConnected: true, uploadsOpen: true, uploads: [{ ...uploads[0], state: 'cancelled' }] }}
+/>
+
+<Story
+	name="Uploads with session history"
+	args={{
+		youtubeConnected: true,
+		uploadsOpen: true,
+		uploads: [
+			...uploads,
+			...Array.from({ length: 12 }, (_, i) => ({
+				...upload(`history-${i}`, `Completed run ${i + 1}`, 'uploaded', 1),
+				finishedAt: `2026-09-28T00:00:${String(i).padStart(2, '0')}Z`
+			}))
+		]
+	}}
+	play={async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(canvas.getAllByRole('listitem')).toHaveLength(13);
+		await expect(canvas.getAllByRole('progressbar')).toHaveLength(3);
+		await expect(canvas.getByRole('button', { name: 'Uploads (3 active)' })).toBeVisible();
+		await expect(canvas.queryByRole('link', { name: 'Completed run 1' })).not.toBeInTheDocument();
+	}}
 />
