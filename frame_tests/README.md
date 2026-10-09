@@ -198,3 +198,23 @@ All samples correctly returned `unknown`, with no times or black-frame detection
 The full fixture suite passed 17,861 checks. The uncalibrated runs omitted the
 calibration frame and target warmups; their expensive recovery repeats until a
 real dossier supplies the overlay scale, rather than being only a first-frame cost.
+
+### Depot Secret Agent GPU capture
+
+The `depot-native` and `depot-gpu-capture` English Depot Secret Agent start fixtures
+were captured from the running OBS plugin on 2026-10-09. The former is the full
+1920×1080 source; the latter is the actual 853×480 input saved through the frame-dump
+API, converted losslessly from BMP. OpenCV area downscaling alone did not reproduce
+the live failure.
+
+The original matcher rejected the GPU header with a warmed scale cache and could
+misread the mission/difficulty with a cold cache. Header colons now use lighter
+Gaussian smoothing; mission anchoring admits slightly weaker colons and searches
+alternative anchors when the preferred fixed-slot digit fails. Header row-spacing
+and confidence requirements remain intact. Time colons retain their original blur
+so analog-capture time recognition is unchanged.
+
+The CV unit regression checks both fixtures with area and bilinear resizing,
+cold caches, Dam-primed caches, and native-Depot-primed caches. Repeated reads also
+cross English cheat-menu and gameplay frames before returning to Depot. The frame
+harness checks both fixtures, including opposite-language rejection and recovery.
