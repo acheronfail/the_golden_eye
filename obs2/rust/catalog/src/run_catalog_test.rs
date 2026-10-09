@@ -288,6 +288,36 @@ fn catalog_pages_runs_with_stable_sort_cursors_and_filters() {
 }
 
 #[test]
+fn recent_history_excludes_external_history_before_limiting() {
+    let dir = TestDir::new("recent-captured-only");
+    let catalog = catalog(&dir);
+    let base = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+    let pb = catalog.create_finalized_run(base, finalized_metadata(RunStatus::Complete, Some(80), "Agent")).unwrap();
+    let newest = catalog
+        .create_finalized_run(base + Duration::from_secs(1), finalized_metadata(RunStatus::Failed, None, "Agent"))
+        .unwrap();
+    for (id, reason, source) in
+        [("the-elite-123", "theElite", "The Elite (NTSC)"), ("manual-history", "manualEntry", "Manual entry")]
+    {
+        let mut metadata = finalized_metadata(RunStatus::Complete, Some(60), "Agent");
+        metadata.retention_state = "kept".to_owned();
+        metadata.retention_reason = Some(reason.to_owned());
+        metadata.source_name = source.to_owned();
+        catalog.create_history_run(base + Duration::from_secs(2), Some(id), metadata, None).unwrap();
+    }
+    let expected = vec![newest.run_id.clone(), pb.run_id.clone()];
+    let recent_ids = || catalog.recent_runs(2).unwrap().into_iter().map(|run| run.run_id).collect::<Vec<_>>();
+    assert_eq!(recent_ids(), expected);
+    assert!(pb.metadata.was_personal_best);
+    assert_eq!(catalog.list_runs().unwrap().len(), 4);
+
+    for id in ["the-elite-123", "manual-history", &newest.run_id] {
+        catalog.delete_video_keep_history(id).unwrap();
+    }
+    assert_eq!(recent_ids(), expected);
+}
+
+#[test]
 fn recent_history_persists_and_both_delete_modes_preserve_the_requested_data() {
     let dir = TestDir::new("durable-history");
     let db_path = dir.join("runs.sqlite");
