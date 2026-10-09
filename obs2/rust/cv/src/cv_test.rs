@@ -426,8 +426,11 @@ fn language_detection_recovers_after_retrogem_rom_switch() {
         frame
     };
     let jp = load("jp - select - 01.png", imgproc::INTER_AREA);
-    let fixture = "en - start - 07 - Agent - language-switch.png";
-    for interpolation in [imgproc::INTER_AREA, imgproc::INTER_LINEAR] {
+    for (fixture, interpolation) in [
+        ("en - start - 07 - Agent - language-switch.png", imgproc::INTER_AREA),
+        ("en - start - 07 - Agent - language-switch.png", imgproc::INTER_LINEAR),
+        ("en - start - 07 - Agent - language-switch-gpu-capture.png", imgproc::INTER_AREA),
+    ] {
         let en = load(fixture, interpolation);
         for warm in [false, true] {
             let matcher = CvMatcher::new("jp", TEMPLATES_DIR).unwrap();

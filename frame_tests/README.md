@@ -34,7 +34,8 @@ serve as test expectations.
 2026-10-09 while the monitor remained in JP mode on the English Frigate Agent start screen. The CV
 unit regression checks both area and bilinear downscaling with cold and warmed matchers, including
 the reverse language switch. Bilinear downscaling with a warmed JP matcher reproduces the missed
-language detection on the original code.
+language detection on the original code. The companion `language-switch-gpu-capture.png` fixture
+contains the actual 853×480 monitor input captured through the frame-dump API.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup and the other test suites.
 
