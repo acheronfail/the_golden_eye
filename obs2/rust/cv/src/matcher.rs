@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use opencv::core::{self, Mat, Rect, Size, ToInputArray};
 use opencv::prelude::*;
@@ -88,12 +89,13 @@ const SCREEN_THRESHOLD: f64 = 0.78;
 // (x, y, w, h) as fractions of the frame.
 const SCREEN_BANNER_REGION: (f64, f64, f64, f64) = (0.04, 0.39, 0.56, 0.11);
 const SCREEN_STATUS_REGION: (f64, f64, f64, f64) = (0.18, 0.47, 0.48, 0.10);
-// The PREVIOUS tab stays visible across dossier pages, including difficulty
-// selection and results where START is absent.
+// The PREVIOUS tab appears on dossier pages and the level grid, including
+// difficulty selection and results where START is absent.
 const LANGUAGE_TAB_THRESHOLD: f64 = 0.82;
 const LANGUAGE_TAB_MARGIN: f64 = 0.12;
 const LANGUAGE_PREVIOUS_REGION: (f64, f64, f64, f64) = (0.68, 0.65, 0.30, 0.35);
 const LANGUAGE_START_REGION: (f64, f64, f64, f64) = (0.68, 0.035, 0.30, 0.35);
+const LANGUAGE_RECOVERY_INTERVAL: Duration = Duration::from_millis(250);
 // The mission-select grid carries none of the shared header colons, so the gate
 // rejects it. It is instead recognized by its film-strip divider (static, en/jp
 // identical); strongest match above this threshold classifies it as `Levels`.
@@ -130,7 +132,6 @@ struct ScaleCache {
 struct TabScaleCache {
     width: i32,
     height: i32,
-    header_scale: f64,
     scale: f64,
 }
 
@@ -169,6 +170,7 @@ pub struct CvMatcher {
     calibration_cache: Mutex<Option<FrameCalibration>>,
     // PREVIOUS refines the common vertical-tab scale; validate it on each frame.
     tab_scale_cache: Mutex<Option<TabScaleCache>>,
+    tab_recovery: Mutex<Option<(i32, i32, Instant)>>,
     // Lazily populated because cold scale recovery may try several scales, but
     // a live source normally settles on one work scale and one native scale.
     glyph_cache: Mutex<Vec<(u64, Arc<ScaledGlyphs>)>>,
@@ -238,6 +240,7 @@ impl CvMatcher {
             scale_cache: Mutex::new(None),
             calibration_cache: Mutex::new(None),
             tab_scale_cache: Mutex::new(None),
+            tab_recovery: Mutex::new(None),
             glyph_cache: Mutex::new(Vec::new()),
         })
     }
@@ -516,12 +519,40 @@ impl CvMatcher {
         Ok(best)
     }
 
+    // Probe the cached tab scale every frame, independently of header recognition.
+    // Missing tabs trigger a broad scale search at most four times per second.
+    fn detect_previous_tab_language(&self, frame: &Mat) -> Result<Option<(&'static str, MatchRect, f64)>> {
+        let scale = candidate_scales(frame.rows())[0];
+        let mut previous = self.detect_tab_language(frame, scale, false, None, false)?;
+        if previous.is_none() {
+            let now = Instant::now();
+            let recover = self
+                .tab_recovery
+                .lock()
+                .map(|mut last| {
+                    let due = last.is_none_or(|(w, h, at)| {
+                        w != frame.cols() || h != frame.rows() || now.duration_since(at) >= LANGUAGE_RECOVERY_INTERVAL
+                    });
+                    if due {
+                        *last = Some((frame.cols(), frame.rows(), now));
+                    }
+                    due
+                })
+                .unwrap_or(false);
+            if recover {
+                previous = self.detect_tab_language(frame, scale, false, None, true)?;
+            }
+        }
+        Ok(previous)
+    }
+
     fn detect_tab_language(
         &self,
         frame: &Mat,
         scale: f64,
         start: bool,
         shared_scale: Option<f64>,
+        recover: bool,
     ) -> Result<Option<(&'static str, MatchRect, f64)>> {
         let (region, en_template, jp_template) = if start {
             (LANGUAGE_START_REGION, &self.language_start_en, &self.language_start_jp)
@@ -548,21 +579,22 @@ impl CvMatcher {
             }
             Ok(best)
         };
-        let cached =
-            self.tab_scale_cache.lock().ok().and_then(|cache| *cache).filter(|cache| {
-                cache.width == frame.cols() && cache.height == frame.rows() && cache.header_scale == scale
-            });
+        let cached = self
+            .tab_scale_cache
+            .lock()
+            .ok()
+            .and_then(|cache| *cache)
+            .filter(|cache| cache.width == frame.cols() && cache.height == frame.rows());
         let preferred_scale = shared_scale.or_else(|| cached.map(|cache| cache.scale));
         let confident = |scores: &[Option<(MatchRect, f64)>; 2]| {
             let en = scores[0].map_or(-1.0, |(rect, _)| rect.score);
             let jp = scores[1].map_or(-1.0, |(rect, _)| rect.score);
             en.max(jp) >= LANGUAGE_TAB_THRESHOLD && (en - jp).abs() >= LANGUAGE_TAB_MARGIN
         };
-        let mut matches =
-            if let Some(preferred) = preferred_scale { match_tabs(&[preferred / scale])? } else { [None, None] };
+        let mut matches = match_tabs(&[preferred_scale.unwrap_or(scale) / scale])?;
         // A PREVIOUS match on this frame fixes the scale of both vertical tabs.
         // Its absence on START is meaningful; do not search for a different scale.
-        if !(confident(&matches) || start && shared_scale.is_some()) {
+        if recover && !(confident(&matches) || start && shared_scale.is_some()) {
             matches = match_tabs(&[1.0, 0.95, 1.05])?;
             if !confident(&matches) {
                 let factors = [0.85, 0.875, 0.90, 0.925, 0.975, 1.025, 1.075, 1.10, 1.125, 1.15];
@@ -587,12 +619,7 @@ impl CvMatcher {
                 && let Some((_, refined_scale)) = rect
                 && let Ok(mut cache) = self.tab_scale_cache.lock()
             {
-                *cache = Some(TabScaleCache {
-                    width: frame.cols(),
-                    height: frame.rows(),
-                    header_scale: scale,
-                    scale: refined_scale,
-                });
+                *cache = Some(TabScaleCache { width: frame.cols(), height: frame.rows(), scale: refined_scale });
             }
             Ok(rect.map(|(r, scale)| (lang, r.offset(search_rect.x, search_rect.y), scale)))
         } else {
@@ -778,7 +805,30 @@ impl CvMatcher {
             None => scales.clone(),
         };
 
-        // Entry gate: the stats overlay (briefing and stats screens) carries a
+        self.push_work_search_region(
+            &mut search_regions,
+            &mapper,
+            "language previous tab search",
+            fractional_rect(frame.cols(), frame.rows(), LANGUAGE_PREVIOUS_REGION),
+        );
+        let mut tab_scale = None;
+        if let Some((detected_lang, rect, scale)) = self.detect_previous_tab_language(&frame)? {
+            tab_scale = Some(scale);
+            result.detected_lang = Some(detected_lang.to_owned());
+            self.push_work_region(&mut match_regions, &mapper, format!("language {detected_lang} previous tab"), rect);
+            if detected_lang != self.lang {
+                dbg_cv!("[language] configured={} detected={detected_lang}; rejecting wrong-language frame", self.lang);
+                result.match_regions = match_regions;
+                result.annotation_sets =
+                    annotation_sets(watch_detection, &result.match_regions, search_regions, folder_region, Vec::new());
+                result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
+                return Ok(result);
+            }
+        }
+
+        timer.lap("previous tab language");
+
+        // The dossier overlay (briefing and stats screens) carries a
         // stack of left-aligned header rows ending in colons. Two strong colons
         // admit both screens, reject gameplay, and fix the scale reused below.
         let header = detect_header_colons(
@@ -841,19 +891,14 @@ impl CvMatcher {
             return Ok(result);
         }
 
-        self.push_work_search_region(
-            &mut search_regions,
-            &mapper,
-            "language previous tab search",
-            fractional_rect(frame.cols(), frame.rows(), LANGUAGE_PREVIOUS_REGION),
-        );
-        let mut tab_scale = None;
-        if let Some((detected_lang, rect, scale)) = self.detect_tab_language(&frame, header.scale, false, None)? {
+        if tab_scale.is_none()
+            && let Some((detected_lang, rect, scale)) =
+                self.detect_tab_language(&frame, header.scale, false, None, true)?
+        {
             tab_scale = Some(scale);
             result.detected_lang = Some(detected_lang.to_owned());
             self.push_work_region(&mut match_regions, &mapper, format!("language {detected_lang} previous tab"), rect);
             if detected_lang != self.lang {
-                dbg_cv!("[language] configured={} detected={detected_lang}; rejecting wrong-language frame", self.lang);
                 result.match_regions = match_regions;
                 result.annotation_sets =
                     annotation_sets(watch_detection, &result.match_regions, search_regions, folder_region, Vec::new());
@@ -861,8 +906,6 @@ impl CvMatcher {
                 return Ok(result);
             }
         }
-
-        timer.lap("previous tab language");
 
         // The mission/part/difficulty labels always sit in the upper-left of the
         // stats overlay, so their template matching only needs the top-left corner
@@ -1153,7 +1196,7 @@ impl CvMatcher {
         }
 
         let start_tab_visible = result.screen == Screen::Stats
-            && self.detect_tab_language(&frame, header.scale, true, tab_scale)?.is_some();
+            && self.detect_tab_language(&frame, header.scale, true, tab_scale, true)?.is_some();
         reject_untrusted_screen(&mut result, start_tab_visible);
         timer.lap("screen validation");
 
