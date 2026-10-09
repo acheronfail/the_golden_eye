@@ -25,3 +25,6 @@ pub type Result<T> = opencv::Result<T>;
 #[cfg(test)]
 #[path = "cv_test.rs"]
 mod cv_test;
+
+#[cfg(test)]
+mod sequence_test;

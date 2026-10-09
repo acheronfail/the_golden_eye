@@ -1,0 +1,96 @@
+{
+  "width": 853,
+  "height": 480,
+  "capture_fps": 60,
+  "stationary": [
+    {
+      "name": "aborted",
+      "screen": "abort",
+      "mission": 6,
+      "part": 2,
+      "difficulty": 1,
+      "raw_times": [],
+      "frames": ["aborted-000000.png"]
+    },
+    {
+      "name": "briefing",
+      "screen": "start",
+      "mission": 6,
+      "part": 2,
+      "difficulty": 1,
+      "raw_times": [],
+      "frames": ["transitions-000505.png"]
+    },
+    {
+      "name": "difficulty selection",
+      "screen": "select",
+      "mission": 6,
+      "part": 2,
+      "difficulty": 3,
+      "raw_times": [],
+      "frames": ["transitions-000500.png"]
+    },
+    {
+      "name": "statistics",
+      "screen": "stats",
+      "mission": 6,
+      "part": 2,
+      "difficulty": 1,
+      "raw_times": [6, 600],
+      "frames": ["statistics-000000.png"]
+    }
+  ],
+  "transitions": [
+    {
+      "name": "select before launch",
+      "screen": "select",
+      "mission": 6,
+      "part": 2,
+      "difficulty": 3,
+      "raw_times": [],
+      "frames": ["transitions-000500.png"]
+    },
+    {
+      "name": "difficulty selected",
+      "screen": "select",
+      "mission": 6,
+      "part": 2,
+      "difficulty": 1,
+      "raw_times": [],
+      "frames": ["transitions-000503.png"]
+    },
+    {
+      "name": "briefing onset",
+      "screen": "start",
+      "mission": 6,
+      "part": 2,
+      "difficulty": 1,
+      "raw_times": [],
+      "frames": ["transitions-000505.png"]
+    },
+    {
+      "name": "black frames, intro, gameplay, watch",
+      "screen": "unknown",
+      "mission": -1,
+      "part": -1,
+      "difficulty": -1,
+      "raw_times": [],
+      "frames": [
+        "transitions-000707.png",
+        "transitions-001050.png",
+        "transitions-001200.png",
+        "transitions-001500.png",
+        "transitions-001550.png"
+      ]
+    },
+    {
+      "name": "abort onset",
+      "screen": "abort",
+      "mission": 6,
+      "part": 2,
+      "difficulty": 1,
+      "raw_times": [],
+      "frames": ["transitions-001666.png"]
+    }
+  ]
+}
