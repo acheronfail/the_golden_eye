@@ -79,7 +79,7 @@ pub(super) fn load_template(dir: &str, lang: &str, name: &str) -> Result<Mat> {
 // Softens `tmpl` with a small Gaussian so sharp emulator-authored templates
 // correlate against blurry composite/HDMI sources. The kernel is clamped to the
 // template size (and forced odd) so tiny glyphs at small scales stay valid.
-fn blurred(tmpl: &Mat) -> Result<Mat> {
+fn blurred(tmpl: &Mat, sigma: f64) -> Result<Mat> {
     if tmpl.empty() {
         return tmpl.try_clone();
     }
@@ -92,26 +92,36 @@ fn blurred(tmpl: &Mat) -> Result<Mat> {
         return tmpl.try_clone();
     }
     let mut out = Mat::default();
-    imgproc::gaussian_blur_def(tmpl, &mut out, Size::new(k, k), 0.0)?;
+    imgproc::gaussian_blur_def(tmpl, &mut out, Size::new(k, k), sigma)?;
     Ok(out)
 }
 
 // Returns `tmpl` resized by `scale` then softened to match blurry sources.
 pub(super) fn scaled(tmpl: &Mat, scale: f64) -> Result<Mat> {
+    scaled_with_blur(tmpl, scale, 0.0)
+}
+
+// Narrow colons lose their two-dot shape under the default Gaussian blur at
+// monitor resolution. Keep a lighter blur without lowering the header gate.
+pub(super) fn scaled_header_colon(tmpl: &Mat, scale: f64) -> Result<Mat> {
+    scaled_with_blur(tmpl, scale, 0.5)
+}
+
+fn scaled_with_blur(tmpl: &Mat, scale: f64, sigma: f64) -> Result<Mat> {
     // A missing template loads as an empty Mat; resizing it would assert,
     // so pass it through untouched.
     if tmpl.empty() {
         return tmpl.try_clone();
     }
     if scale == 1.0 {
-        return blurred(tmpl);
+        return blurred(tmpl, sigma);
     }
     let w = ((tmpl.cols() as f64 * scale).round() as i32).max(1);
     let h = ((tmpl.rows() as f64 * scale).round() as i32).max(1);
     let mut out = Mat::default();
     let interp = if scale < 1.0 { imgproc::INTER_AREA } else { imgproc::INTER_LINEAR };
     imgproc::resize(tmpl, &mut out, Size::new(w, h), 0.0, 0.0, interp)?;
-    blurred(&out)
+    blurred(&out, sigma)
 }
 
 // Best single-location match of `tmpl` against `frame`.

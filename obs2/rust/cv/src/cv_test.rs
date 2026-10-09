@@ -642,3 +642,60 @@ fn language_detection_uses_menu_tabs_but_rejects_gameplay() {
         }
     }
 }
+
+#[test]
+fn depot_secret_agent_survives_gpu_capture_and_cache_reuse() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests/screenshots-retrogem");
+    let load = |name: &str, interpolation| {
+        let bgr = imgcodecs::imread(root.join(name).to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
+        let width = (bgr.cols() as f64 * WORK_HEIGHT as f64 / bgr.rows() as f64).round() as i32;
+        let mut resized = Mat::default();
+        imgproc::resize(&bgr, &mut resized, core::Size::new(width, WORK_HEIGHT), 0.0, 0.0, interpolation).unwrap();
+        let mut frame = Mat::default();
+        imgproc::cvt_color_def(&resized, &mut frame, imgproc::COLOR_BGR2BGRA).unwrap();
+        frame
+    };
+    for interpolation in [imgproc::INTER_AREA, imgproc::INTER_LINEAR] {
+        for target in [
+            "en - start - 13 - Secret Agent - depot-native.png",
+            "en - start - 13 - Secret Agent - depot-gpu-capture.png",
+        ] {
+            for prime in [
+                None,
+                Some("en - start - 01 - 00 Agent.png"),
+                Some("en - start - 13 - Secret Agent - depot-native.png"),
+            ] {
+                let matcher = CvMatcher::new("en", TEMPLATES_DIR).unwrap();
+                if let Some(prime) = prime {
+                    let initial = matcher.match_level_from_bgra_frame(&load(prime, imgproc::INTER_AREA)).unwrap();
+                    assert_eq!(initial.screen, Screen::Start);
+                }
+                let frame = load(target, interpolation);
+                for iteration in 0..3 {
+                    let result = matcher.match_level_from_bgra_frame(&frame).unwrap();
+                    assert_eq!(
+                        (result.screen, result.mission, result.part, result.difficulty),
+                        (Screen::Start, 6, 4, 1),
+                        "{target}, interpolation={interpolation}, prime={prime:?}, iteration={iteration}"
+                    );
+                    assert_eq!(result.detected_lang.as_deref(), Some("en"));
+                    assert!(result.raw_times.is_empty());
+                    if iteration == 1 {
+                        for negative in [
+                            "en - unknown - cheat-options - pp7-gold.png",
+                            "en - unknown - cheat-options - 2x-laser.png",
+                            "en - unknown - cheat-options - 2x-throwing-knife.png",
+                            "en - unknown - gameplay - not-black-frame.png",
+                        ] {
+                            let rejected =
+                                matcher.match_level_from_bgra_frame(&load(negative, imgproc::INTER_AREA)).unwrap();
+                            assert_eq!(rejected.screen, Screen::Unknown, "{negative}");
+                            assert!(rejected.times.is_none());
+                            assert!(rejected.raw_times.is_empty());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

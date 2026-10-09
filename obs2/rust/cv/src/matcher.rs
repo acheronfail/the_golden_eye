@@ -60,6 +60,7 @@ use crate::template_matching::{
     candidate_scales,
     load_template,
     scaled,
+    scaled_header_colon,
 };
 use crate::{ActivePictureRegion, PhaseTimer, Result, detect_watch, watch};
 
@@ -270,12 +271,13 @@ impl CvMatcher {
         }
 
         let colon = scaled(&self.colon, scale)?;
+        let header_colon = scaled_header_colon(&self.colon, scale)?;
         let mut digits = Vec::with_capacity(10);
         for digit in &self.digits {
             digits.push(scaled(digit, scale)?);
         }
         let discriminator = DigitDiscriminator::build(&digits)?;
-        let glyphs = Arc::new(ScaledGlyphs { colon, digits, discriminator });
+        let glyphs = Arc::new(ScaledGlyphs { colon, header_colon, digits, discriminator });
         cache.push((key, Arc::clone(&glyphs)));
         Ok(glyphs)
     }

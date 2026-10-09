@@ -6,7 +6,7 @@ use crate::Result;
 use crate::calibration::clamp_rect;
 use crate::config::dbg_cv;
 use crate::parallel::par_map;
-use crate::template_matching::{Detection, MatchRect, collect_detections, scaled, suppress};
+use crate::template_matching::{Detection, MatchRect, collect_detections, scaled_header_colon, suppress};
 
 // Region searched by the entry gate for stats-overlay header colons. Both the
 // level-start and stats screens carry the same three left-aligned header rows
@@ -16,7 +16,9 @@ pub(super) const HEADER_REGION_W: f64 = 0.56;
 pub(super) const HEADER_REGION_Y: f64 = 0.18;
 pub(super) const HEADER_REGION_H: f64 = 0.30;
 
-const COLON_ANCHOR_THRESHOLD: f64 = 0.84;
+// GPU downscaling can soften the mission colon below the header-gate cutoff.
+// Its adjacent digit must independently pass the glyph or fixed-slot check.
+const COLON_ANCHOR_THRESHOLD: f64 = 0.80;
 // The entry gate admits a frame only with two header colons AND at least one
 // confident match. Thresholds sit low (0.8s / 0.85) to admit blurry composite/
 // HDMI grabs yet reject gameplay; any non-stats frame that slips in reads no times.
@@ -109,7 +111,7 @@ pub(super) fn detect_header_colons(
     // so this is the per-scale match work spread across cores.
     let scored: Vec<Result<Option<(usize, f64)>>> = par_map(scales.len(), |i| {
         let scale = scales[i];
-        let colon_tmpl = scaled(base_colon, scale)?;
+        let colon_tmpl = scaled_header_colon(base_colon, scale)?;
         if colon_tmpl.empty() || colon_tmpl.rows() > colon_region.rows() || colon_tmpl.cols() > colon_region.cols() {
             return Ok(None);
         }
@@ -152,7 +154,7 @@ pub(super) fn header_colon_regions(
     if base_colon.empty() {
         return Ok(Vec::new());
     }
-    let colon_tmpl = scaled(base_colon, scale)?;
+    let colon_tmpl = scaled_header_colon(base_colon, scale)?;
     if colon_tmpl.empty() {
         return Ok(Vec::new());
     }
@@ -174,7 +176,7 @@ pub(super) fn find_mission_from_colons(
     label_region: &(impl MatTraitConst + ToInputArray),
     glyphs: &ScaledGlyphs,
 ) -> Result<FoundMission> {
-    let colon_tmpl = &glyphs.colon;
+    let colon_tmpl = &glyphs.header_colon;
     let digit_tmpls = &glyphs.digits;
     let none = FoundMission {
         mission: -1,
@@ -207,9 +209,8 @@ pub(super) fn find_mission_from_colons(
     let label_region = label_region.try_clone()?;
     let label_region = &label_region;
 
-    // Anchor only on confident colons. A real header colon clears ~0.9, while the
-    // low glyph threshold would match noise on textured background -- each
-    // spurious hit triggers a 10-digit search and O(n^2) suppression.
+    // Keep candidate colons stricter than the glyph threshold: each extra hit
+    // triggers a ten-digit search and pairwise suppression.
     let mut colons = Vec::new();
     collect_detections(label_region, colon_tmpl, COLON_ANCHOR_THRESHOLD, 0, &mut colons)?;
     let colons = suppress(colons, colon_w, colon_h, 0.5);
@@ -276,7 +277,9 @@ pub(super) fn find_mission_from_colons(
 
     let band_pad_x = digit_w * 2;
     let band_pad_y = digit_h;
-    let fallback_colons = mission_colon.map_or_else(|| colons.clone(), |colon| vec![colon]);
+    // A rejected fixed-slot read can mean the strongest middle-row colon was
+    // actually a letter. Let the digit search consider the other anchors too.
+    let fallback_colons = colons;
 
     // Each (colon, digit) pair is an independent template search -- the bulk of
     // the mission cost at native resolution. Fan the pairs across cores; each
@@ -559,9 +562,10 @@ pub(super) fn find_times_band(
 }
 
 // Colon and digit templates resized for one exact scale, used every frame by the
-// mission and time readers. Caching avoids re-resizing/blurring all eleven; Arc
+// mission and time readers. Caching avoids re-resizing/blurring the glyphs; Arc
 // lets the hot path borrow a set without holding the cache lock during matching.
 pub(super) struct ScaledGlyphs {
+    pub(super) header_colon: Mat,
     pub(super) colon: Mat,
     pub(super) digits: Vec<Mat>,
     // Discriminative digit reader (see `DigitDiscriminator`), built from `digits`.
