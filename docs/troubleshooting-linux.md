@@ -18,8 +18,8 @@ deletes its temporary source. At 10 Mb/s, a 20-minute buffer is roughly 1.5 GB p
 afterwards does not undo disk writes already performed.
 
 If the slowdowns coincide with replay saves and you have enough spare RAM, try saving temporary
-replays in `/dev/shm/golden-eye-replays`. This is RAM-backed storage, so only the finished clips
-need to be written to your normal disk. It will not fix unrelated CPU, GPU, or memory problems.
+replays in `/dev/shm`. This is RAM-backed storage, so only the finished clips need to be written to
+your normal disk. It will not fix unrelated CPU, GPU, or memory problems.
 
 ### Before changing the output path
 
@@ -44,50 +44,42 @@ need to be written to your normal disk. It will not fix unrelated CPU, GPU, or m
 ### Set up RAM-backed replay storage
 
 1. Open OBS, then stop the plugin monitor, replay buffer, and any recording before changing paths.
-2. In a terminal, find OBS's running Flatpak instance:
-
-   ```sh
-   flatpak ps --columns=instance,application
-   ```
-
-   Find the row for `com.obsproject.Studio`. Set the variable below to its numeric instance ID,
-   replacing the example number. Run the following commands in the same terminal:
-
-   ```sh
-   obs_instance=1234567890
-   flatpak enter "$obs_instance" mkdir -p -m 700 /dev/shm/golden-eye-replays
-   flatpak enter "$obs_instance" df -h /dev/shm/golden-eye-replays
-   ```
-
-   Use the instance ID, not the application name. OBS's Flatpak can have a separate `/dev/shm` from
-   the host: creating the folder with a plain host `mkdir` may leave OBS unable to see it. The
-   commands above create and inspect the folder inside the running OBS sandbox.
-
-3. Note your original OBS Recording Path. In **Settings → Output → Recording → Recording Path**
+2. Note your original OBS Recording Path. In **Settings → Output → Recording → Recording Path**
    (Advanced output mode), set:
 
    ```text
-   /dev/shm/golden-eye-replays
+   /dev/shm
    ```
 
    In Simple output mode, use **Settings → Output → Recording → Recording Path** as well. Click
    Apply. Keep the plugin's finished-clip folder on permanent storage.
 
-4. Start monitoring and save a short test run. Confirm the finished clip appears in your permanent
+3. Start monitoring and save a short test run. Confirm the finished clip appears in your permanent
    folder and the plugin's temporary source is removed.
 
-Repeat the instance lookup and folder-creation commands after restarting OBS. Instance IDs change,
-and the folder may no longer exist. “Bad File Path” usually means the folder was not created in the
-current OBS sandbox. No Flatpak permission override or `sudo` should be needed.
+`/dev/shm` already exists in each OBS sandbox, including after restarting OBS. No folder-creation
+command, Flatpak permission override, or `sudo` is needed. OBS's sandbox can have a separate
+`/dev/shm` from the host, so use the commands below to inspect the files OBS actually sees.
 
 ### Check space and clean up
 
-With the current `obs_instance` set as above:
+While OBS is running, find its Flatpak instance:
 
 ```sh
-flatpak enter "$obs_instance" df -h /dev/shm/golden-eye-replays
-flatpak enter "$obs_instance" ls -lh /dev/shm/golden-eye-replays
+flatpak ps --columns=instance,application
 ```
+
+Find the row for `com.obsproject.Studio`. Set the variable below to its numeric instance ID,
+replacing the example number, then check space and files in the same terminal:
+
+```sh
+obs_instance=1234567890
+flatpak enter "$obs_instance" df -h /dev/shm
+flatpak enter "$obs_instance" ls -lh /dev/shm
+```
+
+Use the instance ID, not the application name. Repeat the lookup after restarting OBS if you need to
+inspect or clean up files again; instance IDs change, but the Recording Path stays `/dev/shm`.
 
 If OBS reports “unspecified error while recording”, check **Help → Log Files → View Current Log**.
 `No space left on device` means the destination is full; repeated hotkey saves are one possible
@@ -98,12 +90,12 @@ any wanted files to permanent storage before cleanup. The following command **pe
 all top-level `Replay*.mp4` files** in this temporary directory, including manual saves:
 
 ```sh
-flatpak enter "$obs_instance" find /dev/shm/golden-eye-replays -maxdepth 1 -type f -name 'Replay*.mp4' -delete
+flatpak enter "$obs_instance" find /dev/shm -maxdepth 1 -type f -name 'Replay*.mp4' -delete
 ```
 
 This pattern assumes the default replay prefix and MP4 format. Other names or formats need separate
-review; do not replace it with a command that blindly deletes the whole directory. Finished clips in
-the permanent folder you selected are unaffected.
+review. `/dev/shm` also contains shared-memory files used by OBS and its components: never delete
+its entire contents. Finished clips in the permanent folder you selected are unaffected.
 
 ### Return to disk storage
 
