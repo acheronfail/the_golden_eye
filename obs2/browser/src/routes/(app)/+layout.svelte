@@ -149,7 +149,7 @@
 		{activeMonitorHref}
 		recordingState={monitor.recordingState}
 		monitorPhase={activeMonitorPhase}
-		youtubeConnected={youtube.connected}
+		youtubeConnected={youtube.enabled && youtube.connected}
 		uploads={youtube.uploads}
 		bind:menuOpen
 	/>
