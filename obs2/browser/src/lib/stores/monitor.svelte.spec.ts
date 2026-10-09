@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { AppSnapshot, RecordingSaved, RecordingStatus } from '$lib/api';
+import type { AppSnapshot, LevelMatch, RecordingSaved, RecordingStatus } from '$lib/api';
 import {
 	applyMonitorSnapshot,
+	applyMonitorStopped,
+	monitorRunContext,
 	applyRecordingSaved,
 	monitor,
 	monitorPhaseStyleForPhase,
@@ -107,5 +109,56 @@ describe('recording save events', () => {
 		applyRecordingSaved(saved());
 		expect(monitor.recordingState).toBeNull();
 		expect(notifications.flags).toHaveLength(0);
+	});
+});
+
+describe('monitor run context across navigation', () => {
+	const start: LevelMatch = {
+		screen: 'start',
+		mission: 1,
+		part: 2,
+		difficulty: 2,
+		detected_lang: 'en',
+		times: null,
+		runtime_ms: 1
+	};
+	const publish = (screen: LevelMatch['screen'], state: RecordingStatus | null = 'started') =>
+		applyMonitorSnapshot({ ...snapshot(state), match: { ...start, screen } });
+
+	beforeEach(() => {
+		monitor.status = null;
+		monitorRunContext.reset();
+	});
+
+	it('retains launch identity through gameplay snapshots while the view is absent', () => {
+		publish('start');
+		publish('unknown');
+		publish('unknown');
+		expect(monitorRunContext.identity).toEqual({ level: 'Facility', difficulty: '00 Agent' });
+		expect(monitorRunContext.personalBestIdentity).toEqual(monitorRunContext.identity);
+	});
+
+	it('keeps PB hidden after stats while retaining the level until selection', () => {
+		publish('start');
+		publish('stats', 'complete');
+		publish('unknown', 'complete');
+		expect(monitorRunContext.identity?.level).toBe('Facility');
+		expect(monitorRunContext.personalBestIdentity).toBeNull();
+		publish('select', null);
+		expect(monitorRunContext.identity).toBeNull();
+	});
+
+	it.each(['disabled', 'source changed', 'stopped'] as const)('clears identity when monitoring is %s', (reason) => {
+		publish('start');
+		if (reason === 'stopped') applyMonitorStopped('replayBufferStopped');
+		else {
+			const next = snapshot('started');
+			next.match = { ...start, screen: 'unknown' };
+			next.monitor.enabled = reason !== 'disabled';
+			next.monitor.sourceName = reason === 'source changed' ? 'Other capture' : 'N64 Capture';
+			applyMonitorSnapshot(next);
+		}
+		expect(monitorRunContext.identity).toBeNull();
+		expect(monitorRunContext.personalBestIdentity).toBeNull();
 	});
 });

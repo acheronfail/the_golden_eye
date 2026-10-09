@@ -9,7 +9,8 @@
 	import MonitorDebug from './MonitorDebug.svelte';
 	import MonitorMissionGlass from './MonitorMissionGlass.svelte';
 	import MonitorSignalBand from './MonitorSignalBand.svelte';
-	import { monitorRunIdentityLabel, reconcileMonitorRunIdentity, type MonitorRunIdentity } from './monitorRunIdentity';
+	import { monitorRunIdentityLabel } from './monitorRunIdentity';
+	import { MonitorRunContext } from './monitorRunContext.svelte';
 	import { MonitorWallClocks } from './monitorWallClocks.svelte';
 	import type { MonitorDesign, MonitorViewProps } from './monitorView';
 
@@ -20,8 +21,12 @@
 		...props
 	}: MonitorViewProps & { design?: MonitorDesign } = $props();
 	const wallClocks = new MonitorWallClocks();
-	let runIdentity = $state<MonitorRunIdentity | null>(null);
-	let personalBestIdentity = $state<MonitorRunIdentity | null>(null);
+	const localRunContext = new MonitorRunContext();
+	const runContext = $derived(props.runContext ?? localRunContext);
+	const runIdentity = $derived(runContext.identity);
+	const showPersonalBest = $derived(
+		props.monitoring && props.verified && !props.transition && runContext.personalBestIdentity !== null
+	);
 	const personalBest = $derived(
 		runIdentity
 			? (props.bestTimes ?? [])
@@ -45,29 +50,10 @@
 	});
 
 	$effect(() => {
-		runIdentity = reconcileMonitorRunIdentity(
-			untrack(() => runIdentity),
-			props.match
-		);
-	});
-
-	$effect(() => {
-		const screen = props.match?.screen.trim().toLowerCase();
-		const inactive =
-			!props.monitoring ||
-			!props.verified ||
-			props.transition ||
-			!props.recordingState ||
-			props.recordingState === 'cancelled' ||
-			props.recordingState === 'statsSkipped' ||
-			props.recordingState === 'savePending' ||
-			screen === 'stats';
-		personalBestIdentity = inactive
-			? null
-			: reconcileMonitorRunIdentity(
-					untrack(() => personalBestIdentity),
-					props.match
-				);
+		if (props.runContext) return;
+		const match = props.match;
+		const recordingState = props.monitoring && props.verified && !props.transition ? props.recordingState : null;
+		untrack(() => localRunContext.update(match, recordingState));
 	});
 
 	onDestroy(() => wallClocks.destroy());
@@ -82,7 +68,7 @@
 		{showInGameTimer}
 		{wallClocks}
 		{personalBest}
-		showPersonalBest={personalBestIdentity !== null}
+		{showPersonalBest}
 		{runIdentityLabel}
 		runIdentityAvailable={runIdentity !== null}
 	/>
@@ -93,7 +79,7 @@
 		{showInGameTimer}
 		{wallClocks}
 		{personalBest}
-		showPersonalBest={personalBestIdentity !== null}
+		{showPersonalBest}
 		{runIdentityLabel}
 		runIdentityAvailable={runIdentity !== null}
 	/>

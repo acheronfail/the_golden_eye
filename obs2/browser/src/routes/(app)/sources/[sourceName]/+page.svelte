@@ -6,7 +6,7 @@
 	import { MonitorSessionController } from '$lib/features/monitor/monitorSession.svelte';
 	import ReplayBufferStopDialog from '$lib/features/monitor/ReplayBufferStopDialog.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { monitor, monitorPresentationPhase } from '$lib/stores/monitor.svelte';
+	import { monitor, monitorRunContext, monitorPresentationPhase } from '$lib/stores/monitor.svelte';
 	import { refreshReplayBuffer } from '$lib/stores/replayBuffer.svelte';
 	import { obsSources } from '$lib/stores/sources.svelte';
 	import { bestTimes } from '$lib/stores/bestTimes.svelte';
@@ -91,6 +91,7 @@
 	cvLanguage={monitor.cvLanguage}
 	replaySaves={monitor.replaySaves}
 	match={monitor.match}
+	runContext={monitorRunContext}
 	fps={monitor.fps}
 	showMonitorFps={settings.values.showMonitorFps}
 	showInGameTimer={settings.values.showInGameTimer}

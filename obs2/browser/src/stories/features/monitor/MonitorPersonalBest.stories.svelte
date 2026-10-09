@@ -48,3 +48,7 @@
 <Story name="For Your Eyes Only: Cancelled" args={{ design: 'debug', scenario: 'cancelled' }} />
 <Story name="For Your Eyes Only: Skipped stats" args={{ design: 'debug', scenario: 'statsSkipped' }} />
 <Story name="For Your Eyes Only: Back to selection" args={{ design: 'debug', scenario: 'selection' }} />
+
+<Story name="Mission glass: Return during gameplay" args={{ design: 'mission-glass', scenario: 'restored' }} />
+<Story name="Signal band: Return during gameplay" args={{ design: 'signal-band', scenario: 'restored' }} />
+<Story name="For Your Eyes Only: Return during gameplay" args={{ design: 'debug', scenario: 'restored' }} />

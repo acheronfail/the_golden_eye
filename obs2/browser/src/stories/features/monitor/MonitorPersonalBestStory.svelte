@@ -2,10 +2,12 @@
 	import { onMount, tick } from 'svelte';
 	import type { RecordingStatus } from '$lib/api';
 	import MonitorView from '$lib/features/monitor/MonitorView.svelte';
+	import { MonitorRunContext } from '$lib/features/monitor/monitorRunContext.svelte';
 	import type { MonitorDesign } from '$lib/features/monitor/monitorView';
 	import { monitorBaseArgs, monitorClockState, monitorMatch } from './monitorStoryFixtures';
 
 	type Scenario =
+		| 'restored'
 		| 'waiting'
 		| 'start'
 		| 'startMissing'
@@ -20,6 +22,9 @@
 		| 'statsSkipped'
 		| 'selection';
 	let { design, scenario }: { design: MonitorDesign; scenario: Scenario } = $props();
+	const restoredContext = new MonitorRunContext();
+	restoredContext.update(monitorMatch('start'), 'started');
+	restoredContext.update(monitorMatch('unknown'), 'started');
 	let launched = $state(false);
 	const missing = $derived(scenario === 'startMissing' || scenario === 'playingMissing');
 	const recordingState = $derived<RecordingStatus | null>(
@@ -29,7 +34,7 @@
 				? 'started'
 				: scenario === 'selection'
 					? null
-					: ['start', 'startMissing', 'playing', 'playingMissing'].includes(scenario)
+					: ['start', 'startMissing', 'playing', 'playingMissing', 'restored'].includes(scenario)
 						? 'started'
 						: scenario === 'stats'
 							? 'complete'
@@ -64,7 +69,8 @@
 	{...monitorBaseArgs}
 	{design}
 	{recordingState}
-	{match}
+	match={scenario === 'restored' ? monitorMatch('unknown') : match}
+	runContext={scenario === 'restored' ? restoredContext : undefined}
 	bestTimes={missing ? [] : monitorBaseArgs.bestTimes}
 	showInGameTimer={true}
 	wallClockState={{
