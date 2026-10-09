@@ -140,6 +140,7 @@ pub struct CvMatcher {
     parts: Vec<Mat>,
     diffs: Vec<Mat>,
     colon: Mat,
+    alternate_colon: Mat,
     digits: Vec<Mat>,
     // Banner templates that identify the screen: `objectives` (level-start),
     // `statistics` (post-mission stats), `special` (007 options), `difficulty`
@@ -196,6 +197,7 @@ impl CvMatcher {
         // Load base glyph templates once; mission and time matching both scale from
         // these in-memory mats.
         let colon = load_template(templates_dir, lang, "colon")?;
+        let alternate_colon = load_template(templates_dir, if lang == "jp" { "en" } else { "jp" }, "colon")?;
         let mut digits = Vec::new();
         for v in 0..=9 {
             digits.push(load_template(templates_dir, lang, &format!("digit{v}"))?);
@@ -221,6 +223,7 @@ impl CvMatcher {
             parts,
             diffs,
             colon,
+            alternate_colon,
             digits,
             objectives,
             statistics,
@@ -781,7 +784,7 @@ impl CvMatcher {
         // Entry gate: the stats overlay (briefing and stats screens) carries a
         // stack of left-aligned header rows ending in colons. Two strong colons
         // admit both screens, reject gameplay, and fix the scale reused below.
-        let header = detect_header_colons(
+        let mut header = detect_header_colons(
             &frame,
             &self.colon,
             &gate_scales,
@@ -798,9 +801,28 @@ impl CvMatcher {
                 (HEADER_REGION_X, HEADER_REGION_Y, HEADER_REGION_W, HEADER_REGION_H),
             ),
         );
-        let has_header = header.count >= 2 && header.peak >= TIME_GATE_STRONG_COLON;
+        let mut has_header = header.count >= 2 && header.peak >= TIME_GATE_STRONG_COLON;
+        let mut header_colon = &self.colon;
+        let mut alternate_header = false;
+        // A ROM switch can invalidate both the active colon template and its
+        // cached scale. Recover only enough geometry to check the language tab.
+        if !has_header {
+            let alternate = detect_header_colons(
+                &frame,
+                &self.alternate_colon,
+                &scales,
+                TIME_GATE_COLON_THRESHOLD,
+                (HEADER_REGION_X, HEADER_REGION_Y, HEADER_REGION_W, HEADER_REGION_H),
+            )?;
+            if alternate.count >= 2 && alternate.peak >= TIME_GATE_STRONG_COLON {
+                header = alternate;
+                header_colon = &self.alternate_colon;
+                has_header = true;
+                alternate_header = true;
+            }
+        }
         if self.diagnostics {
-            for (i, r) in header_colon_regions(&frame, &self.colon, header.scale, TIME_GATE_COLON_THRESHOLD)?
+            for (i, r) in header_colon_regions(&frame, header_colon, header.scale, TIME_GATE_COLON_THRESHOLD)?
                 .into_iter()
                 .enumerate()
             {
@@ -863,6 +885,16 @@ impl CvMatcher {
         }
 
         timer.lap("previous tab language");
+
+        // Alternate header geometry must never feed the active language's
+        // level/time readers, even when the tab is missing or inconclusive.
+        if alternate_header {
+            result.match_regions = match_regions;
+            result.annotation_sets =
+                annotation_sets(watch_detection, &result.match_regions, search_regions, folder_region, Vec::new());
+            result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
+            return Ok(result);
+        }
 
         // The mission/part/difficulty labels always sit in the upper-left of the
         // stats overlay, so their template matching only needs the top-left corner

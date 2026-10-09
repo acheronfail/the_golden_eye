@@ -412,6 +412,47 @@ fn mission_scale_recovers_when_switching_from_dam_to_silo() {
 }
 
 #[test]
+fn language_detection_recovers_after_retrogem_rom_switch() {
+    let load = |fixture: &str, interpolation| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../frame_tests/screenshots-retrogem")
+            .join(fixture);
+        let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
+        let mut source = Mat::default();
+        imgproc::cvt_color_def(&bgr, &mut source, imgproc::COLOR_BGR2BGRA).unwrap();
+        let width = (source.cols() as f64 * WORK_HEIGHT as f64 / source.rows() as f64).round() as i32;
+        let mut frame = Mat::default();
+        imgproc::resize(&source, &mut frame, core::Size::new(width, WORK_HEIGHT), 0.0, 0.0, interpolation).unwrap();
+        frame
+    };
+    let jp = load("jp - select - 01.png", imgproc::INTER_AREA);
+    let fixture = "en - start - 07 - Agent - language-switch.png";
+    for interpolation in [imgproc::INTER_AREA, imgproc::INTER_LINEAR] {
+        let en = load(fixture, interpolation);
+        for warm in [false, true] {
+            let matcher = CvMatcher::new("jp", TEMPLATES_DIR).unwrap();
+            if warm {
+                let initial = matcher.match_level_from_bgra_frame(&jp).unwrap();
+                assert_eq!(initial.detected_lang.as_deref(), Some("jp"));
+            }
+            let switched = matcher.match_level_from_bgra_frame(&en).unwrap();
+            assert_eq!(
+                switched.detected_lang.as_deref(),
+                Some("en"),
+                "{fixture}, interpolation={interpolation}, warm={warm}"
+            );
+            assert_eq!(switched.screen, Screen::Unknown);
+            let matcher = CvMatcher::new("en", TEMPLATES_DIR).unwrap();
+            let start = matcher.match_level_from_bgra_frame(&en).unwrap();
+            assert_eq!((start.screen, start.mission, start.part, start.difficulty), (Screen::Start, 4, 1, 0));
+            let switched_back = matcher.match_level_from_bgra_frame(&jp).unwrap();
+            assert_eq!(switched_back.detected_lang.as_deref(), Some("jp"));
+            assert_eq!(switched_back.screen, Screen::Unknown);
+        }
+    }
+}
+
+#[test]
 fn tab_scale_cache_survives_dossier_language_and_resolution_changes() {
     let fixtures = [
         "screenshots-emu/en - start - 01 - Secret Agent.png",
