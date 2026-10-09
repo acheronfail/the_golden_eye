@@ -218,3 +218,12 @@ The CV unit regression checks both fixtures with area and bilinear resizing,
 cold caches, Dam-primed caches, and native-Depot-primed caches. Repeated reads also
 cross English cheat-menu and gameplay frames before returning to Depot. The frame
 harness checks both fixtures, including opposite-language rejection and recovery.
+
+### GPU sequence regressions
+
+The [Archives GPU sequences](sequences/archives-gpu/README.md) retain real monitor
+frames around screen transitions and across stationary screens. Run
+`just test-rust archives_gpu` alongside `just test-cv`: the sequence tests preserve
+one matcher across frames, exercise caches primed by other levels, and require
+correct identification from the first visible screen frame. Individual screenshot
+checks alone cannot establish stable live recognition.

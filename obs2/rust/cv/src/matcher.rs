@@ -66,6 +66,8 @@ use crate::{ActivePictureRegion, PhaseTimer, Result, detect_watch, watch};
 
 // Correlation needed to accept a mission/part/difficulty label match.
 const LABEL_THRESHOLD: f64 = 0.70;
+// Weak Roman-numeral matches can prefer the wrong part at a nearby scale.
+const LABEL_STRONG: f64 = 0.90;
 // Fraction of the frame searched for the mission/part/difficulty labels. They
 // always sit in the upper-left of the stats overlay, so only the top 50% /
 // left 60% needs to be searched.
@@ -120,8 +122,10 @@ pub fn match_level(bgra_frame: &impl ToInputArray, lang: &str, templates_dir: &s
 struct ScaleCache {
     src_w: i32,
     src_h: i32,
-    // Template scale on the downscaled work frame (gate, part/difficulty, times).
-    overlay_scale: f64,
+    // Header, label, and time templates can need different work-frame scales.
+    label_scale: f64,
+    header_scale: f64,
+    time_scale: f64,
     // Template scale on the native frame (mission digit).
     mission_scale: f64,
     // Native-resolution centre of the "Mission N:" colon, so a later frame reads
@@ -632,7 +636,7 @@ impl CvMatcher {
     // Identifies the overlay screen by matching each screen's banner word (and
     // report screens' status values) at the header-established scale; strongest
     // above threshold wins, else `Unknown`. Off-scale misses trigger a small sweep.
-    fn classify_screen(&self, frame: &Mat, scale: f64) -> Result<(Screen, Option<MatchRect>)> {
+    fn classify_screen(&self, frame: &Mat, scale: f64, recover: bool) -> Result<(Screen, Option<MatchRect>)> {
         // Sub-region of `frame` given as fractional (x, y, w, h).
         let region = |r: (f64, f64, f64, f64)| -> Result<Mat> {
             let (rx, ry, rw, rh) = r;
@@ -686,7 +690,7 @@ impl CvMatcher {
         // Recover an off-scale overlay only when the implied scale found nothing.
         // The long banner/status words are more scale-sensitive than the glyphs
         // that fix `scale`, so sweep 2.5% steps to +/-10%, nearest first, cheaply.
-        if best_score_v < SCREEN_THRESHOLD {
+        if recover && best_score_v < SCREEN_THRESHOLD {
             for m in [0.975, 1.025, 0.95, 1.05, 0.925, 1.075, 0.90, 1.10] {
                 search(scale * m, &mut best, &mut best_rect, &mut best_score_v)?;
                 if best_score_v >= SCREEN_THRESHOLD {
@@ -803,7 +807,7 @@ impl CvMatcher {
         let (src_w, src_h) = (gray.cols(), gray.rows());
         let hint = self.scale_cache.lock().ok().and_then(|c| *c).filter(|c| c.src_w == src_w && c.src_h == src_h);
         let gate_scales: Vec<f64> = match hint {
-            Some(c) => vec![c.overlay_scale],
+            Some(c) => vec![c.header_scale],
             None => scales.clone(),
         };
 
@@ -832,14 +836,29 @@ impl CvMatcher {
 
         // The dossier overlay (briefing and stats screens) carries a
         // stack of left-aligned header rows ending in colons. Two strong colons
-        // admit both screens, reject gameplay, and fix the scale reused below.
-        let header = detect_header_colons(
+        // admit both screens and reject gameplay before reading header values.
+        let mut header = detect_header_colons(
             &frame,
             &self.colon,
             &gate_scales,
             TIME_GATE_COLON_THRESHOLD,
             (HEADER_REGION_X, HEADER_REGION_Y, HEADER_REGION_W, HEADER_REGION_H),
         )?;
+        // A visible dossier can outgrow the cached gate scale after a screen
+        // change. Require a menu tab and banner before retrying the scale ladder.
+        if !(header.count >= 2 && header.peak >= TIME_GATE_STRONG_COLON)
+            && let Some(cached) = hint
+            && result.detected_lang.is_some()
+            && self.classify_screen(&frame, cached.label_scale, false)?.0 != Screen::Unknown
+        {
+            header = detect_header_colons(
+                &frame,
+                &self.colon,
+                &scales,
+                TIME_GATE_COLON_THRESHOLD,
+                (HEADER_REGION_X, HEADER_REGION_Y, HEADER_REGION_W, HEADER_REGION_H),
+            )?;
+        }
         self.push_work_search_region(
             &mut search_regions,
             &mapper,
@@ -992,14 +1011,15 @@ impl CvMatcher {
         } else {
             -1
         };
-        // Labels run on the downscaled frame at the gate's scale.
-        let mut global_scale = header.scale;
+        // Seed cold label/time reads from the gate, then keep their scales separate.
+        let mut label_scale = hint.map_or(header.scale, |cached| cached.label_scale);
+        let mut time_scale = hint.map_or(header.scale, |cached| cached.time_scale);
         timer.lap("mission");
 
         // The difficulty row sits one glyph-line above the mission row, the part
         // row one below. Anchoring each label search to a short band around the
         // mission row (three colon-heights each way) cuts label matching severalfold.
-        let colon_h = (self.colon.rows() as f64 * global_scale).round() as i32;
+        let colon_h = (self.colon.rows() as f64 * label_scale).round() as i32;
         let mission_cy = mission_cy_frame;
         let pad = ((colon_h as f64) * 0.4) as i32;
 
@@ -1018,7 +1038,7 @@ impl CvMatcher {
             let part = best_label_near_row(
                 &label_region,
                 &self.parts,
-                global_scale,
+                label_scale,
                 LABEL_THRESHOLD,
                 mission_cy + (colon_h as f64 * HEADER_ROW_OFFSET).round() as i32,
                 colon_h,
@@ -1033,6 +1053,27 @@ impl CvMatcher {
         } else {
             -1
         };
+        // A merely acceptable part match can confuse ii with v. Refine its
+        // scale within the anchored row without changing the time-reader scale.
+        if mission_cy >= 0 && part_rect.is_some_and(|rect| rect.score < LABEL_STRONG) {
+            for &scale in &scales {
+                let height = (self.colon.rows() as f64 * scale).round() as i32;
+                if let Some((part, rect)) = best_label_near_row(
+                    &label_region,
+                    &self.parts,
+                    scale,
+                    LABEL_THRESHOLD,
+                    mission_cy + (height as f64 * HEADER_ROW_OFFSET).round() as i32,
+                    height,
+                    false,
+                )? && part_rect.is_none_or(|best| rect.score > best.score)
+                {
+                    result.part = part;
+                    part_rect = Some(rect);
+                    label_scale = scale;
+                }
+            }
+        }
         // Fall back to a full-region scale sweep when the anchored band misses,
         // which also recovers the true scale on off-scale captures.
         if result.part < 0 {
@@ -1047,7 +1088,8 @@ impl CvMatcher {
             if part >= 0 {
                 result.part = part;
                 part_rect = rect;
-                global_scale = part_scale;
+                label_scale = part_scale;
+                time_scale = part_scale;
                 dbg_cv!("[scale recovery] part={part} scale={part_scale:.3}");
             }
         }
@@ -1056,7 +1098,7 @@ impl CvMatcher {
         }
         timer.lap("part label");
 
-        let colon_h = (self.colon.rows() as f64 * global_scale).round() as i32;
+        let colon_h = (self.colon.rows() as f64 * label_scale).round() as i32;
         let mut difficulty_rect = None;
         let mut difficulty_label = if mission_cy >= 0 && colon_h > 0 {
             let y0 = (mission_cy - colon_h * 3).clamp(0, label_region.rows());
@@ -1072,7 +1114,7 @@ impl CvMatcher {
             let difficulty = best_label_near_row(
                 &label_region,
                 &self.diffs,
-                global_scale,
+                label_scale,
                 LABEL_THRESHOLD,
                 mission_cy - (colon_h as f64 * HEADER_ROW_OFFSET).round() as i32,
                 colon_h,
@@ -1095,7 +1137,7 @@ impl CvMatcher {
                 Rect::new(0, 0, label_region.cols(), label_region.rows()),
             );
             if let Some((difficulty, r)) =
-                best_label_match_with_wider_ties(&label_region, &self.diffs, global_scale, LABEL_THRESHOLD, true)?
+                best_label_match_with_wider_ties(&label_region, &self.diffs, label_scale, LABEL_THRESHOLD, true)?
             {
                 difficulty_label = difficulty;
                 difficulty_rect = Some(r);
@@ -1107,8 +1149,8 @@ impl CvMatcher {
         }
         timer.lap("difficulty label");
 
-        // Locate the digit and colon glyphs at the same scale.
-        let glyphs = self.scaled_glyphs(global_scale)?;
+        // Keep time glyphs at their independently learned scale.
+        let glyphs = self.scaled_glyphs(time_scale)?;
         let colon_tmpl = &glyphs.colon;
         let digit_tmpls = &glyphs.digits;
         let digit_width_sum: i32 = digit_tmpls.iter().map(|t| t.cols()).sum();
@@ -1129,7 +1171,7 @@ impl CvMatcher {
             "screen status search",
             fractional_rect(frame.cols(), frame.rows(), SCREEN_STATUS_REGION),
         );
-        let (screen, screen_rect) = self.classify_screen(&frame, global_scale)?;
+        let (screen, screen_rect) = self.classify_screen(&frame, label_scale, true)?;
         result.screen = screen;
         if let Some(r) = screen_rect {
             self.push_work_region(&mut match_regions, &mapper, format!("screen {}", screen.as_str()), r);
@@ -1177,30 +1219,33 @@ impl CvMatcher {
         result.raw_times = times;
         timer.lap("time assembly");
 
+        let start_tab_visible = result.screen == Screen::Stats
+            && self.detect_tab_language(&frame, header.scale, true, tab_scale, true)?.is_some();
+        reject_untrusted_screen(&mut result, start_tab_visible);
+        timer.lap("screen validation");
+
         // Learn or recover the scale from this fully-resolved overlay so
         // later frames at this resolution fast-path the scale search. Require
         // every header marker so a partial match never poisons the cache.
-        if (hint.is_none() || mission_retry)
+        if result.screen != Screen::Unknown
             && has_overlay_markers(&result)
             && let Ok(mut cache) = self.scale_cache.lock()
         {
             *cache = Some(ScaleCache {
                 src_w,
                 src_h,
-                overlay_scale: global_scale,
+                label_scale,
+                header_scale: header.scale,
+                time_scale,
                 mission_scale,
                 mission_cx,
                 mission_cy: mission_cy_native,
             });
             dbg_cv!(
-                "[scale cache] stored overlay={global_scale:.3} mission={mission_scale:.3} colon=({mission_cx},{mission_cy_native}) for {src_w}x{src_h}"
+                "[scale cache] stored header={:.3} labels={label_scale:.3} times={time_scale:.3} mission={mission_scale:.3} colon=({mission_cx},{mission_cy_native}) for {src_w}x{src_h}",
+                header.scale
             );
         }
-
-        let start_tab_visible = result.screen == Screen::Stats
-            && self.detect_tab_language(&frame, header.scale, true, tab_scale, true)?.is_some();
-        reject_untrusted_screen(&mut result, start_tab_visible);
-        timer.lap("screen validation");
 
         result.runtime_ms = timer.start().elapsed().as_secs_f64() * 1000.0;
         result.match_regions = match_regions;
