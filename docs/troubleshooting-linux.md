@@ -5,7 +5,8 @@ These instructions are for OBS Studio installed through Flatpak.
 ## Contents
 
 - [Computer slows down while saving replays](#computer-slows-down-while-saving-replays)
-  - [Before changing the output path](#before-changing-the-output-path)
+  - [Use a separate drive (recommended)](#use-a-separate-drive-recommended)
+  - [RAM-backed storage precautions](#ram-backed-storage-precautions)
   - [Set up RAM-backed replay storage](#set-up-ram-backed-replay-storage)
   - [Check space and clean up](#check-space-and-clean-up)
   - [Return to disk storage](#return-to-disk-storage)
@@ -17,11 +18,35 @@ same disk as the operating system. OBS saves the entire buffer before the plugin
 deletes its temporary source. At 10 Mb/s, a 20-minute buffer is roughly 1.5 GB per save; deleting it
 afterwards does not undo disk writes already performed.
 
-If the slowdowns coincide with replay saves and you have enough spare RAM, try saving temporary
-replays in `/dev/shm`. This is RAM-backed storage, so only the finished clips need to be written to
-your normal disk. It will not fix unrelated CPU, GPU, or memory problems.
+If slowdowns coincide with replay saves, **use a separate physical drive from the one your operating
+system is installed on, where possible**. This reduces competition between replay writes and disk
+access needed by other applications. A different folder or partition on the same physical drive does
+not provide this separation. It will not fix unrelated CPU, GPU, or memory problems.
 
-### Before changing the output path
+### Use a separate drive (recommended)
+
+1. Stop the plugin monitor, replay buffer, and any recording, and let pending saves finish.
+2. Choose a writable folder on another mounted drive with enough free space for full replay saves,
+   finished clips, and any ordinary recordings. Make sure OBS can access it through Flatpak.
+3. Set OBS's **Settings → Output → Recording → Recording Path** to that folder. In the plugin, set
+   **“Where to save clips?”** to a folder on the same separate drive so finished clips also avoid
+   writes to the OS drive.
+4. Start monitoring and save a test run. Confirm the finished clip appears in the chosen folder and
+   check whether the computer remains responsive during saves.
+
+Keep the drive connected and mounted at the same path whenever you use these settings. OBS uses its
+Recording Path for ordinary recordings and manual replay saves too. Remove accidental **Save
+Replay** hotkeys, especially single keys such as `S`, to avoid unwanted full-buffer saves filling
+the drive.
+
+This keeps recordings on persistent storage without the RAM usage and temporary-file caveats below.
+Results depend on the drive and workload: a separate drive can still become slow or full.
+
+If another drive is unavailable or replay saves still cause stalls, and you have enough spare RAM,
+try `/dev/shm` as an alternative. This keeps temporary replay writes in RAM while finished clips are
+saved to disk.
+
+### RAM-backed storage precautions
 
 - **Set the plugin's “Where to save clips?” setting to a permanent folder**, such as a folder in
   your Videos directory. Do not leave it at the default: the default follows OBS's replay output

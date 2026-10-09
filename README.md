@@ -56,7 +56,7 @@ you know.
 ## Troubleshooting / FAQ
 
 - [Linux troubleshooting](docs/troubleshooting-linux.md): computer slowdowns while saving replays,
-  RAM-backed output setup, and recording precautions.
+  separate-drive and RAM-backed output setup, and recording precautions.
 
 If the plugin misbehaves, [enabling debug logging](docs/debug-logging.md) helps you (and
 maintainers) see what's going on.
