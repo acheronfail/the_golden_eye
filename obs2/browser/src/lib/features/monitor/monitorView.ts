@@ -7,6 +7,7 @@ import type {
 	RunClip
 } from '$lib/api';
 import { monitorPhaseStyle, monitorPresentationPhase, type MonitorPhase } from '$lib/stores/monitor.svelte';
+import type { MonitorRunContext } from './monitorRunContext.svelte';
 import type { MonitorWallClocks } from './monitorWallClocks.svelte';
 
 export type MonitorTransition = 'starting' | 'stopping' | null;
@@ -22,6 +23,7 @@ export interface MonitorViewProps {
 	cvLanguage?: 'en' | 'jp' | null;
 	replaySaves?: ReplaySaveStatus[];
 	match?: LevelMatch | null;
+	runContext?: MonitorRunContext;
 	fps?: MonitorFps | null;
 	showMonitorFps?: boolean;
 	showInGameTimer?: boolean;

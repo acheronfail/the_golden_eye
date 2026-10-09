@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { LevelMatch, MonitorWallClockState, RecordingStatus, RunClip } from '$lib/api';
 import { DEFAULT_SETTINGS } from '$lib/generated/settings';
 import MonitorView from './MonitorView.svelte';
+import { MonitorRunContext } from './monitorRunContext.svelte';
 import type { MonitorDesign } from './monitorView';
 
 const match = (screen: LevelMatch['screen'], times: LevelMatch['times'] = null): LevelMatch => ({
@@ -62,6 +63,23 @@ const recentRun: RunClip = {
 };
 
 describe.each<MonitorDesign>(['signal-band', 'mission-glass'])('%s monitor', (design) => {
+	it('restores level, difficulty and PB after leaving and remounting with another design', () => {
+		const runContext = new MonitorRunContext();
+		runContext.update({ ...match('start'), mission: 1, part: 2, difficulty: 2 }, 'started');
+		runContext.update(match('unknown'), 'started');
+		const shared = { runContext, bestTimes: [recentRun] };
+		const view = render(MonitorView, { ...props(design, 'started', match('unknown')), ...shared });
+		expect(screen.getByText('Facility / 00 Agent')).toBeInTheDocument();
+		view.unmount();
+
+		runContext.update(match('unknown'), 'started');
+		const nextDesign = design === 'signal-band' ? 'mission-glass' : 'signal-band';
+		render(MonitorView, { ...props(nextDesign, 'started', match('unknown')), ...shared });
+		expect(screen.getByText('Facility / 00 Agent')).toHaveAttribute('data-available', 'true');
+		expect(screen.getByText('Personal Best')).toBeInTheDocument();
+		expect(screen.getByText('0:58')).toBeInTheDocument();
+	});
+
 	it('shows session and level wall clocks with an immediate styled tooltip', async () => {
 		render(MonitorView, { ...props(design, 'started', match('start')), showInGameTimer: true });
 

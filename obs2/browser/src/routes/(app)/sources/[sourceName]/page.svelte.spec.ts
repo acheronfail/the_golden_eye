@@ -2,7 +2,8 @@ import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SourcePage from './+page.svelte';
-import { monitor } from '$lib/stores/monitor.svelte';
+import { applyMonitorSnapshot, monitor } from '$lib/stores/monitor.svelte';
+import type { AppSnapshot, LevelMatch } from '$lib/api';
 import { settings } from '$lib/stores/settings.svelte';
 import { obsSources } from '$lib/stores/sources.svelte';
 
@@ -57,20 +58,54 @@ vi.mock('$lib/api', async (importOriginal) => {
 	};
 });
 
+const monitorSnapshot = (match: LevelMatch | null = null): AppSnapshot => ({
+	monitor: {
+		enabled: true,
+		sourceName: 'N64 Capture',
+		wallClocks: {
+			sessionStartedAtUnixMs: null,
+			sessionElapsedMs: 0,
+			sessionRunning: true,
+			levelStartedAtUnixMs: null,
+			levelElapsedMs: 0,
+			levelRunning: false,
+			levelPaused: false,
+			levelStartReason: null,
+			levelTimerPhase: 'idle',
+			introSwirlDelayMs: null,
+			fadeDetection: null
+		}
+	},
+	match,
+	recordingState: match ? 'started' : null,
+	replaySaves: [],
+	runCatalogSync: null,
+	sources: [],
+	replayBuffer: {
+		enabled: true,
+		available: true,
+		active: true,
+		maxSeconds: 1200,
+		outputDirectory: '/captures',
+		defaultCompletedOutputPath: '/captures/GoldenEye'
+	},
+	settingsStatus: {
+		settings: settings.defaults,
+		defaults: settings.defaults,
+		configPath: '/tmp/the-golden-eye/settings.json',
+		pluginVersion: 'test',
+		fileError: null
+	},
+	update: { phase: 'idle', available: null }
+});
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.api.getBestTimes.mockResolvedValue([]);
 	mocks.page.url = new URL('http://localhost/sources/N64%20Capture');
 	obsSources.items = [{ name: 'N64 Capture', id: 'video_capture_device' }];
 	obsSources.loaded = true;
-	monitor.status = {
-		enabled: true,
-		sourceName: 'N64 Capture',
-		recordingState: null
-	};
-	monitor.loaded = true;
-	monitor.match = null;
-	monitor.recordingState = null;
+	applyMonitorSnapshot(monitorSnapshot());
 	monitor.chromePhase = null;
 	settings.applyReloaded(
 		{
@@ -96,19 +131,28 @@ beforeEach(() => {
 });
 
 describe('/sources/[sourceName]', () => {
-	it('loads the catalog PB for the detected launch screen', async () => {
-		monitor.recordingState = 'started';
-		monitor.match = { screen: 'start', mission: 1, part: 2, difficulty: 2, times: null, runtime_ms: 1 };
+	it.each(['mission-glass', 'signal-band'] as const)('retains the catalog PB when returning in %s', async (design) => {
+		const start: LevelMatch = { screen: 'start', mission: 1, part: 2, difficulty: 2, times: null, runtime_ms: 1 };
+		applyMonitorSnapshot(monitorSnapshot(start));
 		mocks.api.getBestTimes.mockResolvedValue([
 			{
 				path: '',
 				metadata: { level: 'Facility', difficulty: '00 Agent', status: 'complete', timeSeconds: 58 }
 			}
 		]);
-		render(SourcePage, { props: { data: {}, params: { sourceName: 'N64 Capture' } } });
+		const view = render(SourcePage, { props: { data: {}, params: { sourceName: 'N64 Capture' } } });
 		expect(await screen.findByText('Personal Best')).toBeInTheDocument();
 		expect(await screen.findByText('0:58')).toBeInTheDocument();
 		expect(mocks.api.getBestTimes).toHaveBeenCalled();
+		view.unmount();
+
+		settings.values.monitorDesign = design;
+		applyMonitorSnapshot(monitorSnapshot({ ...start, screen: 'unknown', mission: -1, part: -1, difficulty: -1 }));
+		render(SourcePage, { props: { data: {}, params: { sourceName: 'N64 Capture' } } });
+		expect(await screen.findByText('Facility / 00 Agent')).toHaveAttribute('data-available', 'true');
+		expect(await screen.findByText('Personal Best')).toBeInTheDocument();
+		expect(await screen.findByText('0:58')).toBeInTheDocument();
+		expect(mocks.api.startMonitor).not.toHaveBeenCalled();
 	});
 
 	it('reuses an active monitor when its snapshot arrives after the page mounts', async () => {

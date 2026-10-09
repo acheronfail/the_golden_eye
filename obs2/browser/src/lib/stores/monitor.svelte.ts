@@ -1,3 +1,4 @@
+import { MonitorRunContext } from '$lib/features/monitor/monitorRunContext.svelte';
 import {
 	type AppSnapshot,
 	type LevelMatch,
@@ -147,6 +148,8 @@ export const monitorPhaseStyle = (state: RecordingStatus | null): MonitorPhaseSt
 
 /** Shared, reactive monitor state. Refreshed by the root layout on navigation;
  * the live monitor socket keeps route remounts from losing recorder UI state. */
+export const monitorRunContext = new MonitorRunContext();
+
 export const monitor = $state<{
 	status: MonitorStatus | null;
 	loaded: boolean;
@@ -179,6 +182,7 @@ export const monitorHref = (status: MonitorStatus | null = monitor.status): stri
 };
 
 const clearRunState = () => {
+	monitorRunContext.reset();
 	monitor.match = null;
 	monitor.fps = null;
 	monitor.recordingState = null;
@@ -198,6 +202,8 @@ export const applyMonitorSnapshot = (snapshot: AppSnapshot): void => {
 	const nextSource = nextStatus.enabled ? nextStatus.sourceName : null;
 	const previousRecordingState = previousSource === nextSource ? monitor.recordingState : null;
 	const nextRecordingState = nextStatus.enabled ? visibleRecordingState(snapshot.recordingState) : null;
+	if (!nextStatus.enabled || previousSource !== nextSource) monitorRunContext.reset();
+	if (nextStatus.enabled) monitorRunContext.update(snapshot.match, nextRecordingState);
 	monitor.status = nextStatus;
 	monitor.loaded = true;
 	monitor.match = snapshot.match;
@@ -226,6 +232,7 @@ export const applyRecordingSaved = (_saved: RecordingSaved): void => {
 		monitor.recordingState === 'statsSkipped'
 	) {
 		monitor.recordingState = null;
+		monitorRunContext.personalBestIdentity = null;
 	}
 };
 
