@@ -37,6 +37,36 @@ the reverse language switch. Bilinear downscaling with a warmed JP matcher repro
 language detection on the original code. The companion `language-switch-gpu-capture.png` fixture
 contains the actual 853×480 monitor input captured through the frame-dump API.
 
+Language detection now probes PREVIOUS before the header gate, checking both languages at the
+cached tab scale each frame. If that fails, it searches nearby scales at most once per 250 ms
+(immediately for a new resolution). A recognized header can also refine a missed tab search.
+Level/time parsing still requires the header; language switching does not.
+
+On 2026-10-09, release benchmarks compared the original matcher, the alternate-colon fallback,
+and the tab-first implementation. Median matcher times exclude OBS rendering and capture:
+
+| Frame         | Original | Colon fallback | Tab first |
+| ------------- | -------- | -------------- | --------- |
+| EN gameplay   | 3.41 ms  | 6.36 ms        | 4.90 ms   |
+| EN level grid | 2.59 ms  | 5.43 ms        | 3.81 ms   |
+| JP level grid | 4.65 ms  | 7.88 ms        | 6.09 ms   |
+| EN start      | 4.68 ms  | 4.63 ms        | 4.52 ms   |
+| JP statistics | 9.42 ms  | 9.57 ms        | 9.53 ms   |
+
+The grouped harness used 150 samples and 10 warmups per scenario with OBS capture emulation:
+
+```sh
+cd frame_tests
+GE_CV_BENCH_SAMPLES=150 GE_CV_BENCH_WARMUPS=10 \
+  npm run bench -- '^retrogem/(en|jp)/(unknown|levels|start|stats)$'
+```
+
+Gameplay was measured separately with the same CLI benchmark, 300 samples, 10 warmups, and
+`en - start - 07 - Agent - language-switch.png` priming the cache before
+`en - unknown - gameplay - not-black-frame.png`. Tab-first gameplay p95 was 6.37 ms and maximum
+12.28 ms. Periodic recovery still creates slower frames; these unpaced measurements do not model
+its exact frequency at 60 FPS or guarantee timings on other machines.
+
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup and the other test suites.
 
 ## Stats-screen performance capture

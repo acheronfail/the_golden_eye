@@ -456,6 +456,24 @@ fn language_detection_recovers_after_retrogem_rom_switch() {
 }
 
 #[test]
+fn previous_tab_detects_language_without_header_markers() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../frame_tests/screenshots-retrogem/en - start - 07 - Agent - language-switch-gpu-capture.png");
+    let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
+    let mut frame = Mat::default();
+    imgproc::cvt_color_def(&bgr, &mut frame, imgproc::COLOR_BGR2BGRA).unwrap();
+    let header = Rect::new(0, 0, frame.cols() * 2 / 3, frame.rows() * 3 / 5);
+    imgproc::rectangle(&mut frame, header, core::Scalar::all(0.0), imgproc::FILLED, imgproc::LINE_8, 0).unwrap();
+    for configured in ["en", "jp"] {
+        let matcher = CvMatcher::new(configured, TEMPLATES_DIR).unwrap();
+        let result = matcher.match_level_from_bgra_frame(&frame).unwrap();
+        assert_eq!(result.detected_lang.as_deref(), Some("en"), "{configured}");
+        assert_eq!(result.screen, Screen::Unknown);
+        assert_eq!((result.mission, result.part, result.difficulty), (-1, -1, -1));
+    }
+}
+
+#[test]
 fn tab_scale_cache_survives_dossier_language_and_resolution_changes() {
     let fixtures = [
         "screenshots-emu/en - start - 01 - Secret Agent.png",
@@ -600,21 +618,25 @@ fn detected_dossier_language_does_not_invalidate_statistics() {
 }
 
 #[test]
-fn language_is_not_detected_on_gameplay_or_level_grid() {
+fn language_detection_uses_menu_tabs_but_rejects_gameplay() {
     for configured in ["en", "jp"] {
         let matcher = CvMatcher::new(configured, TEMPLATES_DIR).unwrap();
-        for fixture in [
-            "screenshots-emu/en - levels.png",
-            "screenshots-emu/jp - levels.png",
-            "screenshots-retrogem/en - unknown - gameplay - not-black-frame.png",
+        for (fixture, expected) in [
+            ("screenshots-emu/en - levels.png", Some("en")),
+            ("screenshots-emu/jp - levels.png", None),
+            ("screenshots-retrogem/en - unknown - main-menu.png", Some("en")),
+            ("screenshots-retrogem/jp - unknown - main-menu.png", Some("jp")),
+            ("screenshots-retrogem/en - unknown - cheat-options - pp7-gold.png", Some("en")),
+            ("screenshots-retrogem/jp - unknown - cheat-options - pp7-gold.png", Some("jp")),
+            ("screenshots-retrogem/en - unknown - gameplay - not-black-frame.png", None),
         ] {
             let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests").join(fixture);
             let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
             let mut bgra = Mat::default();
             imgproc::cvt_color_def(&bgr, &mut bgra, imgproc::COLOR_BGR2BGRA).unwrap();
             assert_eq!(
-                matcher.match_level_from_bgra_frame(&bgra).unwrap().detected_lang,
-                None,
+                matcher.match_level_from_bgra_frame(&bgra).unwrap().detected_lang.as_deref(),
+                expected,
                 "{configured}: {fixture}"
             );
         }
