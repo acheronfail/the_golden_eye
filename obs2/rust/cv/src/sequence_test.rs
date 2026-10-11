@@ -6,6 +6,49 @@ use crate::CvMatcher;
 
 const TEMPLATES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../cv_templates");
 
+#[test]
+fn startup_corruption_cannot_commit_capture_calibration() {
+    let root = fixture_root().join("sequences/startup-calibration");
+    let corrupt = std::fs::read(root.join("corrupted-signal.png")).unwrap();
+    let start = std::fs::read(root.join("start.png")).unwrap();
+    for language in ["jp", "en"] {
+        let matcher = CvMatcher::new(language, TEMPLATES).unwrap();
+        for _ in 0..3 {
+            let result = matcher.match_level_from_encoded_image(&corrupt).unwrap().0;
+            assert_eq!(result.screen, crate::Screen::Unknown);
+            assert!(result.detected_lang.is_none());
+            assert!(matcher.capture_region().is_none(), "corruption must not reshape future frames");
+        }
+        let result = matcher.match_level_from_encoded_image(&start).unwrap().0;
+        assert_eq!(result.detected_lang.as_deref(), Some("en"));
+        assert!(matcher.capture_region().is_none(), "pillarboxed input must retain its geometry");
+        if language == "en" {
+            assert_eq!(
+                (result.screen, result.mission, result.part, result.difficulty),
+                (crate::Screen::Start, 6, 5, 0)
+            );
+        }
+    }
+}
+
+#[test]
+fn confirmed_dossier_still_calibrates_stretched_capture() {
+    use opencv::{core, imgcodecs, imgproc};
+
+    let path = fixture_root().join("screenshots-av2hdmi/en - start - 10 - Agent.png");
+    let original = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
+    let mut stretched = core::Mat::default();
+    imgproc::resize(&original, &mut stretched, core::Size::new(854, 480), 0.0, 0.0, imgproc::INTER_LINEAR).unwrap();
+    let mut bgra = core::Mat::default();
+    imgproc::cvt_color_def(&stretched, &mut bgra, imgproc::COLOR_BGR2BGRA).unwrap();
+    for language in ["jp", "en"] {
+        let matcher = CvMatcher::new(language, TEMPLATES).unwrap();
+        let result = matcher.match_level_from_bgra_frame(&bgra).unwrap();
+        assert_eq!(result.detected_lang.as_deref(), Some("en"));
+        assert!(matcher.capture_region().is_some(), "confirmed stretched input must still reach GPU correction");
+    }
+}
+
 #[derive(Deserialize)]
 struct Capture {
     width: u32,

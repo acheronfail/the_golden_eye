@@ -7,7 +7,7 @@ use std::time::Instant;
 use ge_cv::{WatchDetector, detect_black_frame, detect_watch};
 use tokio::sync::broadcast;
 
-use super::matcher::{MonitorMatcher, switch_detected_language};
+use super::matcher::{CalibrationRecovery, MonitorMatcher, switch_detected_language};
 use super::session::{RunSession, unix_time_ms};
 use super::throughput::ThroughputMeter;
 use super::timing::MonitorTiming;
@@ -50,6 +50,7 @@ impl FrameWorker {
 
     pub(super) fn run(mut self, mut source: ObsSource, session: &mut RunSession) {
         let mut last_watch_presentation = None;
+        let mut calibration_recovery = CalibrationRecovery::default();
         loop {
             let diagnostics_enabled = self.annotations_enabled.load(Ordering::Acquire);
             if diagnostics_enabled != self.last_diagnostics_enabled {
@@ -61,19 +62,23 @@ impl FrameWorker {
             // paused/stalled source can't stall (and eventually roll out of the
             // replay buffer) a scheduled save.
             let deadline = session.pending_fire_at();
-            let (result, black_frame, watch_signal, observed_at_unix_ms, match_ms, stats) = match source
+            let (result, black_frame, watch_signal, observed_at_unix_ms, match_ms, recover, stats) = match source
                 .capture_with_stats_until(deadline, |bytes, w, h| {
                     let observed_at_unix_ms = unix_time_ms();
                     let match_started = self.monitor_timing.enabled().then(Instant::now);
                     let result = self.matcher.match_frame(bytes, w, h);
+                    let recover = result.as_ref().is_ok_and(|info| {
+                        calibration_recovery
+                            .observe(info, Instant::now(), || self.matcher.has_folder_candidate(bytes, w, h))
+                    });
                     let active_picture = self.matcher.active_picture_region(w, h);
                     let black_frame = detect_black_frame(bytes, w, h, active_picture);
                     let watch_signal = detect_watch(bytes, w, h, active_picture);
                     let match_ms = match_started.map(|started| started.elapsed().as_secs_f64() * 1000.0);
-                    (result, black_frame, watch_signal, observed_at_unix_ms, match_ms)
+                    (result, black_frame, watch_signal, observed_at_unix_ms, match_ms, recover)
                 }) {
-                Captured::Frame((result, black_frame, watch_signal, observed_at_unix_ms, match_ms), stats) => {
-                    (result, black_frame, watch_signal, observed_at_unix_ms, match_ms, stats)
+                Captured::Frame((result, black_frame, watch_signal, observed_at_unix_ms, match_ms, recover), stats) => {
+                    (result, black_frame, watch_signal, observed_at_unix_ms, match_ms, recover, stats)
                 }
                 Captured::Idle => {
                     session.poll_pending(Instant::now());
@@ -82,6 +87,18 @@ impl FrameWorker {
                 Captured::Closed => break,
             };
             let now = Instant::now();
+            if recover && source.has_capture_region() {
+                match MonitorMatcher::from_env(&self.active_lang) {
+                    Ok(matcher) => {
+                        if source.reset_capture_region() {
+                            self.matcher = matcher.with_diagnostics(diagnostics_enabled);
+                            session.poll_pending(now);
+                            continue;
+                        }
+                    }
+                    Err(err) => tracing::warn!(%err, "failed to recreate matcher for capture recovery"),
+                }
+            }
             if let Some(fps) = self.throughput.observe(now, stats.dropped_frames_total) {
                 let _ = self.event_tx.send(AppEvent::MonitorFps(fps));
             }

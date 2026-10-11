@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
 use ge_cv::{ActivePictureRegion, CaptureRegion, CvMatcher, LevelMatch, Screen};
 
@@ -6,6 +7,26 @@ use ge_cv::{ActivePictureRegion, CaptureRegion, CvMatcher, LevelMatch, Screen};
 /// can misread a look-alike digit on a single noisy capture frame; ~7 frames at
 /// 60fps hides that (~0.1s lag) without noticeably delaying a real change.
 const MONITOR_TIME_SMOOTHING_WINDOW: usize = 7;
+
+#[derive(Default)]
+pub(super) struct CalibrationRecovery {
+    unrecognized_since: Option<Instant>,
+}
+
+impl CalibrationRecovery {
+    pub(super) fn observe(&mut self, info: &LevelMatch, now: Instant, has_folder: impl FnOnce() -> bool) -> bool {
+        if info.screen != Screen::Unknown || info.detected_lang.is_some() {
+            self.unrecognized_since = None;
+            return false;
+        }
+        let since = self.unrecognized_since.get_or_insert(now);
+        if now.duration_since(*since) < Duration::from_secs(2) {
+            return false;
+        }
+        *since = now;
+        has_folder()
+    }
+}
 
 /// Smooth displayed times by voting independently on run, target, and best values.
 /// Reset on level/screen changes so a fast transition's first reading appears immediately.
@@ -103,6 +124,10 @@ impl MonitorMatcher {
 
     pub(super) fn capture_region(&self) -> Option<CaptureRegion> {
         self.matcher.capture_region()
+    }
+
+    pub(super) fn has_folder_candidate(&self, bytes: &[u8], width: u32, height: u32) -> bool {
+        self.matcher.has_folder_candidate(bytes, width, height).unwrap_or(false)
     }
 
     pub(super) fn active_picture_region(&self, width: u32, height: u32) -> ActivePictureRegion {

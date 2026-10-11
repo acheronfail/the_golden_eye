@@ -19,3 +19,9 @@ The crate detects GoldenEye overlays, black frames, and the in-game watch. Its p
 `cv_test.rs` checks public behavior and the calibration and screen-validation rules. The frame
 regression harness checks the matcher CLI against captured images. Run `just test-rust` for Rust
 tests and `just test-cv` for frame regressions from the repository root.
+
+Folder colour produces a tentative calibration; a recognized PREVIOUS tab (in either language)
+must confirm it before the matcher caches it or offers it to GPU capture. This prevents transient
+signal corruption from changing subsequent frames. The monitor retries original capture geometry
+after two seconds of unknown results when a fresh folder candidate is visible, discarding the old
+matcher and queued transformed frames. Recognized screens or languages reset that recovery timer.

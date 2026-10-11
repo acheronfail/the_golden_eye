@@ -1,5 +1,23 @@
 use super::*;
 
+#[test]
+fn capture_calibration_recovery_discards_buffered_transformed_frames_and_can_relearn() {
+    let mailbox = Arc::new(FrameMailbox::new(1));
+    let region = Arc::new(Mutex::new(None));
+    let mut source = ObsSource { mailbox: mailbox.clone(), region: region.clone() };
+    let transform = CaptureRegion { crop_x: 0.0, crop_y: 0.0, crop_w: 1.0, crop_h: 1.0, out_aspect: 4.0 / 3.0 };
+    source.set_capture_region(Some(transform));
+    source.set_capture_region(None);
+    assert!(region.lock().unwrap().is_some(), "normalized frames must not clear the transform");
+    mailbox.push(owned_frame(1, 640));
+    assert!(source.reset_capture_region());
+    assert!(region.lock().unwrap().is_none());
+    assert!(matches!(mailbox.recv_until(Some(Instant::now())), MailboxRecv::Timeout));
+    assert!(!source.reset_capture_region());
+    source.set_capture_region(Some(transform));
+    assert!(region.lock().unwrap().is_some(), "recovery must allow learning a corrected transform");
+}
+
 fn owned_frame(tag: u8, width: u32) -> Frame {
     Frame {
         buf: FrameBuf::Owned(vec![tag]),
