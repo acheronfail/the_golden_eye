@@ -13,6 +13,32 @@ const fn times(time: i32, target_time: Option<i32>, best_time: Option<i32>) -> O
 const TEMPLATES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../cv_templates");
 const SCREENSHOTS_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../frame_tests");
 
+#[test]
+fn calibration_recovery_retries_unrecognized_dossiers_without_resetting_gameplay() {
+    let matcher = MonitorMatcher::new("jp", TEMPLATES_DIR).unwrap();
+    let (bytes, w, h) = load_bgra("sequences/startup-calibration/squeezed-start.png");
+    let unknown = matcher.match_frame(&bytes, w, h).unwrap();
+    assert_eq!(unknown.screen, Screen::Unknown);
+    assert!(unknown.detected_lang.is_none());
+    let now = std::time::Instant::now();
+    let mut recovery = CalibrationRecovery::default();
+    assert!(!recovery.observe(&unknown, now, || panic!("probe must wait")));
+    assert!(!recovery.observe(&unknown, now + std::time::Duration::from_secs(1), || panic!("probe must wait")));
+    assert!(
+        recovery.observe(&unknown, now + std::time::Duration::from_secs(2), || {
+            matcher.has_folder_candidate(&bytes, w, h)
+        })
+    );
+    assert!(!recovery.observe(&unknown, now + std::time::Duration::from_secs(3), || panic!("probe must throttle")));
+    assert!(!recovery.observe(&unknown, now + std::time::Duration::from_secs(4), || false));
+
+    let (bytes, w, h) = load_bgra("sequences/startup-calibration/start.png");
+    let detected = matcher.match_frame(&bytes, w, h).unwrap();
+    assert_eq!(detected.detected_lang.as_deref(), Some("en"));
+    assert!(!recovery.observe(&detected, now + std::time::Duration::from_secs(5), || panic!("recognized language")));
+    assert!(!recovery.observe(&unknown, now + std::time::Duration::from_secs(6), || panic!("timer must reset")));
+}
+
 /// Decodes a screenshot into a contiguous BGRA byte buffer plus dimensions,
 /// matching the layout OBS hands the matcher.
 fn load_bgra(rel_path: &str) -> (Vec<u8>, u32, u32) {

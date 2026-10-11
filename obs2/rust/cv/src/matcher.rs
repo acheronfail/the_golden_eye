@@ -170,8 +170,8 @@ pub struct CvMatcher {
     // Scale learned from the first resolved overlay; reused to fast-path every
     // later frame at the same source resolution.
     scale_cache: Mutex<Option<ScaleCache>>,
-    // Aspect correction learned from the first frame that shows a manilla
-    // folder; reused for every later frame at the same source resolution.
+    // Aspect correction learned from a folder with a recognized menu tab;
+    // reused for every later frame at the same source resolution.
     calibration_cache: Mutex<Option<FrameCalibration>>,
     // PREVIOUS refines the common vertical-tab scale; validate it on each frame.
     tab_scale_cache: Mutex<Option<TabScaleCache>>,
@@ -409,10 +409,17 @@ impl CvMatcher {
         let calib =
             FrameCalibration { src_w: w, src_h: h, active_picture, level_geometry, folder_rect: Some(folder.rect) };
 
-        if let Ok(mut cache) = self.calibration_cache.lock() {
+        Ok((calib.apply(gray)?, calib))
+    }
+
+    // Colour alone can mistake signal corruption for a folder. Only retain its
+    // geometry after a language-specific menu tab confirms the candidate.
+    fn confirm_calibration(&self, calib: FrameCalibration) {
+        if calib.folder_rect.is_some()
+            && let Ok(mut cache) = self.calibration_cache.lock()
+        {
             *cache = Some(calib);
         }
-        Ok((calib.apply(gray)?, calib))
     }
 
     /// The capture transform learned for the current source, or `None` while
@@ -720,6 +727,13 @@ impl CvMatcher {
         self.match_level_from_bgra_frame(&bgra_frame)
     }
 
+    /// Tests for a folder candidate in the current pixels, without cached geometry.
+    /// Used to limit capture recalibration to unrecognized menu-like frames.
+    pub fn has_folder_candidate(&self, data: &[u8], w: u32, h: u32) -> Result<bool> {
+        let frame = Mat::new_rows_cols_with_bytes::<core::Vec4b>(h as i32, w as i32, data)?;
+        Ok(detect_folder_aspect(&frame, w as i32, h as i32)?.is_some())
+    }
+
     /// Decodes an encoded image (PNG/BMP/etc.) and matches it. Used by the
     /// developer tool to match a dumped frame dropped in from disk. Returns the
     /// match plus the decoded image's dimensions (annotations are in its coords).
@@ -819,6 +833,7 @@ impl CvMatcher {
         );
         let mut tab_scale = None;
         if let Some((detected_lang, rect, scale)) = self.detect_previous_tab_language(&frame)? {
+            self.confirm_calibration(calib);
             tab_scale = Some(scale);
             result.detected_lang = Some(detected_lang.to_owned());
             self.push_work_region(&mut match_regions, &mapper, format!("language {detected_lang} previous tab"), rect);
@@ -916,6 +931,7 @@ impl CvMatcher {
             && let Some((detected_lang, rect, scale)) =
                 self.detect_tab_language(&frame, header.scale, false, None, true)?
         {
+            self.confirm_calibration(calib);
             tab_scale = Some(scale);
             result.detected_lang = Some(detected_lang.to_owned());
             self.push_work_region(&mut match_regions, &mapper, format!("language {detected_lang} previous tab"), rect);

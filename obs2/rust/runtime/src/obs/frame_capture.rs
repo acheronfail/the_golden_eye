@@ -242,12 +242,25 @@ mod capture_test;
 pub(crate) struct ObsSource {
     pub(crate) mailbox: Arc<FrameMailbox>,
     /// The calibrated capture transform, shared with the producer callback.
-    /// Latched on first sight: fixed for the session, and re-reading after frames
-    /// arrive pre-normalized would (incorrectly) clear it.
+    /// Latched until an explicit recovery: pre-normalized frames must not clear it.
     pub(crate) region: Arc<Mutex<Option<CaptureRegion>>>,
 }
 
 impl ObsSource {
+    pub(crate) fn has_capture_region(&self) -> bool {
+        self.region.lock().unwrap_or_else(|p| p.into_inner()).is_some()
+    }
+
+    pub(crate) fn reset_capture_region(&mut self) -> bool {
+        let mut region = self.region.lock().unwrap_or_else(|p| p.into_inner());
+        if region.take().is_none() {
+            return false;
+        }
+        tracing::info!("resetting capture geometry after unrecognized dossier frames");
+        self.mailbox.state.lock().unwrap_or_else(|p| p.into_inner()).frames.clear();
+        true
+    }
+
     pub(crate) fn set_capture_region(&mut self, region: Option<CaptureRegion>) {
         // Latch the first transform learned and keep it (see the field comment);
         // the producer callback reads this to crop/un-stretch future captures.
