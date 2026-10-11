@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use opencv::prelude::*;
+use opencv::{core, imgcodecs, imgproc};
 use serde::Deserialize;
 
 use crate::CvMatcher;
@@ -11,6 +13,17 @@ fn startup_corruption_cannot_commit_capture_calibration() {
     let root = fixture_root().join("sequences/startup-calibration");
     let corrupt = std::fs::read(root.join("corrupted-signal.png")).unwrap();
     let start = std::fs::read(root.join("start.png")).unwrap();
+    let encoded = core::Mat::from_slice(&corrupt).unwrap();
+    let bgr = imgcodecs::imdecode(&encoded, imgcodecs::IMREAD_COLOR).unwrap();
+    let mut bgra = core::Mat::default();
+    imgproc::cvt_color_def(&bgr, &mut bgra, imgproc::COLOR_BGR2BGRA).unwrap();
+    let folder = crate::calibration::detect_folder_aspect(&bgra, bgra.cols(), bgra.rows())
+        .unwrap()
+        .expect("false folder candidate");
+    assert!(
+        folder.aspect > crate::calibration::FOLDER_STRETCH_ASPECT,
+        "source corruption must trigger the old stretch rule"
+    );
     for language in ["jp", "en"] {
         let matcher = CvMatcher::new(language, TEMPLATES).unwrap();
         for _ in 0..3 {
@@ -33,8 +46,6 @@ fn startup_corruption_cannot_commit_capture_calibration() {
 
 #[test]
 fn confirmed_dossier_still_calibrates_stretched_capture() {
-    use opencv::{core, imgcodecs, imgproc};
-
     let path = fixture_root().join("screenshots-av2hdmi/en - start - 10 - Agent.png");
     let original = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
     let mut stretched = core::Mat::default();
