@@ -45,7 +45,9 @@ The plugin has an auto-update feature! Most of the time it can update itself jus
 If there's ever a new update that requires the plugin to be manually installed, the plugin will let
 you know.
 
-## Troubleshooting
+## Troubleshooting / FAQ
+
+- [Linux FAQ](docs/faq-linux.md)
 
 If the plugin misbehaves, [enabling debug logging](docs/debug-logging.md) helps you (and
 maintainers) see what's going on.
