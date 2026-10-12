@@ -277,9 +277,13 @@ pub(super) fn find_mission_from_colons(
 
     let band_pad_x = digit_w * 2;
     let band_pad_y = digit_h;
-    // A rejected fixed-slot read can mean the strongest middle-row colon was
-    // actually a letter. Let the digit search consider the other anchors too.
-    let fallback_colons = colons;
+    // A letter can win the colon match, but alternate anchors must stay on
+    // the selected mission row. Digits inferred from Japanese text on the
+    // difficulty/part rows cannot replace the mission number.
+    let fallback_colons: Vec<_> = colons
+        .into_iter()
+        .filter(|colon| mission_colon.is_none_or(|anchor| (colon.y - anchor.y).abs() as f64 <= colon_h as f64 * 0.35))
+        .collect();
 
     // Each (colon, digit) pair is an independent template search -- the bulk of
     // the mission cost at native resolution. Fan the pairs across cores; each

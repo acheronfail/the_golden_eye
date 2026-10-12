@@ -227,3 +227,24 @@ frames around screen transitions and across stationary screens. Run
 one matcher across frames, exercise caches primed by other levels, and require
 correct identification from the first visible screen frame. Individual screenshot
 checks alone cannot establish stable live recognition.
+
+### RAD2X NTSC-J Control misidentified as Facility
+
+The `screenshots-rad2x` fixtures are lossless PNG extractions from the supplied raw OBS recording
+`Facility - 05-05 - Agent - complete.mov` (plugin v1.0.6), not its YouTube download. The earlier
+attempt's statistics are sampled by `fps=1` at output frame 6; the final completion and statistics
+frames are at 321.7 and 322 seconds. They show Control Agent, with final time and best time both
+5:05.
+
+Cold reads were correct. `rad2x_control_survives_stale_mission_anchors` reproduces Facility by
+priming a 640×480 matcher with the Japanese RetroGEM 007-options dossier remapped to that size, then
+reading the raw Control statistics. The original code returns mission 1, part 2 instead of mission
+7, part 2. This establishes a cache-dependent failure mechanism; the recording does not retain the
+user's original matcher cache.
+
+Free-moving mission recovery could choose digit-like Japanese text on another header row and cache
+its position. Subsequent weak matches in that stale slot never retried because they still returned a
+digit. Alternate anchors now stay on the selected mission row, and weak cached reads retry the full
+header. The regression also covers an intentionally shifted capture origin, the earlier raw
+statistics, cold reads, area/bilinear downscaling, completion/statistics transitions, and repeated
+reads.

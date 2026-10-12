@@ -1000,9 +1000,10 @@ impl CvMatcher {
 
         let (mut found, mut mission_scale) = self.read_mission(&gray, mission_rect, &mission_scales)?;
         let mut mission_rect = mission_rect;
-        // A different mission digit can need a different scale after downsampling.
-        // Recover both the position and scale when the cached read misses.
-        let mission_retry = found.mission < 0 && hint.is_some();
+        // A stale slot can weakly match Japanese text as a digit. Recheck the
+        // full header unless the fixed-slot discriminator or a strong glyph
+        // match confirms the cached anchor.
+        let mission_retry = hint.is_some() && !found.fixed_slot && found.score < MISSION_STRONG;
         if mission_retry {
             mission_rect = header_box();
             self.push_corrected_search_region(&mut search_regions, &mapper, "mission digit retry search", mission_rect);
