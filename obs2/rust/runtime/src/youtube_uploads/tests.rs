@@ -199,7 +199,8 @@ fn queued_upload_paths_and_completion_history_follow_clip_renames() {
         100,
     );
     store.run_catalog.update_metadata_and_path(&run.run_id, run.metadata, Some(&target)).unwrap();
-    let path = target.to_string_lossy();
+    let canonical_target = std::fs::canonicalize(&target).unwrap();
+    let path = canonical_target.to_string_lossy();
     assert_eq!(store.uploads()[0].path, path);
     assert_eq!(store.uploads()[0].file_name, "updated.mov");
     assert_eq!(store.active_upload_for_display_path(&path).unwrap().id, upload.id);

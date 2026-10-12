@@ -396,14 +396,15 @@ fn metadata_updates_rename_nested_clips_without_overwriting_collisions() {
 
     let updated = update_run_metadata(&settings, &catalog, metadata_edit_request(&run.run_id, "Agent")).unwrap();
     let target = dir.join("Surface 2/Agent - 02-03 (3).mov");
-    assert_eq!(Path::new(&updated.path), target);
+    let canonical_target = fs::canonicalize(&target).unwrap();
+    assert_eq!(Path::new(&updated.path), canonical_target);
     assert!(!original.exists());
     assert_eq!(fs::read(collision).unwrap(), b"existing clip");
     assert_eq!(fs::read(collision_two).unwrap(), b"another clip");
     assert_eq!(updated.run_id, run.run_id);
     assert_eq!(updated.retention_state, run.retention_state);
     assert_eq!(ge_media::read_clip_metadata(&target).unwrap().unwrap(), updated.metadata);
-    assert_eq!(catalog.get_run(&run.run_id).unwrap().unwrap().clip.unwrap().path, target);
+    assert_eq!(catalog.get_run(&run.run_id).unwrap().unwrap().clip.unwrap().path, canonical_target);
     let repeated = update_run_metadata(&settings, &catalog, metadata_edit_request(&run.run_id, "Agent")).unwrap();
     assert_eq!(repeated.path, updated.path);
     refresh_catalog_from_settings(&catalog, &settings).unwrap();
@@ -422,7 +423,7 @@ fn metadata_updates_keep_names_when_template_tokens_are_unchanged() {
     seed_catalog_from_settings(&catalog, &settings).unwrap();
     let run = catalog.recent_runs(1).unwrap().remove(0);
     let updated = update_run_metadata(&settings, &catalog, metadata_edit_request(&run.run_id, "Agent")).unwrap();
-    assert_eq!(Path::new(&updated.path), original);
+    assert_eq!(Path::new(&updated.path), fs::canonicalize(&original).unwrap());
     assert_eq!(updated.metadata.difficulty.as_deref(), Some("Agent"));
 }
 

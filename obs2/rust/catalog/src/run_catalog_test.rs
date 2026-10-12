@@ -1053,14 +1053,15 @@ fn metadata_updates_with_rename_preserve_youtube_and_catalog_identity() {
     assert!(!original.exists());
     assert_eq!(updated.run_id, run.run_id);
     assert_eq!(updated.youtube, Some(youtube.clone()));
-    assert_eq!(updated.clip.unwrap().path, target);
+    let canonical_target = fs::canonicalize(&target).unwrap();
+    assert_eq!(updated.clip.unwrap().path, canonical_target);
     assert_eq!(
         catalog.youtube_history().unwrap(),
-        vec![UploadHistoryEntry { path: target.to_string_lossy().into_owned(), youtube }]
+        vec![UploadHistoryEntry { path: canonical_target.to_string_lossy().into_owned(), youtube }]
     );
     drop(catalog);
     let reopened = RunCatalog::open(dir.join("runs.sqlite")).unwrap();
-    assert_eq!(reopened.get_run(&run.run_id).unwrap().unwrap().clip.unwrap().path, target);
+    assert_eq!(reopened.get_run(&run.run_id).unwrap().unwrap().clip.unwrap().path, canonical_target);
 }
 
 #[test]
@@ -1088,5 +1089,5 @@ fn metadata_updates_roll_back_renames_when_catalog_write_fails() {
     assert_eq!(fs::read(&original).unwrap(), before);
     let persisted = catalog.get_run(&run.run_id).unwrap().unwrap();
     assert_eq!(persisted.metadata, run.metadata);
-    assert_eq!(persisted.clip.unwrap().path, original);
+    assert_eq!(persisted.clip.unwrap().path, fs::canonicalize(&original).unwrap());
 }
