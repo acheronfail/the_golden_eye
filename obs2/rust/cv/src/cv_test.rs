@@ -699,3 +699,68 @@ fn depot_secret_agent_survives_gpu_capture_and_cache_reuse() {
         }
     }
 }
+
+#[test]
+fn rad2x_control_survives_stale_mission_anchors() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests");
+    for interpolation in [imgproc::INTER_AREA, imgproc::INTER_LINEAR] {
+        let load = |path: &std::path::Path| {
+            let bgr = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR).unwrap();
+            let mut resized = Mat::default();
+            imgproc::resize(&bgr, &mut resized, core::Size::new(640, WORK_HEIGHT), 0.0, 0.0, interpolation).unwrap();
+            let mut frame = Mat::default();
+            imgproc::cvt_color_def(&resized, &mut frame, imgproc::COLOR_BGR2BGRA).unwrap();
+            frame
+        };
+        let stats = load(&root.join("screenshots-rad2x/jp - stats - 16 - Agent - 0505_0505.png"));
+        let complete = load(&root.join("screenshots-rad2x/jp - complete - 16 - Agent.png"));
+        // Move the same dossier one header row to exercise a stale capture origin.
+        let mut shifted = Mat::default();
+        let translation = Mat::from_slice_2d(&[[1.0, 0.0, 0.0], [0.0, 1.0, -25.0]]).unwrap();
+        imgproc::warp_affine(
+            &stats,
+            &mut shifted,
+            &translation,
+            stats.size().unwrap(),
+            imgproc::INTER_NEAREST,
+            core::BORDER_REPLICATE,
+            core::Scalar::default(),
+        )
+        .unwrap();
+        let previous = load(&root.join("screenshots-rad2x/jp - stats - 16 - Agent - 0144_0524.png"));
+        let options = load(&root.join("screenshots-retrogem/jp - 007opts - 01 - 007 - default.png"));
+        let mut primes = vec![None, Some((&shifted, Screen::Stats)), Some((&previous, Screen::Stats))];
+        // Remapping a different dossier to the capture size reproduces Facility.
+        if interpolation == imgproc::INTER_AREA {
+            primes.insert(0, Some((&options, Screen::Opts007)));
+        }
+        for prime in primes {
+            let matcher = CvMatcher::new("jp", TEMPLATES_DIR).unwrap();
+            if let Some((frame, screen)) = prime {
+                let result = matcher.match_level_from_bgra_frame(frame).unwrap();
+                assert_eq!(result.screen, screen);
+            }
+            for iteration in 0..3 {
+                for (frame, screen) in [(&stats, Screen::Stats), (&complete, Screen::Complete)] {
+                    let result = matcher.match_level_from_bgra_frame(frame).unwrap();
+                    assert_eq!(
+                        (result.screen, result.mission, result.part, result.difficulty),
+                        (screen, 7, 2, 0),
+                        "interpolation={interpolation}, iteration={iteration}"
+                    );
+                    assert_eq!(result.detected_lang.as_deref(), Some("jp"));
+                    assert_eq!(
+                        ge_game::Level::from_mission_and_part(result.mission, result.part),
+                        Some(ge_game::Level::Control)
+                    );
+                    if screen == Screen::Stats {
+                        assert_eq!(result.raw_times, vec![305, 305]);
+                        assert_eq!(result.times.unwrap().time, 305);
+                    } else {
+                        assert!(result.raw_times.is_empty());
+                    }
+                }
+            }
+        }
+    }
+}
