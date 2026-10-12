@@ -170,3 +170,49 @@ fn rapid_retries_have_unique_ids_even_at_the_same_timestamp() {
     let now = SystemTime::now();
     assert_ne!(upload_id(Path::new("clip.mov"), now), upload_id(Path::new("clip.mov"), now));
 }
+
+#[test]
+fn queued_upload_paths_and_completion_history_follow_clip_renames() {
+    let store = upload_store();
+    let nonce = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
+    let dir = std::env::temp_dir().join(format!("ge-upload-rename-{}-{nonce}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("original.mov");
+    let target = dir.join("updated.mov");
+    let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../frame_tests/clips/sample_clip.mov");
+    let run = store.run_catalog.create_finalized_run(SystemTime::now(), clip_metadata_fixture()).unwrap();
+    ge_media::rewrite_metadata(&sample, &original, &run.metadata).unwrap();
+    store
+        .run_catalog
+        .record_saved_clip(ge_catalog::run_catalog::RunCatalogSave {
+            path: original.clone(),
+            duration_secs: None,
+            metadata: run.metadata.clone(),
+        })
+        .unwrap();
+    let upload = store.insert_queued_upload(
+        &original,
+        run.run_id.clone(),
+        original.to_string_lossy().into_owned(),
+        "Run".to_owned(),
+        String::new(),
+        100,
+    );
+    store.run_catalog.update_metadata_and_path(&run.run_id, run.metadata, Some(&target)).unwrap();
+    let canonical_target = std::fs::canonicalize(&target).unwrap();
+    let path = canonical_target.to_string_lossy();
+    assert_eq!(store.uploads()[0].path, path);
+    assert_eq!(store.uploads()[0].file_name, "updated.mov");
+    assert_eq!(store.active_upload_for_display_path(&path).unwrap().id, upload.id);
+    assert!(store.active_upload_for_display_path(&original.to_string_lossy()).is_none());
+    let youtube = YoutubeMetadata {
+        video_id: "uploaded-id".to_owned(),
+        video_url: "https://youtu.be/uploaded-id".to_owned(),
+        uploaded_at: None,
+        title: "Run".to_owned(),
+        source: YoutubeAssociationSource::PluginUpload,
+    };
+    store.set_history(&run.run_id, youtube).unwrap();
+    assert_eq!(store.read_history()[0].path, path);
+    std::fs::remove_dir_all(dir).unwrap();
+}

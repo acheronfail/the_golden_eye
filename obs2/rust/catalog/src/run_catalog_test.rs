@@ -1032,3 +1032,62 @@ fn reopening_catalog_drops_empty_sessions_and_preserves_sessions_with_runs() {
     assert_eq!(preserved.summary.end_reason.as_deref(), Some("interrupted"));
     assert_eq!(preserved.summary.counts.total, 1);
 }
+
+#[test]
+fn metadata_updates_with_rename_preserve_youtube_and_catalog_identity() {
+    let dir = TestDir::new("metadata-rename-youtube");
+    let catalog = catalog(&dir);
+    let run = catalog
+        .create_finalized_run(
+            UNIX_EPOCH + Duration::from_secs(1_800_000_000),
+            finalized_metadata(RunStatus::Complete, Some(100), "00 Agent"),
+        )
+        .unwrap();
+    let original = attach_clip(&dir, &catalog, &run, "original.mov");
+    let youtube = youtube_metadata("video-1");
+    catalog.set_youtube_history(&original, &youtube).unwrap();
+    let mut metadata = run.metadata.clone();
+    metadata.difficulty = Some("Agent".to_owned());
+    let target = dir.join("renamed.mov");
+    let updated = catalog.update_metadata_and_path(&run.run_id, metadata, Some(&target)).unwrap();
+    assert!(!original.exists());
+    assert_eq!(updated.run_id, run.run_id);
+    assert_eq!(updated.youtube, Some(youtube.clone()));
+    let canonical_target = fs::canonicalize(&target).unwrap();
+    assert_eq!(updated.clip.unwrap().path, canonical_target);
+    assert_eq!(
+        catalog.youtube_history().unwrap(),
+        vec![UploadHistoryEntry { path: canonical_target.to_string_lossy().into_owned(), youtube }]
+    );
+    drop(catalog);
+    let reopened = RunCatalog::open(dir.join("runs.sqlite")).unwrap();
+    assert_eq!(reopened.get_run(&run.run_id).unwrap().unwrap().clip.unwrap().path, canonical_target);
+}
+
+#[test]
+fn metadata_updates_roll_back_renames_when_catalog_write_fails() {
+    let dir = TestDir::new("metadata-rename-rollback");
+    let catalog = catalog(&dir);
+    let run = catalog
+        .create_finalized_run(
+            UNIX_EPOCH + Duration::from_secs(1_800_000_000),
+            finalized_metadata(RunStatus::Complete, Some(100), "00 Agent"),
+        )
+        .unwrap();
+    let original = attach_clip(&dir, &catalog, &run, "original.mov");
+    let before = fs::read(&original).unwrap();
+    let conn = Connection::open(dir.join("runs.sqlite")).unwrap();
+    conn.execute_batch(
+        "CREATE TRIGGER reject_metadata_update BEFORE UPDATE ON runs BEGIN SELECT RAISE(FAIL, 'test failure'); END;",
+    )
+    .unwrap();
+    let mut metadata = run.metadata.clone();
+    metadata.difficulty = Some("Agent".to_owned());
+    let target = dir.join("nested/renamed.mov");
+    assert!(catalog.update_metadata_and_path(&run.run_id, metadata, Some(&target)).is_err());
+    assert!(!target.exists());
+    assert_eq!(fs::read(&original).unwrap(), before);
+    let persisted = catalog.get_run(&run.run_id).unwrap().unwrap();
+    assert_eq!(persisted.metadata, run.metadata);
+    assert_eq!(persisted.clip.unwrap().path, fs::canonicalize(&original).unwrap());
+}

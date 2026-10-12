@@ -132,7 +132,8 @@ pub async fn handle_update_metadata(
     Json(req): Json<RunMetadataUpdateRequest>,
 ) -> Result<impl IntoResponse> {
     let library = state.runs.clone();
-    let clip = tokio::task::spawn_blocking(move || library.update_metadata(req))
+    let settings = state.settings.get_effective();
+    let clip = tokio::task::spawn_blocking(move || library.update_metadata(&settings, req))
         .await
         .map_err(|err| {
             tracing::error!("run metadata update task failed: {err:#}");

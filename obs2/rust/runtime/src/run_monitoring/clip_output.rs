@@ -139,7 +139,7 @@ fn render_clip_template(
     RunTemplateTokens::from_match(stem, status.as_str(), completed_at, stats).render(template)
 }
 
-pub(super) fn append_extension(mut path: PathBuf, ext: &str) -> PathBuf {
+pub(crate) fn append_extension(mut path: PathBuf, ext: &str) -> PathBuf {
     if ext.is_empty() {
         return path;
     }
@@ -149,7 +149,7 @@ pub(super) fn append_extension(mut path: PathBuf, ext: &str) -> PathBuf {
     path
 }
 
-fn sanitize_relative_clip_path(path: &str) -> Option<PathBuf> {
+pub(crate) fn sanitize_relative_clip_path(path: &str) -> Option<PathBuf> {
     let trimmed = path.trim();
     if trimmed.is_empty() || trimmed.contains('\0') || trimmed.contains(wrong_platform_separator()) {
         return None;

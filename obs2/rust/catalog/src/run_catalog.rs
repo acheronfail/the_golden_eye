@@ -416,21 +416,72 @@ impl RunCatalog {
         Ok(run)
     }
 
-    pub fn update_metadata(&self, run_id: &str, mut metadata: ClipMetadata) -> anyhow::Result<RunRecord> {
-        let conn = self.lock();
+    pub fn update_metadata(&self, run_id: &str, metadata: ClipMetadata) -> anyhow::Result<RunRecord> {
+        self.update_metadata_and_path(run_id, metadata, None)
+    }
+
+    pub fn update_metadata_and_path(
+        &self,
+        run_id: &str,
+        mut metadata: ClipMetadata,
+        target: Option<&Path>,
+    ) -> anyhow::Result<RunRecord> {
+        let mut conn = self.lock();
         let mut run = runs::get_run(&conn, run_id)?.context("run not found")?;
         metadata.run_id = run.run_id.clone();
         metadata.retention_state = run.retention_state.as_str().to_owned();
         metadata.retention_reason = run.retention_reason.clone();
         if let Some(clip) = &run.clip {
-            let path = clip.path.clone();
-            let duration_secs = clip.duration_secs;
-            ge_media::rewrite_metadata_in_place(&path, &metadata)?;
-            runs::update_metadata(&conn, run_id, &metadata)?;
-            run.clip = Some(runs::attach_saved_clip(
-                &conn,
-                &RunCatalogSave { path, duration_secs, metadata: metadata.clone() },
-            )?);
+            let original = &clip.path;
+            let path = match target.filter(|target| *target != original) {
+                Some(target) => reserve_clip_path(original, target)?,
+                None => original.clone(),
+            };
+            let renamed = path != *original;
+            let mut metadata_written = false;
+            let result = (|| {
+                if renamed {
+                    ge_media::rewrite_metadata(original, &path, &metadata)?;
+                } else {
+                    ge_media::rewrite_metadata_in_place(&path, &metadata)?;
+                }
+                metadata_written = true;
+                let tx = conn.transaction()?;
+                runs::update_metadata(&tx, run_id, &metadata)?;
+                let refreshed = runs::attach_saved_clip(
+                    &tx,
+                    &RunCatalogSave {
+                        path: path.clone(),
+                        duration_secs: clip.duration_secs,
+                        metadata: metadata.clone(),
+                    },
+                )?;
+                if renamed {
+                    fs::remove_file(original).with_context(|| format!("removing {}", original.display()))?;
+                }
+                tx.commit()?;
+                Ok(refreshed)
+            })();
+            match result {
+                Ok(refreshed) => run.clip = Some(refreshed),
+                Err(error) => {
+                    let rollback = (|| -> anyhow::Result<()> {
+                        let restore_metadata = !renamed || !original.exists();
+                        if renamed && restore_metadata {
+                            fs::copy(&path, original)?;
+                        }
+                        if restore_metadata && metadata_written {
+                            ge_media::rewrite_metadata_in_place(original, &run.metadata)?;
+                        }
+                        if renamed {
+                            fs::remove_file(&path)?;
+                        }
+                        Ok(())
+                    })();
+                    rollback.context(format!("restoring clip after metadata update failed: {error:#}"))?;
+                    return Err(error);
+                }
+            }
         } else {
             runs::update_metadata(&conn, run_id, &metadata)?;
         }
@@ -567,6 +618,13 @@ impl RunCatalog {
 
     pub fn set_youtube_history(&self, path: &Path, youtube: &YoutubeMetadata) -> anyhow::Result<()> {
         runs::set_youtube_history(&self.lock(), path, youtube)
+    }
+
+    pub fn set_youtube_history_for_run(&self, run_id: &str, youtube: &YoutubeMetadata) -> anyhow::Result<()> {
+        let conn = self.lock();
+        let run = runs::get_run(&conn, run_id)?.context("run not found")?;
+        anyhow::ensure!(run.clip.is_some(), "cannot attach upload history to a run without video");
+        runs::set_youtube_history_by_run_id(&conn, run_id, youtube)
     }
 
     pub fn forget_youtube_history_for_display_path(&self, display_path: &str) -> anyhow::Result<usize> {
@@ -741,3 +799,28 @@ fn run_id_base(completed_unix_micros: i64, level_number: Option<i32>, difficulty
 #[cfg(test)]
 #[path = "run_catalog_test.rs"]
 mod run_catalog_test;
+
+// Reserve exclusively so a concurrent writer cannot be overwritten.
+fn reserve_clip_path(original: &Path, target: &Path) -> anyhow::Result<PathBuf> {
+    let parent = target.parent().context("clip target has no parent directory")?;
+    fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    let stem = target.file_stem().and_then(|value| value.to_str()).unwrap_or("clip");
+    let ext = target.extension().and_then(|value| value.to_str()).unwrap_or("");
+    for suffix in 1.. {
+        let candidate = if suffix == 1 {
+            target.to_path_buf()
+        } else {
+            let name = if ext.is_empty() { format!("{stem} ({suffix})") } else { format!("{stem} ({suffix}).{ext}") };
+            parent.join(name)
+        };
+        if candidate == original {
+            return Ok(original.to_path_buf());
+        }
+        match fs::OpenOptions::new().write(true).create_new(true).open(&candidate) {
+            Ok(_) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error).with_context(|| format!("reserving {}", candidate.display())),
+        }
+    }
+    unreachable!("unbounded filename suffix search should always return")
+}
