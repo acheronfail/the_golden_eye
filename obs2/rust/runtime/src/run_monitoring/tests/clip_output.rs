@@ -6,6 +6,16 @@ use crate::run_monitoring::test_support::*;
 use crate::template_tokens::format_iso_local;
 
 #[test]
+fn clip_metadata_sets_rom_version_only_for_japanese() {
+    for (language, expected) in [("jp", Some(RomVersion::NtscJ)), ("en", None)] {
+        let metadata = clip_metadata(RunStatus::Complete, UNIX_EPOCH, None, "N64 Capture", language);
+
+        assert_eq!(metadata.game_language, language);
+        assert_eq!(metadata.rom_version, expected);
+    }
+}
+
+#[test]
 fn output_dir_prefers_configured_path_then_replay_parent() {
     let dir = TestDir::new("output-dir");
     let input = dir.join("replay.mov");

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::Context;
-use ge_clip::{ClipMetadata, RunStatus};
+use ge_clip::{ClipMetadata, RomVersion, RunStatus};
 use ge_cv::LevelMatch;
 
 use super::DEFAULT_CLIP_FILENAME_TEMPLATE;
@@ -35,7 +35,7 @@ pub(super) fn clip_metadata(
         status,
         was_personal_best: false,
         game_language: game_language.to_owned(),
-        rom_version: None,
+        rom_version: (game_language == "jp").then_some(RomVersion::NtscJ),
         source_name: source_name.to_owned(),
         comment: format!("Created by The Golden Eye OBS plugin v{}", crate::PLUGIN_VERSION),
         plugin_version: crate::PLUGIN_VERSION.to_owned(),

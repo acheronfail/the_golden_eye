@@ -6,6 +6,25 @@ use crate::run_monitoring::test_support::*;
 use crate::run_monitoring::*;
 
 #[test]
+fn japanese_monitor_language_sets_saved_run_rom_version() {
+    let (mut recording, _events) = test_recording(RecordingOptions::default());
+    recording.set_game_language("jp".to_owned());
+    let start = Instant::now();
+    assert!(recording.schedule_save(start + Duration::from_secs(10), start, Some(match_with_time())));
+
+    let saved_job = RefCell::new(None);
+    recording.flush_pending_on_shutdown_with(
+        start + Duration::from_secs(20),
+        |_| panic!("save should already be due"),
+        |job| *saved_job.borrow_mut() = Some(job),
+    );
+
+    let job = saved_job.borrow_mut().take().expect("save job");
+    assert_eq!(job.metadata.game_language, "jp");
+    assert_eq!(job.metadata.rom_version, Some(ge_clip::RomVersion::NtscJ));
+}
+
+#[test]
 fn shutdown_before_pending_save_fires_waits_and_preserves_save_job() {
     let options =
         RecordingOptions { pre_run_padding_secs: 1.0, post_run_padding_secs: 5.0, ..RecordingOptions::default() };
