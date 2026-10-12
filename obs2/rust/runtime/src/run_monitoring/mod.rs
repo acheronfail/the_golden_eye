@@ -1,7 +1,7 @@
 //! Watches GoldenEye gameplay, recognizes runs, estimates game time, and saves clips.
 //! Start with `session.rs` for the workflow and `run_detection.rs` for run transitions.
 
-mod clip_output;
+pub(crate) mod clip_output;
 mod clip_saving;
 mod clocks;
 pub(crate) mod in_game_timer;

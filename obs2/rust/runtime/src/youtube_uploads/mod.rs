@@ -96,13 +96,33 @@ impl YoutubeUploadStore {
     }
 
     pub fn uploads(&self) -> Vec<YoutubeUploadStatus> {
-        let mut uploads = self.inner.lock().unwrap().uploads.values().cloned().collect::<Vec<_>>();
+        let mut inner = self.inner.lock().unwrap();
+        self.refresh_upload_paths(&mut inner);
+        let mut uploads = inner.uploads.values().cloned().collect::<Vec<_>>();
         uploads.sort_by(|a, b| a.started_at.cmp(&b.started_at));
         uploads
     }
 
+    fn refresh_upload_paths(&self, inner: &mut YoutubeUploadInner) {
+        for upload in inner.uploads.values_mut() {
+            if let Ok(Some(run)) = self.run_catalog.get_run(&upload.run_id)
+                && let Some(clip) = run.clip
+            {
+                upload.path = clip.path.to_string_lossy().into_owned();
+                upload.file_name = clip.path.file_name().and_then(|name| name.to_str()).unwrap_or("clip").to_owned();
+            }
+        }
+        inner.path_to_active_id = inner
+            .uploads
+            .values()
+            .filter(|upload| !upload.state.is_terminal())
+            .map(|upload| (upload.path.clone(), upload.id.clone()))
+            .collect();
+    }
+
     pub fn active_upload_for_display_path(&self, display_path: &str) -> Option<YoutubeUploadStatus> {
-        let inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap();
+        self.refresh_upload_paths(&mut inner);
         let id = inner.path_to_active_id.get(display_path)?;
         inner.uploads.get(id).cloned()
     }
@@ -149,6 +169,7 @@ impl YoutubeUploadStore {
         update: impl FnOnce(&mut YoutubeUploadStatus),
     ) -> Option<YoutubeUploadStatus> {
         let mut inner = self.inner.lock().unwrap();
+        self.refresh_upload_paths(&mut inner);
         let status = inner.uploads.get_mut(id)?;
         if status.state.is_terminal() {
             return None;
@@ -177,6 +198,7 @@ impl YoutubeUploadStore {
         events: &tokio::sync::broadcast::Sender<crate::app::AppEvent>,
     ) -> Option<YoutubeUploadStatus> {
         let mut inner = self.inner.lock().unwrap();
+        self.refresh_upload_paths(&mut inner);
         let status = inner.uploads.get_mut(id)?;
         if !status.state.is_terminal() && status.state != YoutubeUploadState::Cancelling {
             tracing::info!(
@@ -201,8 +223,8 @@ impl YoutubeUploadStore {
         self.run_catalog.youtube_history().unwrap_or_default()
     }
 
-    pub fn set_history(&self, path: &Path, youtube: YoutubeMetadata) -> anyhow::Result<()> {
-        self.run_catalog.set_youtube_history(path, &youtube)
+    pub fn set_history(&self, run_id: &str, youtube: YoutubeMetadata) -> anyhow::Result<()> {
+        self.run_catalog.set_youtube_history_for_run(run_id, &youtube)
     }
 
     pub(crate) fn forget(&self, settings: &SettingsStore, path: &str) -> Result<YoutubeStatus, ForgetError> {
@@ -226,6 +248,7 @@ impl YoutubeUploadStore {
 
     fn forget_retained_uploads_for_display_path(&self, display_path: &str) -> usize {
         let mut inner = self.inner.lock().unwrap();
+        self.refresh_upload_paths(&mut inner);
         let ids = inner
             .uploads
             .iter()

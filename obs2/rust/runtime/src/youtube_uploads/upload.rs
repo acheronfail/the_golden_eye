@@ -143,7 +143,7 @@ pub async fn upload_video(
 ) {
     let started = Instant::now();
     let result = upload_video_inner(&store, &req, &event_tx, &cancellation).await;
-    let UploadRequest { upload_id, path, title, .. } = req;
+    let UploadRequest { upload_id, run_id, path, title, .. } = req;
     match result {
         Ok(video_id) => {
             let video_url = format!("https://youtu.be/{video_id}");
@@ -162,7 +162,7 @@ pub async fn upload_video(
                 status.error = None;
             });
             if let Err(error) = store.set_history(
-                &path,
+                &run_id,
                 YoutubeMetadata {
                     video_id: video_id.clone(),
                     video_url,
@@ -206,7 +206,13 @@ async fn upload_video_inner(
     let _permit =
         cancel_or(cancellation, store.semaphore().acquire_owned()).await.context("acquiring YouTube upload slot")?;
     tracing::Span::current().record("stage", "preparing");
-    let total_bytes = fs::metadata(path).with_context(|| format!("reading metadata for {}", path.display()))?.len();
+    let current_path = store
+        .run_catalog
+        .get_run(&req.run_id)?
+        .and_then(|run| run.clip.map(|clip| clip.path))
+        .unwrap_or_else(|| path.clone());
+    let mut file = fs::File::open(&current_path).with_context(|| format!("opening {}", current_path.display()))?;
+    let total_bytes = file.metadata()?.len();
     tracing::info!(total_bytes, visibility = visibility.as_youtube_str(), "YouTube upload started");
     tracing::Span::current().record("stage", "authentication");
     let access_token = cancel_or(cancellation, store.access_token()).await?;
@@ -247,7 +253,6 @@ async fn upload_video_inner(
         .ok_or_else(|| anyhow!("YouTube did not return an upload session URL"))?
         .to_owned();
 
-    let mut file = fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut uploaded = 0u64;
     let mut progress_publisher = ProgressPublisher::new();
     let mut buffer = vec![0u8; CHUNK_SIZE as usize];

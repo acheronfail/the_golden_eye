@@ -1,4 +1,5 @@
 //! Run-library operations: configured paths, history edits, imports, and catalog listing.
+mod clip_naming;
 pub(crate) mod elite;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -116,8 +117,12 @@ impl RunLibrary {
         Ok(retained.map(run_clip_from_record))
     }
 
-    pub(crate) fn update_metadata(&self, req: RunMetadataUpdateRequest) -> Result<RunClip, RunPathError> {
-        let clip = update_run_metadata(&self.catalog, req)?;
+    pub(crate) fn update_metadata(
+        &self,
+        settings: &AppSettings,
+        req: RunMetadataUpdateRequest,
+    ) -> Result<RunClip, RunPathError> {
+        let clip = update_run_metadata(settings, &self.catalog, req)?;
         self.publish_change(Some(clip.run_id.clone()));
         Ok(clip)
     }
@@ -430,16 +435,21 @@ pub(crate) fn rename_run_clip(
 }
 
 fn update_run_metadata(
+    settings: &AppSettings,
     catalog: &RunCatalog,
     req: RunMetadataUpdateRequest,
 ) -> std::result::Result<RunClip, RunPathError> {
-    let mut metadata = catalog
+    let run = catalog
         .get_run(&req.run_id)
         .map_err(RunPathError::Internal)?
-        .ok_or(RunPathError::NotFound("run was not found"))?
-        .metadata;
+        .ok_or(RunPathError::NotFound("run was not found"))?;
+    let mut metadata = run.metadata.clone();
     apply_metadata_update(&mut metadata, req.metadata)?;
-    catalog.update_metadata(&req.run_id, metadata).map(run_clip_from_record).map_err(RunPathError::Internal)
+    let target = clip_naming::updated_clip_path(settings, &run, &metadata);
+    catalog
+        .update_metadata_and_path(&req.run_id, metadata, target.as_deref())
+        .map(run_clip_from_record)
+        .map_err(RunPathError::Internal)
 }
 
 impl From<anyhow::Error> for RunPathError {

@@ -334,6 +334,7 @@ fn metadata_updates_persist_for_runs_without_video() {
         .expect("create finalized run");
 
     let updated = update_run_metadata(
+        &AppSettings::default(),
         &catalog,
         RunMetadataUpdateRequest {
             run_id: run.run_id.clone(),
@@ -361,4 +362,85 @@ fn metadata_updates_persist_for_runs_without_video() {
     assert_eq!(persisted.metadata.game_language, "jp");
     assert_eq!(persisted.metadata.rom_version, Some(RomVersion::NtscJ));
     assert_eq!(persisted.metadata.difficulty.as_deref(), Some("Agent"));
+}
+
+fn metadata_edit_request(run_id: &str, difficulty: &str) -> RunMetadataUpdateRequest {
+    RunMetadataUpdateRequest {
+        run_id: run_id.to_owned(),
+        metadata: EditableRunMetadata {
+            game_language: "en".to_owned(),
+            rom_version: Some(RomVersion::Pal),
+            status: "complete".to_owned(),
+            difficulty: difficulty.to_owned(),
+            time: "02:03".to_owned(),
+            level: "Surface 2".to_owned(),
+        },
+    }
+}
+
+#[test]
+fn metadata_updates_rename_nested_clips_without_overwriting_collisions() {
+    let dir = TestDir::new("metadata-rename");
+    let catalog = test_catalog(&dir);
+    let mut settings = AppSettings::default();
+    settings.completed_output_path = dir.path.to_string_lossy().into_owned();
+    settings.clip_filename_template = format!("{{level}}{0}{{difficulty}} - {{time}}", std::path::MAIN_SEPARATOR);
+    let original = dir.join("Surface 2/00 Agent - 02-03.mov");
+    write_tagged_clip(&original, "complete", "2026-01-01T00:00:00Z");
+    seed_catalog_from_settings(&catalog, &settings).unwrap();
+    let run = catalog.recent_runs(1).unwrap().remove(0);
+    let collision = dir.join("Surface 2/Agent - 02-03.mov");
+    let collision_two = dir.join("Surface 2/Agent - 02-03 (2).mov");
+    fs::write(&collision, b"existing clip").unwrap();
+    fs::write(&collision_two, b"another clip").unwrap();
+
+    let updated = update_run_metadata(&settings, &catalog, metadata_edit_request(&run.run_id, "Agent")).unwrap();
+    let target = dir.join("Surface 2/Agent - 02-03 (3).mov");
+    assert_eq!(Path::new(&updated.path), target);
+    assert!(!original.exists());
+    assert_eq!(fs::read(collision).unwrap(), b"existing clip");
+    assert_eq!(fs::read(collision_two).unwrap(), b"another clip");
+    assert_eq!(updated.run_id, run.run_id);
+    assert_eq!(updated.retention_state, run.retention_state);
+    assert_eq!(ge_media::read_clip_metadata(&target).unwrap().unwrap(), updated.metadata);
+    assert_eq!(catalog.get_run(&run.run_id).unwrap().unwrap().clip.unwrap().path, target);
+    let repeated = update_run_metadata(&settings, &catalog, metadata_edit_request(&run.run_id, "Agent")).unwrap();
+    assert_eq!(repeated.path, updated.path);
+    refresh_catalog_from_settings(&catalog, &settings).unwrap();
+    assert_eq!(catalog.recent_runs(10).unwrap().len(), 1);
+}
+
+#[test]
+fn metadata_updates_keep_names_when_template_tokens_are_unchanged() {
+    let dir = TestDir::new("metadata-no-rename");
+    let catalog = test_catalog(&dir);
+    let mut settings = AppSettings::default();
+    settings.completed_output_path = dir.path.to_string_lossy().into_owned();
+    settings.clip_filename_template = "{level}".to_owned();
+    let original = dir.join("custom-name.mov");
+    write_tagged_clip(&original, "complete", "2026-01-01T00:00:00Z");
+    seed_catalog_from_settings(&catalog, &settings).unwrap();
+    let run = catalog.recent_runs(1).unwrap().remove(0);
+    let updated = update_run_metadata(&settings, &catalog, metadata_edit_request(&run.run_id, "Agent")).unwrap();
+    assert_eq!(Path::new(&updated.path), original);
+    assert_eq!(updated.metadata.difficulty.as_deref(), Some("Agent"));
+}
+
+#[test]
+fn metadata_updates_preserve_replay_name_across_repeated_edits() {
+    let dir = TestDir::new("metadata-replay-name");
+    let catalog = test_catalog(&dir);
+    let mut settings = AppSettings::default();
+    settings.completed_output_path = dir.path.to_string_lossy().into_owned();
+    settings.clip_filename_template = "{obs_replay_name} - {difficulty}".to_owned();
+    let original = dir.join("Replay 123 - 00 Agent.mov");
+    write_tagged_clip(&original, "complete", "2026-01-01T00:00:00Z");
+    seed_catalog_from_settings(&catalog, &settings).unwrap();
+    let run = catalog.recent_runs(1).unwrap().remove(0);
+    fs::write(dir.join("Replay 123 - Agent.mov"), b"existing clip").unwrap();
+    for difficulty in ["Agent", "Secret Agent", "00 Agent"] {
+        let updated = update_run_metadata(&settings, &catalog, metadata_edit_request(&run.run_id, difficulty)).unwrap();
+        let suffix = if difficulty == "Agent" { " (2)" } else { "" };
+        assert_eq!(updated.file_name, format!("Replay 123 - {difficulty}{suffix}.mov"));
+    }
 }
