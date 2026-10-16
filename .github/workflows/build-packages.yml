@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      notarize-macos:
+        description: Require Developer ID signing and Apple notarisation for macOS release packages.
+        required: false
+        type: boolean
+        default: false
       publish-vcpkg-cache:
         description: Populate the GitHub Packages binary cache from a trusted master build.
         required: false
@@ -22,6 +27,18 @@ on:
       GE_YOUTUBE_CLIENT_ID:
         required: false
       GE_YOUTUBE_CLIENT_SECRET:
+        required: false
+      MACOS_CERTIFICATE_P12_BASE64:
+        required: false
+      MACOS_CERTIFICATE_PASSWORD:
+        required: false
+      MACOS_SIGNING_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APPLE_APP_SPECIFIC_PASSWORD:
         required: false
 
 permissions:
@@ -271,11 +288,38 @@ jobs:
       - name: Run frame regression tests
         run: just test-cv
 
+      - name: Test macOS release signing
+        run: just test-release-signing
+
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
 
       - name: Check macOS package contract
         run: just test-package-contract obs2/build
+
+      - name: Sign and notarise macOS release package
+        if: inputs.notarize-macos
+        timeout-minutes: 45
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: just notarize-macos obs2/build
+
+      - name: Check signed macOS package contract
+        if: inputs.notarize-macos
+        run: just test-package-contract obs2/build
+
+      - name: Upload notarisation diagnostics
+        if: always() && inputs.notarize-macos
+        uses: actions/upload-artifact@v7
+        with:
+          name: notarization-macos-${{ matrix.arch }}
+          path: obs2/build/notarization/*.json
+          if-no-files-found: ignore
 
       - name: Determine package name
         id: package

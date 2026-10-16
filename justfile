@@ -105,6 +105,14 @@ simulate-update *args:
 test-package-contract build_dir:
     python3 obs2/scripts/check_package_contract.py "{{ build_dir }}"
 
+# sign, notarise, and staple an existing macOS package using release credentials
+[macos]
+notarize-macos build_dir="obs2/build":
+    python3 -B obs2/scripts/notarize_macos.py "{{ build_dir }}"
+
+test-release-signing:
+    python3 -B -m unittest discover -s obs2/scripts -p 'test_notarize_macos.py'
+
 # runs the rust tests
 test-rust *args:
     #!/usr/bin/env bash
@@ -200,6 +208,7 @@ bench-cv *filter: make-release
 
 # run all test suites
 test:
+    just test-release-signing
     just test-browser
     just test-storybook
     just test-integration

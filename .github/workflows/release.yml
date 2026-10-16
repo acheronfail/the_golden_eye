@@ -30,6 +30,7 @@ jobs:
     with:
       fetch-depth: 0
       package-profile: true
+      notarize-macos: true
 
   release:
     name: GitHub Release
