@@ -75,8 +75,9 @@ measure the reduced build. CI keys its installed-dependency cache by this packag
 CI runs `just check` and checks that generated files match the committed versions.
 
 macOS releases also require Developer ID signing and Apple notarisation. See the
-[release signing setup](docs/dev/macos-notarization.md) for certificates, GitHub secrets, and release
-verification. Local builds and pull-request artifacts do not require an Apple Developer account.
+[release signing setup](docs/dev/macos-notarization.md) for certificates, GitHub secrets, and
+release verification. Local builds and pull-request artifacts do not require an Apple Developer
+account.
 
 ## Choose a test suite
 
