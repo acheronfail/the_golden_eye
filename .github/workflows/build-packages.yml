@@ -28,17 +28,21 @@ on:
         required: false
       GE_YOUTUBE_CLIENT_SECRET:
         required: false
-      MACOS_CERTIFICATE_P12_BASE64:
+      MACOS_CODE_SIGN_P12_BASE64:
         required: false
-      MACOS_CERTIFICATE_PASSWORD:
-        required: false
-      MACOS_SIGNING_IDENTITY:
-        required: false
-      APPLE_ID:
+      MACOS_CODE_SIGN_P12_PASSWORD:
         required: false
       APPLE_TEAM_ID:
         required: false
-      APPLE_APP_SPECIFIC_PASSWORD:
+      APPLE_NOTARY_API_KEY:
+        required: false
+      APPLE_NOTARY_KEY_ID:
+        required: false
+      APPLE_NOTARY_ISSUER_ID:
+        required: false
+      APPLE_NOTARY_APPLE_ID:
+        required: false
+      APPLE_NOTARY_PASSWORD:
         required: false
 
 permissions:
@@ -288,38 +292,76 @@ jobs:
       - name: Run frame regression tests
         run: just test-cv
 
-      - name: Test macOS release signing
-        run: just test-release-signing
-
       - name: Build macOS package
         run: just ${{ inputs.package-profile && 'make-package-dist' || 'make-package' }}
 
       - name: Check macOS package contract
         run: just test-package-contract obs2/build
 
+      - name: Prepare macOS signing input
+        if: inputs.notarize-macos
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages=(obs2/build/dist/the_golden_eye-*-macos-*.zip)
+          [[ "${#packages[@]}" == 1 && -f "${packages[0]}" ]]
+          python3 - "${packages[0]}" <<'PYTHON'
+          import sys, zipfile
+          from pathlib import PurePosixPath
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              for name in archive.namelist():
+                  path = PurePosixPath(name)
+                  if path.is_absolute() or '..' in path.parts or not path.parts or path.parts[0] != 'the_golden_eye.plugin':
+                      raise SystemExit('Release ZIP must contain only the plugin bundle')
+          PYTHON
+          work="$(mktemp -d "$RUNNER_TEMP/golden-eye-signing.XXXXXX")"
+          ditto -x -k "${packages[0]}" "$work"
+          echo "bundle=$work/the_golden_eye.plugin" >> "$GITHUB_OUTPUT"
+          echo "archive=$work/signed.zip" >> "$GITHUB_OUTPUT"
+          echo "package=$GITHUB_WORKSPACE/${packages[0]}" >> "$GITHUB_OUTPUT"
+
       - name: Sign and notarise macOS release package
         if: inputs.notarize-macos
         timeout-minutes: 45
-        env:
-          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        run: just notarize-macos obs2/build
-
-      - name: Check signed macOS package contract
-        if: inputs.notarize-macos
-        run: just test-package-contract obs2/build
-
-      - name: Upload notarisation diagnostics
-        if: always() && inputs.notarize-macos
-        uses: actions/upload-artifact@v7
+        uses: acheronfail/dist-tools/actions/apple-release@v1
         with:
-          name: notarization-macos-${{ matrix.arch }}
-          path: obs2/build/notarization/*.json
-          if-no-files-found: ignore
+          app-path: ${{ steps.signing.outputs.bundle }}
+          bundle-id: fail.acheron.the_golden_eye
+          output-archive: ${{ steps.signing.outputs.archive }}
+          signing-plan: obs2/macos-signing-plan.json
+          team-id: ${{ secrets.APPLE_TEAM_ID }}
+          p12-base64: ${{ secrets.MACOS_CODE_SIGN_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_CODE_SIGN_P12_PASSWORD }}
+          notary-auth-mode: ${{ vars.APPLE_NOTARY_AUTH_MODE || 'apple-id' }}
+          notary-api-key: ${{ (vars.APPLE_NOTARY_AUTH_MODE == 'api-team' || vars.APPLE_NOTARY_AUTH_MODE == 'api-individual') && secrets.APPLE_NOTARY_API_KEY || '' }}
+          notary-key-id: ${{ (vars.APPLE_NOTARY_AUTH_MODE == 'api-team' || vars.APPLE_NOTARY_AUTH_MODE == 'api-individual') && secrets.APPLE_NOTARY_KEY_ID || '' }}
+          notary-issuer-id: ${{ vars.APPLE_NOTARY_AUTH_MODE == 'api-team' && secrets.APPLE_NOTARY_ISSUER_ID || '' }}
+          notary-apple-id: ${{ (vars.APPLE_NOTARY_AUTH_MODE == 'apple-id' || vars.APPLE_NOTARY_AUTH_MODE == '') && secrets.APPLE_NOTARY_APPLE_ID || '' }}
+          notary-password: ${{ (vars.APPLE_NOTARY_AUTH_MODE == 'apple-id' || vars.APPLE_NOTARY_AUTH_MODE == '') && secrets.APPLE_NOTARY_PASSWORD || '' }}
+          notary-timeout: 30m
+          ticket-network-workaround: 'true'
+
+      - name: Package and verify signed macOS plugin
+        if: inputs.notarize-macos
+        env:
+          SIGNED_BUNDLE: ${{ steps.signing.outputs.bundle }}
+          OUTPUT_PACKAGE: ${{ steps.signing.outputs.package }}
+        run: |
+          set -euo pipefail
+          verification="$(mktemp -d "$GITHUB_WORKSPACE/obs2/build/.signed-package.XXXXXX")"
+          trap 'rm -rf "$verification"' EXIT
+          mkdir "$verification/dist"
+          package="$verification/dist/${OUTPUT_PACKAGE##*/}"
+          # The updater expects only the plugin root, without __MACOSX metadata.
+          ditto -c -k --keepParent --norsrc "$SIGNED_BUNDLE" "$package"
+          just test-package-contract "$verification"
+          ditto -x -k "$package" "$verification/extracted"
+          bundle="$verification/extracted/the_golden_eye.plugin"
+          codesign --verify --deep --strict "$bundle"
+          codesign --verify --strict "$bundle/Contents/MacOS/libgolden_core.dylib"
+          xcrun stapler validate "$bundle"
+          mv -f "$package" "$OUTPUT_PACKAGE"
 
       - name: Determine package name
         id: package
