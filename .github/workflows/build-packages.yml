@@ -124,6 +124,9 @@ jobs:
             xvfb
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y flathub com.obsproject.Studio
+          # Keep CI on the supported OBS major until OBS 33 support lands.
+          sudo flatpak update -y --commit=21b35765922fb5c8b92ccdccedc0d8ca709b12f86a961780350199082da822ef com.obsproject.Studio
+          flatpak run --command=obs com.obsproject.Studio --version | grep -E 'OBS Studio - 32\.'
           sudo flatpak install -y flathub "$(flatpak info --show-sdk com.obsproject.Studio)"
 
       - name: Set up repository
@@ -480,7 +483,8 @@ jobs:
       - name: Install system dependencies
         shell: pwsh
         run: |
-          choco install just obs-studio ffmpeg -y --no-progress --fail-on-unfound --fail-on-standard-error
+          choco install just ffmpeg -y --no-progress --fail-on-unfound --fail-on-standard-error
+          choco install obs-studio --version=32.0.4 -y --no-progress --fail-on-unfound --fail-on-standard-error
 
           $libclang = Get-ChildItem `
             -Path "$env:ProgramFiles\LLVM", "${env:ProgramFiles(x86)}\LLVM" `
