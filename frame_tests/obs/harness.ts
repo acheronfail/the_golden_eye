@@ -234,10 +234,10 @@ export class ObsHarness {
 
   async removeSource(name: string) {
     await this.command({ action: "remove", name });
-    await this.waitFor(
-      "source released",
-      async () => !(await this.command({ action: "status", name })).exists,
-    );
+    await this.waitFor("source removed", async () => {
+      const source = await this.command({ action: "status", name });
+      return !source.exists || source.removed;
+    });
   }
 
   async ready() {
