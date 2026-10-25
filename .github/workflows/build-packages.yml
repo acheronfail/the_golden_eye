@@ -484,7 +484,14 @@ jobs:
         shell: pwsh
         run: |
           choco install just ffmpeg -y --no-progress --fail-on-unfound --fail-on-standard-error
-          choco install obs-studio --version=32.0.4 -y --no-progress --fail-on-unfound --fail-on-standard-error
+          choco install obs-studio.install --version=32.0.4 -y --no-progress --fail-on-unfound --fail-on-standard-error
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $obsExecutable = Join-Path $env:ProgramFiles 'obs-studio\bin\64bit\obs64.exe'
+          $obsVersion = (Get-Item -LiteralPath $obsExecutable).VersionInfo.ProductVersion
+          Write-Host "Installed OBS executable version: $obsVersion"
+          if ($obsVersion -notmatch '^32\.') {
+            throw "Expected OBS 32, found '$obsVersion' at $obsExecutable"
+          }
 
           $libclang = Get-ChildItem `
             -Path "$env:ProgramFiles\LLVM", "${env:ProgramFiles(x86)}\LLVM" `
