@@ -48,6 +48,11 @@ pub extern "C" fn ge_obs_replay_buffer_available() -> bool {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn ge_obs_replay_buffer_last_error(_buffer: *mut c_char, _buffer_size: usize) -> bool {
+    false
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn ge_obs_replay_buffer_max_seconds() -> i64 {
     -1
 }

@@ -106,6 +106,20 @@ bool ge_obs_replay_buffer_available(void) {
   return available;
 }
 
+bool ge_obs_replay_buffer_last_error(char *buffer, size_t buffer_size) {
+  obs_output_t *output = obs_frontend_get_replay_buffer_output();
+  if (!output) {
+    return false;
+  }
+  const char *error = obs_output_get_last_error(output);
+  bool available = error && *error && strlen(error) < buffer_size;
+  if (available) {
+    memcpy(buffer, error, strlen(error) + 1);
+  }
+  obs_output_release(output);
+  return available;
+}
+
 int64_t ge_obs_replay_buffer_max_seconds(void) {
   config_t *config = obs_frontend_get_profile_config();
   if (!config) {

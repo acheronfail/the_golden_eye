@@ -129,7 +129,9 @@ impl RunRecorder {
         let update = self.run_detection.on_frame(now, SystemTime::now(), matched, self.detection_policy);
         if update.ensure_replay_buffer {
             #[cfg(not(test))]
-            super::replay_buffer::REPLAY_BUFFER.ensure_replay_buffer_running();
+            if let Err(error) = super::replay_buffer::REPLAY_BUFFER.ensure_replay_buffer_running() {
+                tracing::warn!(%error, "could not ensure replay buffer is running");
+            }
         }
         for pending in update.ready {
             self.flush_ready(pending, now);

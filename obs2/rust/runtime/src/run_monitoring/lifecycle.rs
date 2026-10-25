@@ -47,7 +47,7 @@ pub(crate) struct RunMonitor {
 pub(crate) enum StartError {
     InvalidSourceName,
     AlreadyRunning,
-    ReplayBufferUnavailable,
+    ReplayBufferUnavailable(String),
     MatcherUnavailable,
     CaptureUnavailable,
     WorkerUnavailable,
@@ -109,9 +109,9 @@ impl RunMonitor {
             return if handle.source_name == status_source_name { Ok(()) } else { Err(StartError::AlreadyRunning) };
         }
 
-        if !crate::run_monitoring::replay_buffer::REPLAY_BUFFER.ensure_replay_buffer_running() {
-            return Err(StartError::ReplayBufferUnavailable);
-        }
+        crate::run_monitoring::replay_buffer::REPLAY_BUFFER
+            .ensure_replay_buffer_running()
+            .map_err(StartError::ReplayBufferUnavailable)?;
         self.recording_state.handle(RecordingStateEvent::Reset);
 
         // Build the session (and its fresh, empty scale cache) up front so any

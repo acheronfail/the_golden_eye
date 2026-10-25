@@ -41,6 +41,15 @@ pub fn replay_buffer_available() -> bool {
     unsafe { raw::ge_obs_replay_buffer_available() }
 }
 
+pub fn replay_buffer_last_error() -> Option<String> {
+    let mut buffer = vec![0 as c_char; 4096];
+    if !unsafe { raw::ge_obs_replay_buffer_last_error(buffer.as_mut_ptr(), buffer.len()) } {
+        return None;
+    }
+    let error = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().trim().to_owned();
+    (!error.is_empty()).then_some(error)
+}
+
 pub fn replay_buffer_max_seconds() -> Option<u64> {
     u64::try_from(unsafe { raw::ge_obs_replay_buffer_max_seconds() }).ok()
 }

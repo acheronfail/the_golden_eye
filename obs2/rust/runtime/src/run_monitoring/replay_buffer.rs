@@ -18,9 +18,7 @@ pub(crate) enum ReplayEvent {
 const REPLAY_STOP_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a monitor start should wait for OBS to make the replay buffer active
 /// after `obs_frontend_replay_buffer_start`.
-const REPLAY_START_TIMEOUT: Duration = Duration::from_secs(2);
-const REPLAY_START_RETRIES: usize = 4;
-const REPLAY_START_RETRY_DELAY: Duration = Duration::from_millis(250);
+const REPLAY_START_TIMEOUT: Duration = Duration::from_secs(10);
 /// OBS can ignore a replay-buffer start issued immediately after the stopped
 /// event. Give the frontend a brief turn to finish its state transition.
 const REPLAY_STOP_SETTLE_DELAY: Duration = Duration::from_millis(400);
@@ -40,6 +38,7 @@ struct ReplayBufferLifecycle {
     starting: bool,
     stopping: bool,
     last_stopped_at: Option<Instant>,
+    stopped_generation: u64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -63,7 +62,12 @@ impl ReplayCoordinator {
         Self {
             saved: Mutex::new(ReplaySaved { generation: 0, last_path: None, pending_requests: 0 }),
             saved_changed: Condvar::new(),
-            lifecycle: Mutex::new(ReplayBufferLifecycle { starting: false, stopping: false, last_stopped_at: None }),
+            lifecycle: Mutex::new(ReplayBufferLifecycle {
+                starting: false,
+                stopping: false,
+                last_stopped_at: None,
+                stopped_generation: 0,
+            }),
             lifecycle_changed: Condvar::new(),
             ensure_serialized: Mutex::new(()),
             save_serialized: Mutex::new(()),
@@ -110,6 +114,7 @@ impl ReplayCoordinator {
                 guard.starting = false;
                 guard.stopping = false;
                 guard.last_stopped_at = Some(Instant::now());
+                guard.stopped_generation = guard.stopped_generation.wrapping_add(1);
                 drop(guard);
                 self.lifecycle_changed.notify_all();
             }
@@ -209,11 +214,11 @@ impl ReplayCoordinator {
         }
     }
 
-    fn wait_for_replay_buffer_active(&self, timeout: Duration) -> bool {
+    fn wait_for_replay_buffer_active(&self, timeout: Duration, stopped_generation: u64) -> bool {
         let start = Instant::now();
         let mut guard = self.lifecycle.lock().unwrap_or_else(|p| p.into_inner());
         while !crate::obs::replay_buffer_active() {
-            if guard.stopping {
+            if guard.stopping || guard.stopped_generation != stopped_generation {
                 guard.starting = false;
                 return false;
             }
@@ -239,37 +244,44 @@ impl ReplayCoordinator {
         true
     }
 
-    /// Start the replay buffer if it is available and not already running.
-    pub(crate) fn ensure_replay_buffer_running(&self) -> bool {
+    /// Start once and allow slow OBS/encoder initialization to complete.
+    pub(crate) fn ensure_replay_buffer_running(&self) -> Result<(), String> {
         let _ensure_guard = self.ensure_serialized.lock().unwrap_or_else(|p| p.into_inner());
 
         if !self.wait_for_replay_buffer_not_stopping(REPLAY_STOP_TIMEOUT) {
-            tracing::warn!("timed out waiting for replay buffer to stop");
-            return false;
+            return Err("OBS's replay buffer is still stopping. Wait and try again.".to_owned());
+        }
+        if crate::obs::replay_buffer_active() {
+            return Ok(());
+        }
+        if !crate::obs::replay_buffer_enabled() {
+            return Err("Enable the replay buffer in OBS Settings → Output before starting monitoring.".to_owned());
+        }
+        if !crate::obs::replay_buffer_available() {
+            return Err("OBS's replay buffer is unavailable with the current output settings.".to_owned());
+        }
+        let directory = crate::obs::replay_buffer_output_directory()
+            .ok_or_else(|| "Set a recording output directory in OBS Settings → Output.".to_owned())?;
+        if !directory.is_dir() {
+            return Err(format!(
+                "OBS's recording output directory does not exist or is not accessible: {}. Check OBS Settings → Output.",
+                directory.display()
+            ));
         }
 
-        if !crate::obs::replay_buffer_available() {
-            if crate::obs::replay_buffer_enabled() {
-                tracing::warn!("replay buffer is enabled in OBS but unavailable with the current output settings");
-            } else {
-                tracing::warn!("replay buffer is not enabled in OBS; recording will not work");
-            }
-            return false;
+        let stopped_generation = self.lifecycle.lock().unwrap_or_else(|p| p.into_inner()).stopped_generation;
+        tracing::info!("starting replay buffer");
+        self.handle(ReplayEvent::Starting);
+        crate::obs::start_replay_buffer();
+        if self.wait_for_replay_buffer_active(REPLAY_START_TIMEOUT, stopped_generation) {
+            return Ok(());
         }
-        if !crate::obs::replay_buffer_active() {
-            for attempt in 1..=REPLAY_START_RETRIES {
-                tracing::info!(attempt, "starting replay buffer");
-                self.handle(ReplayEvent::Starting);
-                crate::obs::start_replay_buffer();
-                if self.wait_for_replay_buffer_active(REPLAY_START_TIMEOUT) {
-                    return true;
-                }
-                tracing::warn!(attempt, "replay buffer did not become active after start request");
-                std::thread::sleep(REPLAY_START_RETRY_DELAY);
-            }
-            return false;
-        }
-        true
+        let message = match crate::obs::replay_buffer_last_error() {
+            Some(error) => format!("OBS could not start the replay buffer: {error}"),
+            None => "OBS's replay buffer did not start. Check OBS for an error and review its recording output and encoder settings before trying again.".to_owned(),
+        };
+        tracing::warn!(%message, "replay buffer start failed");
+        Err(message)
     }
 
     /// Stop the replay buffer if it is currently running.

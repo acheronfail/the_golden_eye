@@ -26,18 +26,25 @@ pub async fn handle_start(State(state): State<AppState>, Json(params): Json<Star
     })
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "run catalog task failed"))?;
-    state.monitor.start(params.source_name).map_err(start_error_response)?;
+    tokio::task::spawn_blocking(move || state.monitor.start(params.source_name))
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "monitor startup task failed"))?
+        .map_err(start_error_response)?;
     Ok(StatusCode::OK)
 }
 
-fn start_error_response(error: StartError) -> (StatusCode, &'static str) {
+fn start_error_response(error: StartError) -> (StatusCode, String) {
     match error {
-        StartError::InvalidSourceName => (StatusCode::BAD_REQUEST, "source name contains a null byte"),
-        StartError::AlreadyRunning => (StatusCode::CONFLICT, "a monitor is already running"),
-        StartError::ReplayBufferUnavailable => (StatusCode::PRECONDITION_FAILED, "replay buffer is unavailable"),
-        StartError::MatcherUnavailable => (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher"),
-        StartError::CaptureUnavailable => (StatusCode::INTERNAL_SERVER_ERROR, "failed to create capture context"),
-        StartError::WorkerUnavailable => (StatusCode::INTERNAL_SERVER_ERROR, "failed to spawn monitor thread"),
+        StartError::InvalidSourceName => (StatusCode::BAD_REQUEST, "source name contains a null byte".to_owned()),
+        StartError::AlreadyRunning => (StatusCode::CONFLICT, "a monitor is already running".to_owned()),
+        StartError::ReplayBufferUnavailable(message) => (StatusCode::PRECONDITION_FAILED, message),
+        StartError::MatcherUnavailable => (StatusCode::INTERNAL_SERVER_ERROR, "failed to init matcher".to_owned()),
+        StartError::CaptureUnavailable => {
+            (StatusCode::INTERNAL_SERVER_ERROR, "failed to create capture context".to_owned())
+        }
+        StartError::WorkerUnavailable => {
+            (StatusCode::INTERNAL_SERVER_ERROR, "failed to spawn monitor thread".to_owned())
+        }
     }
 }
 
