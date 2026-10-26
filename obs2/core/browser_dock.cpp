@@ -9,9 +9,6 @@
 #include <thread>
 
 bool ge_obs_prepare_browser_dock(void) try {
-  if ((obs_get_version() >> 24) < 33) {
-    return true;
-  }
   obs_module_t *browser = obs_get_module("obs-browser");
   if (!browser) {
     return true;

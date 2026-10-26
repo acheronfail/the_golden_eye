@@ -39,9 +39,9 @@ directories. Windows selects its discovery layout from the installed OBS executa
 
 ## OBS browser initialization
 
-OBS 33's browser changes require initializing CEF before registering the custom dock. The core uses
-OBS Browser's versioned QCef v3 interface, guarded by its exported interface version, with a bounded
-wait. OBS 31/32 retain their existing startup path. Unknown future browser interfaces are logged and
+Initialize CEF before registering the custom dock, including on OBS 32 where first-dock startup can
+race browser initialization. The core uses OBS Browser's versioned QCef v3 interface, guarded by its
+exported interface version, with a bounded wait. Unknown future browser interfaces are logged and
 are not called through the v3 interface.
 
 ## Validation

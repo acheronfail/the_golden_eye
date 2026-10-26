@@ -57,9 +57,7 @@ let testError: unknown;
 try {
   await h.launch();
   const obsLog = await fs.readFile(path.join(directory, "obs.log"), "utf8");
-  if (/OBS (?:3[3-9]|[4-9]\d)\./.test(obsLog)) {
-    assert.match(obsLog, /browser initialized before dock registration/);
-  }
+  assert.match(obsLog, /browser initialized before dock registration/);
   const target = await h.waitFor("embedded CEF dock target", async () => {
     try {
       const targets = await fetch(`http://127.0.0.1:${debugPort}/json/list`).then((r) => r.json());

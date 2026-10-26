@@ -210,6 +210,15 @@ jobs:
           bash .github/scripts/run-obs-headless.sh obs2/build/real-obs-desktop/upgrade.log \
             node --experimental-strip-types frame_tests/obs/upgrade.ts "${builds[0]}" --software-renderer
 
+      - name: Validate embedded OBS 32 browser dock
+        timeout-minutes: 5
+        env:
+          GE_OBS_TEST_FLATPAK_SCOPE: --system
+          GE_OBS_TEST_MODERN: '0'
+        run: |
+          bash .github/scripts/run-obs-headless.sh obs2/build/real-obs-desktop/browser32.log \
+            node --experimental-strip-types frame_tests/obs/browser_dock.ts
+
       - name: Install OBS 33 alongside OBS 32
         run: |
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
