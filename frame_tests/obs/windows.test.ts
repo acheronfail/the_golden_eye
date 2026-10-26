@@ -117,6 +117,27 @@ test("portable OBS copy excludes personal configuration and installed Golden Eye
   }
 });
 
+test("OBS33 portable copy works with core and no legacy obs-plugins directory", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "obs33-copy-"));
+  const source = path.join(directory, "installed");
+  const target = path.join(directory, "copy");
+  try {
+    for (const file of [
+      "bin/64bit/obs64.exe",
+      "data/obs-studio/locale/en-US.ini",
+      "core/obs-scripting.dll",
+    ]) {
+      await fs.mkdir(path.dirname(path.join(source, file)), { recursive: true });
+      await fs.writeFile(path.join(source, file), "obs33");
+    }
+    await copyWindowsObs(source, target);
+    assert.equal(await fs.readFile(path.join(target, "core/obs-scripting.dll"), "utf8"), "obs33");
+    await assert.rejects(fs.access(path.join(target, "obs-plugins")), { code: "ENOENT" });
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("Windows reload checks read the current native OBS log after a restart", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "obs-logs-"));
   try {
