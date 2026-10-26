@@ -37,13 +37,6 @@ Development launchers expose both discovery layouts in the build directory. They
 canonical build core for hot reload and keep temporary modern discovery paths out of user plugin
 directories. Windows selects its discovery layout from the installed OBS executable version.
 
-## OBS browser initialization
-
-Initialize CEF before registering the custom dock, including on OBS 32 where first-dock startup can
-race browser initialization. The core uses OBS Browser's versioned QCef v3 interface, guarded by its
-exported interface version, with a bounded wait. Unknown future browser interfaces are logged and
-are not called through the v3 interface.
-
 ## Validation
 
 The repeatable Linux cross-version suite needs OBS 32 installed system-wide and OBS 33 installed for
@@ -63,9 +56,9 @@ to exercise provisioning by the next update. It checks unchanged resident loader
 core hashes, OBS 32 restart, OBS 33 duplicate prevention, replay saves and history, modern-only
 discovery, fresh modern updates, and permission failure/retry.
 
-CI retains OBS 32 builds and tests, then tests the same artifacts on OBS 33. Linux additionally
-exercises embedded CEF rendering, live events, reload/reconnection, and replay saving. Windows uses
-isolated OBS 32 and 33 copies for distinct compiled-version upgrades and restarts.
+CI retains OBS 32 builds and tests, then tests the same artifacts on OBS 33. Linux exercises
+cross-version discovery, matching, updates, and replay saving. Windows uses isolated OBS 32 and 33
+copies for distinct compiled-version upgrades and restarts.
 
 OBS 34 is not available yet. Modern-only discovery tests cover its announced removal of legacy
 locations; the final OBS 34 browser and native ABI must still be validated against an actual
@@ -74,11 +67,10 @@ modern location without requiring OBS 33 in between. Users who upgrade OBS first
 running this plugin release, may still need to install the current package manually.
 
 References: [OBS 33 release notes](https://github.com/obsproject/obs-studio/releases/tag/33.0.0),
-[legacy plugin locations](https://obsproject.com/kb/legacy-plugin-locations), and the
-[OBS Browser v3 interface](https://github.com/obsproject/obs-browser/blob/5b503289c45a/panel/browser-panel.hpp).
+[legacy plugin locations](https://obsproject.com/kb/legacy-plugin-locations).
 
 The local OBS 31.1.2 portable probe passed matching, hot update, provisioning, and replay saving.
 Its shutdown heap failure also reproduced with the original plugin and without the plugin, and
 persisted with a matching temporary Qt runtime. This is not a clean OBS 31 Flatpak validation;
 retained Flathub history did not provide an OBS 31 installation. OBS 32/33 Flatpak runs shut down
-cleanly, including the shared-browser-profile 32 → 33 → 32 check.
+cleanly, including the 32 → 33 → 32 check.

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { copyWindowsObs, findWindowsObs, readWindowsObsLog } from "./windows.ts";
@@ -28,9 +27,6 @@ export interface HarnessOptions {
   resume?: boolean;
   modern?: boolean;
   flatpakScope?: "--system" | "--user";
-  browserDock?: boolean;
-  browserDebugPort?: number;
-  serverPort?: number;
 }
 
 export class ObsHarness {
@@ -74,7 +70,6 @@ export class ObsHarness {
   private eventWrites: Promise<unknown> = Promise.resolve();
   private eventWriteError?: Error;
   private instanceId = "";
-  private temporaryDirectory = "";
   private exit?: Promise<void>;
   private lastObservation: unknown = null;
   private logStart = 0;
@@ -590,7 +585,7 @@ export class ObsHarness {
     const reservation = createServer();
     await new Promise<void>((resolve, reject) => {
       reservation.once("error", reject);
-      reservation.listen(this.options.serverPort ?? 0, "127.0.0.1", resolve);
+      reservation.listen(0, "127.0.0.1", resolve);
     });
     const port = (reservation.address() as { port: number }).port;
     await new Promise<void>((resolve) => reservation.close(() => resolve()));
@@ -612,9 +607,6 @@ export class ObsHarness {
     this.logStart =
       this.options.resume && process.platform !== "win32" ? (await log.stat()).size : 0;
     const config = this.configDirectory;
-    if (process.platform === "linux" && this.options.browserDock) {
-      this.temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "ge-obs-"));
-    }
     this.child =
       process.platform === "win32"
         ? spawn(
@@ -691,18 +683,16 @@ export class ObsHarness {
               [
                 "run",
                 ...(this.options.flatpakScope ? [this.options.flatpakScope] : []),
-                "--no-documents-portal",
                 "--instance-id-fd=3",
                 "--device=dri",
                 `--filesystem=${this.root}`,
-                ...(this.temporaryDirectory ? [`--filesystem=${this.temporaryDirectory}`] : []),
                 "--socket=x11",
                 "--nosocket=wayland",
                 "--nosocket=pulseaudio",
-                `--env=TMPDIR=${this.temporaryDirectory || this.artifacts}`,
+                `--env=TMPDIR=${this.artifacts}`,
                 `--env=GE_OBS_TEST_DIR=${this.artifacts}`,
                 `--env=GE_SERVER_PORT=${port}`,
-                `--env=GE_DISABLE_BROWSER_DOCK=${this.options.browserDock ? "0" : "1"}`,
+                "--env=GE_DISABLE_BROWSER_DOCK=1",
                 "--unset-env=GE_CORE_LIB",
                 `--env=GE_UPDATE_CHECK_URL=${this.updateUrl}`,
                 "--unset-env=OBS_PLUGINS_PATH",
@@ -716,9 +706,6 @@ export class ObsHarness {
                 `XDG_DATA_HOME=${this.artifacts}/data`,
                 `XDG_CACHE_HOME=${this.artifacts}/cache`,
                 "/app/bin/obs",
-                ...(this.options.browserDebugPort
-                  ? [`--remote-debugging-port=${this.options.browserDebugPort}`]
-                  : []),
                 "--collection",
                 "Tests",
                 "--profile",
@@ -948,14 +935,6 @@ export class ObsHarness {
       errors.push(error);
     }
     if (this.eventWriteError) errors.push(this.eventWriteError);
-    if (this.temporaryDirectory) {
-      try {
-        await fs.rm(this.temporaryDirectory, { force: true, recursive: true });
-      } catch (error) {
-        errors.push(error);
-      }
-      this.temporaryDirectory = "";
-    }
     try {
       await this.eventLog?.close();
     } catch (error) {

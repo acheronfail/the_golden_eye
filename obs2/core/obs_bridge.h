@@ -85,12 +85,4 @@ uint8_t *ge_capture_get_frame(ge_capture_ctx *ctx, const char *source_name, uint
 /* Destroy a capture context and its surfaces. */
 void ge_capture_destroy(ge_capture_ctx *ctx);
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-bool ge_obs_prepare_browser_dock(void);
-#ifdef __cplusplus
-}
-#endif
-
 #endif

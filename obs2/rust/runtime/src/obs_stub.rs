@@ -157,8 +157,3 @@ pub extern "C" fn ge_core_trigger_reload() {}
 // enum is int-sized); the bins that include this stub can't see that crate-private type.
 #[unsafe(no_mangle)]
 pub extern "C" fn ge_obs_blog(_level: c_int, _msg: *const c_char) {}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn ge_obs_prepare_browser_dock() -> bool {
-    true
-}

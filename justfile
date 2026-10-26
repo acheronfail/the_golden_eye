@@ -212,13 +212,13 @@ test:
 fmt:
     cd obs2/browser && npm run format:repo
     cd obs2/rust && cargo +nightly fmt --all
-    find obs2/loader obs2/loader/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' \) ! -name ge_runtime.h -print0 | xargs -0 clang-format -style=file -i
+    find obs2/loader obs2/loader/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_runtime.h -print0 | xargs -0 clang-format -style=file -i
 
 # check formatting without changing files
 fmt-check:
     cd obs2/browser && npm run format:repo:check
     cd obs2/rust && cargo +nightly fmt --all -- --check
-    find obs2/loader obs2/loader/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' \) ! -name ge_runtime.h -print0 | xargs -0 clang-format -style=file --dry-run --Werror
+    find obs2/loader obs2/loader/tests obs2/core -maxdepth 1 \( -name '*.c' -o -name '*.h' \) ! -name ge_runtime.h -print0 | xargs -0 clang-format -style=file --dry-run --Werror
 
 # regenerate contracts, then check formatting, Rust, and browser types
 check:

@@ -59,7 +59,6 @@ target_sources(${CORE_NAME} PRIVATE
     core/obs_bridge.c
     core/core.c
     core/ge_log.c
-    core/browser_dock.cpp
 )
 
 if(NOT GE_OBS_NATIVE_DEPS_FOUND)
