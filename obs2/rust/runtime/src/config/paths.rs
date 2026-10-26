@@ -73,7 +73,15 @@ static XDG_DATA_HOME: EnvVar = EnvVar::new("XDG_DATA_HOME");
 
 #[cfg(target_os = "linux")]
 pub(crate) fn obs_plugin_roots() -> Option<(PathBuf, PathBuf)> {
-    let config = XDG_CONFIG_HOME.os().map(PathBuf::from).or_else(|| home_dir().map(|p| p.join(".config")))?;
-    let data = XDG_DATA_HOME.os().map(PathBuf::from).or_else(|| home_dir().map(|p| p.join(".local/share")))?;
+    let config = XDG_CONFIG_HOME
+        .os()
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| home_dir().map(|p| p.join(".config")))?;
+    let data = XDG_DATA_HOME
+        .os()
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| home_dir().map(|p| p.join(".local/share")))?;
     Some((config.join("obs-studio/plugins"), data.join("obs-studio/plugins")))
 }

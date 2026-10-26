@@ -429,8 +429,16 @@ def run_dev(*, frontend: bool, backend: bool, obs: bool) -> int:
                 env = os.environ.copy()
                 env["OBS_PLUGINS_PATH"] = str(plugin_path)
                 env["OBS_PLUGINS_DATA_PATH"] = str(data_path)
+                command = ["obs"]
+                cwd = None
+                if sys.platform == "win32":
+                    from run_windows import launch_environment, obs_executable
+                    env = launch_environment(PLUGIN_BUILD_DIR)
+                    command = [obs_executable()]
+                    cwd = Path(command[0]).parent
                 obs_process = manager.start(
-                    ["obs"],
+                    command,
+                    cwd=cwd,
                     env=env,
                     output_filter=lambda line: colorize_plugin_log_line(
                         line, enabled=plugin_log_color_enabled()

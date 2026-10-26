@@ -33,6 +33,10 @@ failures leave the plugin operational and retain an actionable dashboard notific
 permissions and restarting retries provisioning. Unknown destinations and symbolic links are not
 replaced.
 
+Development launchers expose both discovery layouts in the build directory. They retain the
+canonical build core for hot reload and keep temporary modern discovery paths out of user plugin
+directories. Windows selects its discovery layout from the installed OBS executable version.
+
 ## OBS browser initialization
 
 OBS 33's browser changes require initializing CEF before registering the custom dock. The core uses
@@ -72,3 +76,9 @@ running this plugin release, may still need to install the current package manua
 References: [OBS 33 release notes](https://github.com/obsproject/obs-studio/releases/tag/33.0.0),
 [legacy plugin locations](https://obsproject.com/kb/legacy-plugin-locations), and the
 [OBS Browser v3 interface](https://github.com/obsproject/obs-browser/blob/5b503289c45a/panel/browser-panel.hpp).
+
+The local OBS 31.1.2 portable probe passed matching, hot update, provisioning, and replay saving.
+Its shutdown heap failure also reproduced with the original plugin and without the plugin, and
+persisted with a matching temporary Qt runtime. This is not a clean OBS 31 Flatpak validation;
+retained Flathub history did not provide an OBS 31 installation. OBS 32/33 Flatpak runs shut down
+cleanly, including the shared-browser-profile 32 → 33 → 32 check.

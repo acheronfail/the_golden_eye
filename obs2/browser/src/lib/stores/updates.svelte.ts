@@ -132,6 +132,7 @@ export const updates = new (class {
 	}
 
 	handleCompatibilityFailed(error: string): void {
+		dismissNotificationFlagsByKey('plugin-compatibility-failed');
 		addNotificationFlag({
 			key: 'plugin-compatibility-failed',
 			title: 'OBS upgrade preparation failed',

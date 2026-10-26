@@ -62,6 +62,8 @@ describe('update state', () => {
 
 	it('retains an actionable OBS preparation failure independently of update availability', () => {
 		updates.handleCompatibilityFailed('Fix permissions and restart OBS.');
+		updates.handleCompatibilityFailed('Fix permissions and restart OBS.');
+		expect(notifications.flags).toHaveLength(1);
 		updates.applyStatus({ phase: 'idle', available: null });
 		expect(notifications.flags).toEqual(
 			expect.arrayContaining([
