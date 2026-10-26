@@ -240,6 +240,10 @@ export class Backend {
 		return this.revealFile({ target: 'settingsConfig' });
 	}
 
+	public openPluginInstallationGuide(): Promise<void> {
+		return this.postVoid('/api/v1/updates/installation-guide');
+	}
+
 	public openUpdateRelease(releaseUrl: string): Promise<void> {
 		return this.postJsonVoid('/api/v1/updates/open', { releaseUrl });
 	}

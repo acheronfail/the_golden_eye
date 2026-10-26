@@ -43,8 +43,8 @@ For OBS 31/32, use: `$HOME/.var/app/com.obsproject.Studio/config/obs-studio/plug
 The same `u2` ZIP supports both. Existing installations prepare the modern location automatically
 when the updated plugin runs on OBS 31/32, including immediately after an automatic plugin update.
 No bridge release or manual reinstall is needed. OBS 33 loads one copy, preferring the modern
-location. If the dashboard reports that preparation failed, fix the permissions and restart OBS, or
-install manually into the modern location before upgrading OBS.
+location. If the dashboard asks you to reinstall before upgrading OBS, close OBS and copy the latest
+plugin into the OBS 33+ directory listed above before upgrading.
 
 Now open OBS Studio or restart it, and the plugin should appear as an integrated window. If it
 doesn't appear, open the `Docks` menu item and make sure that `The Golden Eye` is checked:

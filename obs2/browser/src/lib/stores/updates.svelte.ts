@@ -135,10 +135,18 @@ export const updates = new (class {
 		dismissNotificationFlagsByKey('plugin-compatibility-failed');
 		addNotificationFlag({
 			key: 'plugin-compatibility-failed',
-			title: 'OBS upgrade preparation failed',
+			title: 'Reinstall The Golden Eye before upgrading OBS',
 			detail: error,
-			tone: 'error',
-			sticky: true
+			meta: 'Installation guide — click to open',
+			tone: 'warning',
+			sticky: true,
+			action: async () => {
+				try {
+					await backend.openPluginInstallationGuide();
+				} catch (err) {
+					addNotificationFlag({ title: 'Could not open installation guide', detail: errorMessage(err), tone: 'error' });
+				}
+			}
 		});
 	}
 
