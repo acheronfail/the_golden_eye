@@ -25,6 +25,9 @@ bool ge_obs_replay_buffer_enabled(void);
  * the checkbox enabled but the output NULL, so clips cannot be saved. */
 bool ge_obs_replay_buffer_available(void);
 
+/* Copies the current replay output error, if OBS supplied one. */
+bool ge_obs_replay_buffer_last_error(char *buffer, size_t buffer_size);
+
 /* Configured maximum replay-buffer duration in seconds (RecRBTime). Returns -1
  * if the active profile config cannot be read. */
 int64_t ge_obs_replay_buffer_max_seconds(void);

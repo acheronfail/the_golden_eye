@@ -17,6 +17,7 @@ pub use frontend::{
     replay_buffer_active,
     replay_buffer_available,
     replay_buffer_enabled,
+    replay_buffer_last_error,
     replay_buffer_max_seconds,
     replay_buffer_output_directory,
     save_replay_buffer,

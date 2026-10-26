@@ -102,6 +102,9 @@ struct State {
     live_dock_json: CString,
     replay_serial: usize,
     deferred_replay_saves: Option<Vec<PathBuf>>,
+    replay_start_delay: Duration,
+    replay_start_failure: Option<String>,
+    ignore_replay_start: bool,
 }
 
 impl Default for State {
@@ -129,6 +132,9 @@ impl Default for State {
             live_dock_json: CString::new("[]").unwrap(),
             replay_serial: 0,
             deferred_replay_saves: None,
+            replay_start_delay: Duration::ZERO,
+            replay_start_failure: None,
+            ignore_replay_start: false,
         }
     }
 }
@@ -157,6 +163,16 @@ impl TestObs {
 
     pub fn set_sources(&self, sources: Vec<(String, String)>) {
         STATE.lock().unwrap().config.sources = sources;
+    }
+
+    pub fn set_replay_start_behavior(&self, delay: Duration, failure: Option<String>) {
+        let mut state = STATE.lock().unwrap();
+        state.replay_start_delay = delay;
+        state.replay_start_failure = failure;
+    }
+
+    pub fn ignore_replay_start(&self) {
+        STATE.lock().unwrap().ignore_replay_start = true;
     }
 
     pub fn set_replay_save_delay(&self, delay: Duration) {
@@ -282,13 +298,31 @@ pub extern "C" fn obs_frontend_replay_buffer_active() -> bool {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn obs_frontend_replay_buffer_start() {
-    {
+    let (delay, failure, ignore) = {
         let mut state = STATE.lock().unwrap();
         state.calls.replay_start += 1;
-        state.config.replay_active = true;
+        (state.replay_start_delay, state.replay_start_failure.is_some(), state.ignore_replay_start)
+    };
+    if ignore {
+        return;
     }
     ge_runtime::ge_replay_buffer_starting();
-    ge_runtime::ge_replay_buffer_started();
+    let complete = move || {
+        if failure {
+            ge_runtime::ge_replay_buffer_stopped();
+        } else {
+            STATE.lock().unwrap().config.replay_active = true;
+            ge_runtime::ge_replay_buffer_started();
+        }
+    };
+    if delay.is_zero() {
+        complete();
+    } else {
+        std::thread::spawn(move || {
+            std::thread::sleep(delay);
+            complete();
+        });
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -367,6 +401,15 @@ pub extern "C" fn ge_obs_replay_buffer_available() -> bool {
     let mut state = STATE.lock().unwrap();
     state.calls.replay_available += 1;
     state.config.replay_available
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_obs_replay_buffer_last_error(buffer: *mut c_char, buffer_size: usize) -> bool {
+    let state = STATE.lock().unwrap();
+    let Some(error) = state.replay_start_failure.as_deref().filter(|error| !error.is_empty()) else {
+        return false;
+    };
+    copy_to_c(Path::new(error), buffer, buffer_size)
 }
 
 #[unsafe(no_mangle)]

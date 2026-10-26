@@ -64,6 +64,7 @@ unsafe extern "C" {
 
     pub(super) fn ge_obs_replay_buffer_enabled() -> bool;
     pub(super) fn ge_obs_replay_buffer_available() -> bool;
+    pub(super) fn ge_obs_replay_buffer_last_error(buffer: *mut c_char, buffer_size: usize) -> bool;
     pub(super) fn ge_obs_replay_buffer_max_seconds() -> i64;
     pub(super) fn ge_obs_replay_buffer_output_directory(buffer: *mut c_char, buffer_size: usize) -> bool;
     pub(super) fn ge_obs_module_data_path(buffer: *mut c_char, buffer_size: usize) -> bool;

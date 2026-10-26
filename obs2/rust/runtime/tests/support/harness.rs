@@ -75,6 +75,7 @@ impl Harness {
         let root = repo_root();
         let temp = test_dir();
         let replay_dir = temp.join("replays");
+        fs::create_dir_all(&replay_dir).unwrap();
         let fixture = root.join("frame_tests/clips/replay-buffer-60s.mp4");
         assert!(
             fixture.is_file(),
