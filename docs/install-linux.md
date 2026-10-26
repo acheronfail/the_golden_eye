@@ -36,8 +36,15 @@ Download the latest release from the
 [releases page](https://github.com/acheronfail/the_golden_eye/releases) and extract it and copy the
 `the_golden_eye` folder to your OBS Studio plugins directory.
 
-For the flatpak installation, this is usually:
-`$HOME/.var/app/com.obsproject.Studio/config/obs-studio/plugins/`
+For Flatpak OBS 33+, use: `$HOME/.var/app/com.obsproject.Studio/data/obs-studio/plugins/`
+
+For OBS 31/32, use: `$HOME/.var/app/com.obsproject.Studio/config/obs-studio/plugins/`
+
+The same `u2` ZIP supports both. Existing installations prepare the modern location automatically
+when the updated plugin runs on OBS 31/32, including immediately after an automatic plugin update.
+No bridge release or manual reinstall is needed. OBS 33 loads one copy, preferring the modern
+location. If the dashboard reports that preparation failed, fix the permissions and restart OBS, or
+install manually into the modern location before upgrading OBS.
 
 Now open OBS Studio or restart it, and the plugin should appear as an integrated window. If it
 doesn't appear, open the `Docks` menu item and make sure that `The Golden Eye` is checked:
@@ -46,9 +53,9 @@ doesn't appear, open the `Docks` menu item and make sure that `The Golden Eye` i
 
 ## Uninstalling the plugin
 
-To uninstall the plugin, simply delete the `the_golden_eye` folder from your OBS Studio plugins
-directory. This is usually at `$HOME/.var/app/com.obsproject.Studio/config/obs-studio/plugins/`, and
-then restart OBS Studio.
+Close OBS and delete `the_golden_eye` from both Flatpak plugin directories listed above, then
+restart OBS. Both copies must be removed to prevent the retained legacy copy from preparing a modern
+installation again. Settings and run history are stored separately.
 
 Open `Docks` -> `Custom Browser Docks` and remove the entry for `The Golden Eye` if it is still
 present.

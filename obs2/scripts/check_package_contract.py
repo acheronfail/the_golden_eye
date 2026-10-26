@@ -87,6 +87,8 @@ def required_paths(package: str) -> tuple[str, set[str]]:
         root = PLUGIN_NAME
         return root, {
             f"{root}/bin/64bit/{PLUGIN_NAME}.dll",
+            f"{root}/{PLUGIN_NAME}.dll",
+            f"{root}/data/modern-loader/{PLUGIN_NAME}.dll",
             f"{root}/bin/64bit/golden_core.dll",
             f"{root}/data/cv_templates/",
             f"{root}/data/locale/",
@@ -95,6 +97,8 @@ def required_paths(package: str) -> tuple[str, set[str]]:
     root = PLUGIN_NAME
     return root, {
         f"{root}/bin/64bit/{PLUGIN_NAME}.so",
+        f"{root}/{PLUGIN_NAME}.so",
+        f"{root}/data/modern-loader/{PLUGIN_NAME}.so",
         f"{root}/bin/64bit/libgolden_core.so",
         f"{root}/data/cv_templates/",
         f"{root}/data/locale/",
@@ -177,6 +181,14 @@ def main() -> int:
         raise SystemExit(f"{expected_zip_name} is missing required package paths: {missing!r}")
 
     with zipfile.ZipFile(zip_path) as archive:
+        cores = [name for name in names if PurePosixPath(name).name in {"golden_core.dll", "libgolden_core.so", "libgolden_core.dylib"}]
+        if len(cores) != 1:
+            raise SystemExit(f"u2 packages require exactly one core payload, found {cores!r}")
+        if package != "macos":
+            extension = "dll" if package == "windows" else "so"
+            loader = f"{PLUGIN_NAME}.{extension}"
+            if archive.read(f"{PLUGIN_NAME}/{loader}") != archive.read(f"{PLUGIN_NAME}/data/modern-loader/{loader}"):
+                raise SystemExit("bootstrap loader differs from packaged modern loader")
         validate_core_exports(archive, package)
 
     print(f"Package contract OK: {expected_zip_name}")

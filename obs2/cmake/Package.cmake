@@ -114,6 +114,9 @@ else()
       COMMAND ${CMAKE_COMMAND} -E make_directory "${GE_PACKAGE_BIN_DIR}"
       COMMAND ${CMAKE_COMMAND} -E make_directory "${GE_PACKAGE_DATA_DIR}/locale"
       COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${PLUGIN_NAME}>" "${GE_PACKAGE_BIN_DIR}/"
+      COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:golden_loader_modern>" "${GE_PACKAGE_ENTRY_PATH}/"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${GE_PACKAGE_DATA_DIR}/modern-loader"
+      COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:golden_loader_modern>" "${GE_PACKAGE_DATA_DIR}/modern-loader/"
       COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:${CORE_NAME}>" "${GE_PACKAGE_BIN_DIR}/"
       COMMAND ${CMAKE_COMMAND} -E copy_directory "${GE_PACKAGE_LOCALE_DIR}" "${GE_PACKAGE_DATA_DIR}/locale"
       COMMAND ${CMAKE_COMMAND} -E copy_directory "${GE_BUNDLED_TEMPLATE_DIR}" "${GE_PACKAGE_DATA_DIR}/cv_templates"
@@ -136,6 +139,9 @@ else()
 endif()
 
 add_dependencies(stage-plugin ${PLUGIN_NAME})
+if(NOT APPLE)
+  add_dependencies(stage-plugin golden_loader_modern)
+endif()
 
 if(NOT APPLE)
   set(GE_OBS_RUN_DATA_ROOT "${CMAKE_CURRENT_BINARY_DIR}/obs-run-data")

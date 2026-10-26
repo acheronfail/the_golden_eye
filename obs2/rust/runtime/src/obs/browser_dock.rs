@@ -11,6 +11,15 @@ pub fn post_load() {
         return;
     }
 
+    unsafe extern "C" {
+        fn ge_obs_prepare_browser_dock() -> bool;
+    }
+    // SAFETY: called by the core's post-load hook while OBS owns the browser module.
+    if !unsafe { ge_obs_prepare_browser_dock() } {
+        tracing::warn!("browser dock initialization failed; leaving dock configuration unchanged");
+        return;
+    }
+
     let url = crate::config::browser_dock_url();
     let existing = crate::obs::frontend_config_string(c"BasicWindow", c"ExtraBrowserDocks");
 

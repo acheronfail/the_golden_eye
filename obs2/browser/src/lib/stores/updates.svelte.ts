@@ -131,6 +131,16 @@ export const updates = new (class {
 		}
 	}
 
+	handleCompatibilityFailed(error: string): void {
+		addNotificationFlag({
+			key: 'plugin-compatibility-failed',
+			title: 'OBS upgrade preparation failed',
+			detail: error,
+			tone: 'error',
+			sticky: true
+		});
+	}
+
 	handleStagingFailed(error: string): void {
 		addNotificationFlag({
 			key: 'plugin-update-staging-failed',

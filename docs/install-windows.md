@@ -15,6 +15,10 @@ Copy the extracted `the_golden_eye` folder to OBS Studio's recommended Windows p
 C:\ProgramData\obs-studio\plugins
 ```
 
+Use the same `u2` ZIP for OBS 31/32 and 33+. It contains both loader layouts sharing one core.
+Existing `u2` installations receive the modern loader automatically after updating the plugin; OBS
+33 loads one copy. Keep the entire extracted directory together.
+
 ![Showing the plugin installed in OBS's plugin folder](assets/windows-plugin-folder.png)
 
 Now open OBS Studio or restart it, and the plugin should appear as an integrated window. If it

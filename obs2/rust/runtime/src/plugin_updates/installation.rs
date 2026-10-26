@@ -178,10 +178,10 @@ fn packaged_data_root(packaged_core: &Path) -> anyhow::Result<PathBuf> {
     Ok(data_root)
 }
 
-struct UpdateWorkDir(PathBuf);
+pub(super) struct UpdateWorkDir(PathBuf);
 
 impl UpdateWorkDir {
-    fn create(staged_dir: &Path) -> anyhow::Result<Self> {
+    pub(super) fn create(staged_dir: &Path) -> anyhow::Result<Self> {
         let parent = staged_dir.parent().context("staged update path has no parent directory")?;
         for _ in 0..100 {
             let sequence = WORK_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -195,7 +195,7 @@ impl UpdateWorkDir {
         anyhow::bail!("could not allocate a unique update workspace")
     }
 
-    fn path(&self) -> &Path {
+    pub(super) fn path(&self) -> &Path {
         &self.0
     }
 }
@@ -412,7 +412,7 @@ fn find_named(root: &Path, name: &OsStr) -> Option<PathBuf> {
     subdirs.into_iter().find_map(|subdir| find_named(&subdir, name))
 }
 
-fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
+pub(super) fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;

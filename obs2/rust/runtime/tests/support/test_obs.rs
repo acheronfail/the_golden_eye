@@ -588,3 +588,8 @@ pub extern "C" fn config_save_safe(_config: *mut c_void, _temp: *const c_char, _
 pub extern "C" fn ge_core_trigger_reload() {
     STATE.lock().unwrap().calls.core_trigger_reload += 1;
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ge_obs_prepare_browser_dock() -> bool {
+    true
+}

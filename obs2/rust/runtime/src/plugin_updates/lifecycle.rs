@@ -23,6 +23,7 @@ pub(crate) struct PluginUpdates {
     recording_state: RecordingStateStore,
     frontend_ready_tx: watch::Sender<bool>,
     check_lock: Mutex<()>,
+    compatibility_error: std::sync::Mutex<Option<String>>,
 }
 
 #[derive(Debug)]
@@ -40,7 +41,32 @@ impl PluginUpdates {
         recording_state: RecordingStateStore,
         frontend_ready_tx: watch::Sender<bool>,
     ) -> Self {
-        Self { settings, snapshot, event_tx, monitor, recording_state, frontend_ready_tx, check_lock: Mutex::new(()) }
+        Self {
+            settings,
+            snapshot,
+            event_tx,
+            monitor,
+            recording_state,
+            frontend_ready_tx,
+            check_lock: Mutex::new(()),
+            compatibility_error: std::sync::Mutex::new(None),
+        }
+    }
+
+    pub(crate) fn prepare_modern_installation(&self) {
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        if let Err(error) = super::modern_installation::provision() {
+            let error = format!(
+                "Could not prepare The Golden Eye for newer OBS versions: {error:#}. The plugin can still run. Before upgrading OBS, install the current release manually or fix the directory permissions and restart OBS."
+            );
+            tracing::warn!("{error}");
+            *self.compatibility_error.lock().unwrap_or_else(|p| p.into_inner()) = Some(error.clone());
+            let _ = self.event_tx.send(AppEvent::PluginCompatibilityFailed { error });
+        }
+    }
+
+    pub(crate) fn compatibility_error(&self) -> Option<String> {
+        self.compatibility_error.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     pub(crate) fn status(&self) -> UpdateStatus {

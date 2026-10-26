@@ -60,6 +60,20 @@ describe('update state', () => {
 		expect(notifications.flags).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Update ready' })]));
 	});
 
+	it('retains an actionable OBS preparation failure independently of update availability', () => {
+		updates.handleCompatibilityFailed('Fix permissions and restart OBS.');
+		updates.applyStatus({ phase: 'idle', available: null });
+		expect(notifications.flags).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					title: 'OBS upgrade preparation failed',
+					detail: 'Fix permissions and restart OBS.',
+					timeoutMs: undefined
+				})
+			])
+		);
+	});
+
 	it('projects background lifecycle transitions into the same button and notification state', () => {
 		updates.applyStatus({ phase: 'downloading', available });
 		expect(updates.buttonPhase).toBe('downloading');

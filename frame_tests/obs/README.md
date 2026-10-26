@@ -226,3 +226,8 @@ and native logs.
 Software OpenGL covers
 OBS's real rendering and capture code but cannot replace testing on physical GPU drivers. Tests
 assert detection results and dimensions rather than exact pixel equality across drivers.
+
+The [universal u2 cross-version suite](../../docs/obs-compatibility.md#validation) exercises
+OBS 32 → 33 automatic provisioning and modern-only discovery. `GE_OBS_TEST_MODERN=1` selects
+modern installation in the regular/upgrade harness; `GE_OBS_TEST_FLATPAK_SCOPE=--user` selects
+an isolated OBS Flatpak. `browser_dock.ts` checks the real embedded CEF dashboard.

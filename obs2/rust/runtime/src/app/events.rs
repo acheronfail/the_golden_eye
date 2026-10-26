@@ -66,6 +66,8 @@ pub enum AppEvent {
     /// (e.g. an unwritable install directory), so no update is queued up to
     /// apply. One-off, delivered via `event_tx` -- see `updates::check_for_updates_now`.
     UpdateStagingFailed { error: String },
+    /// Local provisioning failed; retained until restart so late browser clients see it.
+    PluginCompatibilityFailed { error: String },
     /// A YouTube upload was queued, progressed, completed, or failed.
     YoutubeUploadChanged { upload: crate::youtube_uploads::YoutubeUploadStatus },
     /// A newly saved personal best was automatically queued for upload.
