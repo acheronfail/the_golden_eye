@@ -3,14 +3,6 @@
 import argparse
 import os
 from pathlib import Path
-import platform
-
-
-def link_directory(link: Path, target: Path):
-    link.parent.mkdir(parents=True, exist_ok=True)
-    if link.is_symlink():
-        link.unlink()
-    link.symlink_to(target, target_is_directory=True)
 
 
 def main():
@@ -19,10 +11,12 @@ def main():
     parser.add_argument("--packaged", action="store_true")
     args = parser.parse_args()
     build = args.build.resolve()
-    arch = {"aarch64": "arm64", "amd64": "x86_64"}.get(platform.machine().lower(), platform.machine().lower())
-    plugin = build / f"package/the_golden_eye-linux-{arch}/the_golden_eye"
+    plugin, = (build / "package").glob("the_golden_eye-linux-*/the_golden_eye")
     launch = build / "obs-launch"
-    link_directory(launch / "data/obs-studio/plugins/the_golden_eye", plugin)
+    link = launch / "data/obs-studio/plugins/the_golden_eye"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.unlink(missing_ok=True)
+    link.symlink_to(plugin, target_is_directory=True)
     core = plugin / "bin/64bit/libgolden_core.so" if args.packaged else build / "the_golden_eye/bin/64bit/libgolden_core.so"
     command = ["flatpak", "run", "--device=dri", f"--filesystem={build}", "--socket=session-bus",
                "--talk-name=org.freedesktop.secrets", "--talk-name=org.freedesktop.portal.Desktop",

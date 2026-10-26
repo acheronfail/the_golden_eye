@@ -60,11 +60,8 @@ CI retains OBS 32 builds and tests, then tests the same artifacts on OBS 33. Lin
 cross-version discovery, matching, updates, and replay saving. Windows uses isolated OBS 32 and 33
 copies for distinct compiled-version upgrades and restarts.
 
-OBS 34 is not available yet. Modern-only discovery tests cover its announced removal of legacy
-locations; the final OBS 34 browser and native ABI must still be validated against an actual
-release. Installing this plugin update and running it before an OBS 32 → 34 upgrade prepares the
-modern location without requiring OBS 33 in between. Users who upgrade OBS first, without ever
-running this plugin release, may still need to install the current package manually.
+Users who upgrade OBS before updating and running the plugin may need to install the current package
+manually.
 
 References: [OBS 33 release notes](https://github.com/obsproject/obs-studio/releases/tag/33.0.0),
 [legacy plugin locations](https://obsproject.com/kb/legacy-plugin-locations).

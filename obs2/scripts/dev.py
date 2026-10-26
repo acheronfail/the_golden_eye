@@ -101,6 +101,10 @@ def core_runtime_dir() -> Path:
         arch_dir = "64bit" if sys.maxsize > 2**32 else "32bit"
         return PLUGIN_BUILD_DIR / PLUGIN_NAME / "bin" / arch_dir
 
+    if sys.platform == "win32":
+        from run_windows import runtime_directory
+        return runtime_directory(PLUGIN_BUILD_DIR, "Debug")
+
     return PLUGIN_BUILD_DIR
 
 
@@ -310,9 +314,10 @@ def rust_watch_loop(manager: ProcessManager, stop_event: threading.Event) -> Non
             # Relinking happens inside the Flatpak SDK for linux
             proc = manager.start(["just", "_dev-relink"], cwd=ROOT)
         else:
-            proc = manager.start(
-                ["cmake", "--build", ".", "--target", "golden_core"], cwd=BUILD_DIR
-            )
+            command = ["cmake", "--build", ".", "--target", "golden_core"]
+            if sys.platform == "win32":
+                command.extend(["--config", "Debug"])
+            proc = manager.start(command, cwd=BUILD_DIR)
         result = proc.wait()
         manager.forget(proc)
 
@@ -404,7 +409,7 @@ def run_dev(*, frontend: bool, backend: bool, obs: bool) -> int:
                 manager.run(["just", "configure-dev"])
                 build_command = ["cmake", "--build", "obs2/build"]
                 if sys.platform == "win32":
-                    build_command.extend(["--target", "stage-obs-run-data"])
+                    build_command.extend(["--config", "Debug", "--target", "stage-obs-run-data"])
                 manager.run(build_command)
 
             if not obs:
@@ -432,10 +437,10 @@ def run_dev(*, frontend: bool, backend: bool, obs: bool) -> int:
                 command = ["obs"]
                 cwd = None
                 if sys.platform == "win32":
-                    from run_windows import launch_environment, obs_executable
-                    env = launch_environment(PLUGIN_BUILD_DIR)
-                    command = [obs_executable()]
-                    cwd = Path(command[0]).parent
+                    from run_windows import OBS_EXECUTABLE, launch_environment
+                    env = launch_environment(PLUGIN_BUILD_DIR, "Debug")
+                    command = [str(OBS_EXECUTABLE)]
+                    cwd = OBS_EXECUTABLE.parent
                 obs_process = manager.start(
                     command,
                     cwd=cwd,

@@ -27,11 +27,11 @@ This is a plugin for OBS Studio that assists with GoldenEye N64 speed-running.
 
 ## OBS compatibility
 
-The recommended minimum OBS Studio version is `31.1.0`, but the plugin should work on OBS `31.0.0`
-and later. OBS 33 uses the same `u2` packages and automatic updates as OBS 31/32.
-Run an updated plugin at least once before upgrading OBS so it can prepare the new installation
-location. OBS 34 will be validated when available; its announced discovery changes are covered by
-the modern layout.
+OBS Studio `31.1.0` or later is recommended; `31.0.0` should also work. The same plugin download
+supports OBS 31, 32, and 33.
+
+If you'd installed the plugin on OBS 32, before upgrading OBS, update the plugin and open OBS at
+least once so the plugin can prepare for the newer version.
 
 ## How to install
 

@@ -120,9 +120,7 @@ try {
   await start(directory, true, true);
   assert.deepEqual(await h!.api("/api/v1/runs"), modernRuns);
   await close();
-  await record(
-    "Modern-only discovery works without any legacy installation (announced OBS34 layout requirement)",
-  );
+  await record("Modern-only discovery works without any legacy installation");
 
   const fresh = path.join(artifacts, "fresh-modern");
   await fs.mkdir(fresh);

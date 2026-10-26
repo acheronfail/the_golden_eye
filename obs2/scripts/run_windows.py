@@ -1,38 +1,28 @@
 #!/usr/bin/env python3
-"""Launch a local build with the installed OBS version's discovery layout."""
+"""Launch a staged local build using the installed OBS discovery layout."""
 import os
 from pathlib import Path
-import shutil
 import subprocess
 
 
-def obs_executable() -> str:
-    candidates = [Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "obs-studio/bin/64bit/obs64.exe",
-                  Path(os.environ.get("SCOOP", str(Path.home() / "scoop"))) / "apps/obs-studio/current/bin/64bit/obs64.exe"]
-    for candidate in candidates:
-        if candidate.is_file():
-            return str(candidate)
-    if executable := shutil.which("obs"):
-        return executable
-    raise RuntimeError("OBS was not found in Program Files, Scoop, or PATH")
+OBS_EXECUTABLE = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "obs-studio/bin/64bit/obs64.exe"
 
 
-def launch_environment(build: Path) -> dict[str, str]:
-    candidates = [build, build / "Release", build / "Debug"]
-    runtime = max((p for p in candidates if (p / "golden_core.dll").is_file()),
-                  key=lambda p: (p / "golden_core.dll").stat().st_mtime)
-    executable = obs_executable().replace("'", "''")
+def runtime_directory(build: Path, configuration: str) -> Path:
+    configured = build / configuration
+    return configured if (configured / "golden_core.dll").is_file() else build
+
+
+def launch_environment(build: Path, configuration: str) -> dict[str, str]:
+    runtime = runtime_directory(build, configuration)
+    executable = str(OBS_EXECUTABLE).replace("'", "''")
     major = int(subprocess.check_output(["powershell", "-NoProfile", "-Command",
         f"(Get-Item -LiteralPath '{executable}').VersionInfo.FileMajorPart"], text=True).strip())
     env = dict(os.environ)
     env["OBS_PLUGINS_DATA_PATH"] = str(build / "obs-run-data")
     if major >= 33:
-        subprocess.run(["cmake", "--build", str(build), "--config", runtime.name if runtime != build else "Release",
-                        "--target", "stage-plugin"], check=True)
-        bundles = list((build / "package").glob("the_golden_eye-windows-*"))
-        if len(bundles) != 1:
-            raise RuntimeError(f"Expected one Windows bundle, found {bundles}")
-        env["OBS_PLUGINS_PATH"] = str(bundles[0])
+        bundle, = (build / "package").glob("the_golden_eye-windows-*")
+        env["OBS_PLUGINS_PATH"] = str(bundle)
         env.setdefault("GE_CORE_LIB", str(runtime / "golden_core.dll"))
     else:
         env["OBS_PLUGINS_PATH"] = str(runtime)
@@ -40,6 +30,6 @@ def launch_environment(build: Path) -> dict[str, str]:
 
 
 if __name__ == "__main__":
-    executable = obs_executable()
     build = Path(__file__).resolve().parents[1] / "build"
-    raise SystemExit(subprocess.call([executable], cwd=str(Path(executable).parent), env=launch_environment(build)))
+    raise SystemExit(subprocess.call([str(OBS_EXECUTABLE)], cwd=OBS_EXECUTABLE.parent,
+                                    env=launch_environment(build, "Release")))
