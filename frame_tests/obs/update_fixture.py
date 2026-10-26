@@ -47,7 +47,7 @@ def main():
         packages = {}
         for mode in ("valid", "rollback"):
             target = directory / mode / name
-            target.parent.mkdir()
+            target.parent.mkdir(exist_ok=True)
             with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
                 archive.write(plugin / core if mode == "valid" else bad_core, f"{plugin.name}/{core}")
                 for file in sorted(args.data.rglob("*")):

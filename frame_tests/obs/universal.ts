@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:net";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import path from "node:path";
@@ -32,7 +33,13 @@ const record = async (step: string) => {
 };
 const directory = path.join(artifacts, "transition");
 await fs.mkdir(directory);
+const reservation = createServer();
+await new Promise<void>((resolve) => reservation.listen(0, "127.0.0.1", resolve));
+const serverPort = (reservation.address() as { port: number }).port;
+await new Promise<void>((resolve) => reservation.close(() => resolve()));
 const options = {
+  browserDock: true,
+  serverPort,
   pluginSource: legacySource,
   releasePackage: path.join(builds, b.package),
   releaseVersion: b.version,
@@ -107,6 +114,18 @@ try {
   );
   const modernRuns = await h!.api("/api/v1/runs");
   await close();
+  await start(directory, false, true);
+  assert.deepEqual(await h!.api("/api/v1/runs"), modernRuns);
+  await h!.fixture(
+    "Retained browser profile",
+    "screenshots-emu/en - start - 01 - Secret Agent.png",
+  );
+  await h!.startMonitor("Retained browser profile");
+  await h!.expectMatch("Start", 1, 1, 1);
+  await h!.stopMonitor();
+  await h!.removeSource("Retained browser profile");
+  await close();
+  await record("OBS33 → OBS32 works with the retained browser profile and a stable dashboard URL");
   await fs.rm(legacy, { recursive: true });
   await start(directory, true, true);
   assert.deepEqual(await h!.api("/api/v1/runs"), modernRuns);
