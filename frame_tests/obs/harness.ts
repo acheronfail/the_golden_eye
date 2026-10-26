@@ -25,6 +25,8 @@ export interface HarnessOptions {
   releasePackage?: string;
   releaseVersion?: string;
   resume?: boolean;
+  modern?: boolean;
+  flatpakScope?: "--system" | "--user";
 }
 
 export class ObsHarness {
@@ -52,7 +54,9 @@ export class ObsHarness {
   get dataDirectory() {
     return process.platform === "darwin"
       ? path.join(this.pluginDirectory, "Contents/Resources")
-      : path.join(this.artifacts, "plugins-data", "the_golden_eye");
+      : process.platform === "linux" || this.options.modern
+        ? path.join(this.pluginDirectory, "data")
+        : path.join(this.artifacts, "plugins-data", "the_golden_eye");
   }
 
   get stagedDirectory() {
@@ -77,7 +81,13 @@ export class ObsHarness {
   readonly options: HarnessOptions;
 
   constructor(root: string, artifacts: string, software: boolean, options: HarnessOptions = {}) {
-    this.options = options;
+    const scope = options.flatpakScope ?? process.env.GE_OBS_TEST_FLATPAK_SCOPE;
+    assert(!scope || ["--system", "--user"].includes(scope), "Invalid Flatpak scope");
+    this.options = {
+      ...options,
+      modern: options.modern ?? process.env.GE_OBS_TEST_MODERN === "1",
+      flatpakScope: scope as HarnessOptions["flatpakScope"],
+    };
     this.root = root;
     this.artifacts = artifacts;
     this.software = software;
@@ -434,10 +444,23 @@ export class ObsHarness {
     const mac = process.platform === "darwin";
     const name = mac ? "the_golden_eye.plugin" : "the_golden_eye";
     const build = path.join(this.root, mac ? "obs2/build" : "obs2/build-flatpak");
-    this.pluginDirectory = path.join(this.artifacts, "plugins", name);
+    const plugins =
+      process.platform === "linux"
+        ? path.join(
+            this.options.modern ? path.join(this.artifacts, "data") : this.configDirectory,
+            "obs-studio/plugins",
+          )
+        : path.join(this.artifacts, "plugins");
+    this.pluginDirectory = path.join(plugins, name);
     if (!this.options.resume) {
       const source = this.options.pluginSource ?? path.join(build, name);
       await fs.cp(source, this.pluginDirectory, { recursive: true, dereference: true });
+      if (this.options.modern && !this.options.pluginSource && process.platform === "linux") {
+        await fs.copyFile(
+          path.join(build, "modern-loader/the_golden_eye.so"),
+          path.join(this.pluginDirectory, "the_golden_eye.so"),
+        );
+      }
       await fs.rm(this.stagedDirectory, { recursive: true, force: true });
       if (!mac) {
         await fs.rm(this.dataDirectory, { recursive: true, force: true });
@@ -509,10 +532,18 @@ export class ObsHarness {
     );
     if (process.platform === "linux") {
       assert(process.env.DISPLAY, "DISPLAY is required. Use an X11 desktop or xvfb-run.");
-      execFileSync("flatpak", ["info", "com.obsproject.Studio"], {
-        stdio: "ignore",
-        timeout: 10000,
-      });
+      execFileSync(
+        "flatpak",
+        [
+          "info",
+          ...(this.options.flatpakScope ? [this.options.flatpakScope] : []),
+          "com.obsproject.Studio",
+        ],
+        {
+          stdio: "ignore",
+          timeout: 10000,
+        },
+      );
     } else if (process.platform === "darwin") {
       assert(!this.software, "--software-renderer is only supported on Linux");
       await fs.access("/Applications/OBS.app/Contents/MacOS/OBS");
@@ -536,7 +567,9 @@ export class ObsHarness {
             "the_golden_eye.plugin/Contents/Resources/cv_templates/en-colon.png",
           ]
         : [
-            "the_golden_eye/bin/64bit/the_golden_eye.so",
+            this.options.modern
+              ? "modern-loader/the_golden_eye.so"
+              : "the_golden_eye/bin/64bit/the_golden_eye.so",
             "the_golden_eye/bin/64bit/libgolden_core.so",
             "obs-run-data/the_golden_eye/cv_templates/en-colon.png",
           ]) {
@@ -602,8 +635,12 @@ export class ObsHarness {
                 GE_CORE_LIB: undefined,
                 GE_DISABLE_BROWSER_DOCK: "1",
                 GE_UPDATE_CHECK_URL: this.updateUrl,
-                OBS_PLUGINS_PATH: path.join(this.pluginDirectory, "bin/64bit"),
+                OBS_PLUGINS_PATH: this.options.modern
+                  ? path.dirname(this.pluginDirectory)
+                  : path.join(this.pluginDirectory, "bin/64bit"),
                 OBS_PLUGINS_DATA_PATH: path.dirname(this.dataDirectory),
+                OBS_LEGACY_PLUGINS_PATH: path.join(this.pluginDirectory, "bin/64bit"),
+                OBS_LEGACY_PLUGINS_DATA_PATH: path.dirname(this.dataDirectory),
               },
               stdio: ["ignore", log.fd, log.fd],
               windowsHide: true,
@@ -645,6 +682,7 @@ export class ObsHarness {
               "flatpak",
               [
                 "run",
+                ...(this.options.flatpakScope ? [this.options.flatpakScope] : []),
                 "--instance-id-fd=3",
                 "--device=dri",
                 `--filesystem=${this.root}`,
@@ -657,14 +695,15 @@ export class ObsHarness {
                 "--env=GE_DISABLE_BROWSER_DOCK=1",
                 "--unset-env=GE_CORE_LIB",
                 `--env=GE_UPDATE_CHECK_URL=${this.updateUrl}`,
-                `--env=OBS_PLUGINS_PATH=${path.dirname(this.pluginDirectory)}/%module%/bin/64bit`,
-                `--env=OBS_PLUGINS_DATA_PATH=${path.dirname(this.dataDirectory)}`,
+                "--unset-env=OBS_PLUGINS_PATH",
+                "--unset-env=OBS_PLUGINS_DATA_PATH",
                 "--env=LD_LIBRARY_PATH=/app/lib",
                 "--env=QT_QPA_PLATFORM=xcb",
                 ...(this.software ? ["--env=LIBGL_ALWAYS_SOFTWARE=1"] : []),
                 "--command=env",
                 "com.obsproject.Studio",
                 `XDG_CONFIG_HOME=${config}`,
+                `XDG_DATA_HOME=${this.artifacts}/data`,
                 `XDG_CACHE_HOME=${this.artifacts}/cache`,
                 "/app/bin/obs",
                 "--collection",

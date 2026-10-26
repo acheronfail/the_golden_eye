@@ -92,6 +92,9 @@ const handleAppEvent = (event: AppEvent): void => {
 			if (typeof event.version === 'string') updates.handleApplied(event.version, event.releaseUrl);
 			else console.warn('Ignoring malformed updateApplied event', event);
 			break;
+		case 'pluginCompatibilityFailed':
+			updates.handleCompatibilityFailed(event.error);
+			break;
 		case 'updateStagingFailed':
 			updates.handleStagingFailed(event.error);
 			break;

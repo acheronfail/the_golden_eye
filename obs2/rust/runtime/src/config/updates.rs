@@ -38,3 +38,11 @@ impl UpdateEnvConfig {
         }
     }
 }
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+static GE_CORE_LIB: EnvVar = EnvVar::new("GE_CORE_LIB");
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub(crate) fn core_path_overridden() -> bool {
+    GE_CORE_LIB.os().is_some_and(|value| !value.is_empty())
+}

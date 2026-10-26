@@ -79,11 +79,15 @@ pub(crate) use cv::{cv_debug_enabled, cv_threads_overridden, cv_timing_enabled};
 pub(crate) use flatpak::{flatpak_id, xdg_runtime_dir};
 pub(crate) use logging::logging_filter;
 pub(crate) use monitor::{MonitorTimingMode, default_monitor_slow_ms};
+#[cfg(target_os = "linux")]
+pub(crate) use paths::obs_plugin_roots;
 pub(crate) use paths::{current_dir, default_settings_path, home_dir, temp_dir};
 pub(crate) use server::{loopback_http_url, server_port};
 #[cfg(test)]
 pub(crate) use updates::RELEASES_API_URL;
 pub(crate) use updates::UpdateEnvConfig;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub(crate) use updates::core_path_overridden;
 #[cfg(feature = "test-hooks")]
 pub(crate) use youtube::test_hooks;
 pub(crate) use youtube::{YoutubeEndpoints, client_secret, youtube_enabled};

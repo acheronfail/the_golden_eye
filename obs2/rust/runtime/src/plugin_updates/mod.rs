@@ -1,6 +1,8 @@
 //! Plugin update ownership: lifecycle decisions, release discovery, and installation.
 pub(crate) mod installation;
 mod lifecycle;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+mod modern_installation;
 mod releases;
 
 pub(crate) use lifecycle::{ApplyError, PluginUpdates};

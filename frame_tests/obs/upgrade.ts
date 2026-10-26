@@ -26,12 +26,13 @@ const coreRelative =
     : process.platform === "win32"
       ? "bin/64bit/golden_core.dll"
       : "bin/64bit/libgolden_core.so";
+const modern = process.env.GE_OBS_TEST_MODERN === "1";
 const loaderRelative =
   process.platform === "darwin"
     ? "Contents/MacOS/the_golden_eye"
     : process.platform === "win32"
-      ? "bin/64bit/the_golden_eye.dll"
-      : "bin/64bit/the_golden_eye.so";
+      ? `${modern ? "" : "bin/64bit/"}the_golden_eye.dll`
+      : `${modern ? "" : "bin/64bit/"}the_golden_eye.so`;
 const hash = async (file: string) =>
   createHash("sha256")
     .update(await fs.readFile(file))

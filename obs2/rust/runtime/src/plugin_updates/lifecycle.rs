@@ -23,6 +23,7 @@ pub(crate) struct PluginUpdates {
     recording_state: RecordingStateStore,
     frontend_ready_tx: watch::Sender<bool>,
     check_lock: Mutex<()>,
+    compatibility_error: std::sync::Mutex<Option<String>>,
 }
 
 #[derive(Debug)]
@@ -40,7 +41,30 @@ impl PluginUpdates {
         recording_state: RecordingStateStore,
         frontend_ready_tx: watch::Sender<bool>,
     ) -> Self {
-        Self { settings, snapshot, event_tx, monitor, recording_state, frontend_ready_tx, check_lock: Mutex::new(()) }
+        Self {
+            settings,
+            snapshot,
+            event_tx,
+            monitor,
+            recording_state,
+            frontend_ready_tx,
+            check_lock: Mutex::new(()),
+            compatibility_error: std::sync::Mutex::new(None),
+        }
+    }
+
+    pub(crate) fn prepare_modern_installation(&self) {
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        if let Err(error) = super::modern_installation::provision() {
+            tracing::warn!("could not prepare the plugin for newer OBS versions: {error:#}");
+            let error = "We couldn’t automatically prepare the plugin for OBS 33 or later. It will continue working in your current OBS version. Before upgrading OBS, reinstall the latest plugin using the installation guide.".to_owned();
+            *self.compatibility_error.lock().unwrap_or_else(|p| p.into_inner()) = Some(error.clone());
+            let _ = self.event_tx.send(AppEvent::PluginCompatibilityFailed { error });
+        }
+    }
+
+    pub(crate) fn compatibility_error(&self) -> Option<String> {
+        self.compatibility_error.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     pub(crate) fn status(&self) -> UpdateStatus {

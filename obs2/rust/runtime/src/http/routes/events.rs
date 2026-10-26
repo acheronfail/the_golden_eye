@@ -41,6 +41,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         return;
     }
 
+    if let Some(error) = state.updates.compatibility_error()
+        && send_event(&mut socket, &AppEvent::PluginCompatibilityFailed { error }).await.is_err()
+    {
+        return;
+    }
+
     loop {
         tokio::select! {
             changed = snapshots.changed() => {

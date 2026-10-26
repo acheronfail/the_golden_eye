@@ -124,7 +124,7 @@ jobs:
             xvfb
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y flathub com.obsproject.Studio
-          # Keep CI on the supported OBS major until OBS 33 support lands.
+          # Build against OBS 32 / SDK 25.08 to retain backwards ABI compatibility.
           sudo flatpak update -y --commit=21b35765922fb5c8b92ccdccedc0d8ca709b12f86a961780350199082da822ef com.obsproject.Studio
           flatpak run --command=obs com.obsproject.Studio --version | grep -E 'OBS Studio - 32\.'
           sudo flatpak install -y flathub "$(flatpak info --show-sdk com.obsproject.Studio)"
@@ -209,6 +209,24 @@ jobs:
           test "${#builds[@]}" -eq 1
           bash .github/scripts/run-obs-headless.sh obs2/build/real-obs-desktop/upgrade.log \
             node --experimental-strip-types frame_tests/obs/upgrade.ts "${builds[0]}" --software-renderer
+
+      - name: Install OBS 33 alongside OBS 32
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub com.obsproject.Studio
+          flatpak update --user -y --commit=dce80c41b8d5a665c39eaa3aa152745113ae55a04439f700eca027c2be720e94 com.obsproject.Studio
+          flatpak run --user --command=obs com.obsproject.Studio --version | grep -E 'OBS Studio - 33\.'
+
+      - name: Validate universal u2 discovery and OBS 33 runtime
+        timeout-minutes: 15
+        run: |
+          builds=(obs2/build/obs-upgrade-builds-*)
+          test "${#builds[@]}" -eq 1
+          bash .github/scripts/run-obs-headless.sh obs2/build/real-obs-desktop/universal.log \
+            node --experimental-strip-types frame_tests/obs/universal.ts "${builds[0]}"
+          GE_OBS_TEST_FLATPAK_SCOPE=--user GE_OBS_TEST_MODERN=1 \
+            bash .github/scripts/run-obs-headless.sh obs2/build/real-obs-desktop/obs33.log \
+            node --experimental-strip-types frame_tests/obs/run.ts --software-renderer
 
       - name: Upload real OBS test results
         if: ${{ always() }}
@@ -630,6 +648,31 @@ jobs:
         shell: bash
         timeout-minutes: 5
         env:
+          RUST_LOG: info,ge_runtime::http=debug
+        run: |
+          builds=(obs2/build/obs-upgrade-builds-*)
+          test "${#builds[@]}" -eq 1
+          node --experimental-strip-types frame_tests/obs/upgrade.ts "${builds[0]}"
+
+      - name: Install portable OBS 33 for modern loader tests
+        if: matrix.suite == 'package'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'obs33.zip'
+          $directory = Join-Path $env:RUNNER_TEMP 'obs33'
+          Invoke-WebRequest 'https://github.com/obsproject/obs-studio/releases/download/33.0.0/OBS-Studio-33.0.0-Windows-x64.zip' -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $directory
+          $executable = Join-Path $directory 'bin/64bit/obs64.exe'
+          $version = (Get-Item -LiteralPath $executable).VersionInfo.ProductVersion
+          if ($version -notmatch '^33\.') { throw "Expected OBS 33, found '$version'" }
+          "GE_OBS_TEST_INSTALLATION=$directory" >> $env:GITHUB_ENV
+
+      - name: Run Windows OBS 33 upgrade tests
+        if: matrix.suite == 'package'
+        shell: bash
+        timeout-minutes: 5
+        env:
+          GE_OBS_TEST_MODERN: '1'
           RUST_LOG: info,ge_runtime::http=debug
         run: |
           builds=(obs2/build/obs-upgrade-builds-*)

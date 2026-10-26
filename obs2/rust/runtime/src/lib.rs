@@ -252,6 +252,10 @@ pub extern "C" fn ge_runtime_start() -> bool {
         *pending = Some(transaction);
     }
 
+    if !applying_update {
+        state.updates.prepare_modern_installation();
+    }
+
     // Spawn the server onto the runtime. `spawn` returns immediately so the
     // C caller is never blocked; the runtime drives the future on its own
     // worker threads.
@@ -281,6 +285,7 @@ pub extern "C" fn ge_runtime_commit_update() {
         transaction.commit();
         let state = SERVER.lock().unwrap_or_else(|p| p.into_inner()).as_ref().map(|server| server.state.clone());
         if let Some(state) = state {
+            state.updates.prepare_modern_installation();
             let mut committed = state.update_committed_at.lock().unwrap_or_else(|p| p.into_inner());
             if committed.is_none() {
                 state.updates.finish_apply();

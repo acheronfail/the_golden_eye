@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => ({
 	downloadUpdateNow: vi.fn(),
 	applyUpdateNow: vi.fn(),
 	getUpdateStatus: vi.fn(),
-	openUpdateRelease: vi.fn()
+	openUpdateRelease: vi.fn(),
+	openPluginInstallationGuide: vi.fn()
 }));
 
 vi.mock('$lib/api', async (importOriginal) => {
@@ -21,7 +22,8 @@ vi.mock('$lib/api', async (importOriginal) => {
 			downloadUpdateNow: mocks.downloadUpdateNow,
 			applyUpdateNow: mocks.applyUpdateNow,
 			getUpdateStatus: mocks.getUpdateStatus,
-			openUpdateRelease: mocks.openUpdateRelease
+			openUpdateRelease: mocks.openUpdateRelease,
+			openPluginInstallationGuide: mocks.openPluginInstallationGuide
 		}
 	};
 });
@@ -58,6 +60,27 @@ describe('update state', () => {
 		await updates.download();
 		expect(updates.buttonPhase).toBe('apply');
 		expect(notifications.flags).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Update ready' })]));
+	});
+
+	it('retains an actionable OBS preparation failure independently of update availability', async () => {
+		const message = 'Before upgrading OBS, reinstall the latest plugin using the installation guide.';
+		updates.handleCompatibilityFailed(message);
+		updates.handleCompatibilityFailed(message);
+		expect(notifications.flags).toHaveLength(1);
+		updates.applyStatus({ phase: 'idle', available: null });
+		expect(notifications.flags).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					title: 'Reinstall The Golden Eye before upgrading OBS',
+					detail: message,
+					meta: 'Installation guide — click to open',
+					tone: 'warning',
+					timeoutMs: undefined
+				})
+			])
+		);
+		await notifications.flags[0].action?.();
+		expect(mocks.openPluginInstallationGuide).toHaveBeenCalledOnce();
 	});
 
 	it('projects background lifecycle transitions into the same button and notification state', () => {

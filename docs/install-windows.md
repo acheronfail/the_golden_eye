@@ -15,6 +15,12 @@ Copy the extracted `the_golden_eye` folder to OBS Studio's recommended Windows p
 C:\ProgramData\obs-studio\plugins
 ```
 
+The same download and installation folder work with OBS 31, 32, and 33 or later. Copy the entire
+`the_golden_eye` folder, keeping all of its contents together.
+
+If you already use the plugin, update it and open OBS at least once before upgrading OBS. The plugin
+will automatically prepare for the newer OBS version.
+
 ![Showing the plugin installed in OBS's plugin folder](assets/windows-plugin-folder.png)
 
 Now open OBS Studio or restart it, and the plugin should appear as an integrated window. If it

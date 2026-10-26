@@ -36,7 +36,17 @@ export async function copyWindowsObs(source: string, destination: string) {
     "Test OBS copy must be outside the installed OBS directory",
   );
   // Copy runtime files only: installed profiles and plugin copies must not enter the test.
-  for (const directory of ["bin", "data", "obs-plugins"]) {
+  const directories = ["bin", "data"];
+  for (const directory of ["core", "obs-plugins"]) {
+    try {
+      await fs.access(path.join(source, directory));
+      directories.push(directory);
+    } catch (error: any) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+  assert(directories.length > 2, "OBS copy needs core or legacy plugin runtime files");
+  for (const directory of directories) {
     await fs.cp(path.join(source, directory), path.join(destination, directory), {
       recursive: true,
       dereference: true,

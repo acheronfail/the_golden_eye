@@ -166,13 +166,14 @@ endif()
 # worker thread in loader/reload.c).
 #
 
+function(ge_add_loader loader core_relative_path)
 if(APPLE)
-  add_library(${PLUGIN_NAME} MODULE)
+  add_library(${loader} MODULE)
 else()
-  add_library(${PLUGIN_NAME} SHARED)
+  add_library(${loader} SHARED)
 endif()
 
-target_sources(${PLUGIN_NAME} PRIVATE
+target_sources(${loader} PRIVATE
     loader/dynlib.c
     loader/reload.c
     loader/version.c
@@ -180,16 +181,16 @@ target_sources(${PLUGIN_NAME} PRIVATE
 )
 
 if(WIN32)
-    target_sources(${PLUGIN_NAME} PRIVATE loader/reload_win32.c)
+    target_sources(${loader} PRIVATE loader/reload_win32.c)
 else()
-    target_sources(${PLUGIN_NAME} PRIVATE loader/reload_unix.c)
+    target_sources(${loader} PRIVATE loader/reload_unix.c)
 endif()
 
 if(NOT GE_OBS_NATIVE_DEPS_FOUND)
-  add_dependencies(${PLUGIN_NAME} require_obs_libraries)
+  add_dependencies(${loader} require_obs_libraries)
 endif()
 
-target_include_directories(${PLUGIN_NAME} PRIVATE
+target_include_directories(${loader} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
     ${VENDOR_LIBOBS_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -199,14 +200,14 @@ target_include_directories(${PLUGIN_NAME} PRIVATE
 
 find_package(Threads REQUIRED)
 
-target_link_libraries(${PLUGIN_NAME} PRIVATE
+target_link_libraries(${loader} PRIVATE
     ${OBS_LIBRARIES}
     ${CMAKE_DL_LIBS}
     Threads::Threads
 )
 
 if(APPLE AND GE_OBS_DYNAMIC_LOOKUP)
-  target_link_options(${PLUGIN_NAME} PRIVATE "LINKER:-undefined,dynamic_lookup")
+  target_link_options(${loader} PRIVATE "LINKER:-undefined,dynamic_lookup")
 endif()
 
 # Bake in only relative bundle names. The loader resolves them from the loaded
@@ -216,10 +217,23 @@ endif()
 # loader/version.c). The loader is never replaced by the auto-update flow -- only
 # the core library is -- so this is how a stale loader can be told apart from
 # the running core's own (possibly newer) version after an update.
-target_compile_definitions(${PLUGIN_NAME} PRIVATE
-    GE_CORE_LIB_NAME="$<TARGET_FILE_NAME:${CORE_NAME}>"
+target_compile_definitions(${loader} PRIVATE
+    GE_CORE_LIB_NAME="${core_relative_path}"
     GE_LOADER_VERSION="${GE_PLUGIN_VERSION}"
 )
+
+endfunction()
+
+ge_add_loader(${PLUGIN_NAME} "$<TARGET_FILE_NAME:${CORE_NAME}>")
+if(NOT APPLE)
+  ge_add_loader(golden_loader_modern "bin/${GE_OBS_ARCH_DIR}/$<TARGET_FILE_NAME:${CORE_NAME}>")
+  set_target_properties(golden_loader_modern PROPERTIES
+      PREFIX "" OUTPUT_NAME "${PLUGIN_NAME}"
+      LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modern-loader"
+      RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modern-loader"
+      ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modern-loader"
+  )
+endif()
 
 # Build the core library and bundled templates whenever the plugin is built.
 add_dependencies(${PLUGIN_NAME} ${CORE_NAME})

@@ -169,6 +169,7 @@ test-obs-upgrade *args: test-obs-harness
 # checks failure reporting and suite control without launching OBS
 test-obs-harness:
     node --experimental-strip-types --test frame_tests/obs/suite.test.ts frame_tests/obs/windows.test.ts
+    python3 -B -m unittest discover -s obs2/scripts -p test_obs_launch.py
 
 # runs browser unit/component tests
 test-browser *args:
@@ -394,45 +395,18 @@ obs: make-release-flatpak
 # launches the Flatpak OBS against the plugin already built into obs2/build-flatpak
 [linux]
 _run-obs-flatpak:
-    cd obs2/build-flatpak && flatpak run \
-      --device=dri \
-      --filesystem="$(pwd)" \
-      --socket=session-bus \
-      --talk-name=org.freedesktop.secrets \
-      --talk-name=org.freedesktop.portal.Desktop \
-      --env=LD_LIBRARY_PATH="/app/lib" \
-      --env=OBS_PLUGINS_PATH="$(pwd)/%module%/bin/64bit" \
-      --env=OBS_PLUGINS_DATA_PATH="$(pwd)/obs-run-data" \
-      {{ if env_var_or_default("RUST_LOG", "") != "" { "--env=RUST_LOG=" + env_var("RUST_LOG") } else { "" } }} \
-      {{ if env_var_or_default("GE_UPDATE_CHECK_URL", "") != "" { "--env=GE_UPDATE_CHECK_URL=" + env_var("GE_UPDATE_CHECK_URL") } else { "" } }} \
-      com.obsproject.Studio
+    python3 obs2/scripts/run_flatpak.py obs2/build-flatpak
 
 # runs OBS with the staged package build
 [linux]
 obs-packaged: make-package
-    cd obs2/build-flatpak/package/*/the_golden_eye && \
-    flatpak run \
-      --device=dri \
-      --filesystem="$(pwd)" \
-      --socket=session-bus \
-      --talk-name=org.freedesktop.secrets \
-      --talk-name=org.freedesktop.portal.Desktop \
-      --env=LD_LIBRARY_PATH="/app/lib" \
-      --env=OBS_PLUGINS_PATH="$(pwd)/bin/64bit" \
-      --env=OBS_PLUGINS_DATA_PATH="$(pwd)/data" \
-      com.obsproject.Studio
+    python3 obs2/scripts/run_flatpak.py obs2/build-flatpak --packaged
 
 # runs OBS with the plugin (release)
 [windows]
 obs: make-release
-    #!/usr/bin/env bash
-    set -euo pipefail
-    obs_dir="C:/Program Files/obs-studio/bin/64bit"
     cmake --build obs2/build --config Release --target stage-obs-run-data
-    export OBS_PLUGINS_PATH="$(cygpath -w "$(pwd)/obs2/build/Release")"
-    export OBS_PLUGINS_DATA_PATH="$(cygpath -w "$(pwd)/obs2/build/obs-run-data")"
-    cd "$(cygpath -u "${obs_dir}")"
-    ./obs64.exe
+    python3 obs2/scripts/run_windows.py
 
 # build the plugin with the flatpak SDK
 [linux]

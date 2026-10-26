@@ -29,6 +29,28 @@ pub async fn handle_open(Json(req): Json<OpenUpdateRequest>) -> Result<impl Into
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn handle_open_installation_guide() -> Result<impl IntoResponse> {
+    let guide = if cfg!(target_os = "windows") {
+        "install-windows.md"
+    } else if cfg!(target_os = "macos") {
+        "install-macos.md"
+    } else {
+        "install-linux.md"
+    };
+    let url = format!("https://github.com/acheronfail/the_golden_eye/blob/master/docs/{guide}");
+    tokio::task::spawn_blocking(move || crate::desktop::browser::open_url(&url))
+        .await
+        .map_err(|error| {
+            tracing::error!("installation guide browser task failed: {error:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "browser open failed").into_response()
+        })?
+        .map_err(|error| {
+            tracing::error!("installation guide browser open failed: {error:#}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "browser open failed").into_response()
+        })?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Applies the currently-staged update if it's safe right now. Staging happens
 /// automatically in the background (see `updates.rs`); this only decides
 /// *whether to apply* it (auto-update opt-in or an explicit "apply now").
