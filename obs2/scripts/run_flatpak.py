@@ -23,17 +23,15 @@ def main():
     plugin = build / f"package/the_golden_eye-linux-{arch}/the_golden_eye"
     launch = build / "obs-launch"
     link_directory(launch / "data/obs-studio/plugins/the_golden_eye", plugin)
-    data = plugin / "data" if args.packaged else build / "obs-run-data/the_golden_eye"
-    link_directory(launch / "legacy-data/the_golden_eye", data)
     core = plugin / "bin/64bit/libgolden_core.so" if args.packaged else build / "the_golden_eye/bin/64bit/libgolden_core.so"
     command = ["flatpak", "run", "--device=dri", f"--filesystem={build}", "--socket=session-bus",
                "--talk-name=org.freedesktop.secrets", "--talk-name=org.freedesktop.portal.Desktop",
                "--env=LD_LIBRARY_PATH=/app/lib",
                f"--env=GE_CORE_LIB={os.environ.get('GE_CORE_LIB', core)}",
                f"--env=OBS_PLUGINS_PATH={plugin / 'bin/64bit'}",
-               f"--env=OBS_PLUGINS_DATA_PATH={launch / 'legacy-data'}",
+               f"--env=OBS_PLUGINS_DATA_PATH={build / 'obs-run-data'}",
                f"--env=OBS_LEGACY_PLUGINS_PATH={plugin / 'bin/64bit'}",
-               f"--env=OBS_LEGACY_PLUGINS_DATA_PATH={launch / 'legacy-data'}"]
+               f"--env=OBS_LEGACY_PLUGINS_DATA_PATH={build / 'obs-run-data'}"]
     for name in ["RUST_LOG", "GE_UPDATE_CHECK_URL"]:
         if name in os.environ:
             command.append(f"--env={name}={os.environ[name]}")

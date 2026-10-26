@@ -22,8 +22,7 @@ class ObsLaunchTests(unittest.TestCase):
                 self.assertTrue(str(plugin).startswith(str(build / "package")))
                 self.assertIn(f"--env=OBS_PLUGINS_PATH={plugin / 'bin/64bit'}", command)
                 self.assertIn(f"XDG_DATA_HOME={build / 'obs-launch/data'}", command)
-                data = (build / "obs-launch/legacy-data/the_golden_eye").readlink()
-                self.assertEqual(data, plugin / "data" if packaged else build / "obs-run-data/the_golden_eye")
+                self.assertIn(f"--env=OBS_PLUGINS_DATA_PATH={build / 'obs-run-data'}", command)
                 core = plugin / "bin/64bit/libgolden_core.so" if packaged else build / "the_golden_eye/bin/64bit/libgolden_core.so"
                 self.assertIn(f"--env=GE_CORE_LIB={core}", command)
 
