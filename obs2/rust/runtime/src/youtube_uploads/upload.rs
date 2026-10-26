@@ -147,6 +147,19 @@ pub async fn upload_video(
     match result {
         Ok(video_id) => {
             let video_url = format!("https://youtu.be/{video_id}");
+            // Status snapshots read uploads before history, so persist before exposing completion.
+            if let Err(error) = store.set_history(
+                &run_id,
+                YoutubeMetadata {
+                    video_id: video_id.clone(),
+                    video_url: video_url.clone(),
+                    uploaded_at: Some(now_iso()),
+                    title,
+                    source: YoutubeAssociationSource::PluginUpload,
+                },
+            ) {
+                tracing::warn!(%video_id, error = %format!("{error:#}"), "failed to persist completed YouTube upload association");
+            }
             let status = store.update_upload(&upload_id, |status| {
                 let message = if status.state == YoutubeUploadState::Cancelling {
                     "YouTube upload completed before cancellation"
@@ -161,18 +174,6 @@ pub async fn upload_video(
                 status.video_url = Some(video_url.clone());
                 status.error = None;
             });
-            if let Err(error) = store.set_history(
-                &run_id,
-                YoutubeMetadata {
-                    video_id: video_id.clone(),
-                    video_url,
-                    uploaded_at: Some(now_iso()),
-                    title,
-                    source: YoutubeAssociationSource::PluginUpload,
-                },
-            ) {
-                tracing::warn!(%video_id, error = %format!("{error:#}"), "failed to persist completed YouTube upload association");
-            }
             if let Some(status) = status {
                 let _ = event_tx.send(crate::app::AppEvent::YoutubeUploadChanged { upload: status });
             }

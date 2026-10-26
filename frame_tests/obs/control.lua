@@ -1,6 +1,7 @@
 obs = obslua
 local directory = os.getenv("GE_OBS_TEST_DIR")
 local last_id = 0
+local retained_sources = {}
 local ffi = require("ffi")
 local windows = ffi.os == "Windows"
 local kernel32, user32, frontend
@@ -32,6 +33,7 @@ local function respond(id, error_message, name)
         local source = obs.obs_get_source_by_name(name)
         obs.obs_data_set_bool(data, "exists", source ~= nil)
         if source then
+            obs.obs_data_set_bool(data, "removed", obs.obs_source_removed(source))
             obs.obs_data_set_int(data, "width", obs.obs_source_get_width(source))
             obs.obs_data_set_int(data, "height", obs.obs_source_get_height(source))
             obs.obs_data_set_bool(data, "paused", obs.obs_source_media_get_state(source) == obs.OBS_MEDIA_STATE_PAUSED)
@@ -53,6 +55,10 @@ end
 
 local function execute(command)
     local action = obs.obs_data_get_string(command, "action")
+    if action == "preview" then
+        obs.obs_frontend_set_preview_enabled(obs.obs_data_get_bool(command, "enabled"))
+        return
+    end
     if action == "quit" then
         if windows then
             assert(user32.PostMessageW(frontend.obs_frontend_get_main_window_handle(), 0x0010, 0, 0) ~= 0)
@@ -64,10 +70,25 @@ local function execute(command)
     end
     local name = obs.obs_data_get_string(command, "name")
     if name == "" then name = "Fixture" end
+    if action == "release" then
+        local retained = assert(retained_sources[name], "No retained source")
+        obs.obs_source_release(retained)
+        retained_sources[name] = nil
+        return
+    end
     local source = obs.obs_get_source_by_name(name)
+    if action == "retain" then
+        assert(source and not retained_sources[name], "Source missing or already retained")
+        retained_sources[name] = source
+        return
+    end
     if action == "remove" then
         if source then
             obs.obs_source_remove(source)
+            -- Pruning normally happens during rendering, which can stop with inactive outputs.
+            local scene_source = assert(obs.obs_frontend_get_current_scene(), "No current scene")
+            obs.obs_scene_prune_sources(obs.obs_scene_from_source(scene_source))
+            obs.obs_source_release(scene_source)
             obs.obs_source_release(source)
         end
         return
@@ -79,6 +100,12 @@ local function execute(command)
         if action == "pause" then obs.obs_source_media_play_pause(source, true) end
         obs.obs_source_release(source)
         return
+    end
+    if source and obs.obs_source_removed(source) then
+        -- Retained removed sources can still occupy their names in OBS's source registry.
+        obs.obs_source_set_name(source, name .. " (removed " .. last_id .. ")")
+        obs.obs_source_release(source)
+        source = nil
     end
     local settings = obs.obs_data_create()
     local path = obs.obs_data_get_string(command, "path")
@@ -134,4 +161,6 @@ end
 
 function script_unload()
     obs.timer_remove(poll)
+    for _, source in pairs(retained_sources) do obs.obs_source_release(source) end
+    retained_sources = {}
 end
