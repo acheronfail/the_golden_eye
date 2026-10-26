@@ -27,6 +27,29 @@ const defineScenario = (
   run,
 });
 scenarios.push(
+  defineScenario(
+    "source removal and recreation with a retained reference and preview disabled",
+    async (h) => {
+      await h.command({ action: "preview", enabled: false });
+      try {
+        await h.fixture("Unrendered", "screenshots-emu/en - start - 01 - Secret Agent.png");
+        await h.command({ action: "retain", name: "Unrendered" });
+        try {
+          await h.removeSource("Unrendered");
+          assert.equal((await h.command({ action: "status", name: "Unrendered" })).removed, true);
+          await h.fixture("Unrendered", "screenshots-emu/en - start - 01 - Secret Agent.png");
+          assert.equal((await h.command({ action: "status", name: "Unrendered" })).removed, false);
+        } finally {
+          await h.command({ action: "release", name: "Unrendered" });
+        }
+        await h.removeSource("Unrendered");
+      } finally {
+        await h.command({ action: "preview", enabled: true });
+      }
+    },
+  ),
+);
+scenarios.push(
   defineScenario("1080p capture, source reconnection, and resolution changes", async (h) => {
     await h.fixture("Image", "screenshots-emu/en - start - 01 - Secret Agent.png");
     await h.startMonitor("Image");
