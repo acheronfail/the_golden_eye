@@ -63,7 +63,7 @@ describe('update state', () => {
 	});
 
 	it('retains an actionable OBS preparation failure independently of update availability', async () => {
-		const message = 'Before upgrading OBS, reinstall the latest plugin using the installation guide.';
+		const message = 'We couldn’t automatically make the plugin installation OBS 34 compatible.';
 		updates.handleCompatibilityFailed(message);
 		updates.handleCompatibilityFailed(message);
 		expect(notifications.flags).toHaveLength(1);
@@ -71,7 +71,7 @@ describe('update state', () => {
 		expect(notifications.flags).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
-					title: 'Reinstall The Golden Eye before upgrading OBS',
+					title: 'Could not make the plugin installation OBS 34 compatible',
 					detail: message,
 					meta: 'Installation guide — click to open',
 					tone: 'warning',
