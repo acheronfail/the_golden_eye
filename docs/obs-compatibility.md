@@ -29,7 +29,7 @@ Preparation is skipped during provisional update startup, in development builds,
 instructions.
 
 Linux copies are independent: later updates affect only the active installation, and uninstalling
-requires removing both. Users should update the plugin and run OBS before upgrading OBS itself.
+requires removing both.
 
 ## Validation
 

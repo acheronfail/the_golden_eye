@@ -135,7 +135,7 @@ export const updates = new (class {
 		dismissNotificationFlagsByKey('plugin-compatibility-failed');
 		addNotificationFlag({
 			key: 'plugin-compatibility-failed',
-			title: 'Reinstall The Golden Eye before upgrading OBS',
+			title: 'Could not make the plugin installation OBS 34 compatible',
 			detail: error,
 			meta: 'Installation guide — click to open',
 			tone: 'warning',

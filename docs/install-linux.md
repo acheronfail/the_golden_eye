@@ -32,6 +32,8 @@ flatpak run --socket=x11 --nosocket=wayland --nosocket=fallback-x11 com.obsproje
 
 ## Installing the plugin
 
+The plugin supports OBS 31, 32, and 33.
+
 Download the latest release from the
 [releases page](https://github.com/acheronfail/the_golden_eye/releases) and extract it and copy the
 `the_golden_eye` folder to your OBS Studio plugins directory.
@@ -39,13 +41,6 @@ Download the latest release from the
 For Flatpak OBS 33+, use: `$HOME/.var/app/com.obsproject.Studio/data/obs-studio/plugins/`
 
 For OBS 31/32, use: `$HOME/.var/app/com.obsproject.Studio/config/obs-studio/plugins/`
-
-The same download works with both versions of OBS. If you already use the plugin on OBS 31 or 32,
-update the plugin and open OBS at least once before upgrading OBS. The plugin will automatically
-prepare the OBS 33+ folder for you.
-
-If the dashboard asks you to reinstall before upgrading OBS, close OBS and copy the latest plugin
-into the OBS 33+ folder listed above before upgrading.
 
 Now open OBS Studio or restart it, and the plugin should appear as an integrated window. If it
 doesn't appear, open the `Docks` menu item and make sure that `The Golden Eye` is checked:
