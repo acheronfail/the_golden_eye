@@ -511,26 +511,34 @@ jobs:
             throw "Expected OBS 32, found '$obsVersion' at $obsExecutable"
           }
 
-          $libclang = Get-ChildItem `
-            -Path "$env:ProgramFiles\LLVM", "${env:ProgramFiles(x86)}\LLVM" `
-            -Filter libclang.dll `
-            -Recurse `
-            -ErrorAction SilentlyContinue `
-            | Select-Object -First 1
-          if (-not $libclang) {
-            choco install llvm -y --no-progress --fail-on-unfound --fail-on-standard-error
-            $libclang = Get-ChildItem `
-              -Path "$env:ProgramFiles\LLVM", "${env:ProgramFiles(x86)}\LLVM" `
-              -Filter libclang.dll `
-              -Recurse `
-              -ErrorAction SilentlyContinue `
-              | Select-Object -First 1
+      - name: Install LLVM for Rust bindings
+        shell: pwsh
+        run: |
+          # The Visual Studio 2026 STL requires Clang 22 or newer.
+          $version = '22.1.8'
+          $installerName = "LLVM-$version-win64.exe"
+          $installer = Join-Path $env:RUNNER_TEMP $installerName
+          $llvmRoot = Join-Path $env:RUNNER_TEMP "llvm-$version"
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/$installerName"
+          curl.exe --fail --silent --show-error --location --retry 3 --output $installer $url
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $expectedHash = '16e5709785fef73c854646241c4a92c5cd574318d1b33c63330dd7721903e55c'
+          if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ne $expectedHash) {
+            throw "Unexpected SHA-256 for $installerName"
           }
-          if (-not $libclang) {
-            throw "libclang.dll was not found after LLVM setup"
+          $install = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$llvmRoot" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { exit $install.ExitCode }
+
+          $llvmBin = Join-Path $llvmRoot 'bin'
+          $clang = Join-Path $llvmBin 'clang.exe'
+          if (-not (Test-Path $clang) -or -not (Test-Path (Join-Path $llvmBin 'libclang.dll'))) {
+            throw "LLVM install did not provide clang.exe and libclang.dll"
           }
-          "LIBCLANG_PATH=$($libclang.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-          $libclang.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append
+          & $clang --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "CLANG_PATH=$clang" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "LIBCLANG_PATH=$llvmBin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $llvmBin | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Install vcpkg dependencies
         id: install-vcpkg
