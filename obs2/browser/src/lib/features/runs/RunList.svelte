@@ -167,7 +167,8 @@
 	<div use:trackViewport role="list" aria-label="Runs" class="relative" style:--list-height={`${listHeight}px`}>
 		<div class="h-[var(--list-height)]" aria-hidden="true"></div>
 		{#each virtualRows as row (row.key)}
-			<div class="absolute inset-x-0 top-0 translate-y-(--row-y)" style:--row-y={`${row.top}px`}>
+			{@const menuOpen = row.type === 'run' && openMenuPath === row.key}
+			<div class="absolute inset-x-0 top-0 translate-y-(--row-y)" class:z-15={menuOpen} style:--row-y={`${row.top}px`}>
 				{#if row.type === 'header'}
 					<SectionTitle
 						title={row.label}
@@ -180,8 +181,8 @@
 							clip={row.clip}
 							{showDate}
 							busy={busyPath === (row.clip.runId ?? row.clip.path)}
-							menuOpen={openMenuPath === (row.clip.runId ?? row.clip.path)}
-							onMenuOpenChange={(isOpen) => setMenuOpen(row.clip.runId ?? row.clip.path, isOpen)}
+							{menuOpen}
+							onMenuOpenChange={(isOpen) => setMenuOpen(row.key, isOpen)}
 							{fileBrowserLabel}
 							{open}
 							{rename}
