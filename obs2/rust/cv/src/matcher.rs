@@ -152,6 +152,7 @@ pub struct CvMatcher {
     // (difficulty-select).
     objectives: Mat,
     statistics: Mat,
+    briefing: Mat,
     special: Mat,
     difficulty: Mat,
     // Status-value templates for the four report screens, which share a
@@ -210,6 +211,7 @@ impl CvMatcher {
 
         let objectives = load_template(templates_dir, lang, "objectives")?;
         let statistics = load_template(templates_dir, lang, "statistics")?;
+        let briefing = load_template(templates_dir, lang, "briefing")?;
         let special = load_template(templates_dir, lang, "special")?;
         let difficulty = load_template(templates_dir, lang, "difficulty")?;
         let status_complete = load_template(templates_dir, lang, "status_complete")?;
@@ -231,6 +233,7 @@ impl CvMatcher {
             digits,
             objectives,
             statistics,
+            briefing,
             special,
             difficulty,
             status_complete,
@@ -656,9 +659,11 @@ impl CvMatcher {
         let banner = region(SCREEN_BANNER_REGION)?;
         let status = region(SCREEN_STATUS_REGION)?;
 
-        let candidates: [(Screen, &Mat, &Mat); 8] = [
+        let candidates = [
             (Screen::Start, &self.objectives, &banner),
             (Screen::Stats, &self.statistics, &banner),
+            // The JP briefing heading can resemble Stats even with START partly covered.
+            (Screen::Unknown, &self.briefing, &banner),
             (Screen::Opts007, &self.special, &banner),
             (Screen::Select, &self.difficulty, &banner),
             (Screen::Complete, &self.status_complete, &status),
@@ -672,7 +677,7 @@ impl CvMatcher {
         let mut best_score_v = -1.0;
         let search =
             |scale: f64, best: &mut Screen, best_rect: &mut Option<MatchRect>, best_score_v: &mut f64| -> Result<()> {
-                // Match all eight banner/status templates for this scale in parallel,
+                // Match the banner/status templates for this scale in parallel,
                 // then fold in index order so ties resolve exactly as the serial
                 // version did.
                 let scores: Vec<Result<Option<MatchRect>>> =
@@ -684,7 +689,7 @@ impl CvMatcher {
                     if s > *best_score_v {
                         *best_score_v = s;
                         *best = candidates[i].0;
-                        let (rx, ry, _, _) = if i < 4 { SCREEN_BANNER_REGION } else { SCREEN_STATUS_REGION };
+                        let (rx, ry, _, _) = if i < 5 { SCREEN_BANNER_REGION } else { SCREEN_STATUS_REGION };
                         let ox = (frame.cols() as f64 * rx) as i32;
                         let oy = (frame.rows() as f64 * ry) as i32;
                         *best_rect = Some(r.offset(ox, oy));

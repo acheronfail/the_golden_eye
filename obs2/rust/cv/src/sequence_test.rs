@@ -60,6 +60,27 @@ fn confirmed_dossier_still_calibrates_stretched_capture() {
     }
 }
 
+#[test]
+fn cradle_jp_restart_briefing_cannot_match_stats() {
+    use crate::Screen;
+
+    // Cropped and resized from the Cradle SA OBS replay. The crosshair covers
+    // part of the START tab on the briefing frame.
+    let root = fixture_root().join("sequences/cradle-jp-restart");
+    let matcher = CvMatcher::new("jp", TEMPLATES).unwrap();
+    let read = |name| matcher.match_level_from_encoded_image(&std::fs::read(root.join(name)).unwrap()).unwrap().0;
+
+    let stats = read("kia-stats.png");
+    assert_eq!(stats.screen, Screen::Stats);
+    assert_eq!(stats.raw_times, [110, 120]);
+
+    assert_eq!(read("restart-objectives.png").screen, Screen::Start);
+    let briefing = read("restart-briefing.png");
+    assert_eq!(briefing.screen, Screen::Unknown);
+    assert!(briefing.raw_times.is_empty());
+    assert!(briefing.times.is_none());
+}
+
 #[derive(Deserialize)]
 struct Capture {
     width: u32,
