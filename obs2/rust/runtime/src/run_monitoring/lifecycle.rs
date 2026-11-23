@@ -283,9 +283,13 @@ impl RunMonitor {
         // The worker has published its final monitor snapshot; clear the retained recording phase.
         self.recording_state.handle(RecordingStateEvent::Reset);
 
-        if self.settings.get().stop_replay_buffer_when_monitor_stopped {
+        let settings = self.settings.get();
+        if settings.stop_replay_buffer_when_monitor_stopped {
             crate::run_monitoring::replay_buffer::REPLAY_BUFFER.stop_replay_buffer_if_active();
             self.snapshot.set_replay_buffer(crate::obs::current_replay_buffer_status());
+        }
+        if matches!(reason, StopReason::UserStopped) && settings.stop_streaming_when_monitor_stopped {
+            crate::obs::stop_streaming_if_active();
         }
 
         tracing::info!("monitor stopped");

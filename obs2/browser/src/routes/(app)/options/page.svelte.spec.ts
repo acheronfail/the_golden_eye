@@ -178,19 +178,20 @@ describe('/options', () => {
 		});
 	});
 
-	it('saves to the backend after updating an option', async () => {
-		settings.values.stopReplayBufferWhenMonitorStopped = false;
+	it.each([
+		['Stop replay buffer when monitor stopped', 'stopReplayBufferWhenMonitorStopped'],
+		['Stop streaming when monitor stopped', 'stopStreamingWhenMonitorStopped']
+	] as const)('saves the %s option', async (label, setting) => {
+		settings.values[setting] = false;
 		const user = userEvent.setup();
 		render(OptionsPageHarness);
 
-		const checkbox = await screen.findByRole('checkbox', { name: /Stop replay buffer when monitor stopped/i });
+		const checkbox = await screen.findByRole('checkbox', { name: label });
 		await waitFor(() => expect(checkbox).toBeEnabled());
 		await user.click(checkbox);
 
 		await waitFor(() =>
-			expect(mocks.api.putSettings).toHaveBeenCalledWith(
-				expect.objectContaining({ stopReplayBufferWhenMonitorStopped: true })
-			)
+			expect(mocks.api.putSettings).toHaveBeenCalledWith(expect.objectContaining({ [setting]: true }))
 		);
 	});
 

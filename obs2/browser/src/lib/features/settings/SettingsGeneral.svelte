@@ -109,6 +109,18 @@
 	<label class="flex items-center gap-3">
 		<input
 			type="checkbox"
+			bind:checked={settings.values.stopStreamingWhenMonitorStopped}
+			class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
+		/>
+		<span class={styles.label}>Stop streaming when monitor stopped</span>
+	</label>
+	<p class={styles.hint}>Stops an active OBS stream when you turn off monitoring.</p>
+</section>
+
+<section class={styles.panel}>
+	<label class="flex items-center gap-3">
+		<input
+			type="checkbox"
 			bind:checked={settings.values.showMonitorFps}
 			class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
 		/>
