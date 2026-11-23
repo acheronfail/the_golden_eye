@@ -56,6 +56,8 @@ unsafe extern "C" {
 
     pub(super) fn obs_frontend_recording_start();
     pub(super) fn obs_frontend_recording_stop();
+    pub(super) fn obs_frontend_streaming_active() -> bool;
+    pub(super) fn obs_frontend_streaming_stop();
     pub(super) fn obs_frontend_replay_buffer_start();
     pub(super) fn obs_frontend_replay_buffer_stop();
     #[cfg(not(test))]

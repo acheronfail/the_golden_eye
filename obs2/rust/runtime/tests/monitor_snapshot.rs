@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use crate::support::harness::{Harness, SOURCE_NAME, next_app_snapshot, snapshot_from_message};
@@ -176,8 +176,31 @@ async fn idle_monitor_publishes_lifecycle_before_requests_complete() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "run explicitly with `just test-integration`"]
+async fn stopping_monitor_only_stops_an_active_stream_when_enabled() {
+    {
+        let harness = Harness::start(Duration::ZERO).await;
+        harness.obs.set_streaming_active(true);
+        harness.start_monitor().await.error_for_status().unwrap();
+        harness.stop_monitor().await.error_for_status().unwrap();
+        assert_eq!(harness.obs.calls().streaming_stop, 0);
+    }
+
+    let harness = Harness::start_with_settings(Duration::ZERO, json!({"stopStreamingWhenMonitorStopped": true})).await;
+    harness.start_monitor().await.error_for_status().unwrap();
+    harness.stop_monitor().await.error_for_status().unwrap();
+    assert_eq!(harness.obs.calls().streaming_stop, 0);
+
+    harness.obs.set_streaming_active(true);
+    harness.start_monitor().await.error_for_status().unwrap();
+    harness.stop_monitor().await.error_for_status().unwrap();
+    assert_eq!(harness.obs.calls().streaming_stop, 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
 async fn unexpected_replay_stop_ends_monitoring_and_publishes_its_reason() {
-    let harness = Harness::start(Duration::ZERO).await;
+    let harness = Harness::start_with_settings(Duration::ZERO, json!({"stopStreamingWhenMonitorStopped": true})).await;
+    harness.obs.set_streaming_active(true);
     let mut events = harness.connect_event_stream().await;
     harness.start_monitor().await.error_for_status().unwrap();
     crate::support::test_obs::obs_frontend_replay_buffer_stop();
@@ -198,6 +221,7 @@ async fn unexpected_replay_stop_ends_monitoring_and_publishes_its_reason() {
     .expect("monitor stopped notification");
     assert_eq!(harness.obs.calls().frame_callback_unregister, 1);
     assert_eq!(harness.obs.calls().capture_destroy, 1);
+    assert_eq!(harness.obs.calls().streaming_stop, 0);
     let mut reconnected = harness.connect_event_stream().await;
     let snapshot = next_app_snapshot(&mut reconnected, "stopped monitor").await;
     assert_eq!(snapshot["state"]["monitor"]["enabled"], false);

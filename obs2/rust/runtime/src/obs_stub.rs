@@ -24,6 +24,14 @@ pub extern "C" fn obs_frontend_recording_start() {}
 pub extern "C" fn obs_frontend_recording_stop() {}
 
 #[unsafe(no_mangle)]
+pub extern "C" fn obs_frontend_streaming_active() -> bool {
+    false
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn obs_frontend_streaming_stop() {}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn obs_frontend_replay_buffer_start() {}
 
 #[unsafe(no_mangle)]

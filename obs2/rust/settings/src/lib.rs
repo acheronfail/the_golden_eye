@@ -76,6 +76,7 @@ pub const DEFAULT_YOUTUBE_VISIBILITY: YoutubeVisibility = YoutubeVisibility::Unl
 pub struct AppSettings {
     pub stop_replay_buffer_when_monitor_stopped: bool,
     pub stop_replay_buffer_prompt_shown: bool,
+    pub stop_streaming_when_monitor_stopped: bool,
     pub monitor_design: MonitorDesign,
     pub show_monitor_fps: bool,
     pub show_in_game_timer: bool,
@@ -112,6 +113,7 @@ impl Default for AppSettings {
         Self {
             stop_replay_buffer_when_monitor_stopped: false,
             stop_replay_buffer_prompt_shown: false,
+            stop_streaming_when_monitor_stopped: false,
             monitor_design: DEFAULT_MONITOR_DESIGN,
             show_monitor_fps: false,
             show_in_game_timer: false,

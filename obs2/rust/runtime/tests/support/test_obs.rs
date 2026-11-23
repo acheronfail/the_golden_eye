@@ -33,6 +33,7 @@ pub struct Calls {
     pub queue_task: usize,
     pub recording_start: usize,
     pub recording_stop: usize,
+    pub streaming_stop: usize,
     pub replay_start: usize,
     pub replay_stop: usize,
     pub replay_save: usize,
@@ -94,6 +95,7 @@ struct Callback {
 struct State {
     config: Config,
     calls: Calls,
+    streaming_active: bool,
     frames: VecDeque<Option<Frame>>,
     captures: Vec<CaptureAttempt>,
     current_frame: Option<Frame>,
@@ -124,6 +126,7 @@ impl Default for State {
                 sources: Vec::new(),
             },
             calls: Calls::default(),
+            streaming_active: false,
             frames: VecDeque::new(),
             captures: Vec::new(),
             current_frame: None,
@@ -155,6 +158,10 @@ impl TestObs {
 
     pub fn replay_active(&self) -> bool {
         STATE.lock().unwrap().config.replay_active
+    }
+
+    pub fn set_streaming_active(&self, active: bool) {
+        STATE.lock().unwrap().streaming_active = active;
     }
 
     pub fn set_frame(&self, frame: Frame) {
@@ -287,6 +294,18 @@ pub extern "C" fn obs_frontend_recording_start() {
 #[unsafe(no_mangle)]
 pub extern "C" fn obs_frontend_recording_stop() {
     STATE.lock().unwrap().calls.recording_stop += 1;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn obs_frontend_streaming_active() -> bool {
+    STATE.lock().unwrap().streaming_active
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn obs_frontend_streaming_stop() {
+    let mut state = STATE.lock().unwrap();
+    state.calls.streaming_stop += 1;
+    state.streaming_active = false;
 }
 
 #[unsafe(no_mangle)]

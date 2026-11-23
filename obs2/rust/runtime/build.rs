@@ -42,6 +42,8 @@ fn main() {
         .exclude_item("obs_frontend_get_user_config")
         .exclude_item("obs_frontend_recording_start")
         .exclude_item("obs_frontend_recording_stop")
+        .exclude_item("obs_frontend_streaming_active")
+        .exclude_item("obs_frontend_streaming_stop")
         .exclude_item("obs_frontend_replay_buffer_start")
         .exclude_item("obs_frontend_replay_buffer_stop")
         .exclude_item("obs_frontend_replay_buffer_save")
