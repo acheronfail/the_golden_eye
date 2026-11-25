@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RecordingSavePending, RunClip } from '$lib/api';
+import type { RecordingSavePending, ReplaySaveStatus, RunClip } from '$lib/api';
 import { RecentRunsStore } from './recentRuns.svelte';
 
 const mocks = vi.hoisted(() => ({
@@ -16,6 +16,7 @@ vi.mock('$lib/api', async (importOriginal) => {
 });
 
 const pending = (overrides: Partial<RecordingSavePending> = {}): RecordingSavePending => ({
+	trackingId: 41,
 	saveId: 7,
 	saveInSecs: 5,
 	estimatedDurationSecs: 75,
@@ -25,6 +26,17 @@ const pending = (overrides: Partial<RecordingSavePending> = {}): RecordingSavePe
 	levelNumber: 2,
 	difficulty: '00 Agent',
 	timeSecs: 58,
+	...overrides
+});
+
+const saving = (overrides: Partial<ReplaySaveStatus> = {}): ReplaySaveStatus => ({
+	trackingId: 41,
+	saveId: 7,
+	stage: 'savingReplay',
+	level: 'Facility',
+	difficulty: '00 Agent',
+	runStatus: 'complete',
+	estimatedDurationSecs: 75,
 	...overrides
 });
 
@@ -63,7 +75,7 @@ describe('recent runs store', () => {
 		const timestamp = store.items[0].metadata.timestamp;
 
 		expect(store.items).toHaveLength(1);
-		expect(store.items[0].runId).toBe('pending-7');
+		expect(store.items[0].runId).toBe('pending-41');
 		expect(store.items[0].metadata.status).toBe('pending');
 		expect(store.items[0].metadata.time).toBe('06:14');
 
@@ -77,10 +89,37 @@ describe('recent runs store', () => {
 		const store = new RecentRunsStore();
 		store.applySavePending(pending());
 		mocks.getRecentRuns.mockResolvedValue([finalized]);
+		store.applyReplaySaves([saving({ runId: finalized.runId })]);
 
-		await store.refresh(7);
+		await store.refresh();
 
-		expect(store.items).toEqual([finalized]);
+		expect(store.items).toEqual([{ ...finalized, saving: true }]);
+	});
+
+	it('associates an active save by run ID after reload and displays the persisted failure when refreshed', async () => {
+		const store = new RecentRunsStore();
+		const old = { ...finalized, runId: 'old-run' };
+		mocks.getRecentRuns.mockResolvedValue([finalized, old]);
+		store.applyReplaySaves([saving({ runId: finalized.runId, stage: 'trimming' })]);
+		await store.refresh();
+		expect(store.items).toEqual([{ ...finalized, saving: true }, old]);
+
+		const failed = { ...finalized, clipSaveError: 'OBS replay buffer save timed out' };
+		mocks.getRecentRuns.mockResolvedValue([failed, old]);
+		store.applyReplaySaves([saving({ runId: finalized.runId, stage: 'failed' })]);
+		await store.refresh();
+		expect(store.items).toEqual([failed, old]);
+	});
+
+	it('ignores a late pending event after a save ends and accepts a new session reusing its save ID', () => {
+		const store = new RecentRunsStore();
+		store.applySavePending(pending());
+		store.applyReplaySaves([saving({ stage: 'failed' })]);
+		expect(store.items).toEqual([]);
+
+		store.applySavePending(pending());
+		store.applySavePending(pending({ trackingId: 42 }));
+		expect(store.items.map((run) => run.runId)).toEqual(['pending-42']);
 	});
 
 	it('always requests and displays the maximum recent-run history', async () => {

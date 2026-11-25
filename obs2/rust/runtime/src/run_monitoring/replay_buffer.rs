@@ -1,6 +1,7 @@
 //! Owns replay lifecycle transitions and serializes identity-less save requests.
 
 use std::sync::{Condvar, Mutex, MutexGuard};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub(crate) static REPLAY_BUFFER: ReplayCoordinator = ReplayCoordinator::new();
@@ -32,6 +33,13 @@ struct ReplaySaved {
     /// Plugin-initiated saves still awaiting their event; when zero, a saved
     /// event is the user's own manual save, which we leave untouched.
     pending_requests: u32,
+    shutting_down: bool,
+}
+
+struct ReplayJobs {
+    awaiting_replay: usize,
+    stop_when_idle: bool,
+    workers: Vec<JoinHandle<()>>,
 }
 
 struct ReplayBufferLifecycle {
@@ -45,6 +53,7 @@ struct ReplayBufferLifecycle {
 pub(crate) enum ReplaySaveWait {
     Saved(Option<String>),
     TimedOut,
+    Shutdown,
 }
 
 /// One coordinator per core lifetime; callbacks never acquire either operation gate.
@@ -55,12 +64,18 @@ pub(crate) struct ReplayCoordinator {
     lifecycle_changed: Condvar,
     ensure_serialized: Mutex<()>,
     save_serialized: Mutex<()>,
+    jobs: Mutex<ReplayJobs>,
 }
 
 impl ReplayCoordinator {
     pub(crate) const fn new() -> Self {
         Self {
-            saved: Mutex::new(ReplaySaved { generation: 0, last_path: None, pending_requests: 0 }),
+            saved: Mutex::new(ReplaySaved {
+                generation: 0,
+                last_path: None,
+                pending_requests: 0,
+                shutting_down: false,
+            }),
             saved_changed: Condvar::new(),
             lifecycle: Mutex::new(ReplayBufferLifecycle {
                 starting: false,
@@ -71,6 +86,7 @@ impl ReplayCoordinator {
             lifecycle_changed: Condvar::new(),
             ensure_serialized: Mutex::new(()),
             save_serialized: Mutex::new(()),
+            jobs: Mutex::new(ReplayJobs { awaiting_replay: 0, stop_when_idle: false, workers: Vec::new() }),
         }
     }
 
@@ -146,10 +162,13 @@ impl ReplayCoordinator {
     /// Register a pending plugin save and return the generation to wait past.
     /// Incrementing before the save call (so an immediate event still counts as ours)
     /// lets [`Self::handle`] tell our saves from the user's manual ones.
-    fn begin_replay_save_request(&self) -> u64 {
+    fn begin_replay_save_request(&self) -> Option<u64> {
         let mut guard = self.saved.lock().unwrap_or_else(|p| p.into_inner());
+        if guard.shutting_down {
+            return None;
+        }
         guard.pending_requests = guard.pending_requests.saturating_add(1);
-        guard.generation
+        Some(guard.generation)
     }
 
     /// Block until a replay-saved event newer than `since` arrives. A slow save is
@@ -159,6 +178,10 @@ impl ReplayCoordinator {
         let mut warned = false;
         let mut guard = self.saved.lock().unwrap_or_else(|p| p.into_inner());
         while guard.generation == since {
+            if guard.shutting_down {
+                guard.pending_requests -= 1;
+                return ReplaySaveWait::Shutdown;
+            }
             let elapsed = start.elapsed();
             if elapsed >= timeout {
                 // Our event never arrived; release the request so a later user save
@@ -247,6 +270,10 @@ impl ReplayCoordinator {
     /// Start once and allow slow OBS/encoder initialization to complete.
     pub(crate) fn ensure_replay_buffer_running(&self) -> Result<(), String> {
         let _ensure_guard = self.ensure_serialized.lock().unwrap_or_else(|p| p.into_inner());
+        if self.saved.lock().unwrap_or_else(|p| p.into_inner()).shutting_down {
+            return Err("The plugin is shutting down.".to_owned());
+        }
+        self.cancel_deferred_stop();
 
         if !self.wait_for_replay_buffer_not_stopping(REPLAY_STOP_TIMEOUT) {
             return Err("OBS's replay buffer is still stopping. Wait and try again.".to_owned());
@@ -284,13 +311,103 @@ impl ReplayCoordinator {
         Err(message)
     }
 
-    /// Stop the replay buffer if it is currently running.
-    pub(crate) fn stop_replay_buffer_if_active(&self) {
+    pub(super) fn queue_job(&self) -> ReplayJob<'_> {
+        let mut jobs = self.jobs.lock().unwrap_or_else(|p| p.into_inner());
+        jobs.awaiting_replay += 1;
+        ReplayJob { coordinator: self, awaiting_replay: true }
+    }
+
+    pub(super) fn stop_after_saves(&self) {
+        self.jobs.lock().unwrap_or_else(|p| p.into_inner()).stop_when_idle = true;
+        self.stop_if_idle();
+    }
+
+    fn cancel_deferred_stop(&self) {
+        self.jobs.lock().unwrap_or_else(|p| p.into_inner()).stop_when_idle = false;
+    }
+
+    fn stop_if_idle(&self) {
+        let _ensure_guard = self.ensure_serialized.lock().unwrap_or_else(|p| p.into_inner());
+        let mut jobs = self.jobs.lock().unwrap_or_else(|p| p.into_inner());
+        if jobs.awaiting_replay != 0 || !jobs.stop_when_idle {
+            return;
+        }
+        jobs.stop_when_idle = false;
+        drop(jobs);
+
         if crate::obs::replay_buffer_active() {
             tracing::info!("stopping replay buffer");
             self.handle(ReplayEvent::Stopping);
             crate::obs::stop_replay_buffer();
         }
+    }
+
+    pub(crate) fn begin_runtime(&self) {
+        self.saved.lock().unwrap_or_else(|p| p.into_inner()).shutting_down = false;
+    }
+
+    pub(crate) fn begin_shutdown(&self) {
+        let _ensure_guard = self.ensure_serialized.lock().unwrap_or_else(|p| p.into_inner());
+        self.cancel_deferred_stop();
+        self.saved.lock().unwrap_or_else(|p| p.into_inner()).shutting_down = true;
+        self.saved_changed.notify_all();
+    }
+
+    pub(super) fn track_worker(&self, worker: JoinHandle<()>) {
+        let mut jobs = self.jobs.lock().unwrap_or_else(|p| p.into_inner());
+        let finished: Vec<_> = jobs.workers.extract_if(.., |worker| worker.is_finished()).collect();
+        jobs.workers.push(worker);
+        drop(jobs);
+        for worker in finished {
+            if worker.join().is_err() {
+                tracing::error!("replay save worker panicked");
+            }
+        }
+    }
+
+    pub(crate) fn join_workers(&self) {
+        let workers = std::mem::take(&mut self.jobs.lock().unwrap_or_else(|p| p.into_inner()).workers);
+        for worker in workers {
+            if worker.join().is_err() {
+                tracing::error!("replay save worker panicked");
+            }
+        }
+    }
+
+    pub(super) fn wait_for_padding(&self, delay: Duration) {
+        let saved = self.saved.lock().unwrap_or_else(|p| p.into_inner());
+        drop(
+            self.saved_changed
+                .wait_timeout_while(saved, delay, |saved| !saved.shutting_down)
+                .unwrap_or_else(|p| p.into_inner()),
+        );
+    }
+}
+
+/// Reserves the buffer from queueing until OBS has finished with the request.
+pub(super) struct ReplayJob<'a> {
+    coordinator: &'a ReplayCoordinator,
+    awaiting_replay: bool,
+}
+
+impl ReplayJob<'_> {
+    pub(super) fn finish_request(&mut self) {
+        if !std::mem::take(&mut self.awaiting_replay) {
+            return;
+        }
+        let mut jobs = self.coordinator.jobs.lock().unwrap_or_else(|p| p.into_inner());
+        jobs.awaiting_replay -= 1;
+        let should_stop = jobs.awaiting_replay == 0 && jobs.stop_when_idle;
+        drop(jobs);
+        if should_stop {
+            self.coordinator.stop_if_idle();
+        }
+    }
+}
+
+impl Drop for ReplayJob<'_> {
+    fn drop(&mut self) {
+        self.finish_request();
     }
 }
 
@@ -308,7 +425,9 @@ impl ReplaySavePermit<'_> {
         slow_warning: Duration,
         timeout: Duration,
     ) -> ReplaySaveWait {
-        let since = self.coordinator.begin_replay_save_request();
+        let Some(since) = self.coordinator.begin_replay_save_request() else {
+            return ReplaySaveWait::Shutdown;
+        };
         request();
         self.coordinator.wait_for_replay_saved(since, slow_warning, timeout)
     }

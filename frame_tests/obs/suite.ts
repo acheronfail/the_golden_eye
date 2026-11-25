@@ -4,6 +4,7 @@ import path from "node:path";
 export interface Scenario<H> {
   name: string;
   run: (harness: H) => Promise<void>;
+  isolated?: boolean;
 }
 export interface Session {
   launch(): Promise<void>;
@@ -41,7 +42,7 @@ export async function runSuite<H extends Session>(options: {
   artifacts: string;
   scenarios: Scenario<H>[];
   repeats: number;
-  create: (directory: string) => H;
+  create: (directory: string, scenario: Scenario<H>) => H;
   interrupted: () => boolean;
   log?: (message: string) => void;
 }) {
@@ -94,6 +95,7 @@ export async function runSuite<H extends Session>(options: {
           await saveReport();
           continue;
         }
+        if (scenario.isolated && harness && lastResult) await close(lastResult);
         lastResult = result;
         log(`RUN ${iteration}/${options.repeats}: ${scenario.name}`);
         const start = performance.now();
@@ -102,7 +104,7 @@ export async function runSuite<H extends Session>(options: {
           if (!harness) {
             directory = path.join(options.artifacts, `session-${iteration}-${index + 1}`);
             await fs.mkdir(directory, { recursive: true });
-            harness = options.create(directory);
+            harness = options.create(directory, scenario);
             await harness.launch();
           }
           phase = "test";
@@ -115,6 +117,7 @@ export async function runSuite<H extends Session>(options: {
           result.artifacts = directory;
           if (
             result.errors.length ||
+            scenario.isolated ||
             options.interrupted() ||
             index === options.scenarios.length - 1
           )

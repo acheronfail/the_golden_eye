@@ -199,8 +199,7 @@ impl RunRecorder {
         }
     }
 
-    /// Save and trim the pending clip synchronously during shutdown, preserving
-    /// the scheduled post-run padding window before OBS is asked to save.
+    /// Queue the pending clip with its remaining post-run padding.
     #[cfg(not(test))]
     pub(super) fn flush_pending_on_shutdown(&mut self) {
         if let Some(pending) = self.run_detection.pending.take() {

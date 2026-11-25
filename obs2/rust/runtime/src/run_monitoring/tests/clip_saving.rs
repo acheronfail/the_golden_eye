@@ -303,11 +303,18 @@ fn replay_save_failure_does_not_trim_or_notify_uploader() {
     let dir = TestDir::new("save-failure");
     let (job, mut events) = pending_job(&dir);
     let saves = job.replay_saves.clone();
+    let catalog = job.run_catalog.clone();
+    let run_id = job.metadata.run_id.clone();
     save_and_trim_with(job, |_| Err("OBS replay buffer save timed out"), |_, _| panic!("unexpected upload"));
     assert!(!dir.join("clips").exists());
+    assert!(matches!(
+        events.try_recv().unwrap(),
+        AppEvent::RunCatalogChanged { run_id: Some(id), .. } if id == run_id
+    ));
     assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Closed)));
     assert_eq!(saves.current()[0].stage, ReplaySaveStage::Failed);
     assert_eq!(saves.current()[0].error.as_deref(), Some("OBS replay buffer save timed out"));
+    assert_eq!(catalog.get_run(&run_id).unwrap().unwrap().clip_save_error, saves.current()[0].error);
 }
 
 #[test]
@@ -317,13 +324,16 @@ fn trim_failure_preserves_replay_and_does_not_notify_uploader() {
     write_file(&replay);
     let (job, mut events) = pending_job(&dir);
     let saves = job.replay_saves.clone();
+    let catalog = job.run_catalog.clone();
+    let run_id = job.metadata.run_id.clone();
     save_and_trim_with(
         job,
         |_| Ok(ResolvedReplay { path: replay.to_string_lossy().into_owned(), safe_to_delete: true }),
         |_, _| panic!("unexpected upload"),
     );
     assert!(replay.exists());
-    assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Closed)));
+    assert!(matches!(events.try_recv().unwrap(), AppEvent::RunCatalogChanged { .. }));
     assert_eq!(saves.current()[0].stage, ReplaySaveStage::Failed);
     assert!(saves.current()[0].error.is_some());
+    assert_eq!(catalog.get_run(&run_id).unwrap().unwrap().clip_save_error, saves.current()[0].error);
 }

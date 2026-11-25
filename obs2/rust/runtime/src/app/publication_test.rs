@@ -122,6 +122,7 @@ fn monitor_fps_event_uses_frontend_field_names() {
 #[test]
 fn recording_save_pending_event_uses_frontend_field_names() {
     let event = AppEvent::RecordingSavePending(RecordingSavePending {
+        tracking_id: 41,
         save_id: 7,
         save_in_secs: 5.0,
         estimated_duration_secs: 74.5,
@@ -222,6 +223,7 @@ fn replay_save_store_retains_pipeline_transitions() {
     store.schedule(ReplaySaveStatus {
         tracking_id: 41,
         save_id: 7,
+        run_id: None,
         stage: ReplaySaveStage::Scheduled,
         level: "Facility".to_owned(),
         difficulty: Some("00 Agent".to_owned()),

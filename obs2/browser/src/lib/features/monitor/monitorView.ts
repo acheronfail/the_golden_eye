@@ -14,6 +14,8 @@ export type MonitorTransition = 'starting' | 'stopping' | null;
 export type { MonitorDesign } from '$lib/generated/settings';
 export type { MonitorPhase } from '$lib/stores/monitor.svelte';
 
+export type RecentRun = RunClip & { saving?: boolean };
+
 export interface MonitorViewProps {
 	sourceName?: string;
 	verified: boolean;
@@ -29,7 +31,7 @@ export interface MonitorViewProps {
 	showInGameTimer?: boolean;
 	wallClockState: MonitorWallClockState | null;
 	bestTimes?: RunClip[];
-	recentRuns?: RunClip[];
+	recentRuns?: RecentRun[];
 	recentRunsBusyId?: string | null;
 	recentRunsError?: string | null;
 	onKeepRun?: (runId: string) => void;

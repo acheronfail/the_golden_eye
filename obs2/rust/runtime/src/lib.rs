@@ -196,6 +196,7 @@ pub extern "C" fn ge_runtime_start() -> bool {
         None
     };
 
+    REPLAY_BUFFER.begin_runtime();
     configure_cv_runtime();
     configure_cv_template_dir();
 
@@ -319,8 +320,10 @@ pub extern "C" fn ge_runtime_stop() {
     // truthful session end reason for both development reloads and OBS shutdown.
     let state = handle.state.clone();
     let end_reason = if cfg!(feature = "dev") { StopReason::CoreReload } else { StopReason::ObsShutdown };
+    REPLAY_BUFFER.begin_shutdown();
     handle.runtime_handle.block_on(state.frame_dump.stop());
     let _ = handle.runtime_handle.block_on(state.monitor.stop(end_reason));
+    REPLAY_BUFFER.join_workers();
 
     // Signal the server to begin a graceful shutdown. The receiver may already
     // be gone if the server task exited on its own; that's fine.

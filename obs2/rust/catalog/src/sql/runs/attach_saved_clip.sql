@@ -5,5 +5,6 @@ SET clip_path = ?1,
     duration_secs = ?4,
     metadata_json = ?5,
     retention_state = ?6,
-    retention_reason = ?7
+    retention_reason = ?7,
+    clip_save_error = NULL
 WHERE run_id = ?8;

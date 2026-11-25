@@ -8,7 +8,7 @@ SELECT
     modified_unix,
     duration_secs,
     metadata_json,
-    youtube_json
+    youtube_json, clip_save_error
 FROM runs
 ORDER BY
     time_seconds IS NULL,

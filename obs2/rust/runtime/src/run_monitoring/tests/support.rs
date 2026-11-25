@@ -246,7 +246,12 @@ impl RunRecorder {
         let Some(pending) = self.run_detection.pending.take() else {
             return;
         };
-        self.save_pipeline.flush_on_shutdown_with(pending, now, self.detection_policy, sleep, save);
+        let (job, save_at) = self.save_pipeline.shutdown_job(pending, now, self.detection_policy);
+        let delay = save_at.duration_since(now);
+        if !delay.is_zero() {
+            sleep(delay);
+        }
+        save(job);
     }
 }
 

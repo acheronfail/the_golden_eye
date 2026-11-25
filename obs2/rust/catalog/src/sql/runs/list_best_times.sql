@@ -11,7 +11,7 @@ WITH ranked AS (
       AND time_seconds >= 0
 )
 SELECT runs.run_id, completed_unix_micros, retention_state, retention_reason,
-    clip_path, size_bytes, modified_unix, duration_secs, metadata_json, youtube_json
+    clip_path, size_bytes, modified_unix, duration_secs, metadata_json, youtube_json, clip_save_error
 FROM runs JOIN ranked ON runs.run_id = ranked.run_id
 WHERE ranked.rank = 1
 ORDER BY level_number, difficulty_number;

@@ -23,4 +23,5 @@ ON CONFLICT(run_id) DO UPDATE SET
     difficulty_number = excluded.difficulty_number,
     status = excluded.status,
     time_seconds = excluded.time_seconds,
-    metadata_json = excluded.metadata_json;
+    metadata_json = excluded.metadata_json,
+    clip_save_error = NULL;
