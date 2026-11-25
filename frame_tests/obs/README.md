@@ -111,7 +111,9 @@ The recovery cases have been verified on macOS 15.6 (Apple Silicon) with OBS 32.
 
 ## Isolation and timing
 
-Passing scenarios share one OBS process within each repetition. Each new repetition or failure recovery starts a fresh process.
+Passing scenarios normally share an OBS process within each repetition. The source-removal scenario
+starts its own process with preview disabled in OBS's startup settings. Each new repetition or
+failure recovery starts a fresh process.
 Each session uses a separate directory under
 `obs2/build/real-obs-*` for OBS settings, plugin settings,
 cache, temporary files, replay files, and saved clips. Flatpak replaces XDG paths during startup,

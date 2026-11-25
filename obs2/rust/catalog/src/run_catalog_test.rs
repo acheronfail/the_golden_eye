@@ -140,7 +140,7 @@ fn schema_three_pathless_rows_survive_the_clip_failure_upgrade() {
     let path = attach_clip(&dir, &reopened, &run, "test.mov");
     reopened.record_clip_save_failure(&run.run_id, reason).unwrap();
     let run = reopened.get_run(&run.run_id).unwrap().unwrap();
-    assert_eq!(run.clip.unwrap().path, path);
+    assert_eq!(run.clip.unwrap().path, fs::canonicalize(path).unwrap());
     assert!(run.clip_save_error.is_none());
 }
 

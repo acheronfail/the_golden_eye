@@ -26,6 +26,7 @@ export interface HarnessOptions {
   releaseVersion?: string;
   resume?: boolean;
   modern?: boolean;
+  previewEnabled?: boolean;
   flatpakScope?: "--system" | "--user";
 }
 
@@ -820,7 +821,7 @@ export class ObsHarness {
     );
     await this.write(
       `${config}/obs-studio/user.ini`,
-      "[General]\nFirstRun=true\nConfirmOnExit=false\nPre19Defaults=false\nPre21Defaults=false\nPre23Defaults=false\n[Basic]\nProfile=Tests\nProfileDir=Tests\nSceneCollection=Tests\nSceneCollectionFile=Tests\nConfigOnNewProfile=false\n[BasicWindow]\nShowWhatsNew=false\n",
+      `[General]\nFirstRun=true\nConfirmOnExit=false\nPre19Defaults=false\nPre21Defaults=false\nPre23Defaults=false\n[Basic]\nProfile=Tests\nProfileDir=Tests\nSceneCollection=Tests\nSceneCollectionFile=Tests\nConfigOnNewProfile=false\n[BasicWindow]\nShowWhatsNew=false\nPreviewEnabled=${this.options.previewEnabled ?? true}\n`,
     );
     await this.write(
       `${config}/obs-studio/basic/profiles/Tests/basic.ini`,

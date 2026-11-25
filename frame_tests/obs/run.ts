@@ -26,29 +26,25 @@ const defineScenario = (
   name,
   run,
 });
-scenarios.push(
-  defineScenario(
-    "source removal and recreation with a retained reference and preview disabled",
-    async (h) => {
-      await h.command({ action: "preview", enabled: false });
-      try {
-        await h.fixture("Unrendered", "screenshots-emu/en - start - 01 - Secret Agent.png");
-        await h.command({ action: "retain", name: "Unrendered" });
-        try {
-          await h.removeSource("Unrendered");
-          assert.equal((await h.command({ action: "status", name: "Unrendered" })).removed, true);
-          await h.fixture("Unrendered", "screenshots-emu/en - start - 01 - Secret Agent.png");
-          assert.equal((await h.command({ action: "status", name: "Unrendered" })).removed, false);
-        } finally {
-          await h.command({ action: "release", name: "Unrendered" });
-        }
-        await h.removeSource("Unrendered");
-      } finally {
-        await h.command({ action: "preview", enabled: true });
-      }
-    },
-  ),
-);
+const sourceRecreation: Scenario<ObsHarness> = {
+  name: "source removal and recreation with a retained reference and preview disabled",
+  isolated: true,
+  async run(h) {
+    await h.command({ action: "assert-preview-disabled" });
+    await h.fixture("Unrendered", "screenshots-emu/en - start - 01 - Secret Agent.png");
+    await h.command({ action: "retain", name: "Unrendered" });
+    try {
+      await h.removeSource("Unrendered");
+      assert.equal((await h.command({ action: "status", name: "Unrendered" })).removed, true);
+      await h.fixture("Unrendered", "screenshots-emu/en - start - 01 - Secret Agent.png");
+      assert.equal((await h.command({ action: "status", name: "Unrendered" })).removed, false);
+    } finally {
+      await h.command({ action: "release", name: "Unrendered" });
+    }
+    await h.removeSource("Unrendered");
+  },
+};
+scenarios.push(sourceRecreation);
 scenarios.push(
   defineScenario("1080p capture, source reconnection, and resolution changes", async (h) => {
     await h.fixture("Image", "screenshots-emu/en - start - 01 - Secret Agent.png");
@@ -120,8 +116,10 @@ const report = await runSuite({
   scenarios,
   repeats,
   interrupted: () => interrupted,
-  create: (directory) => {
-    current = new ObsHarness(root, directory, software);
+  create: (directory, scenario) => {
+    current = new ObsHarness(root, directory, software, {
+      previewEnabled: scenario !== sourceRecreation,
+    });
     return current;
   },
 });

@@ -55,8 +55,8 @@ end
 
 local function execute(command)
     local action = obs.obs_data_get_string(command, "action")
-    if action == "preview" then
-        obs.obs_frontend_set_preview_enabled(obs.obs_data_get_bool(command, "enabled"))
+    if action == "assert-preview-disabled" then
+        assert(not obs.obs_frontend_preview_enabled(), "OBS preview is enabled")
         return
     end
     if action == "quit" then

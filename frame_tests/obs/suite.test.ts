@@ -339,6 +339,49 @@ test("a failed readiness check closes the session before the next scenario", asy
   }
 });
 
+test("an isolated scenario starts and closes its own session", async () => {
+  const artifacts = await fs.mkdtemp(path.join(os.tmpdir(), "obs-suite-"));
+  const trace: string[] = [];
+  try {
+    const report = await runSuite({
+      artifacts,
+      repeats: 1,
+      interrupted: () => false,
+      log: () => {},
+      create: (_, scenario) => ({
+        async launch() {
+          trace.push(`launch ${scenario.name}`);
+        },
+        async close() {
+          trace.push(`close ${scenario.name}`);
+        },
+      }),
+      scenarios: ["before", "isolated", "after", "shared"].map((name) => ({
+        name,
+        isolated: name === "isolated",
+        async run() {
+          trace.push(`run ${name}`);
+        },
+      })),
+    });
+    assert.deepEqual(trace, [
+      "launch before",
+      "run before",
+      "close before",
+      "launch isolated",
+      "run isolated",
+      "close isolated",
+      "launch after",
+      "run after",
+      "run shared",
+      "close after",
+    ]);
+    assert.equal(report.passed, 4);
+  } finally {
+    await fs.rm(artifacts, { recursive: true, force: true });
+  }
+});
+
 test("cleanup rejects an OBS exit between the last assertion and shutdown", async () => {
   for (const [exitCode, signalCode] of [
     [0, null],
