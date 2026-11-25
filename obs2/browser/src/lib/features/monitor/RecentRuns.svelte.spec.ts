@@ -1,10 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { RunClip } from '$lib/api';
 import RecentRuns from './RecentRuns.svelte';
+import type { RecentRun } from './monitorView';
 
-const run = (overrides: Partial<RunClip>): RunClip => ({
+const run = (overrides: Partial<RecentRun>): RecentRun => ({
 	runId: 'run-1',
 	path: '',
 	fileName: '',
@@ -31,7 +31,7 @@ const run = (overrides: Partial<RunClip>): RunClip => ({
 
 describe('RecentRuns', () => {
 	it('shows a finalized run while its clip is still saving', () => {
-		render(RecentRuns, { runs: [run({})], onKeep: vi.fn() });
+		render(RecentRuns, { runs: [run({ saving: true })], onKeep: vi.fn() });
 
 		expect(screen.getByRole('link', { name: 'Facility' })).toHaveAttribute('href', '/runs?runId=run-1');
 		expect(screen.getByText('complete')).toHaveClass('status-complete');
@@ -40,10 +40,33 @@ describe('RecentRuns', () => {
 		expect(screen.queryByRole('button', { name: 'Keep' })).not.toBeInTheDocument();
 	});
 
+	it('shows the saved error independently of the run result or personal best', () => {
+		render(RecentRuns, {
+			runs: [
+				run({
+					clipSaveError: 'OBS replay buffer save timed out',
+					metadata: { ...run({}).metadata, wasPersonalBest: true }
+				})
+			],
+			onKeep: vi.fn()
+		});
+
+		expect(screen.getByText('Save failed')).toBeInTheDocument();
+		expect(screen.getByText('OBS replay buffer save timed out')).toBeInTheDocument();
+		expect(screen.getByText('complete')).toHaveClass('status-complete');
+	});
+
+	it.each(['pending', 'kept', 'expired'] as const)('shows No clip for an old pathless %s run', (retentionState) => {
+		render(RecentRuns, { runs: [run({ retentionState })], onKeep: vi.fn() });
+		expect(screen.getByText('No clip')).toBeInTheDocument();
+		expect(screen.queryByText('Saving…')).not.toBeInTheDocument();
+	});
+
 	it('colors failed statuses and personal-best times', () => {
 		render(RecentRuns, {
 			runs: [
 				run({
+					path: '/runs/facility.mov',
 					retentionState: 'kept',
 					retentionReason: 'theElite',
 					metadata: { ...run({}).metadata, status: 'failed', wasPersonalBest: true }

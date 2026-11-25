@@ -36,6 +36,7 @@ const applyAppSnapshot = (snapshot: AppSnapshot): void => {
 	)
 		personalBestCelebrations.reset();
 	applyMonitorSnapshot(snapshot);
+	recentRuns.applyReplaySaves(snapshot.replaySaves);
 	setRunCatalogSync(snapshot.runCatalogSync ?? null);
 	setObsSources(snapshot.sources);
 	setReplayBufferStatus(snapshot.replayBuffer);
@@ -74,7 +75,7 @@ const handleAppEvent = (event: AppEvent): void => {
 			break;
 		case 'runCatalogChanged':
 			void personalBestCelebrations.handle(event);
-			void recentRuns.refresh(event.saveId);
+			void recentRuns.refresh();
 			void bestTimes.refresh();
 			break;
 		case 'monitorStopped':
@@ -133,6 +134,10 @@ const connect = (): void => {
 	const nextSocket = backend.connectAppSocket(handleAppEvent, () => {
 		if (socket === nextSocket) socket = null;
 		scheduleReconnect();
+	});
+	nextSocket.addEventListener('open', () => {
+		recentRuns.resetReplaySaves();
+		void recentRuns.refresh();
 	});
 	socket = nextSocket;
 };

@@ -138,6 +138,7 @@ pub struct RunRecord {
     pub retention_reason: Option<String>,
     pub youtube: Option<YoutubeMetadata>,
     pub clip: Option<IndexedRunClip>,
+    pub clip_save_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -234,6 +235,10 @@ impl RunCatalog {
         runs::recent_runs(&self.lock(), limit.clamp(1, ge_settings::MAX_RECENT_RUN_LIMIT))
     }
 
+    pub fn record_clip_save_failure(&self, run_id: &str, reason: &str) -> anyhow::Result<()> {
+        runs::record_clip_save_failure(&self.lock(), run_id, reason)
+    }
+
     pub fn get_run(&self, run_id: &str) -> anyhow::Result<Option<RunRecord>> {
         runs::get_run(&self.lock(), run_id)
     }
@@ -292,6 +297,7 @@ impl RunCatalog {
             youtube: None,
             metadata,
             clip: None,
+            clip_save_error: None,
         })
     }
 
@@ -310,6 +316,7 @@ impl RunCatalog {
             youtube: None,
             metadata,
             clip: None,
+            clip_save_error: None,
         }
     }
 
@@ -361,6 +368,7 @@ impl RunCatalog {
                 metadata,
                 youtube,
                 clip: None,
+                clip_save_error: None,
             },
             true,
         ))
@@ -763,9 +771,11 @@ fn initialise_schema(conn: &mut Connection) -> anyhow::Result<bool> {
             Ok(false)
         }
         Some(meta::SCHEMA_VERSION) => {
-            runs::initialise(conn)?;
-            runs::initialise_sessions(conn)?;
-            runs::reconcile_monitor_sessions(conn)?;
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            runs::initialise(&tx)?;
+            runs::initialise_sessions(&tx)?;
+            runs::reconcile_monitor_sessions(&tx)?;
+            tx.commit()?;
             Ok(false)
         }
         Some(version) => anyhow::bail!(

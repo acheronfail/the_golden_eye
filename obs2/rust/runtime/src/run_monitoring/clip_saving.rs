@@ -19,7 +19,7 @@ use super::clip_output::{
     output_dir,
     unique_output_path,
 };
-use super::replay_buffer::{REPLAY_BUFFER, ReplaySaveWait};
+use super::replay_buffer::{REPLAY_BUFFER, ReplayJob, ReplaySaveWait};
 use super::run_detection::{PendingSave, RunDetectionPolicy};
 use super::{MAX_RECENT_RUN_LIMIT, RecordingSessionContext};
 use crate::app::AppEvent;
@@ -41,6 +41,7 @@ const REPLAY_SAVE_SLOW_WARNING: Duration = Duration::from_secs(20);
 /// Avoid blocking all later saves forever if OBS never sends a completion event.
 const REPLAY_SAVE_TIMEOUT: Duration = Duration::from_secs(120);
 fn recording_save_pending_event(
+    tracking_id: u64,
     save_id: u64,
     save_delay: Duration,
     estimated_duration_secs: f64,
@@ -51,6 +52,7 @@ fn recording_save_pending_event(
     let times = stats.and_then(|m| m.times);
 
     RecordingSavePending {
+        tracking_id,
         save_id,
         save_in_secs: save_delay.as_secs_f64(),
         estimated_duration_secs,
@@ -72,6 +74,7 @@ fn save_pending_event(pending: &PendingSave, policy: RunDetectionPolicy, now: In
     let run_length_secs = pending.finish_at.saturating_duration_since(pending.clip_start).as_secs_f64();
     let estimated_duration_secs = run_length_secs + policy.pre_run_padding_secs + policy.post_run_padding_secs;
     recording_save_pending_event(
+        pending.tracking_id,
         pending.save_id,
         pending.fire_at.saturating_duration_since(now),
         estimated_duration_secs,
@@ -124,6 +127,7 @@ impl SavePipeline {
         self.replay_saves.schedule(ReplaySaveStatus {
             tracking_id: pending.tracking_id,
             save_id: event.save_id,
+            run_id: None,
             stage: ReplaySaveStage::Scheduled,
             level: event.level.clone(),
             difficulty: event.difficulty.clone(),
@@ -135,8 +139,6 @@ impl SavePipeline {
     }
 
     pub(super) fn job(&self, pending: PendingSave, now: Instant, policy: RunDetectionPolicy) -> SaveAndTrimJob {
-        self.replay_saves.transition(pending.tracking_id, ReplaySaveStage::WaitingForReplaySave);
-
         let metadata = clip_metadata(
             pending.status,
             pending.completed_at,
@@ -157,6 +159,7 @@ impl SavePipeline {
                 (RunCatalog::untracked_finalized_run(pending.completed_at, metadata), false)
             }
         };
+        self.replay_saves.begin_catalog_save(pending.tracking_id, finalized.run_id.clone());
         if tracked {
             let _ = self.event_tx.send(AppEvent::RunCatalogChanged {
                 run_id: Some(finalized.run_id.clone()),
@@ -185,33 +188,28 @@ impl SavePipeline {
             replay_saves: self.replay_saves.clone(),
             run_catalog: self.run_catalog.clone(),
             phase_generation: pending.phase_generation,
+            replay_job: REPLAY_BUFFER.queue_job(),
         }
     }
 
     pub(super) fn spawn(&self, pending: PendingSave, now: Instant, policy: RunDetectionPolicy) {
-        spawn_save_and_trim(self.job(pending, now, policy));
+        spawn_save_and_trim(self.job(pending, now, policy), now);
     }
 
     #[cfg(not(test))]
     pub(super) fn flush_on_shutdown(&self, pending: PendingSave, now: Instant, policy: RunDetectionPolicy) {
-        self.flush_on_shutdown_with(pending, now, policy, std::thread::sleep, save_and_trim);
+        let (job, save_at) = self.shutdown_job(pending, now, policy);
+        spawn_save_and_trim(job, save_at);
     }
 
-    pub(super) fn flush_on_shutdown_with(
+    pub(super) fn shutdown_job(
         &self,
         pending: PendingSave,
         now: Instant,
         policy: RunDetectionPolicy,
-        sleep: impl FnOnce(Duration),
-        save: impl FnOnce(SaveAndTrimJob),
-    ) {
-        let save_at = if pending.fire_at > now {
-            sleep(pending.fire_at.duration_since(now));
-            pending.fire_at
-        } else {
-            now
-        };
-        save(self.job(pending, save_at, policy));
+    ) -> (SaveAndTrimJob, Instant) {
+        let save_at = pending.fire_at.max(now);
+        (self.job(pending, save_at, policy), save_at)
     }
 }
 
@@ -235,6 +233,30 @@ pub(super) struct SaveAndTrimJob {
     pub(super) run_catalog: Arc<RunCatalog>,
     /// See [`PendingSave::phase_generation`].
     pub(super) phase_generation: Option<u64>,
+    replay_job: ReplayJob<'static>,
+}
+
+impl SaveAndTrimJob {
+    fn failure_reporter(&self) -> impl FnOnce(String) + use<> {
+        let run_catalog = self.run_catalog.clone();
+        let run_id = self.metadata.run_id.clone();
+        let replay_saves = self.replay_saves.clone();
+        let tracking_id = self.tracking_id;
+        let save_id = self.save_id;
+        let event_tx = self.event_tx.clone();
+        let recording_state = self.recording_state.clone();
+        let phase_generation = self.phase_generation;
+        move |reason| {
+            if let Err(err) = run_catalog.record_clip_save_failure(&run_id, &reason) {
+                tracing::error!(%run_id, "failed to persist clip save failure: {err:#}");
+            }
+            replay_saves.fail(tracking_id, reason);
+            if let Some(generation) = phase_generation {
+                recording_state.handle(super::RecordingStateEvent::SaveFinished(generation));
+            }
+            let _ = event_tx.send(AppEvent::RunCatalogChanged { run_id: Some(run_id), save_id: Some(save_id) });
+        }
+    }
 }
 
 struct TrimClipRequest<'a> {
@@ -276,6 +298,7 @@ fn save_replay(job: &SaveAndTrimJob) -> Result<ResolvedReplay, &'static str> {
             tracing::error!(?REPLAY_SAVE_TIMEOUT, "replay buffer save did not complete in time");
             return Err("OBS replay buffer save timed out");
         }
+        ReplaySaveWait::Shutdown => return Err("Plugin shut down before OBS finished saving the replay"),
     };
 
     let resolved = match (output_directory.as_deref(), before) {
@@ -307,14 +330,16 @@ fn save_and_trim(job: SaveAndTrimJob) {
 }
 
 fn save_and_trim_with(
-    job: SaveAndTrimJob,
+    mut job: SaveAndTrimJob,
     save_replay: impl FnOnce(&SaveAndTrimJob) -> Result<ResolvedReplay, &'static str>,
     clip_saved: impl FnOnce(&str, &ClipMetadata),
 ) {
-    let resolved = match save_replay(&job) {
+    let replay = save_replay(&job);
+    job.replay_job.finish_request();
+    let resolved = match replay {
         Ok(resolved) => resolved,
         Err(error) => {
-            job.replay_saves.fail(job.tracking_id, error.to_owned());
+            job.failure_reporter()(error.to_owned());
             return;
         }
     };
@@ -329,8 +354,8 @@ fn save_and_trim_with(
         trim_tail_secs: job.trim_tail_secs,
         status: job.status,
         completed_at: job.completed_at,
-        stats: job.stats,
-        metadata: job.metadata,
+        stats: job.stats.take(),
+        metadata: metadata.clone(),
         output_policy: &job.output_policy,
         recent_run_limit: job.recent_run_limit.load(Ordering::Acquire),
         run_catalog: &job.run_catalog,
@@ -359,7 +384,7 @@ fn save_and_trim_with(
         }
         Err(err) => {
             tracing::error!("failed to trim replay clip: {err:#}");
-            job.replay_saves.fail(job.tracking_id, format!("{err:#}"));
+            job.failure_reporter()(format!("{err:#}"));
         }
     }
 }
@@ -405,13 +430,21 @@ fn resolve_saved_replay(event_path: Option<String>, new_files: Vec<PathBuf>) -> 
     event_path.map(|path| ResolvedReplay { path, safe_to_delete: false })
 }
 
-fn spawn_save_and_trim(job: SaveAndTrimJob) {
-    let tracking_id = job.tracking_id;
-    let replay_saves = job.replay_saves.clone();
-    let spawned = std::thread::Builder::new().name("ge-replay-save".to_owned()).spawn(move || save_and_trim(job));
-    if let Err(err) = spawned {
-        tracing::error!("failed to spawn replay save thread: {err}");
-        replay_saves.fail(tracking_id, format!("failed to start replay save worker: {err}"));
+fn spawn_save_and_trim(job: SaveAndTrimJob, save_at: Instant) {
+    let fail = job.failure_reporter();
+    let spawned = std::thread::Builder::new().name("ge-replay-save".to_owned()).spawn(move || {
+        let delay = save_at.saturating_duration_since(Instant::now());
+        if !delay.is_zero() {
+            REPLAY_BUFFER.wait_for_padding(delay);
+        }
+        save_and_trim(job);
+    });
+    match spawned {
+        Ok(worker) => REPLAY_BUFFER.track_worker(worker),
+        Err(err) => {
+            tracing::error!("failed to spawn replay save thread: {err}");
+            fail(format!("Failed to start replay save worker: {err}"));
+        }
     }
 }
 
@@ -458,19 +491,15 @@ fn trim_clip(req: TrimClipRequest<'_>) -> anyhow::Result<RecordingSaved> {
     let clip_metadata = req.metadata;
     ge_media::trim_with_metadata(input, &output, start, end, Some(&clip_metadata))?;
     tracing::info!(output = %output.display(), "saved trimmed clip");
-    match req.run_catalog.record_saved_clip(RunCatalogSave {
-        path: output.clone(),
-        duration_secs: Some(end - start),
-        metadata: clip_metadata,
-    }) {
-        Ok(_) => {
-            if let Err(err) = req.run_catalog.cleanup_recent(req.recent_run_limit) {
-                tracing::warn!("failed to clean up expired recent-run clips: {err:#}");
-            }
-        }
-        Err(err) => {
-            tracing::warn!(path = %output.display(), "failed to update run catalog after saving clip: {err:#}");
-        }
+    req.run_catalog
+        .record_saved_clip(RunCatalogSave {
+            path: output.clone(),
+            duration_secs: Some(end - start),
+            metadata: clip_metadata,
+        })
+        .map_err(|err| err.context("Could not attach the clip to the run catalog"))?;
+    if let Err(err) = req.run_catalog.cleanup_recent(req.recent_run_limit) {
+        tracing::warn!("failed to clean up expired recent-run clips: {err:#}");
     }
 
     Ok(RecordingSaved {

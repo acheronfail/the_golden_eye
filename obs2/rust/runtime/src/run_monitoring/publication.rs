@@ -142,6 +142,9 @@ pub struct ReplaySaveStatus {
     pub tracking_id: u64,
     #[ts(type = "number")]
     pub save_id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub run_id: Option<String>,
     pub stage: ReplaySaveStage,
     pub level: String,
     pub difficulty: Option<String>,
@@ -188,6 +191,15 @@ impl ReplaySaveStateStore {
         self.update(tracking_id, stage, None);
     }
 
+    pub fn begin_catalog_save(&self, tracking_id: u64, run_id: String) {
+        self.snapshot.update(|state| {
+            if let Some(save) = state.replay_saves.iter_mut().find(|save| save.tracking_id == tracking_id) {
+                save.run_id = Some(run_id);
+                save.stage = ReplaySaveStage::WaitingForReplaySave;
+            }
+        });
+    }
+
     pub fn complete(&self, tracking_id: u64) {
         self.update(tracking_id, ReplaySaveStage::Completed, None);
         self.remove_after(tracking_id, Self::COMPLETED_LINGER);
@@ -222,6 +234,8 @@ impl ReplaySaveStateStore {
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 pub struct RecordingSavePending {
+    #[ts(type = "number")]
+    pub tracking_id: u64,
     /// Identifier shared with the matching [`RecordingSaved`] event.
     #[ts(type = "number")]
     pub save_id: u64,

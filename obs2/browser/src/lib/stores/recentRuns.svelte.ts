@@ -1,4 +1,5 @@
-import { backend, type RecordingSavePending, type RunClip } from '$lib/api';
+import { backend, type RecordingSavePending, type ReplaySaveStatus, type RunClip } from '$lib/api';
+import type { RecentRun } from '$lib/features/monitor/monitorView';
 import { MAX_RECENT_RUN_LIMIT } from '$lib/stores/settings.svelte';
 
 const formatRunTime = (seconds: number | undefined): string | undefined => {
@@ -8,25 +9,29 @@ const formatRunTime = (seconds: number | undefined): string | undefined => {
 };
 
 export class RecentRunsStore {
-	items = $state<RunClip[]>([]);
+	items = $state<RecentRun[]>([]);
 	loading = $state(false);
 	error = $state<string | null>(null);
 	busyRunId = $state<string | null>(null);
 	private refreshVersion = 0;
 	private catalogItems: RunClip[] = [];
-	private pendingItems = new Map<number, RunClip>();
-	private finalizedSaveIds = new Set<number>();
+	private pendingItems = new Map<number, RecentRun>();
+	private activeSaves = new Map<number, string | undefined>();
+	private latestTrackingId = 0;
 
 	applySavePending(pending: RecordingSavePending): void {
-		if (this.finalizedSaveIds.has(pending.saveId)) return;
-		const previous = this.pendingItems.get(pending.saveId);
+		const trackingId = pending.trackingId;
+		if (this.activeSaves.get(trackingId) || (trackingId <= this.latestTrackingId && !this.activeSaves.has(trackingId)))
+			return;
+		const previous = this.pendingItems.get(trackingId);
 		const timestamp = previous?.metadata.timestamp ?? new Date().toISOString();
-		this.pendingItems.set(pending.saveId, {
-			runId: `pending-${pending.saveId}`,
+		this.pendingItems.set(trackingId, {
+			runId: `pending-${trackingId}`,
 			path: '',
 			fileName: '',
 			directory: '',
 			sizeBytes: 0,
+			saving: true,
 			metadata: {
 				timestamp,
 				time: formatRunTime(pending.timeSecs),
@@ -46,8 +51,30 @@ export class RecentRunsStore {
 		this.rebuildItems();
 	}
 
-	async refresh(finalizedSaveId?: number): Promise<void> {
-		if (finalizedSaveId !== undefined) this.finalizedSaveIds.add(finalizedSaveId);
+	applyReplaySaves(saves: ReplaySaveStatus[]): void {
+		for (const save of saves) this.latestTrackingId = Math.max(this.latestTrackingId, save.trackingId);
+		const active = new Map(
+			saves
+				.filter((save) => save.stage !== 'completed' && save.stage !== 'failed')
+				.map((save) => [save.trackingId, save.runId])
+		);
+		const changed =
+			active.size !== this.activeSaves.size ||
+			[...active].some(([id, runId]) => !this.activeSaves.has(id) || this.activeSaves.get(id) !== runId);
+		const previousPendingCount = this.pendingItems.size;
+		for (const id of this.pendingItems.keys()) {
+			if (!active.has(id)) this.pendingItems.delete(id);
+		}
+		this.activeSaves = active;
+		if (changed || previousPendingCount !== this.pendingItems.size) this.rebuildItems();
+	}
+
+	resetReplaySaves(): void {
+		this.latestTrackingId = 0;
+		this.applyReplaySaves([]);
+	}
+
+	async refresh(): Promise<void> {
 		const version = ++this.refreshVersion;
 		this.loading = true;
 		this.error = null;
@@ -55,8 +82,6 @@ export class RecentRunsStore {
 			const items = await backend.getRecentRuns(MAX_RECENT_RUN_LIMIT);
 			if (version === this.refreshVersion) {
 				this.catalogItems = items;
-				for (const saveId of this.finalizedSaveIds) this.pendingItems.delete(saveId);
-				this.finalizedSaveIds.clear();
 				this.rebuildItems();
 			}
 		} catch (error) {
@@ -81,10 +106,18 @@ export class RecentRunsStore {
 	}
 
 	private rebuildItems(): void {
+		const catalogIds = new Set(this.catalogItems.map((run) => run.runId));
+		for (const [trackingId, runId] of this.activeSaves) {
+			if (runId && catalogIds.has(runId)) this.pendingItems.delete(trackingId);
+		}
+		const activeRunIds = new Set(this.activeSaves.values());
 		const pending = [...this.pendingItems.values()].sort((a, b) =>
 			b.metadata.timestamp.localeCompare(a.metadata.timestamp)
 		);
-		this.items = [...pending, ...this.catalogItems].slice(0, MAX_RECENT_RUN_LIMIT);
+		const catalog = this.catalogItems.map((run) =>
+			!run.path && activeRunIds.has(run.runId) ? { ...run, saving: true } : run
+		);
+		this.items = [...pending, ...catalog].slice(0, MAX_RECENT_RUN_LIMIT);
 	}
 }
 

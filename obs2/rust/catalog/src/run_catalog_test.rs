@@ -111,6 +111,40 @@ fn attach_clip(dir: &TestDir, catalog: &RunCatalog, run: &RunRecord, name: &str)
 }
 
 #[test]
+fn schema_three_pathless_rows_survive_the_clip_failure_upgrade() {
+    let dir = TestDir::new("clip-save-error");
+    let original = catalog(&dir)
+        .create_finalized_run(
+            UNIX_EPOCH + Duration::from_secs(1_800_000_000),
+            finalized_metadata(RunStatus::Kia, None, "00 Agent"),
+        )
+        .unwrap();
+    let conn = rusqlite::Connection::open(dir.join("runs.sqlite")).unwrap();
+    conn.execute("ALTER TABLE runs DROP COLUMN clip_save_error", []).unwrap();
+    drop(conn);
+
+    let upgraded = catalog(&dir);
+    assert!(upgraded.recent_runs(1).unwrap()[0].clip_save_error.is_none());
+    let reason = "OBS replay buffer save timed out";
+    upgraded.record_clip_save_failure(&original.run_id, reason).unwrap();
+    drop(upgraded);
+
+    let reopened = catalog(&dir);
+    let run = reopened.recent_runs(1).unwrap().remove(0);
+    assert_eq!(run.run_id, original.run_id);
+    assert_eq!(run.metadata, original.metadata);
+    assert_eq!(run.retention_state, original.retention_state);
+    assert!(run.clip.is_none());
+    assert_eq!(run.clip_save_error.as_deref(), Some(reason));
+
+    let path = attach_clip(&dir, &reopened, &run, "test.mov");
+    reopened.record_clip_save_failure(&run.run_id, reason).unwrap();
+    let run = reopened.get_run(&run.run_id).unwrap().unwrap();
+    assert_eq!(run.clip.unwrap().path, path);
+    assert!(run.clip_save_error.is_none());
+}
+
+#[test]
 fn catalog_personal_bests_are_computed_from_prior_catalog_runs() {
     let dir = TestDir::new("personal-bests");
     let catalog = catalog(&dir);

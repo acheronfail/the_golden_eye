@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::support::harness::{Harness, probe_duration, recording_settings, wait_for_clip};
+use crate::support::harness::{API, Harness, next_app_snapshot, probe_duration, recording_settings, wait_for_clip};
 
 /// Count `.mp4` clips written into `dir` (absent dir counts as zero).
 fn clip_count(dir: &Path) -> usize {
@@ -37,6 +37,139 @@ async fn run_to_stats(harness: &Harness, start: &str, complete: &str, stats: &st
     harness.render_until_state(&complete, "complete").await;
     let stats = harness.frame(stats);
     harness.render_until_state(&stats, "savePending").await;
+}
+
+async fn wait_for_deferred_save(harness: &Harness) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while harness.obs.deferred_replay_save_count() == 0 {
+        assert!(std::time::Instant::now() < deadline, "plugin never issued its save");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn automatic_stop_waits_for_queued_replay_and_restart_cancels_deferred_stop() {
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        let mut settings = recording_settings(&temp.join("completed"), &temp.join("failed"));
+        settings["stopReplayBufferWhenMonitorStopped"] = true.into();
+        settings["postRunPaddingSecs"] = 3.0.into();
+        settings
+    })
+    .await;
+    let completed = harness.temp.join("completed");
+
+    for restart in [false, true] {
+        let prior_stops = harness.obs.calls().replay_stop;
+        let prior_saves = harness.obs.calls().replay_save;
+        harness.start_monitor().await.error_for_status().unwrap();
+        harness.obs.defer_replay_saves();
+        run_to_stats(
+            &harness,
+            "frame_tests/screenshots-av2hdmi/en - start - 03 - Agent.png",
+            "frame_tests/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
+            "frame_tests/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png",
+        )
+        .await;
+
+        tokio::time::timeout(Duration::from_secs(3), harness.stop_monitor())
+            .await
+            .expect("monitor stop must finish while the replay request is queued")
+            .error_for_status()
+            .unwrap();
+        assert_eq!(harness.obs.calls().replay_save, prior_saves);
+        assert_eq!(harness.obs.calls().replay_stop, prior_stops);
+        assert_eq!(harness.obs.calls().frame_callback_unregister, prior_saves + 1);
+
+        wait_for_deferred_save(&harness).await;
+        assert_eq!(harness.obs.calls().replay_stop, prior_stops);
+        if restart {
+            harness.start_monitor().await.error_for_status().unwrap();
+        }
+        harness.obs.finish_deferred_replay_saves();
+        wait_for_clip_count(&completed, prior_saves + 1).await;
+
+        if restart {
+            assert_eq!(harness.obs.calls().replay_stop, prior_stops);
+            assert!(harness.obs.replay_active());
+            assert!(harness.wait_for_status(|status| status["enabled"] == true).await["enabled"] == true);
+            harness.stop_monitor().await.error_for_status().unwrap();
+        }
+        harness.wait_for_replay_inactive().await;
+        assert_eq!(harness.obs.calls().replay_stop, prior_stops + 1);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run explicitly with `just test-integration`"]
+async fn recent_run_save_failure_survives_a_dock_reconnect_and_runtime_restart() {
+    let harness = Harness::start_with_settings_from_temp(Duration::ZERO, |temp| {
+        recording_settings(&temp.join("completed"), &temp.join("failed"))
+    })
+    .await;
+    let recent = || async {
+        harness
+            .client
+            .get(format!("{API}/api/v1/runs/recent"))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json::<serde_json::Value>()
+            .await
+            .unwrap()
+    };
+
+    harness.start_monitor().await.error_for_status().unwrap();
+    harness.obs.defer_replay_saves();
+    run_to_stats(
+        &harness,
+        "frame_tests/screenshots-av2hdmi/en - start - 03 - Agent.png",
+        "frame_tests/screenshots-av2hdmi/en - complete - 3 - Secret Agent.png",
+        "frame_tests/screenshots-av2hdmi/en - stats - 3 - Agent - 0445.png",
+    )
+    .await;
+    wait_for_deferred_save(&harness).await;
+    let active_run = recent().await[0].clone();
+    assert_eq!(active_run["path"], "");
+    assert!(active_run.get("clipSaveError").is_none());
+    let mut ws = harness.connect_event_stream().await;
+    let snapshot = next_app_snapshot(&mut ws, "reconnected dock with a replay save").await;
+    let active = &snapshot["state"]["replaySaves"][0];
+    assert_eq!(active["stage"], "savingReplay");
+    assert_eq!(active["runId"], active_run["runId"]);
+
+    let replay = wait_for_clip(&harness.replay_dir).await;
+    fs::write(&replay, b"invalid replay").unwrap();
+    harness.obs.finish_deferred_replay_saves();
+    let reason = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let snapshot = next_app_snapshot(&mut ws, "failed replay save").await;
+            let save = &snapshot["state"]["replaySaves"][0];
+            if save["stage"] == "failed" {
+                return save["error"].clone();
+            }
+        }
+    })
+    .await
+    .expect("save failure");
+    let failed = recent().await[0].clone();
+    assert_eq!(failed["clipSaveError"], reason);
+    assert_eq!(failed["metadata"], active_run["metadata"]);
+    assert!(replay.exists());
+    drop(ws);
+
+    tokio::task::spawn_blocking(|| {
+        ge_runtime::ge_runtime_stop();
+    })
+    .await
+    .unwrap();
+    assert!(ge_runtime::ge_runtime_start());
+    let mut ws = harness.connect_event_stream().await;
+    let snapshot = next_app_snapshot(&mut ws, "restarted plugin").await;
+    assert_eq!(snapshot["state"]["replaySaves"], serde_json::json!([]));
+    assert_eq!(recent().await[0], failed);
 }
 
 /// A user manually saving the replay buffer while no run is finishing must be
@@ -193,11 +326,7 @@ async fn concurrent_user_save_during_a_plugin_save_is_not_deleted() {
     .await;
 
     // Wait for the plugin's file to exist with its saved event still pending.
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while harness.obs.deferred_replay_save_count() == 0 {
-        assert!(std::time::Instant::now() < deadline, "plugin never issued its save");
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    wait_for_deferred_save(&harness).await;
     let user_file = harness.obs.user_replay_save();
 
     wait_for_clip(&completed).await;

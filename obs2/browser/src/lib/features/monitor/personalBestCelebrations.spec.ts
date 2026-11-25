@@ -104,6 +104,7 @@ it('allows the later clip completion event to retry a failed catalog request', a
 });
 
 const pending: RecordingSavePending = {
+	trackingId: 1,
 	saveId: 1,
 	saveInSecs: 10,
 	estimatedDurationSecs: 60,

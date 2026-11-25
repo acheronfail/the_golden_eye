@@ -86,6 +86,14 @@ pub struct MonitorSessionRow {
 
 pub fn initialise(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(CREATE_TABLE)?;
+    // Keep schema 3 readable by older cores if a plugin update rolls back.
+    if !conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('runs') WHERE name = 'clip_save_error')",
+        [],
+        |row| row.get::<_, bool>(0),
+    )? {
+        conn.execute("ALTER TABLE runs ADD COLUMN clip_save_error TEXT", [])?;
+    }
     conn.execute_batch(CREATE_STATUS_TIMESTAMP_INDEX)?;
     conn.execute_batch(CREATE_LEVEL_DIFFICULTY_TIMESTAMP_INDEX)?;
     conn.execute_batch(CREATE_TIME_INDEX)?;
@@ -232,7 +240,7 @@ pub fn list_run_page(conn: &Connection, query: &RunListQuery) -> anyhow::Result<
     let limit = query.limit.clamp(1, 200);
     let limit_param = bind_value(&mut values, (limit as i64 + 1).into());
     let sql = format!(
-        "SELECT run_id, completed_unix_micros, retention_state, retention_reason, clip_path, size_bytes, modified_unix, duration_secs, metadata_json, youtube_json FROM runs{where_sql} ORDER BY {order_sql} LIMIT {limit_param}"
+        "SELECT run_id, completed_unix_micros, retention_state, retention_reason, clip_path, size_bytes, modified_unix, duration_secs, metadata_json, youtube_json, clip_save_error FROM runs{where_sql} ORDER BY {order_sql} LIMIT {limit_param}"
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut runs =
@@ -267,6 +275,11 @@ pub fn recent_runs(conn: &Connection, limit: usize) -> anyhow::Result<Vec<RunRec
     let mut stmt = conn.prepare(RECENT_RUNS)?;
     let rows = stmt.query_map([limit as i64], row_to_run)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn record_clip_save_failure(conn: &Connection, run_id: &str, reason: &str) -> anyhow::Result<()> {
+    conn.execute("UPDATE runs SET clip_save_error = ?2 WHERE run_id = ?1 AND clip_path IS NULL", [run_id, reason])?;
+    Ok(())
 }
 
 pub fn get_run(conn: &Connection, run_id: &str) -> anyhow::Result<Option<RunRecord>> {
@@ -621,7 +634,7 @@ fn row_to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRecord> {
         retention_state,
         retention_reason: retention_reason.clone(),
     });
-    Ok(RunRecord { run_id, retention_state, retention_reason, metadata, youtube, clip })
+    Ok(RunRecord { run_id, retention_state, retention_reason, metadata, youtube, clip, clip_save_error: row.get(10)? })
 }
 
 #[cfg(test)]

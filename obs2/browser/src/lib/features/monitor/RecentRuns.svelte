@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import type { RunClip } from '$lib/api';
 	import { wasPersonalBest } from '$lib/features/runs/runsView';
-	import { formatMonitorTime } from './monitorView';
+	import { formatMonitorTime, type RecentRun } from './monitorView';
 
 	let {
 		runs,
@@ -11,14 +10,14 @@
 		error = null,
 		onKeep
 	}: {
-		runs: RunClip[];
+		runs: RecentRun[];
 		variant?: 'mission-glass' | 'signal-band' | 'debug';
 		busyRunId?: string | null;
 		error?: string | null;
 		onKeep: (runId: string) => void;
 	} = $props();
 
-	const runTime = (run: RunClip): string =>
+	const runTime = (run: RecentRun): string =>
 		run.metadata.time ?? (run.metadata.timeSeconds == null ? '—' : formatMonitorTime(run.metadata.timeSeconds));
 	const RECENT_RUNS_MAX_H =
 		'max-h-[clamp(4.2rem,44cqh,40rem)] [@container(max-height:42rem)]:max-h-[clamp(4.2rem,32cqh,24rem)]';
@@ -30,9 +29,12 @@
 	};
 	const variantClass = $derived(VARIANT_CLASSES[variant]);
 
-	const retentionStateLabel = (run: RunClip): string => {
+	const retentionStateLabel = (run: RecentRun): string => {
+		if (!run.path) {
+			if (run.clipSaveError) return 'Save failed';
+			return run.saving ? 'Saving…' : 'No clip';
+		}
 		if (wasPersonalBest(run)) return 'PB';
-		if (run.retentionState === 'pending' && !run.path) return 'Saving…';
 
 		switch (run.retentionState) {
 			case 'pending':
@@ -75,6 +77,7 @@
 	{:else}
 		<div class="run-scroll min-h-0 overflow-y-auto" bind:this={runScroll}>
 			{#each runs as run, index (run.runId ?? run.metadata.timestamp)}
+				{@const saveError = !run.path && run.clipSaveError}
 				<article
 					class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 border-b border-(--obs-border-muted) px-2.5 py-2 text-[0.72rem]"
 					class:border-r={variant === 'debug'}
@@ -119,13 +122,19 @@
 					{:else}
 						<span
 							class="row-action state inline-flex min-h-7 items-center justify-center rounded-sm border border-(--obs-border) bg-[color-mix(in_srgb,var(--obs-bg-elevated)_72%,transparent)] px-2 py-1 font-[inherit] leading-none whitespace-nowrap text-(--obs-text-dim) uppercase"
-							class:kept={run.retentionState === 'kept'}
-							class:border-[color-mix(in_srgb,var(--obs-success)_55%,var(--obs-border))]={run.retentionState === 'kept'}
-							class:bg-[color-mix(in_srgb,var(--obs-success)_10%,transparent)]={run.retentionState === 'kept'}
-							class:text-(--obs-success)={run.retentionState === 'kept'}
+							class:kept={run.path && run.retentionState === 'kept'}
+							class:border-[color-mix(in_srgb,var(--obs-success)_55%,var(--obs-border))]={run.path &&
+								run.retentionState === 'kept'}
+							class:bg-[color-mix(in_srgb,var(--obs-success)_10%,transparent)]={run.path &&
+								run.retentionState === 'kept'}
+							class:text-(--obs-success)={run.path && run.retentionState === 'kept'}
+							class:text-(--obs-danger)={saveError}
 						>
 							{retentionStateLabel(run)}
 						</span>
+					{/if}
+					{#if saveError}
+						<p class="col-span-2 wrap-anywhere text-(--obs-text-dim)">{saveError}</p>
 					{/if}
 				</article>
 			{/each}

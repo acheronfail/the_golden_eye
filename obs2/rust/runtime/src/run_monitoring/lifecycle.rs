@@ -12,6 +12,7 @@ use tokio::sync::broadcast;
 
 use super::matcher::MonitorMatcher;
 use super::publication::MonitorStoppedReason;
+use super::replay_buffer::REPLAY_BUFFER;
 use super::session::RunSession;
 use super::worker::FrameWorker;
 use super::{
@@ -31,6 +32,7 @@ use crate::youtube_uploads::{PersonalBestUploader, YoutubeUploadStore};
 
 /// Owns monitor resources and lifecycle operations. The worker owns per-frame state.
 pub(crate) struct RunMonitor {
+    lifecycle: Mutex<()>,
     active: Mutex<Option<MonitorHandle>>,
     stop_after_replay: AtomicBool,
     annotations_enabled: Arc<AtomicBool>,
@@ -83,6 +85,7 @@ impl RunMonitor {
         youtube: YoutubeUploadStore,
     ) -> Self {
         Self {
+            lifecycle: Mutex::new(()),
             active: Mutex::new(None),
             stop_after_replay: AtomicBool::new(false),
             annotations_enabled: Arc::new(AtomicBool::new(false)),
@@ -104,14 +107,16 @@ impl RunMonitor {
 
         // Starting the current source is idempotent so a reconnecting frontend can
         // safely converge on backend state. A different source remains a conflict.
-        let mut guard = self.active.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(handle) = guard.as_ref() {
-            return if handle.source_name == status_source_name { Ok(()) } else { Err(StartError::AlreadyRunning) };
+        let _lifecycle = self.lifecycle.lock().unwrap_or_else(|p| p.into_inner());
+        {
+            let guard = self.active.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(handle) = guard.as_ref() {
+                return if handle.source_name == status_source_name { Ok(()) } else { Err(StartError::AlreadyRunning) };
+            }
         }
 
-        crate::run_monitoring::replay_buffer::REPLAY_BUFFER
-            .ensure_replay_buffer_running()
-            .map_err(StartError::ReplayBufferUnavailable)?;
+        REPLAY_BUFFER.ensure_replay_buffer_running().map_err(StartError::ReplayBufferUnavailable)?;
+        let mut guard = self.active.lock().unwrap_or_else(|p| p.into_inner());
         self.recording_state.handle(RecordingStateEvent::Reset);
 
         // Build the session (and its fresh, empty scale cache) up front so any
@@ -197,7 +202,6 @@ impl RunMonitor {
             run_session.start(worker_source_name, DEFAULT_MONITOR_LANGUAGE.to_owned());
             let _ = started_tx.send(());
             worker.run(ObsSource { mailbox: worker_mailbox, region }, &mut run_session);
-            // Flush pending saves before measuring the final session/level time.
             run_session.stop();
         });
         let thread = match thread {
@@ -242,7 +246,13 @@ impl RunMonitor {
 
     /// Stop the active monitor, if any, and clear all retained monitor/recording
     /// state. Returns `false` when no monitor was running.
-    pub(crate) async fn stop(&self, reason: StopReason) -> bool {
+    pub(crate) async fn stop(self: &Arc<Self>, reason: StopReason) -> bool {
+        let monitor = self.clone();
+        tokio::task::spawn_blocking(move || monitor.stop_blocking(reason)).await.unwrap_or(false)
+    }
+
+    fn stop_blocking(&self, reason: StopReason) -> bool {
+        let _lifecycle = self.lifecycle.lock().unwrap_or_else(|p| p.into_inner());
         let handle = {
             let mut guard = self.active.lock().unwrap_or_else(|p| p.into_inner());
             guard.take()
@@ -255,21 +265,12 @@ impl RunMonitor {
         let session_id = handle.session_id.clone();
         let session_ended_at = SystemTime::now();
 
-        // Tear down on a blocking thread so we don't stall the async runtime while
-        // the in-flight match finishes. Joining the thread drops the session,
-        // releasing the matcher and its scale cache.
-        tokio::task::spawn_blocking(move || {
-            let MonitorHandle { mailbox, producer, thread, .. } = handle;
-            // Dropping the registration fences callbacks before reclaiming its state.
-            drop(producer);
-            // Wake the worker out of its blocking `recv` so the run loop exits.
-            mailbox.close();
-            if thread.join().is_err() {
-                tracing::error!("monitor thread panicked");
-            }
-        })
-        .await
-        .ok();
+        let MonitorHandle { mailbox, producer, thread, .. } = handle;
+        drop(producer);
+        mailbox.close();
+        if thread.join().is_err() {
+            tracing::error!("monitor thread panicked");
+        }
 
         // Finalize only after the worker stops so its last frame cannot race an
         // empty-session delete while persisting the session's first run.
@@ -285,7 +286,7 @@ impl RunMonitor {
 
         let settings = self.settings.get();
         if settings.stop_replay_buffer_when_monitor_stopped {
-            crate::run_monitoring::replay_buffer::REPLAY_BUFFER.stop_replay_buffer_if_active();
+            REPLAY_BUFFER.stop_after_saves();
             self.snapshot.set_replay_buffer(crate::obs::current_replay_buffer_status());
         }
         if matches!(reason, StopReason::UserStopped) && settings.stop_streaming_when_monitor_stopped {

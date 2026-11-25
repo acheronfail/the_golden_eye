@@ -45,6 +45,21 @@ fn timeout_releases_request_ownership_and_ignores_later_manual_saves() {
 }
 
 #[test]
+fn shutdown_releases_pending_save_and_rejects_queued_request() {
+    let coordinator = ReplayCoordinator::new();
+    let mut save = coordinator.acquire_save();
+    assert_eq!(
+        save.save_and_wait(|| coordinator.begin_shutdown(), Duration::ZERO, Duration::from_secs(30)),
+        ReplaySaveWait::Shutdown
+    );
+    assert_eq!(
+        save.save_and_wait(|| panic!("the core is shutting down"), Duration::ZERO, Duration::from_secs(30)),
+        ReplaySaveWait::Shutdown
+    );
+    assert_eq!(coordinator.saved.lock().unwrap().pending_requests, 0);
+}
+
+#[test]
 fn save_permit_serializes_through_file_identification_then_releases() {
     let coordinator = ReplayCoordinator::new();
     std::thread::scope(|scope| {

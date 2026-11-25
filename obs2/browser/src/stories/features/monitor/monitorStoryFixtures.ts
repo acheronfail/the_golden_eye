@@ -62,8 +62,15 @@ export const monitorDesignArgs = {
 	debug: { design: 'debug', cvLanguage: 'en' }
 } satisfies Record<string, Partial<MonitorStoryArgs>>;
 
-export const monitorRecentRuns: RunClip[] = [
-	{ ...failedRun, runId: 'recent-pending', retentionState: 'pending' },
+export const monitorRecentRuns: NonNullable<MonitorStoryArgs['recentRuns']> = [
+	{ ...failedRun, runId: 'recent-pending', path: '', saving: true, retentionState: 'pending' },
+	{
+		...failedRun,
+		runId: 'recent-save-failed',
+		path: '',
+		retentionState: 'pending',
+		clipSaveError: 'OBS replay buffer save timed out'
+	},
 	{ ...completedRun, runId: 'recent-ready', retentionState: 'pending' },
 	{ ...completedRun, runId: 'recent-kept', retentionState: 'kept', retentionReason: 'manual' },
 	{ ...completedRun, runId: 'recent-expired', path: '', retentionState: 'expired' },

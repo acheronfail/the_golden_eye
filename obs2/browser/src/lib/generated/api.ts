@@ -98,7 +98,7 @@ export type PluginUpdate = { currentVersion: string, latestVersion: string, rele
 
 export type RecordingOptions = { completedOutputPath: string, recentRunLimit: number, clipFilenameTemplate: string, preRunPaddingSecs: number, postRunPaddingSecs: number, };
 
-export type RecordingSavePending = {
+export type RecordingSavePending = { trackingId: number,
 /**
  * Identifier shared with the matching [`RecordingSaved`] event.
  */
@@ -180,13 +180,13 @@ export type ReplayBufferStatus = { enabled: boolean, available: boolean, active:
 
 export type ReplaySaveStage = "scheduled" | "waitingForReplaySave" | "savingReplay" | "trimming" | "completed" | "failed";
 
-export type ReplaySaveStatus = { trackingId: number, saveId: number, stage: ReplaySaveStage, level: string, difficulty: string | null, runStatus: string, estimatedDurationSecs: number, error?: string, };
+export type ReplaySaveStatus = { trackingId: number, saveId: number, runId?: string, stage: ReplaySaveStage, level: string, difficulty: string | null, runStatus: string, estimatedDurationSecs: number, error?: string, };
 
 export type RomVersion = "ntsc-u" | "ntsc-j" | "pal";
 
 export type RunCatalogSync = "initial" | "manual";
 
-export type RunClip = { runId: string, path: string, fileName: string, directory: string, sizeBytes: number, modified?: string | null, durationSecs?: number | null, metadata: ClipMetadata, retentionState: RunRetentionState, retentionReason: string | null, youtube?: RunYouTubeVideo | null, };
+export type RunClip = { runId: string, path: string, fileName: string, directory: string, sizeBytes: number, modified?: string | null, durationSecs?: number | null, metadata: ClipMetadata, retentionState: RunRetentionState, retentionReason: string | null, clipSaveError?: string, youtube?: RunYouTubeVideo | null, };
 
 export type RunDirectoryKind = "completed";
 

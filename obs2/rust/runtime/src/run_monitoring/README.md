@@ -33,10 +33,13 @@ for the worker to publish the running state before acknowledging startup. `stop`
 teardown, joining the worker, and catalog-session finalization. The worker receives only its own
 dependencies, so it does not keep the application container alive.
 
-The existing lock scope is preserved: startup holds the handle lock, and shutdown takes the handle
-before awaiting teardown. Consequently `is_active` becomes false before shutdown finishes, and
-concurrent start/stop requests are not serialized through all cleanup. This extraction does not
-introduce a new lifecycle state or change that concurrency behavior.
+Start and stop are serialized through capture teardown and the worker's final publication.
+`is_active` becomes false when stop takes the capture handle. The worker queues any pending save
+before it exits, so stopping the monitor can finish while OBS is still saving the replay.
+
+The replay coordinator defers an automatic buffer stop until every queued request receives its
+completion event or fails. Trimming can continue after the buffer stops. A new monitor start cancels
+a deferred stop. Terminal clip-save failures are stored in the catalog alongside the run.
 
 `worker.rs` deals with OBS frames and CV. It passes matched observations to the session, followed by
 black-frame and watch observations. It wakes for pending-save deadlines even when frames stop

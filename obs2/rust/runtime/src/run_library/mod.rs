@@ -298,6 +298,9 @@ pub struct RunClip {
     pub(crate) metadata: ClipMetadata,
     pub(crate) retention_state: RunRetentionState,
     pub(crate) retention_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub(crate) clip_save_error: Option<String>,
     #[ts(optional = nullable)]
     pub(crate) youtube: Option<crate::youtube_uploads::YoutubeMetadata>,
 }
@@ -718,6 +721,7 @@ fn run_clip_from_indexed(clip: IndexedRunClip) -> RunClip {
         retention_reason: clip.retention_reason.clone(),
         youtube: None,
         clip: Some(clip),
+        clip_save_error: None,
     };
     run_clip_from_record(record)
 }
@@ -744,6 +748,7 @@ fn run_clip_from_record(run: RunRecord) -> RunClip {
         metadata: run.metadata,
         retention_state: run.retention_state,
         retention_reason: run.retention_reason,
+        clip_save_error: run.clip_save_error,
         youtube: run.youtube,
     }
 }

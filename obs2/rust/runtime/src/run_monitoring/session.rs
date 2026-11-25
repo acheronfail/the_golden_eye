@@ -85,7 +85,7 @@ impl RunSession {
     }
 
     pub(super) fn stop(&mut self) {
-        // Dropping the recorder waits for any pending clip's padding and saves it.
+        // Dropping the recorder queues any pending save before the monitor stops.
         drop(self.recording.take());
         if self.clocks.running() {
             self.clocks.stop_session(unix_time_ms());

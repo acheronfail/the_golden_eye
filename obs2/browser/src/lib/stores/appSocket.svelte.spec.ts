@@ -6,7 +6,8 @@ import { youtube } from '$lib/stores/youtube.svelte';
 import { completedRun, uploadForRun } from '../../stories/fixtures';
 
 const mocks = vi.hoisted(() => ({
-	connectAppSocket: vi.fn()
+	connectAppSocket: vi.fn(),
+	getRecentRuns: vi.fn()
 }));
 
 vi.mock('$lib/api', async (importOriginal) => {
@@ -15,12 +16,14 @@ vi.mock('$lib/api', async (importOriginal) => {
 		...actual,
 		backend: {
 			...actual.backend,
-			connectAppSocket: mocks.connectAppSocket
+			connectAppSocket: mocks.connectAppSocket,
+			getRecentRuns: mocks.getRecentRuns
 		}
 	};
 });
 
 let receiveEvent: ((event: AppEvent) => void) | undefined;
+let openSocket: (() => void) | undefined;
 
 beforeEach(() => {
 	youtube.loaded = true;
@@ -31,9 +34,15 @@ beforeEach(() => {
 	youtube.uploads = [];
 	youtube.history = [];
 	notifications.flags = [];
+	mocks.getRecentRuns.mockReset().mockResolvedValue([]);
 	mocks.connectAppSocket.mockImplementation((onEvent: (event: AppEvent) => void) => {
 		receiveEvent = onEvent;
-		return { close: vi.fn() };
+		return {
+			close: vi.fn(),
+			addEventListener: (event: string, listener: () => void) => {
+				if (event === 'open') openSocket = listener;
+			}
+		};
 	});
 });
 
@@ -41,9 +50,19 @@ afterEach(() => {
 	stopAppSocket();
 	vi.useRealTimers();
 	receiveEvent = undefined;
+	openSocket = undefined;
 });
 
 describe('app event socket', () => {
+	it('refreshes Recent Runs when the dock connects and when a save changes the catalog', () => {
+		startAppSocket();
+		openSocket?.();
+		expect(mocks.getRecentRuns).toHaveBeenCalledTimes(1);
+
+		receiveEvent?.({ type: 'runCatalogChanged', runId: completedRun.runId });
+		expect(mocks.getRecentRuns).toHaveBeenCalledTimes(2);
+	});
+
 	it('applies YouTube status changes received from another browser client', () => {
 		startAppSocket();
 

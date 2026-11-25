@@ -32,6 +32,7 @@ async fn replay_save_expiry_preserves_failed_and_in_progress_saves() {
         saves.schedule(ReplaySaveStatus {
             tracking_id,
             save_id: tracking_id,
+            run_id: None,
             stage: ReplaySaveStage::Scheduled,
             level: "Runway".to_owned(),
             difficulty: None,
@@ -143,6 +144,7 @@ fn runtime_shutdown_drops_pending_expiry_work_from_native_threads() {
             saves.schedule(ReplaySaveStatus {
                 tracking_id,
                 save_id: tracking_id,
+                run_id: None,
                 stage: ReplaySaveStage::Scheduled,
                 level: "Runway".to_owned(),
                 difficulty: None,
