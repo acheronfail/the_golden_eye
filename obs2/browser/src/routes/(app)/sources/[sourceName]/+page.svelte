@@ -4,6 +4,7 @@
 	import { backend } from '$lib/api';
 	import MonitorView, { type MonitorTransition } from '$lib/features/monitor/MonitorView.svelte';
 	import { MonitorSessionController } from '$lib/features/monitor/monitorSession.svelte';
+	import { stopMonitorAndPromptForStream, streamStopPrompt } from '$lib/features/monitor/streamStopPrompt.svelte';
 	import ReplayBufferStopDialog from '$lib/features/monitor/ReplayBufferStopDialog.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { monitor, monitorRunContext, monitorPresentationPhase } from '$lib/stores/monitor.svelte';
@@ -23,7 +24,7 @@
 		saveSettings: () => settings.saveNow(),
 		refreshRecentRuns: () => recentRuns.refresh(),
 		startMonitor: (sourceName) => backend.startMonitor(sourceName),
-		stopMonitor: () => backend.stopMonitor(),
+		stopMonitor: stopMonitorAndPromptForStream,
 		refreshReplayBuffer: () => void refreshReplayBuffer(),
 		navigate: (href, options) => void goto(href, options),
 		reportError: (message) => alert(message),
@@ -72,7 +73,9 @@
 
 	const stopMonitor = () => session.requestStop();
 	const chooseReplayBufferStop = (stopReplayBuffer: boolean) => session.chooseStopPreference(stopReplayBuffer);
-	const onkeydown = (event: KeyboardEvent) => session.handleKeydown(event);
+	const onkeydown = (event: KeyboardEvent) => {
+		if (!streamStopPrompt.open && !event.defaultPrevented) session.handleKeydown(event);
+	};
 </script>
 
 <svelte:head>

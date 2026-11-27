@@ -12,7 +12,6 @@ mod task;
 
 pub use capture::{CaptureContext, OwnedBgraFrame, RegisteredRenderCallback, RenderCallback, capture_source_frame};
 pub use config::{frontend_config_string, set_frontend_config_string};
-pub(crate) use frontend::stop_streaming_if_active;
 pub use frontend::{
     module_data_path,
     replay_buffer_active,
@@ -30,6 +29,7 @@ pub use frontend::{
     trigger_core_reload,
     video_fps,
 };
+pub(crate) use frontend::{stop_streaming_if_active, streaming_active};
 pub use logging::{GeLogLevel, log};
 pub use raw::{GeCaptureRegion, GeCaptureTimings};
 pub use task::queue_ui_task;

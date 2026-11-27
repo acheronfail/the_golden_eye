@@ -126,7 +126,7 @@ beforeEach(() => {
 		defaultFailedOutputPath: '/captures/GoldenEye/failed'
 	});
 	mocks.api.startMonitor.mockResolvedValue(undefined);
-	mocks.api.stopMonitor.mockResolvedValue(undefined);
+	mocks.api.stopMonitor.mockResolvedValue({ promptToStopStream: false });
 	mocks.api.putSettings.mockImplementation(async (next) => next);
 });
 

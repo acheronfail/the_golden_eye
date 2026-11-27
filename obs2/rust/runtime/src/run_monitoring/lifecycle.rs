@@ -289,10 +289,6 @@ impl RunMonitor {
             REPLAY_BUFFER.stop_after_saves();
             self.snapshot.set_replay_buffer(crate::obs::current_replay_buffer_status());
         }
-        if matches!(reason, StopReason::UserStopped) && settings.stop_streaming_when_monitor_stopped {
-            crate::obs::stop_streaming_if_active();
-        }
-
         tracing::info!("monitor stopped");
         let notification = match reason {
             StopReason::UserStopped => Some(MonitorStoppedReason::UserStopped),

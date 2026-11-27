@@ -180,7 +180,7 @@ describe('/options', () => {
 
 	it.each([
 		['Stop replay buffer when monitor stopped', 'stopReplayBufferWhenMonitorStopped'],
-		['Stop streaming when monitor stopped', 'stopStreamingWhenMonitorStopped']
+		['Ask to stop streaming after monitoring', 'stopStreamingWhenMonitorStopped']
 	] as const)('saves the %s option', async (label, setting) => {
 		settings.values[setting] = false;
 		const user = userEvent.setup();

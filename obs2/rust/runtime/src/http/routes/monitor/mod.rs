@@ -2,7 +2,8 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::app::AppState;
 use crate::run_monitoring::{StartError, StopReason};
@@ -49,9 +50,24 @@ fn start_error_response(error: StartError) -> (StatusCode, String) {
 }
 
 #[axum::debug_handler]
-pub async fn handle_stop(State(state): State<AppState>) -> Result<impl IntoResponse> {
+pub async fn handle_stop(State(state): State<AppState>) -> Result<Json<MonitorStopResponse>> {
     if !state.monitor.stop(StopReason::UserStopped).await {
         return Err((StatusCode::CONFLICT, "no monitor is running").into());
     }
-    Ok(StatusCode::OK)
+    Ok(Json(MonitorStopResponse {
+        prompt_to_stop_stream: state.settings.get().stop_streaming_when_monitor_stopped
+            && crate::obs::streaming_active(),
+    }))
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorStopResponse {
+    prompt_to_stop_stream: bool,
+}
+
+#[axum::debug_handler]
+pub async fn handle_stop_stream(Json(()): Json<()>) -> StatusCode {
+    crate::obs::stop_streaming_if_active();
+    StatusCode::NO_CONTENT
 }

@@ -1,7 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { tick } from 'svelte';
+import { createRawSnippet, tick } from 'svelte';
 import { backend, type AppEvent } from '$lib/api';
+import { streamStopPrompt } from '$lib/features/monitor/streamStopPrompt.svelte';
+import RootLayout from '../+layout.svelte';
 import Page from './+page.svelte';
 
 const key = 'the-golden-eye.minimal.font-size';
@@ -10,6 +13,7 @@ let disconnect: () => void;
 const close = vi.fn();
 
 beforeEach(() => {
+	streamStopPrompt.open = false;
 	localStorage.clear();
 	vi.spyOn(backend, 'connectAppSocket').mockImplementation((onEvent, onClose) => {
 		receive = onEvent;
@@ -97,7 +101,7 @@ describe('minimal overlay', () => {
 
 	it('starts the last-used source and stops the active monitor with Space', async () => {
 		const start = vi.spyOn(backend, 'startMonitor').mockResolvedValue();
-		const stop = vi.spyOn(backend, 'stopMonitor').mockResolvedValue();
+		const stop = vi.spyOn(backend, 'stopMonitor').mockResolvedValue({ promptToStopStream: false });
 		render(Page);
 		receive({
 			type: 'snapshot',
@@ -111,6 +115,27 @@ describe('minimal overlay', () => {
 		} as AppEvent);
 		await fireEvent.keyDown(window, { key: ' ' });
 		expect(stop).toHaveBeenCalledOnce();
+	});
+
+	it.each(['Keep streaming', 'Stop streaming'])('waits for the "%s" choice after monitoring stops', async (choice) => {
+		const user = userEvent.setup();
+		vi.spyOn(backend, 'stopMonitor').mockResolvedValue({ promptToStopStream: true });
+		const stopStream = vi.spyOn(backend, 'stopStream').mockResolvedValue();
+		render(RootLayout, { props: { children: createRawSnippet(() => ({ render: () => '<div></div>' })) } });
+		render(Page);
+		receive({
+			type: 'snapshot',
+			state: { monitor: { enabled: true, sourceName: 'N64' }, recordingState: 'started' }
+		} as AppEvent);
+
+		await fireEvent.keyDown(window, { key: ' ' });
+		expect(await screen.findByRole('dialog', { name: 'Stop streaming too?' })).toBeInTheDocument();
+		expect(stopStream).not.toHaveBeenCalled();
+		expect(screen.getByRole('button', { name: 'Keep streaming' })).toHaveFocus();
+
+		await user.click(screen.getByRole('button', { name: choice }));
+		await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+		expect(stopStream).toHaveBeenCalledTimes(choice === 'Stop streaming' ? 1 : 0);
 	});
 
 	it('ignores disconnected, repeated, and pending Space presses and allows retry after failure', async () => {

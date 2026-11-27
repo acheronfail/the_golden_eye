@@ -11,8 +11,12 @@ pub fn stop_recording() {
     unsafe { raw::obs_frontend_recording_stop() };
 }
 
+pub(crate) fn streaming_active() -> bool {
+    unsafe { raw::obs_frontend_streaming_active() }
+}
+
 pub(crate) fn stop_streaming_if_active() {
-    if unsafe { raw::obs_frontend_streaming_active() } {
+    if streaming_active() {
         tracing::info!("stopping OBS stream");
         unsafe { raw::obs_frontend_streaming_stop() };
     }
