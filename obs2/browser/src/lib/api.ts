@@ -18,6 +18,7 @@ import type {
 	MatchSourceResponse,
 	MonitorFps,
 	MonitorSnapshot,
+	MonitorStopResponse,
 	MonitorStoppedReason,
 	MonitorWallClockState,
 	MonitoringSessionDetail,
@@ -348,8 +349,12 @@ export class Backend {
 	}
 
 	/** Stop monitoring. */
-	public stopMonitor(): Promise<void> {
-		return this.postVoid('/api/v1/monitor/stop');
+	public stopMonitor(): Promise<MonitorStopResponse> {
+		return this.post('/api/v1/monitor/stop');
+	}
+
+	public stopStream(): Promise<void> {
+		return this.postJsonVoid('/api/v1/monitor/stop-stream', null);
 	}
 
 	public getStatistics(

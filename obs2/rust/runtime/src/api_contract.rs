@@ -38,6 +38,7 @@ pub fn export_api_contract(output: &Path) {
     }
 
     export_root!(crate::app::AppEvent);
+    export_root!(crate::http::routes::monitor::MonitorStopResponse);
     export_root!(crate::run_library::RunsResponse);
     export_root!(crate::run_library::ManualRunRequest);
     export_root!(crate::run_library::EliteImportResponse);

@@ -112,9 +112,9 @@
 			bind:checked={settings.values.stopStreamingWhenMonitorStopped}
 			class="obs-checkbox rounded disabled:cursor-not-allowed disabled:opacity-50"
 		/>
-		<span class={styles.label}>Stop streaming when monitor stopped</span>
+		<span class={styles.label}>Ask to stop streaming after monitoring</span>
 	</label>
-	<p class={styles.hint}>Stops an active OBS stream when you turn off monitoring.</p>
+	<p class={styles.hint}>Asks whether to stop an active OBS stream when you turn off monitoring.</p>
 </section>
 
 <section class={styles.panel}>

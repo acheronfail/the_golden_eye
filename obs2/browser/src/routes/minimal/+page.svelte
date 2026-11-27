@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { backend, type AppEvent, type LevelMatch, type RecordingStatus } from '$lib/api';
 	import { MonitorWallClocks } from '$lib/features/monitor/monitorWallClocks.svelte';
+	import { stopMonitorAndPromptForStream, streamStopPrompt } from '$lib/features/monitor/streamStopPrompt.svelte';
 	import MinimalOverlay from '$lib/features/minimal/MinimalOverlay.svelte';
 
 	const storageKey = 'the-golden-eye.minimal.font-size';
@@ -33,7 +34,7 @@
 		transition = starting ? 'starting' : 'stopping';
 		try {
 			if (starting) await backend.startMonitor(sourceName!);
-			else await backend.stopMonitor();
+			else await stopMonitorAndPromptForStream();
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : String(cause);
 		} finally {
@@ -42,6 +43,7 @@
 	};
 
 	const handleKeydown = (event: KeyboardEvent) => {
+		if (streamStopPrompt.open || event.defaultPrevented) return;
 		if (event.key.toLowerCase() === 'h' || event.key === '?') {
 			event.preventDefault();
 			if (!event.repeat)

@@ -74,6 +74,7 @@ pub async fn serve(listener: TcpListener, shutdown: oneshot::Receiver<()>, state
         .route("/api/v1/replay-buffer/status", get(routes::record::handle_replay_status))
         .route("/api/v1/monitor/start", post(routes::monitor::handle_start))
         .route("/api/v1/monitor/stop", post(routes::monitor::handle_stop))
+        .route("/api/v1/monitor/stop-stream", post(routes::monitor::handle_stop_stream))
         .route("/api/v1/events/ws", get(routes::events::handle_ws))
         .route("/api/v1/settings", put(routes::settings::handle_put))
         .route("/api/v1/settings/status", get(routes::settings::handle_status))

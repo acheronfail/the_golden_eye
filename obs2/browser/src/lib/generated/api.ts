@@ -84,6 +84,8 @@ export type MonitorFpsHealth = "healthy" | "warning" | "lagging";
 
 export type MonitorSnapshot = { enabled: boolean, sourceName?: string, cvLanguage?: "en" | "jp", wallClocks: MonitorWallClockState, };
 
+export type MonitorStopResponse = { promptToStopStream: boolean, };
+
 export type MonitorStoppedReason = "userStopped" | "replayBufferStopped";
 
 export type MonitorWallClockState = { sessionStartedAtUnixMs: number | null, sessionElapsedMs: number, sessionRunning: boolean, levelStartedAtUnixMs: number | null, levelElapsedMs: number, levelRunning: boolean, levelPaused: boolean, levelStartReason: LevelTimerStartReason | null, levelTimerPhase: LevelTimerPhase, introSwirlDelayMs: number | null, fadeDetection: BlackFrameSignal | null, };
